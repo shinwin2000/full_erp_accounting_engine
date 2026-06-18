@@ -1,0 +1,78 @@
+# ============================================================
+# .dockerignore — ERP Accounting Engine
+# ============================================================
+
+# ── Git ──────────────────────────────────────────────────────
+.git/
+.gitignore
+
+# ── Python artifacts ─────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ─────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Secrets & Environment ────────────────────────────────────
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# ── Test & CI artifacts ──────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+.tox/
+tests/
+
+# ── Type checking ────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+
+# ── IDE ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Documentation ────────────────────────────────────────────
+docs/
+site/
+
+# ── Terraform & Ansible ─────────────────────────────────────
+deployment/terraform/.terraform/
+deployment/ansible/
+
+# ── Local development ────────────────────────────────────────
+Makefile
+*.md
+!README.md
+
+# ── Jupyter ──────────────────────────────────────────────────
+*.ipynb
+.ipynb_checkpoints/
+
+# ── Temporary ────────────────────────────────────────────────
+tmp/
+temp/
+*.tmp
+
+# ── OS ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

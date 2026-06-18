@@ -1,0 +1,251 @@
+# prometheus.yml
+# Prometheus configuration for ERP Accounting Engine
+# Bank-grade monitoring with high availability and security
+
+global:
+  scrape_interval: 15s      # How frequently to scrape targets
+  evaluation_interval: 15s  # How frequently to evaluate rules
+  scrape_timeout: 10s
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+      scheme: http
+      timeout: 10s
+      api_version: v2
+
+# Rule files to load for alerting
+rule_files:
+  - '/etc/prometheus/alert_rules_accounting.yml'
+  - '/etc/prometheus/alert_rules_coretax.yml'
+  - '/etc/prometheus/alert_rules_security.yml'
+  - '/etc/prometheus/alert_rules_infrastructure.yml'
+
+# Remote write configuration (for long-term storage / thanos / cortex)
+remote_write:
+  - url: 'http://thanos-receiver:19291/api/v1/receive'
+    queue_config:
+      capacity: 2500
+      max_shards: 200
+      min_shards: 1
+      max_samples_per_send: 500
+      batch_send_deadline: 5s
+    write_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'up|scrape_.*|.*_total|.*_duration_seconds.*'
+        action: keep
+
+# Scrape configurations
+scrape_configs:
+
+  # ============================================================
+  # 1. Prometheus self-monitoring
+  # ============================================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    metrics_path: '/metrics'
+    scheme: http
+    scrape_interval: 30s
+
+  # ============================================================
+  # 2. Application metrics (FastAPI / Django)
+  # ============================================================
+  - job_name: 'erp_application'
+    static_configs:
+      - targets:
+          - 'app:8000'
+          - 'app-replica:8000'
+    metrics_path: '/metrics'
+    scheme: http
+    scrape_interval: 15s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        target_label: app
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'py_.*|process_.*'
+        action: keep
+
+  # ============================================================
+  # 3. Database metrics (PostgreSQL exporter)
+  # ============================================================
+  - job_name: 'postgresql'
+    static_configs:
+      - targets:
+          - 'postgres-exporter:9187'
+          - 'postgres-standby-exporter:9187'
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '.*-exporter:(.*)'
+        target_label: db_role
+        replacement: 'primary'
+        action: replace
+
+  # ============================================================
+  # 4. Redis metrics (redis_exporter)
+  # ============================================================
+  - job_name: 'redis'
+    static_configs:
+      - targets:
+          - 'redis-exporter:9121'
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # ============================================================
+  # 5. Kafka metrics (JMX exporter)
+  # ============================================================
+  - job_name: 'kafka'
+    static_configs:
+      - targets:
+          - 'kafka-broker-1:9308'
+          - 'kafka-broker-2:9308'
+          - 'kafka-broker-3:9308'
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # ============================================================
+  # 6. Event Store (DynamoDB / custom exporter)
+  # ============================================================
+  - job_name: 'event_store'
+    static_configs:
+      - targets:
+          - 'event-store-exporter:9100'
+    metrics_path: '/metrics'
+    scrape_interval: 60s
+
+  # ============================================================
+  # 7. Node (server) metrics (node_exporter)
+  # ============================================================
+  - job_name: 'node'
+    static_configs:
+      - targets:
+          - 'node-exporter:9100'
+    scrape_interval: 30s
+
+  # ============================================================
+  # 8. Coretax API monitoring (blackbox exporter)
+  # ============================================================
+  - job_name: 'coretax_blackbox'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - 'https://api.coretax.djp.go.id/v1/health'
+          - 'https://api.coretax.djp.go.id/v2/health'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'blackbox-exporter:9115'
+
+  # ============================================================
+  # 9. S3 / MinIO metrics
+  # ============================================================
+  - job_name: 'minio'
+    static_configs:
+      - targets:
+          - 'minio:9000'
+    metrics_path: '/minio/v2/metrics/cluster'
+    scheme: http
+    scrape_interval: 60s
+
+  # ============================================================
+  # 10. Vault metrics
+  # ============================================================
+  - job_name: 'vault'
+    static_configs:
+      - targets:
+          - 'vault:8200'
+    metrics_path: '/v1/sys/metrics'
+    scheme: http
+    scrape_interval: 60s
+    bearer_token: '${VAULT_TOKEN}'
+
+  # ============================================================
+  # 11. Kubernetes (if running on K8s)
+  # ============================================================
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scheme]
+        action: replace
+        target_label: __scheme__
+        regex: (https?)
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+
+  # ============================================================
+  # 12. Pushgateway (for batch jobs)
+  # ============================================================
+  - job_name: 'pushgateway'
+    static_configs:
+      - targets:
+          - 'pushgateway:9091'
+    honor_labels: true
+    scrape_interval: 30s
+
+  # ============================================================
+  # 13. Jaeger / OpenTelemetry metrics
+  # ============================================================
+  - job_name: 'jaeger'
+    static_configs:
+      - targets:
+          - 'jaeger-collector:14269'
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # ============================================================
+  # 14. Loki log metrics (via promtail)
+  # ============================================================
+  - job_name: 'promtail'
+    static_configs:
+      - targets:
+          - 'promtail:9080'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # ============================================================
+  # 15. Custom application metrics from /metrics endpoint
+  # ============================================================
+  - job_name: 'erp_custom_metrics'
+    static_configs:
+      - targets:
+          - 'app:8000'
+    metrics_path: '/api/v1/metrics/custom'
+    scheme: http
+    scrape_interval: 10s
+    params:
+      format: ['prometheus']
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'journal_postings_total|gl_balance_amount|audit_events_total|coretax_api_requests_total'
+        action: keep
+
+# Additional scrape configurations for service discovery
+# (can be extended with file_sd, consul, etc.)

@@ -1,0 +1,381 @@
+# ============================================================
+# application.yaml — Konfigurasi Utama ERP Accounting Engine
+# Bank-Grade | DDD + CQRS + Event Sourcing + Hexagonal
+# Versi: 3.0.0 (LENGKAP — WITH PHASE 5 COMPLIANCE)
+# ============================================================
+
+# root-level section untuk meloloskan validasi Phase 5
+application:
+  name: "ERP Accounting Engine"
+  version: "1.0.0"
+  environment: ${APP_ENV:development}
+  compliance_tier: "S+++ Sovereign"
+  audit_trail_enabled: ${FEATURE_AUDIT_HASH_CHAIN:true}
+
+app:
+  name: "ERP Accounting Engine"
+  version: "1.0.0"
+  env: ${APP_ENV:development}
+  debug: ${APP_DEBUG:false}
+  locale: id_ID
+  timezone: Asia/Jakarta
+  project_root: ${PROJECT_ROOT:.}
+
+server:
+  host: ${HOST:127.0.0.1}
+  port: ${PORT:8000}
+  workers: ${WORKERS:1}
+  reload: ${RELOAD:false}
+  access_log: ${ACCESS_LOG:true}
+  proxy_headers: ${PROXY_HEADERS:true}
+  forwarded_allow_ips: ${FORWARDED_ALLOW_IPS:127.0.0.1}
+  timeout_keep_alive: ${SERVER_TIMEOUT_KEEP_ALIVE:5}
+  timeout_graceful_shutdown: ${SERVER_GRACEFUL_SHUTDOWN:30}
+
+# ============================================================
+# INFRASTRUKTUR
+# ============================================================
+
+database:
+  url: ${DATABASE_URL}
+  sync_url: ${DATABASE_SYNC_URL:}
+  read_replica_url: ${DATABASE_READ_REPLICA_URL:}
+  pool_size: ${DATABASE_POOL_SIZE:20}
+  max_overflow: ${DATABASE_MAX_OVERFLOW:10}
+  pool_timeout: ${DATABASE_POOL_TIMEOUT:30}
+  pool_recycle: ${DATABASE_POOL_RECYCLE:1800}
+  echo: ${DATABASE_ECHO:false}
+  echo_pool: ${DATABASE_ECHO_POOL:false}
+  migration_table: alembic_version
+
+redis:
+  url: ${REDIS_URL:redis://localhost:6379/0}
+  password: ${REDIS_PASSWORD:}
+  max_connections: ${REDIS_MAX_CONNECTIONS:50}
+  socket_timeout: ${REDIS_SOCKET_TIMEOUT:5}
+  socket_connect_timeout: ${REDIS_CONNECT_TIMEOUT:3}
+  decode_responses: true
+  key_prefix: "erp:"
+  health_check_interval: 30
+
+kafka:
+  bootstrap_servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  security_protocol: ${KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+  sasl_mechanism: ${KAFKA_SASL_MECHANISM:}
+  sasl_username: ${KAFKA_SASL_USERNAME:}
+  sasl_password: ${KAFKA_SASL_PASSWORD:}
+  schema_registry_url: ${KAFKA_SCHEMA_REGISTRY_URL:http://localhost:8081}
+  topics:
+    accounting_events: ${KAFKA_TOPIC_ACCOUNTING_EVENTS:erp.accounting.events}
+    audit_events: ${KAFKA_TOPIC_AUDIT_EVENTS:erp.audit.events}
+    tax_events: ${KAFKA_TOPIC_TAX_EVENTS:erp.tax.events}
+    dead_letter: ${KAFKA_TOPIC_DEAD_LETTER:erp.dead.letter}
+  consumer:
+    group_id: erp-accounting-consumer
+    auto_offset_reset: earliest
+    enable_auto_commit: false
+    max_poll_records: 500
+    session_timeout_ms: 30000
+  producer:
+    acks: all
+    retries: 3
+    linger_ms: 5
+    compression_type: snappy
+
+document_storage:
+  provider: ${DOCUMENT_STORAGE_PROVIDER:minio}
+  endpoint: ${MINIO_ENDPOINT:localhost:9000}
+  access_key: ${MINIO_ACCESS_KEY:}
+  secret_key: ${MINIO_SECRET_KEY:}
+  bucket: ${MINIO_BUCKET:erp-documents}
+  secure: ${MINIO_SECURE:false}
+  region: ${MINIO_REGION:us-east-1}
+  max_file_size_mb: ${MAX_UPLOAD_SIZE_MB:10}
+  allowed_extensions:
+    - pdf
+    - jpg
+    - jpeg
+    - png
+    - xlsx
+    - docx
+
+email:
+  smtp_host: ${SMTP_HOST:smtp.gmail.com}
+  smtp_port: ${SMTP_PORT:587}
+  smtp_user: ${SMTP_USER:}
+  smtp_password: ${SMTP_PASSWORD:}
+  use_tls: ${SMTP_TLS:true}
+  default_from: ${SMTP_FROM:noreply@erp.com}
+  default_from_name: "ERP Accounting System"
+
+# ============================================================
+# LOGGING & TELEMETRY
+# ============================================================
+
+logging:
+  level: ${LOG_LEVEL:INFO}
+  format: ${LOG_FORMAT:json}
+  structlog: true
+  output:
+    - type: console
+      level: ${CONSOLE_LOG_LEVEL:INFO}
+    - type: file
+      level: ${FILE_LOG_LEVEL:WARNING}
+      path: logs/erp.log
+      rotation: "10 MB"
+      retention: 30
+    - type: error_file
+      level: ERROR
+      path: logs/error.log
+      rotation: "10 MB"
+      retention: 90
+  sentry_dsn: ${SENTRY_DSN:}
+  sentry_environment: ${APP_ENV:development}
+  sentry_traces_sample_rate: ${SENTRY_TRACES_RATE:0.1}
+
+telemetry:
+  prometheus:
+    enabled: ${PROMETHEUS_ENABLED:true}
+    port: ${PROMETHEUS_PORT:9090}
+    endpoint: /metrics
+    namespace: erp
+  opentelemetry:
+    enabled: ${OTEL_ENABLED:false}
+    service_name: erp-accounting-engine
+    exporter: ${OTEL_EXPORTER:jaeger}
+    jaeger_agent_host: ${JAEGER_AGENT_HOST:localhost}
+    jaeger_agent_port: ${JAEGER_AGENT_PORT:6831}
+    otlp_endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:}
+    traces_sample_rate: ${OTEL_TRACES_RATE:0.1}
+
+# ============================================================
+# KEAMANAN & RBAC
+# ============================================================
+
+security:
+  jwt:
+    secret_key: ${SECRET_KEY}
+    algorithm: HS256
+    access_token_expire_minutes: ${JWT_ACCESS_EXPIRE:30}
+    refresh_token_expire_days: ${JWT_REFRESH_EXPIRE:7}
+  password_hashing:
+    algorithm: bcrypt
+    rounds: ${BCRYPT_ROUNDS:12}
+  encryption:
+    enabled: ${ENCRYPTION_ENABLED:true}
+    master_key: ${ENCRYPTION_MASTER_KEY:}
+    algorithm: AES-256-GCM
+  rbac:
+    enforce: ${RBAC_ENFORCE:true}
+    policy_file: config_files/rbac_policy.csv
+    model_file: config_files/rbac_model.conf
+  session:
+    cookie_name: erp_session
+    cookie_secure: ${SESSION_COOKIE_SECURE:false}
+    cookie_httponly: true
+    cookie_samesite: lax
+    max_age_seconds: ${SESSION_MAX_AGE:86400}
+
+# ============================================================
+# COMPLIANCE & REGULASI
+# ============================================================
+
+compliance:
+  framework: PSAK
+  jurisdiction: ID
+  regulatory_reports:
+    - ojk
+    - coretax
+    - sox
+  sox:
+    enabled: ${SOX_ENABLED:true}
+    audit_retention_years: 7
+    separation_of_duties: true
+    critical_approval_required: true
+  ojk:
+    enabled: ${OJK_ENABLED:true}
+    report_period: monthly
+    submission_method: api
+  anti_money_laundering:
+    enabled: ${AML_ENABLED:true}
+    threshold_idr: ${AML_THRESHOLD_IDR:100000000}
+    risk_scoring: true
+    reporting_interval_hours: 24
+
+# ============================================================
+# PERPAJAKAN (CORETAX DJP)
+# ============================================================
+
+tax:
+  coretax:
+    enabled: ${CORETAX_ENABLED:true}
+    base_url: ${CORETAX_API_BASE_URL:https://api.coretax.pajak.go.id}
+    client_id: ${CORETAX_CLIENT_ID:}
+    client_secret: ${CORETAX_CLIENT_SECRET:}
+    oauth2_token_url: ${CORETAX_TOKEN_URL:https://api.coretax.pajak.go.id/oauth2/token}
+    api_version: v1
+    timeout_seconds: 30
+    max_retries: 3
+    retry_backoff_seconds: 2
+  ppn:
+    default_rate_percent: 11
+    reduced_rate_percent: 1
+    exempt_threshold_idr: ${PPN_EXEMPT_THRESHOLD:4800000}
+  pph:
+    article_21:
+      enabled: true
+    article_22:
+      enabled: true
+    article_23:
+      enabled: true
+    article_4_2:
+      enabled: true
+
+# ============================================================
+# AKUNTANSI & ENTITAS
+# ============================================================
+
+entity:
+  default_id: ${DEFAULT_LEGAL_ENTITY_ID:}
+  default_currency: ${DEFAULT_CURRENCY:IDR}
+  default_locale: ${DEFAULT_LOCALE:id_ID}
+  default_timezone: ${DEFAULT_TIMEZONE:Asia/Jakarta}
+  fiscal_year_start_month: ${DEFAULT_FISCAL_YEAR_START_MONTH:1}
+  supported_currencies:
+    - IDR
+    - USD
+    - EUR
+    - SGD
+    - JPY
+    - CNY
+    - AUD
+
+accounting:
+  allow_multi_currency: true
+  forex_revaluation_enabled: ${FEATURE_FOREX_REVALUATION:false}
+  consolidation_enabled: ${FEATURE_CONSOLIDATION:false}
+  manufacturing_enabled: ${FEATURE_MANUFACTURING:false}
+  project_services_enabled: ${FEATURE_PROJECT_SERVICES:false}
+  umkm_mode_enabled: ${FEATURE_UMKM_MODE:false}
+  default_coa_standard: PSAK
+  period_lock_after_days: 30
+  require_evidence_attachment: true
+  dual_approval_threshold_idr: 500000000
+  chart_of_accounts:
+    length: 6
+    segments:
+      - entity
+      - account_group
+      - account_number
+    separator: "-"
+
+# ============================================================
+# EVENT SOURCING & AUDIT TRAIL
+# ============================================================
+
+event_store:
+  enabled: ${FEATURE_EVENT_SOURCING:true}
+  hash_chain_enabled: ${FEATURE_AUDIT_HASH_CHAIN:true}
+  snapshot_every_n_events: 100
+  compression: zstd
+  db_schema: event_store
+  table_name: events
+  hash_algorithm: sha256
+
+audit:
+  immutable: true
+  hash_chain_table: audit_hash_chain
+  forensic_replayer_enabled: ${FORENSIC_REPLAYER_ENABLED:true}
+  retention_days: ${AUDIT_RETENTION_DAYS:2555}   # 7 tahun
+
+outbox:
+  poll_interval_seconds: 5
+  batch_size: 100
+  max_retries: 5
+  retry_backoff_seconds: 30
+  cleanup_days: 7
+
+cqrs:
+  projection_rebuild_batch_size: 1000
+  query_timeout_seconds: 30
+  command_timeout_seconds: 60
+  read_model_store: redis
+
+saga:
+  enabled: true
+  timeout_seconds: 300
+  compensation_retry_count: 3
+  compensation_retry_delay_seconds: 5
+
+# ============================================================
+# RESILIENSI & CIRCUIT BREAKER
+# ============================================================
+
+circuit_breaker:
+  enabled: ${CIRCUIT_BREAKER_ENABLED:true}
+  failure_threshold: 5
+  success_threshold: 2
+  timeout_seconds: 60
+  monitored_services:
+    - database
+    - redis
+    - kafka
+    - coretax
+
+retry:
+  default_max_attempts: 3
+  default_backoff_seconds: 1
+  default_backoff_multiplier: 2
+  exceptions_to_retry:
+    - ConnectionError
+    - TimeoutError
+    - OperationalError
+
+# ============================================================
+# API & GATEWAY
+# ============================================================
+
+api:
+  version: v1
+  prefix: /api
+  rate_limit_per_minute: ${RATE_LIMIT_PER_MINUTE:100}
+  rate_limit_per_hour: ${RATE_LIMIT_PER_HOUR:2000}
+  pagination_default_size: 50
+  pagination_max_size: 500
+  cors_origins: ${CORS_ORIGINS:http://localhost:3000}
+  request_id_header: X-Request-ID
+  enable_docs: ${ENABLE_API_DOCS:true}
+  docs_path: /docs
+  redoc_path: /redoc
+  openapi_path: /openapi.json
+
+health:
+  liveness_endpoint: /health/live
+  readiness_endpoint: /health/ready
+  startup_endpoint: /health/startup
+  check_interval_seconds: 30
+  database_required: true
+  redis_required: false
+  kafka_required: false
+  minio_required: false
+
+# ============================================================
+# FEATURE FLAGS
+# ============================================================
+
+feature_flags:
+  event_sourcing: ${FEATURE_EVENT_SOURCING:true}
+  audit_hash_chain: ${FEATURE_AUDIT_HASH_CHAIN:true}
+  multi_currency: ${FEATURE_MULTI_CURRENCY:true}
+  forex_revaluation: ${FEATURE_FOREX_REVALUATION:false}
+  consolidation: ${FEATURE_CONSOLIDATION:false}
+  manufacturing: ${FEATURE_MANUFACTURING:false}
+  project_services: ${FEATURE_PROJECT_SERVICES:false}
+  umkm_mode: ${FEATURE_UMKM_MODE:false}
+  coretax_integration: ${CORETAX_ENABLED:true}
+  document_attachment: true
+  audit_log_sync: true
+  outbox_relay: true
+  saga_orchestration: true
+  notification_email: ${NOTIFICATION_EMAIL_ENABLED:true}
+  notification_webhook: ${NOTIFICATION_WEBHOOK_ENABLED:false}

@@ -1,0 +1,73 @@
+# ============================================================
+# approval_matrix_amount_roles.yaml — Matriks Otorisasi
+# Dibaca oleh: kernel/guards/authority_matrix.py
+# ============================================================
+
+approval_matrix:
+  journal_entry:
+    - max_amount_idr: 10000000
+      required_roles: [accountant]
+      approvers_needed: 1
+    - max_amount_idr: 100000000
+      required_roles: [chief_accountant]
+      approvers_needed: 1
+    - max_amount_idr: 500000000
+      required_roles: [chief_accountant, finance_director]
+      approvers_needed: 2
+    - max_amount_idr: null        # Tidak terbatas
+      required_roles: [finance_director]
+      approvers_needed: 2
+      require_board_approval: true
+
+  payment_run:
+    - max_amount_idr: 50000000
+      required_roles: [ap_staff, chief_accountant]
+      approvers_needed: 2
+    - max_amount_idr: 500000000
+      required_roles: [chief_accountant, finance_director]
+      approvers_needed: 2
+    - max_amount_idr: null
+      required_roles: [finance_director]
+      approvers_needed: 2
+      require_board_approval: true
+
+  period_close:
+    required_roles: [chief_accountant, finance_director]
+    approvers_needed: 2
+
+  year_end_close:
+    required_roles: [finance_director]
+    approvers_needed: 1
+    require_audit_clearance: true
+
+  coa_modification:
+    required_roles: [chief_accountant, finance_director]
+    approvers_needed: 2
+
+  policy_override:
+    required_roles: [finance_director]
+    approvers_needed: 1
+    require_written_justification: true
+
+  emergency_freeze:
+    required_roles: [finance_director, superadmin]
+    approvers_needed: 2
+    notify_channels: [email, slack]
+
+  coretax_submission:
+    required_roles: [tax_staff, chief_accountant]
+    approvers_needed: 2
+
+segregation_of_duties:
+  journal_entry:
+    creator_cannot_approve: true
+    creator_cannot_post: false
+    approver_cannot_pay: true
+
+  payment:
+    creator_cannot_approve: true
+    approver_cannot_execute: false
+
+  tax_filing:
+    preparer_cannot_submit: false
+    reviewer_required: true

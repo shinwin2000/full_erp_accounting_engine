@@ -1,0 +1,79 @@
+# =============================================================================
+# Message Broker Configuration - ERP Accounting Engine
+# =============================================================================
+# Konfigurasi Kafka producer/consumer untuk Outbox Pattern.
+# Sistem otomatis beralih ke dummy mode jika Kafka tidak tersedia.
+# =============================================================================
+
+kafka_producer:
+  # Broker connection
+  bootstrap_servers: "localhost:9092"
+  client_id: "erp-accounting-engine-producer"
+
+  # Reliability
+  acks: "all"                  # Tunggu semua in-sync replicas confirm
+  enable_idempotence: true     # Tepat-satu pengiriman (idempotent producer)
+  max_in_flight_requests_per_connection: 5
+
+  # Performance
+  compression_type: "gzip"    # Kompresi pesan (gzip | snappy | lz4 | none)
+  linger_ms: 5                # Tunggu 5ms untuk batching sebelum kirim
+  batch_size: 16384           # 16KB per batch
+  max_request_size: 1048576   # 1MB max message size
+  buffer_memory: 33554432     # 32MB buffer memory
+
+  # Timeout
+  request_timeout_ms: 30000   # 30 detik timeout per request
+  delivery_timeout_ms: 120000 # 2 menit max total delivery timeout
+
+  # Retry
+  max_retries: 3
+  retry_backoff_ms: 100       # 100ms antara retry
+
+  # Topics
+  topic: "erp.accounting.events"
+  dead_letter_topic: "erp.dead_letter_events"
+
+kafka_consumer:
+  # Broker connection
+  bootstrap_servers: "localhost:9092"
+  group_id: "erp-accounting-engine-consumer"
+  client_id: "erp-accounting-engine-consumer"
+
+  # Offset management
+  auto_offset_reset: "earliest"
+  enable_auto_commit: false    # Manual commit untuk exactly-once semantics
+
+  # Performance
+  max_poll_records: 500
+  fetch_min_bytes: 1
+  fetch_max_wait_ms: 500
+
+  # Timeout
+  session_timeout_ms: 30000
+  heartbeat_interval_ms: 10000
+  request_timeout_ms: 305000
+
+  # Topics to consume
+  topics:
+    - "erp.accounting.events"
+    - "erp.journal.commands"
+
+outbox_relay:
+  # Polling
+  poll_interval_seconds: 1.0   # Seberapa sering cek outbox baru
+  batch_size: 100              # Jumlah record per batch
+  lock_timeout_seconds: 30     # Timeout row lock PostgreSQL
+
+  # Retry
+  max_retries: 3
+  retry_delay_seconds: 5.0
+
+  # Circuit breaker
+  circuit_breaker_enabled: true
+  circuit_breaker_threshold: 5         # Jumlah failure sebelum open
+  circuit_breaker_recovery_timeout: 60.0  # Detik sebelum half-open
+
+  # Cleanup
+  cleanup_after_days: 7        # Hapus sent messages setelah 7 hari
+  cleanup_interval_hours: 24   # Jalankan cleanup setiap 24 jam

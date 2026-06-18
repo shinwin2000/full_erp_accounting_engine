@@ -1,0 +1,91 @@
+{
+  "dashboard": {
+    "title": "Audit Integrity Dashboard",
+    "uid": "audit-integrity",
+    "tags": ["audit", "integrity", "security"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Hash Chain Integrity Status",
+        "type": "stat",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "hash_chain_verified{result=\"true\"}",
+            "legendFormat": "Verified"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 }
+      },
+      {
+        "id": 2,
+        "title": "Tamper Attempts Detected",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "increase(tamper_detected_total[1h])",
+            "legendFormat": "Tamper events"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 }
+      },
+      {
+        "id": 3,
+        "title": "Audit Event Throughput",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "rate(audit_events_written_total[5m])",
+            "legendFormat": "Events/sec"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 }
+      },
+      {
+        "id": 4,
+        "title": "Suspicious Access Alerts",
+        "type": "alertlist",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "security_alert_count{severity=\"high\"}",
+            "legendFormat": "High alerts"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 }
+      },
+      {
+        "id": 5,
+        "title": "Event Store Replication Lag",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "event_store_replication_lag_seconds",
+            "legendFormat": "Lag (sec)"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 }
+      },
+      {
+        "id": 6,
+        "title": "Audit Log Hash Chain Length",
+        "type": "stat",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "audit_hash_chain_length",
+            "legendFormat": "Total blocks"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 12, "y": 12 }
+      }
+    ],
+    "time": { "from": "now-24h", "to": "now" },
+    "schemaVersion": 36,
+    "version": 1
+  }
+}

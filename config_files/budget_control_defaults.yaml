@@ -1,0 +1,37 @@
+# ============================================================
+# budget_control_defaults.yaml — Konfigurasi Kontrol Anggaran
+# Dibaca oleh: kernel/guards/budget_availability.py
+# ============================================================
+
+budget_control:
+  enabled: true
+  method: commitment_accounting  # commitment_accounting | cash_basis
+  check_on_purchase_order: true
+  check_on_payment: true
+  allow_overrun: false
+  overrun_requires_approval: true
+  overrun_approval_role: finance_director
+  overrun_max_percentage: 0.05   # Toleransi 5% dengan approval
+
+  variance_alerts:
+    warning_threshold: 0.80      # Alert saat 80% anggaran terpakai
+    critical_threshold: 0.95     # Alert kritis saat 95% terpakai
+    alert_channels:
+      - email
+      - slack
+
+  periods:
+    annual: true
+    quarterly: true
+    monthly: true
+    allow_reallocation: true
+    reallocation_requires_approval: true
+
+  cost_centers:
+    tracking_enabled: true
+    require_cost_center_on_journal: false
+    require_cost_center_above_idr: 10000000
+
+  departments:
+    tracking_enabled: true
+    separate_budget_per_dept: true

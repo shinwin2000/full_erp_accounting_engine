@@ -1,0 +1,55 @@
+# ============================================================
+# notification_channels.yaml — Konfigurasi Notifikasi
+# Dibaca oleh: adapters/secondary_impl/
+# ============================================================
+
+notifications:
+  email:
+    enabled: true
+    host: ${SMTP_HOST:smtp.example.com}
+    port: ${SMTP_PORT:587}
+    use_tls: ${SMTP_USE_TLS:true}
+    from_email: ${SMTP_FROM_EMAIL:noreply@erp.example.com}
+    from_name: ${SMTP_FROM_NAME:ERP Accounting Engine}
+
+  whatsapp:
+    enabled: false
+    api_url: ${WHATSAPP_API_URL:https://graph.facebook.com/v21.0}
+    phone_number_id: ${WHATSAPP_PHONE_NUMBER_ID:}
+
+  slack:
+    enabled: false
+    channels:
+      alerts: ${SLACK_ALERT_CHANNEL:#erp-alerts}
+      audit: ${SLACK_AUDIT_CHANNEL:#erp-audit}
+      tax: "#erp-tax"
+      approvals: "#erp-approvals"
+
+  pagerduty:
+    enabled: false
+    service_id: ${PAGERDUTY_SERVICE_ID:}
+    severity_mapping:
+      critical: critical
+      high: error
+      medium: warning
+      low: info
+
+event_triggers:
+  - event: journal.posted
+    channels: []
+  - event: period.closed
+    channels: [email, slack]
+  - event: audit.tamper_detected
+    channels: [email, slack, pagerduty]
+    severity: critical
+  - event: approval.required
+    channels: [email]
+  - event: coretax.submission_failed
+    channels: [email, slack]
+    severity: high
+  - event: emergency.freeze_activated
+    channels: [email, slack, pagerduty]
+    severity: critical
+  - event: budget.threshold_exceeded
+    channels: [email, slack]
+    severity: medium

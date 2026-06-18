@@ -1,0 +1,177 @@
+services:
+  # ==================== DATABASE ====================
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: palapapls88
+      POSTGRES_DB: erp_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/database:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - erp_network
+
+  # ==================== REDIS (Cache & Lock) ====================
+  redis:
+    image: redis:7-alpine
+    container_name: erp_redis
+    command: redis-server --appendonly yes --requirepass ""
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - erp_network
+
+  # ==================== ZOOKEEPER (untuk Kafka) ====================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: erp_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - erp_network
+
+  # ==================== KAFKA (diperbaiki agar bisa diakses dari host) ====================
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: erp_kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Listeners: internal (dalam container) dan eksternal (untuk host)
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+    networks:
+      - erp_network
+
+  # ==================== MINIO (Object Storage) ====================
+  minio:
+    image: minio/minio:latest
+    container_name: erp_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - erp_network
+
+  # ==================== JAEGER (Tracing) ====================
+  jaeger:
+    image: jaegertracing/all-in-one:1.53
+    container_name: erp_jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: true
+    ports:
+      - "5775:5775/udp"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "5778:5778"
+      - "16686:16686"
+      - "14250:14250"
+      - "14268:14268"
+      - "14269:14269"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - erp_network
+
+  # ==================== MAILHOG (SMTP Mock) ====================
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: erp_mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - erp_network
+
+  # ==================== ERP ACCOUNTING ENGINE APP (optional, di-comment jika jalankan dari host) ====================
+  # erp_app:
+  #   image: erp_app_new
+  #   container_name: erp_app
+  #   working_dir: /workspace
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     kafka:
+  #       condition: service_started
+  #     minio:
+  #       condition: service_healthy
+  #     jaeger:
+  #       condition: service_started
+  #   environment:
+  #     PYTHONPATH: /workspace
+  #     APP_ENV: development
+  #     DATABASE_URL: postgresql+asyncpg://postgres:palapapls88@postgres:5432/erp_db
+  #     REDIS_URL: redis://redis:6379/0
+  #     SECRET_KEY: 9e82b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2
+  #     LOG_LEVEL: INFO
+  #     KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  #     MINIO_ENDPOINT: minio:9000
+  #     MINIO_ACCESS_KEY: minioadmin
+  #     MINIO_SECRET_KEY: minioadmin
+  #     JAEGER_AGENT_HOST: jaeger
+  #     SMTP_HOST: mailhog
+  #     SMTP_PORT: 1025
+  #     SMTP_USE_TLS: "false"
+  #     ENABLE_KAFKA: "true"
+  #     ENABLE_VAULT: "false"
+  #     ENABLE_MINIO: "true"
+  #     ENABLE_JAEGER: "true"
+  #     ENABLE_SMTP: "true"
+  #     WORKERS: 4
+  #   ports:
+  #     - "8000:8000"
+  #   volumes:
+  #     - ./logs:/workspace/logs
+  #   command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+  #   networks:
+  #     - erp_network
+
+# ==================== VOLUMES ====================
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+
+# ==================== NETWORKS ====================
+networks:
+  erp_network:
+    driver: bridge

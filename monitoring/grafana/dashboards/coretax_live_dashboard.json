@@ -1,0 +1,95 @@
+{
+  "dashboard": {
+    "title": "Coretax Live Dashboard",
+    "uid": "coretax-live",
+    "tags": ["coretax", "tax", "djp"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "API Success Rate",
+        "type": "stat",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "sum(rate(coretax_api_requests_total{status=\"success\"}[5m])) / sum(rate(coretax_api_requests_total[5m])) * 100",
+            "legendFormat": "Success %"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 }
+      },
+      {
+        "id": 2,
+        "title": "Faktur Pajak Submissions",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "rate(coretax_faktur_submitted_total[1h])",
+            "legendFormat": "Submissions/hour"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 }
+      },
+      {
+        "id": 3,
+        "title": "NTPN Validation Results",
+        "type": "piechart",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "coretax_ntpn_validation_total{result=\"valid\"}",
+            "legendFormat": "Valid"
+          },
+          {
+            "expr": "coretax_ntpn_validation_total{result=\"invalid\"}",
+            "legendFormat": "Invalid"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 4 }
+      },
+      {
+        "id": 4,
+        "title": "SPT Submission Status",
+        "type": "gauge",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "coretax_spt_submitted_total / coretax_spt_expected_total * 100",
+            "legendFormat": "Completion %"
+          }
+        ],
+        "gridPos": { "h": 6, "w": 6, "x": 6, "y": 8 }
+      },
+      {
+        "id": 5,
+        "title": "API Latency (p99)",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(coretax_api_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "p99 latency"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 }
+      },
+      {
+        "id": 6,
+        "title": "Top Error Codes",
+        "type": "table",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "topk(5, coretax_api_errors_total)",
+            "legendFormat": "{{error_code}}"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 }
+      }
+    ],
+    "time": { "from": "now-6h", "to": "now" },
+    "schemaVersion": 36,
+    "version": 1
+  }
+}

@@ -1,0 +1,43 @@
+# ============================================================
+# ifrs_elections.yaml — Pilihan Kebijakan IFRS
+# Dibaca oleh: policy_engine/ifrs/ifrs_aggregator.py
+# ============================================================
+
+ifrs_elections:
+  ias_02_inventories:
+    method: weighted_average     # weighted_average | fifo (LIFO tidak diizinkan IFRS)
+
+  ias_16_ppe:
+    model: cost                  # cost | revaluation
+    revaluation_frequency_years: 3
+
+  ias_19_employee_benefits:
+    oci_recycling: false         # Keuntungan/kerugian aktuaria tidak di-recycle ke P&L
+
+  ias_21_foreign_exchange:
+    functional_currency: IDR
+    presentation_currency: IDR
+    translation_method: closing_rate
+
+  ias_36_impairment:
+    cgu_testing: true
+    goodwill_annual_test: true
+
+  ifrs_09_financial_instruments:
+    classification:
+      equity_investments: fvoci  # fvoci | fvtpl
+    ecl_simplified_approach: true  # untuk piutang dagang
+
+  ifrs_15_revenue:
+    input_method: true           # Input method untuk kontrak konstruksi
+    output_method: false
+    variable_consideration: constrain_until_probable
+
+  ifrs_16_leases:
+    practical_expedient_short_term: true   # Sewa < 12 bulan dibiayakan
+    practical_expedient_low_value: true    # Sewa aset nilai rendah (< IDR 75.000.000)
+    low_value_threshold_idr: 75000000
+    discount_rate_method: incremental_borrowing_rate
+
+  sme_framework:
+    applicable: false            # true jika entitas menggunakan IFRS for SMEs

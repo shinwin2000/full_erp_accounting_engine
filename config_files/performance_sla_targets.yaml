@@ -1,0 +1,44 @@
+# ============================================================
+# performance_sla_targets.yaml — Target SLA & Performa
+# Dibaca oleh: infrastructure/telemetry/slo_monitor_*.py
+# ============================================================
+
+sla:
+  api:
+    p50_ms: 100
+    p95_ms: 500
+    p99_ms: 1000
+    error_rate_max: 0.001       # < 0.1%
+    availability: 0.9995        # 99.95%
+
+  journal_posting:
+    max_seconds: 2.0
+    batch_per_second: 500
+
+  period_close:
+    max_minutes: 30
+
+  financial_report_generation:
+    max_seconds: 30
+
+  bank_reconciliation:
+    max_minutes: 5
+
+  hash_chain_verification:
+    per_12_months_max_seconds: 300
+
+  coretax_submission:
+    batch_per_minute: 100
+
+  event_replay_1m:
+    max_minutes: 60
+
+  disaster_recovery:
+    rto_hours: ${DR_RTO_TARGET_HOURS:4}
+    rpo_hours: ${DR_RPO_TARGET_HOURS:1}
+
+monitoring:
+  metrics_interval_seconds: 15
+  health_check_interval_seconds: 30
+  slow_query_threshold_ms: 200
+  alert_cooldown_minutes: 15

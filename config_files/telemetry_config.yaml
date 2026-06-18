@@ -1,0 +1,64 @@
+# =============================================================================
+# OpenTelemetry Telemetry Configuration - ERP Accounting Engine
+# =============================================================================
+# Konfigurasi distributed tracing, metrics, dan logging.
+# OpenTelemetry akan di-disable secara graceful jika library tidak tersedia.
+# =============================================================================
+
+opentelemetry:
+  enabled: true
+  service_name: "erp_accounting_engine"
+  service_version: "1.0.0"
+
+  # Exporter: jaeger | zipkin | otlp | console
+  # Di production: gunakan otlp ke Grafana Tempo atau Jaeger
+  exporter: "otlp"
+
+  # Jaeger (aktif jika exporter=jaeger)
+  jaeger_agent_host: "localhost"
+  jaeger_agent_port: 6831
+  jaeger_collector_endpoint: "http://localhost:14268/api/traces"
+
+  # OTLP (aktif jika exporter=otlp) - kompatibel dengan Grafana Tempo, Jaeger, dll
+  otlp_endpoint: "http://localhost:4317"
+
+  # Zipkin (aktif jika exporter=zipkin)
+  zipkin_endpoint: "http://localhost:9411/api/v2/spans"
+
+  # Sampling: 0.0 = tidak ada, 1.0 = semua, 0.1 = 10%
+  # Di development: 1.0 (semua di-trace)
+  # Di production: 0.05-0.1 (5-10% sampling)
+  sampling_ratio: 0.1
+
+  # Instrumentasi otomatis (set false untuk disable masing-masing)
+  enable_fastapi_instrumentation: true
+  enable_sqlalchemy_instrumentation: true
+  enable_redis_instrumentation: true
+  enable_httpx_instrumentation: true
+  enable_aiohttp_instrumentation: false   # Tidak dipakai
+
+  # Batch span processor
+  batch_export_schedule_delay_millis: 5000   # 5 detik
+  max_export_batch_size: 512
+  max_queue_size: 2048
+  export_timeout_millis: 30000
+
+  # Resource attributes (otomatis ditambahkan ke setiap span)
+  resource_attributes:
+    deployment.environment: "development"   # Override via APP_ENV
+    service.namespace: "erp"
+    service.instance.id: "instance-1"
+
+prometheus:
+  enabled: true
+  endpoint: "/metrics"
+  # Port terpisah untuk metrics scraping (opsional)
+  # metrics_port: 9090
+
+logging:
+  # Level: DEBUG | INFO | WARNING | ERROR | CRITICAL
+  level: "INFO"
+  format: "json"           # json | text
+  include_trace_id: true   # Tambahkan trace_id ke setiap log entry
+  include_span_id: true
+  correlation_id_header: "X-Correlation-ID"

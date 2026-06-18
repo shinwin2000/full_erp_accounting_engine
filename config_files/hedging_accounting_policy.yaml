@@ -1,0 +1,35 @@
+# ============================================================
+# hedging_accounting_policy.yaml — Kebijakan Hedge Accounting
+# Dibaca oleh: application/use_cases/hedge_accounting_execution.py
+# ============================================================
+
+hedge_accounting:
+  enabled: ${FEATURE_FOREX_REVALUATION:false}
+  standard: PSAK-71             # PSAK-71 / IFRS-9
+
+  types_permitted:
+    fair_value_hedge: true
+    cash_flow_hedge: true
+    net_investment_hedge: false
+
+  effectiveness_testing:
+    method: dollar_offset        # dollar_offset | regression
+    threshold_lower: 0.80
+    threshold_upper: 1.25
+    frequency: monthly
+
+  instruments:
+    - forward_contract
+    - option_contract
+    - cross_currency_swap
+    - interest_rate_swap
+
+  documentation:
+    required_at_inception: true
+    fields:
+      - hedging_relationship_description
+      - risk_management_objective
+      - hedging_instrument_identification
+      - hedged_item_identification
+      - nature_of_hedged_risk
+      - effectiveness_assessment_method

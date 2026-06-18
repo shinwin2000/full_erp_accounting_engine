@@ -1,0 +1,57 @@
+# ============================================================
+# feature_flags.yaml — Feature Flags
+# Dibaca oleh: config/loader_yaml.py
+# ============================================================
+
+features:
+  coretax_integration:
+    enabled: ${FEATURE_CORETAX_INTEGRATION:false}
+    description: "Integrasi API Coretax DJP"
+
+  forex_revaluation:
+    enabled: ${FEATURE_FOREX_REVALUATION:false}
+    description: "Revaluasi mata uang asing end-of-month"
+
+  consolidation:
+    enabled: ${FEATURE_CONSOLIDATION:false}
+    description: "Konsolidasi laporan keuangan grup"
+
+  manufacturing:
+    enabled: ${FEATURE_MANUFACTURING:false}
+    description: "Modul manufaktur (BOM, Work Order, HPP)"
+
+  project_services:
+    enabled: ${FEATURE_PROJECT_SERVICES:false}
+    description: "Modul project dan jasa profesional"
+
+  umkm_mode:
+    enabled: ${FEATURE_UMKM_MODE:false}
+    description: "Mode UMKM — jurnal sederhana, PP 23"
+
+  aml_screening:
+    enabled: ${FEATURE_AML_SCREENING:true}
+    description: "Anti-Money Laundering screening otomatis"
+
+  audit_hash_chain:
+    enabled: ${FEATURE_AUDIT_HASH_CHAIN:true}
+    description: "Hash chain untuk integritas audit trail"
+
+  event_sourcing:
+    enabled: ${FEATURE_EVENT_SOURCING:true}
+    description: "Event sourcing untuk semua transaksi domain"
+
+  hedge_accounting:
+    enabled: false
+    description: "Hedge accounting (PSAK-71)"
+
+  multi_currency:
+    enabled: true
+    description: "Transaksi multi-mata uang"
+
+  graphql_api:
+    enabled: false
+    description: "GraphQL endpoint (beta)"
+
+  grpc_service:
+    enabled: false
+    description: "gRPC service (internal)"

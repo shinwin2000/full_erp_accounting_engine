@@ -1,0 +1,75 @@
+# jaeger_config.yaml
+# Jaeger all-in-one configuration for ERP Accounting Engine
+# Supports OTLP, Jaeger thrift, Zipkin protocols
+
+service:
+  name: jaeger-collector
+
+collector:
+  otlp:
+    enabled: true
+    grpc:
+      host-port: "0.0.0.0:4317"
+    http:
+      host-port: "0.0.0.0:4318"
+  zipkin:
+    host-port: "0.0.0.0:9411"
+  jaeger:
+    thrift-http:
+      host-port: "0.0.0.0:14268"
+
+query:
+  static-files: /go/jaeger-ui/
+  http-host-port: "0.0.0.0:16686"
+
+storage:
+  type: elasticsearch
+  elasticsearch:
+    scheme: http
+    host: elasticsearch:9200
+    username: ""
+    password: ""
+    index-prefix: jaeger
+    bulk:
+      size: 5000000
+      workers: 5
+    tags:
+      actions: read
+
+agent:
+  enabled: false  # agent not needed with OTLP
+
+sampling:
+  type: probabilistic
+  param: 0.1  # 10% sampling
+
+# For production, use Cassandra or Elasticsearch cluster
+# For development, use memory storage:
+# storage:
+#   type: memory
+#   memory:
+#     max-traces: 100000
+
+# Retention period for traces
+retention:
+  enabled: true
+  policy:
+    - from: 0h
+      to: 24h
+      resolution: 5m
+      max-traces: 50000
+    - from: 24h
+      to: 168h
+      resolution: 1h
+      max-traces: 100000
+    - from: 168h
+      to: 720h
+      resolution: 1d
+      max-traces: 500000
+
+# Remote storage (optional)
+# remote_storage:
+#   type: s3
+#   s3:
+#     bucket: jaeger-tracing
+#     region: ap-southeast-1

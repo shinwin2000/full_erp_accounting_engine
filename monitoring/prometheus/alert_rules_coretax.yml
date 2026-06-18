@@ -1,0 +1,102 @@
+# alert_rules_coretax.yml
+# Prometheus alert rules for Coretax DJP API monitoring
+
+groups:
+  - name: coretax_api_availability
+    interval: 30s
+    rules:
+      - alert: CoretaxAPIUnreachable
+        expr: probe_success{job="coretax_blackbox"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: coretax
+        annotations:
+          summary: "Coretax API is unreachable"
+          description: "Coretax API endpoint {{ $labels.instance }} is down. Check network and API status."
+
+      - alert: CoretaxAPIHighErrorRate
+        expr: (sum(rate(coretax_api_requests_total{status="error"}[5m])) / sum(rate(coretax_api_requests_total[5m]))) * 100 > 5
+        for: 3m
+        labels:
+          severity: warning
+          component: coretax
+        annotations:
+          summary: "High Coretax API error rate"
+          description: "Error rate is {{ $value }}% in last 5 minutes"
+
+      - alert: CoretaxAPISlowResponse
+        expr: histogram_quantile(0.99, sum(rate(coretax_api_duration_seconds_bucket[5m])) by (le)) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: coretax
+        annotations:
+          summary: "Coretax API response slow (p99 > 10s)"
+          description: "p99 response time is {{ $value }} seconds"
+
+  - name: coretax_submission
+    interval: 30s
+    rules:
+      - alert: CoretaxFakturSubmissionFailure
+        expr: increase(coretax_api_requests_total{endpoint="/faktur/submit", status="error"}[15m]) > 5
+        for: 0m
+        labels:
+          severity: warning
+          component: coretax
+        annotations:
+          summary: "Multiple faktur submission failures"
+          description: "{{ $value }} faktur submissions failed in last 15 minutes"
+
+      - alert: CoretaxNTPNValidationHighFailure
+        expr: (sum(rate(coretax_ntpn_validation_total{result="invalid"}[5m])) / sum(rate(coretax_ntpn_validation_total[5m]))) * 100 > 10
+        for: 10m
+        labels:
+          severity: warning
+          component: coretax
+        annotations:
+          summary: "High NTPN validation failure rate"
+          description: "{{ $value }}% of NTPN validations are failing"
+
+      - alert: CoretaxSPTSubmissionOverdue
+        expr: (coretax_spt_expected_total - coretax_spt_submitted_total) > 0 and month() > 20
+        for: 1h
+        labels:
+          severity: critical
+          component: coretax
+        annotations:
+          summary: "SPT submissions overdue for current month"
+          description: "{{ $value }} SPT reports have not been submitted before deadline"
+
+      - alert: CoretaxNSFPRunningLow
+        expr: coretax_nsfp_remaining < 100
+        for: 1h
+        labels:
+          severity: warning
+          component: coretax
+        annotations:
+          summary: "NSFP running low"
+          description: "Only {{ $value }} NSFP remaining. Request new range soon."
+
+  - name: coretax_oauth
+    interval: 30s
+    rules:
+      - alert: CoretaxOAuthTokenExpiring
+        expr: coretax_oauth_token_expiry_seconds < 300
+        for: 5m
+        labels:
+          severity: warning
+          component: coretax
+        annotations:
+          summary: "Coretax OAuth token expiring soon"
+          description: "Token expires in {{ $value }} seconds. Auto-refresh may fail."
+
+      - alert: CoretaxOAuthTokenRefreshFailure
+        expr: increase(coretax_oauth_token_refresh_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: coretax
+        annotations:
+          summary: "Coretax OAuth token refresh failed"
+          description: "Token refresh failed. API calls will be rejected."

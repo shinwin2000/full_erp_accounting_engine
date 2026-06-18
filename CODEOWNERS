@@ -1,0 +1,65 @@
+# ============================================================
+# CODEOWNERS — ERP Accounting Engine
+# Setiap perubahan pada modul ini memerlukan review dari owner.
+# Format: <pola_path>  <@owner atau tim>
+# ============================================================
+
+# ── Default owner (semua file) ───────────────────────────────
+*                                   @erp-team/backend-leads
+
+# ── Foundation & Kernel (review ketat) ──────────────────────
+constitution/                       @erp-team/architects
+axioms/                             @erp-team/architects
+kernel/                             @erp-team/architects
+kernel/immutable_laws/              @erp-team/architects @erp-team/security
+
+# ── Domain ──────────────────────────────────────────────────
+domain/                             @erp-team/domain-experts
+domain/journal/                     @erp-team/domain-experts @erp-team/accounting
+domain/subledger_ar/                @erp-team/accounting
+domain/subledger_ap/                @erp-team/accounting
+domain/fixed_asset/                 @erp-team/accounting
+domain/payroll/                     @erp-team/accounting @erp-team/hr
+domain/manufacturing/               @erp-team/accounting @erp-team/operations
+
+# ── Policy Engine & Compliance ───────────────────────────────
+policy_engine/                      @erp-team/accounting @erp-team/tax
+policy_engine/psak/                 @erp-team/accounting @erp-team/auditors
+policy_engine/ifrs/                 @erp-team/accounting @erp-team/auditors
+policy_engine/tax_indonesia/        @erp-team/tax
+compliance/                         @erp-team/compliance @erp-team/legal
+compliance/legal/                   @erp-team/legal
+compliance/ethics/                  @erp-team/auditors @erp-team/compliance
+
+# ── Security ────────────────────────────────────────────────
+infrastructure/security/            @erp-team/security
+security_hardening/                 @erp-team/security
+kernel/guards/async/                @erp-team/security @erp-team/compliance
+
+# ── Adapters — Coretax DJP ──────────────────────────────────
+adapters/coretax_djp/               @erp-team/tax @erp-team/backend-leads
+
+# ── Infrastructure ───────────────────────────────────────────
+infrastructure/                     @erp-team/platform
+infrastructure/database/            @erp-team/dba @erp-team/platform
+infrastructure/event_store/         @erp-team/platform @erp-team/architects
+migrations/                         @erp-team/dba @erp-team/backend-leads
+
+# ── CI/CD & Deployment ───────────────────────────────────────
+deployment/                         @erp-team/devops
+deployment/kubernetes/              @erp-team/devops
+deployment/terraform/               @erp-team/devops
+.github/                            @erp-team/devops
+
+# ── Entry Points ─────────────────────────────────────────────
+main.py                             @erp-team/architects @erp-team/backend-leads
+asgi.py                             @erp-team/architects @erp-team/backend-leads
+pyproject.toml                      @erp-team/architects @erp-team/backend-leads
+requirements.txt                    @erp-team/backend-leads @erp-team/security
+
+# ── Audit & Forensics ────────────────────────────────────────
+audit/                              @erp-team/auditors @erp-team/security
+
+# ── Config ───────────────────────────────────────────────────
+config_files/                       @erp-team/backend-leads @erp-team/accounting
+architecture/                       @erp-team/architects

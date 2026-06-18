@@ -1,0 +1,156 @@
+﻿syntax = "proto3";
+
+package accounting;
+
+service AccountingService {
+    rpc CreateJournal (CreateJournalRequest) returns (JournalResponse);
+    rpc PostJournal (PostJournalRequest) returns (JournalResponse);
+    rpc ReverseJournal (ReverseJournalRequest) returns (JournalResponse);
+    rpc GetTrialBalance (GetTrialBalanceRequest) returns (TrialBalanceResponse);
+    rpc GetBalanceSheet (GetBalanceSheetRequest) returns (BalanceSheetResponse);
+    rpc GetIncomeStatement (GetIncomeStatementRequest) returns (IncomeStatementResponse);
+    rpc CreateARInvoice (CreateARInvoiceRequest) returns (ARInvoiceResponse);
+    rpc RecordARPayment (RecordARPaymentRequest) returns (ARPaymentResponse);
+    rpc CreateAPInvoice (CreateAPInvoiceRequest) returns (APInvoiceResponse);
+}
+
+message CreateJournalRequest {
+    string journal_date = 1;
+    string description = 2;
+    repeated JournalLine lines = 3;
+    string reference_number = 4;
+    string source_type = 5;
+    string source_id = 6;
+}
+
+message JournalLine {
+    string account_code = 1;
+    string debit_amount = 2;
+    string credit_amount = 3;
+    string cost_center = 4;
+    string description = 5;
+}
+
+message PostJournalRequest {
+    string id = 1;
+}
+
+message ReverseJournalRequest {
+    string journal_id = 1;
+    string reversal_date = 2;
+    string reason = 3;
+}
+
+message JournalResponse {
+    string id = 1;
+    string voucher_number = 2;
+    string status = 3;
+}
+
+message GetTrialBalanceRequest {
+    string as_of_date = 1;
+    bool include_zero_balance = 2;
+}
+
+message TrialBalanceLine {
+    string account_code = 1;
+    string account_name = 2;
+    double opening_balance_debit = 3;
+    double opening_balance_credit = 4;
+    double movement_debit = 5;
+    double movement_credit = 6;
+    double closing_balance_debit = 7;
+    double closing_balance_credit = 8;
+}
+
+message TrialBalanceResponse {
+    string as_of_date = 1;
+    double total_debit = 2;
+    double total_credit = 3;
+    bool is_balanced = 4;
+    repeated TrialBalanceLine lines = 5;
+}
+
+message GetBalanceSheetRequest {
+    string as_of_date = 1;
+}
+
+message BalanceSheetResponse {
+    string as_of_date = 1;
+    double total_assets = 2;
+    double total_liabilities = 3;
+    double total_equity = 4;
+}
+
+message GetIncomeStatementRequest {
+    string start_date = 1;
+    string end_date = 2;
+}
+
+message IncomeStatementResponse {
+    string start_date = 1;
+    string end_date = 2;
+    double total_revenue = 3;
+    double total_expenses = 4;
+    double net_income = 5;
+}
+
+message ARInvoiceLine {
+    string description = 1;
+    string quantity = 2;
+    string unit_price = 3;
+    string tax_rate = 4;
+    string account_code = 5;
+}
+
+message CreateARInvoiceRequest {
+    string customer_id = 1;
+    string invoice_date = 2;
+    string due_date = 3;
+    repeated ARInvoiceLine lines = 4;
+    string description = 5;
+}
+
+message ARInvoiceResponse {
+    string id = 1;
+    string invoice_number = 2;
+    double total_amount = 3;
+    string status = 4;
+}
+
+message RecordARPaymentRequest {
+    string invoice_id = 1;
+    string payment_date = 2;
+    double amount = 3;
+    string payment_method = 4;
+}
+
+message ARPaymentResponse {
+    string id = 1;
+    string payment_number = 2;
+    double amount = 3;
+    string status = 4;
+}
+
+message APInvoiceLine {
+    string description = 1;
+    string quantity = 2;
+    string unit_price = 3;
+    string account_code = 4;
+}
+
+message CreateAPInvoiceRequest {
+    string vendor_id = 1;
+    string invoice_date = 2;
+    string due_date = 3;
+    string invoice_number_vendor = 4;
+    repeated APInvoiceLine lines = 5;
+    string description = 6;
+}
+
+message APInvoiceResponse {
+    string id = 1;
+    string invoice_number = 2;
+    double total_amount = 3;
+    string status = 4;
+}

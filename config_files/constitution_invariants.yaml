@@ -1,0 +1,79 @@
+# ============================================================
+# constitution_invariants.yaml
+# Invariant Konstitusional Sistem Akuntansi
+# Dibaca oleh: constitution/constitutional_invariants.py
+# ============================================================
+
+invariants:
+  double_entry:
+    enabled: true
+    description: "Total debit harus selalu sama dengan total kredit dalam satu jurnal"
+    tolerance_idr: 0
+    enforcement: hard_block
+
+  immutability:
+    enabled: true
+    description: "Entri jurnal yang sudah diposting tidak dapat diubah, hanya dibalik"
+    allow_void: false
+    allow_delete: false
+    require_reversal_journal: true
+    enforcement: hard_block
+
+  period_boundary:
+    enabled: true
+    description: "Transaksi tidak dapat dicatat di luar periode akuntansi aktif"
+    allow_backdating_days: 0
+    allow_future_dating_days: 0
+    enforcement: hard_block
+
+  entity_isolation:
+    enabled: true
+    description: "Data keuangan antar entitas hukum harus sepenuhnya terisolasi"
+    cross_entity_posting: false
+    enforcement: hard_block
+
+  audit_trail:
+    enabled: true
+    description: "Setiap transaksi harus memiliki jejak audit yang tidak dapat dihapus"
+    hash_chain: true
+    timestamp_notarization: false
+    enforcement: hard_block
+
+  evidence_mandate:
+    enabled: true
+    description: "Setiap jurnal di atas ambang materialitas wajib memiliki bukti dokumen"
+    threshold_idr: 50000000
+    enforcement: hard_block
+
+  dual_approval:
+    enabled: true
+    description: "Transaksi di atas ambang nilai wajib disetujui oleh dua orang berbeda"
+    threshold_idr: 500000000
+    enforcement: hard_block
+
+  going_concern:
+    enabled: true
+    description: "Sistem mengasumsikan entitas beroperasi berkelanjutan"
+    enforcement: advisory
+
+  accrual_basis:
+    enabled: true
+    description: "Pendapatan dan beban diakui saat terjadi, bukan saat kas diterima"
+    cash_basis_allowed_for_umkm: true
+    enforcement: advisory
+
+  gl_supremacy:
+    enabled: true
+    description: "General Ledger adalah sumber kebenaran tertinggi"
+    subledger_must_reconcile: true
+    enforcement: hard_block
+
+  segregation_of_duties:
+    enabled: true
+    description: "Pembuat transaksi tidak boleh menjadi approver transaksi yang sama"
+    enforcement: hard_block
+
+  no_retroactive_policy:
+    enabled: true
+    description: "Perubahan kebijakan akuntansi tidak berlaku surut"
+    enforcement: hard_block

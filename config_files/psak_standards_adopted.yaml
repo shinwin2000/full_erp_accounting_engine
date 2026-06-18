@@ -1,0 +1,122 @@
+# ============================================================
+# psak_standards_adopted.yaml
+# PSAK yang Diadopsi dan Dikonfigurasi
+# Dibaca oleh: policy_engine/psak/psak_aggregator.py
+# ============================================================
+
+adopted_standards:
+  - code: PSAK-01
+    name: Penyajian Laporan Keuangan
+    effective_date: "2020-01-01"
+    adopted: true
+    module: policy_engine.psak.psak_01_presentation
+
+  - code: PSAK-02
+    name: Laporan Arus Kas
+    effective_date: "2020-01-01"
+    adopted: true
+    method: indirect
+    module: policy_engine.psak.psak_02_cash_flow
+
+  - code: PSAK-05
+    name: Segmen Operasi
+    effective_date: "2020-01-01"
+    adopted: true
+    module: policy_engine.psak.psak_05_operating_segments
+
+  - code: PSAK-07
+    name: Pengungkapan Pihak-Pihak Berelasi
+    effective_date: "2020-01-01"
+    adopted: true
+    module: policy_engine.psak.psak_07_related_party
+
+  - code: PSAK-10
+    name: Pengaruh Perubahan Kurs Valuta Asing
+    effective_date: "2020-01-01"
+    adopted: true
+    functional_currency: IDR
+    presentation_currency: IDR
+    module: policy_engine.psak.psak_10_foreign_exchange
+
+  - code: PSAK-14
+    name: Persediaan
+    effective_date: "2020-01-01"
+    adopted: true
+    valuation_method: weighted_average
+    # weighted_average | fifo
+    module: policy_engine.psak.psak_14_inventories
+
+  - code: PSAK-16
+    name: Aset Tetap
+    effective_date: "2020-01-01"
+    adopted: true
+    measurement_model: cost
+    # cost | revaluation
+    depreciation_methods:
+      - straight_line
+      - double_declining_balance
+      - units_of_production
+    module: policy_engine.psak.psak_16_property_plant_equipment
+
+  - code: PSAK-19
+    name: Aset Takberwujud
+    effective_date: "2020-01-01"
+    adopted: true
+    amortization_method: straight_line
+    module: policy_engine.psak.psak_19_intangible_assets
+
+  - code: PSAK-24
+    name: Imbalan Kerja
+    effective_date: "2020-01-01"
+    adopted: true
+    actuarial_method: projected_unit_credit
+    module: policy_engine.psak.psak_24_employee_benefits
+
+  - code: PSAK-25
+    name: Kebijakan Akuntansi, Perubahan Estimasi Akuntansi, dan Kesalahan
+    effective_date: "2020-01-01"
+    adopted: true
+    module: policy_engine.psak.psak_25_policies_estimates_errors
+
+  - code: PSAK-46
+    name: Pajak Penghasilan
+    effective_date: "2020-01-01"
+    adopted: true
+    deferred_tax: true
+    module: policy_engine.psak.psak_46_income_taxes
+
+  - code: PSAK-48
+    name: Penurunan Nilai Aset
+    effective_date: "2020-01-01"
+    adopted: true
+    annual_test_required: true
+    module: policy_engine.psak.psak_48_impairment
+
+  - code: PSAK-71
+    name: Instrumen Keuangan (konvergensi IFRS 9)
+    effective_date: "2020-01-01"
+    adopted: true
+    classification_model: business_model
+    ecl_model: true
+    module: policy_engine.psak.psak_71_financial_instruments_ifrs9
+
+  - code: PSAK-72
+    name: Pendapatan dari Kontrak dengan Pelanggan
+    effective_date: "2020-01-01"
+    adopted: true
+    five_step_model: true
+    module: policy_engine.psak.psak_72_revenue
+
+  - code: PSAK-73
+    name: Sewa
+    effective_date: "2020-01-01"
+    adopted: true
+    lessee_recognition_threshold_months: 12
+    lessee_recognition_threshold_idr: 50000000
+    module: policy_engine.psak.psak_73_leases
+
+reporting:
+  comparative_periods: 2
+  rounding_unit: IDR
+  materiality_percentage: 0.05
+  going_concern_assessment: annual

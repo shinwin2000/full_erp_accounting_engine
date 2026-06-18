@@ -1,0 +1,330 @@
+# ============================================================
+# pyproject.toml
+# ERP Accounting Engine — Project Configuration
+# Python >= 3.11
+# ============================================================
+
+[build-system]
+requires      = ["setuptools>=75.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+# ── Project Metadata ─────────────────────────────────────────
+[project]
+name            = "full_erp_accounting_engine"
+version         = "1.0.0"
+description     = "Bank-Grade ERP Accounting Engine — DDD, CQRS, Event Sourcing, Hexagonal Architecture, PSAK/IFRS"
+readme          = "README.md"
+license         = { file = "LICENSE" }
+requires-python = ">=3.11"
+
+keywords = [
+    "erp", "accounting", "ddd", "cqrs", "event-sourcing",
+    "hexagonal", "psak", "ifrs", "coretax", "fastapi",
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Framework :: FastAPI",
+    "Topic :: Office/Business :: Financial :: Accounting",
+    "Private :: Do Not Upload",
+]
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic[email]>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "alembic>=1.14.0",
+    "asyncpg>=0.30.0",
+    "redis[hiredis]>=5.2.0",
+    "aiokafka>=0.11.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "cryptography>=43.0.0",
+    "pyyaml>=6.0.0",
+    "python-dotenv>=1.0.0",
+    "structlog>=24.4.0",
+    "prometheus-client>=0.21.0",
+    "opentelemetry-sdk>=1.28.0",
+    "httpx>=0.27.0",
+    "tenacity>=9.0.0",
+    "orjson>=3.10.0",
+    "hvac>=2.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "pytest-mock>=3.14.0",
+    "black>=24.10.0",
+    "isort>=5.13.0",
+    "mypy>=1.13.0",
+    "ruff>=0.8.0",
+    "bandit>=1.8.0",
+    "import-linter>=2.1",
+    "factory-boy>=3.3.0",
+    "faker>=33.0.0",
+]
+
+[project.scripts]
+erp-server = "app.main:main"
+erp-check  = "app.main:main"
+
+# ── Setuptools — Package Discovery ───────────────────────────
+[tool.setuptools.packages.find]
+where   = ["."]
+include = [
+    "adapters*",
+    "application*",
+    "app*",
+    "architecture*",
+    "audit*",
+    "axioms*",
+    "bootstrap*",
+    "compliance*",
+    "config*",
+    "constitution*",
+    "deployment*",
+    "disaster_recovery*",
+    "domain*",
+    "event_gateway*",
+    "infrastructure*",
+    "kernel*",
+    "monitoring*",
+    "policy_engine*",
+    "ports*",
+    "projections*",
+    "reports*",
+    "security_hardening*",
+    "transformers*",
+]
+exclude = [
+    "tests*",
+    "docs*",
+    "migrations*",
+]
+
+# ── pytest ───────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths       = ["tests"]
+asyncio_mode    = "auto"
+addopts         = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+    "--tb=short",
+]
+markers = [
+    "unit: Unit test — tidak butuh infrastruktur",
+    "integration: Integration test — butuh DB, Redis, Kafka",
+    "e2e: End-to-end test — butuh seluruh stack",
+    "compliance: Compliance test — PSAK, IFRS, Coretax",
+    "performance: Performance test — load, concurrency",
+    "architecture: Architecture enforcement test",
+    "slow: Test yang berjalan lebih dari 5 detik",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+# ── Coverage ─────────────────────────────────────────────────
+[tool.coverage.run]
+source    = [
+    "adapters", "application", "app", "architecture", "audit",
+    "axioms", "bootstrap", "compliance", "config", "constitution",
+    "deployment", "disaster_recovery", "domain", "event_gateway",
+    "infrastructure", "kernel", "monitoring", "policy_engine",
+    "ports", "projections", "reports", "security_hardening",
+    "transformers",
+]
+omit    = [
+    "tests/*",
+    "docs/*",
+    "migrations/*",
+    "*/__init__.py",
+    "*/exceptions.py",
+]
+branch    = true
+
+[tool.coverage.report]
+show_missing    = true
+skip_covered    = false
+fail_under      = 80
+exclude_lines   = [
+    "pragma: no cover",
+    "def __repr__",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
+
+# ── Black ────────────────────────────────────────────────────
+[tool.black]
+line-length    = 100
+target-version = ["py311", "py312"]
+include        = "\\.pyi?$"
+exclude        = '''
+/(
+    \.git
+  | \.mypy_cache
+  | \.venv
+  | migrations
+  | deployment
+)/
+'''
+
+# ── isort ────────────────────────────────────────────────────
+[tool.isort]
+profile                 = "black"
+line_length             = 100
+known_first_party       = [
+    "adapters", "application", "app", "architecture", "audit",
+    "axioms", "bootstrap", "compliance", "config", "constitution",
+    "deployment", "disaster_recovery", "domain", "event_gateway",
+    "infrastructure", "kernel", "monitoring", "policy_engine",
+    "ports", "projections", "reports", "security_hardening",
+    "transformers",
+]
+known_third_party       = [
+    "fastapi", "sqlalchemy", "alembic", "pydantic",
+    "redis", "aiokafka", "jose", "cryptography",
+    "structlog", "prometheus_client", "opentelemetry",
+    "httpx", "minio", "boto3", "grpc", "strawberry",
+    "hvac", "tenacity",
+]
+sections                = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+force_sort_within_sections = true
+
+# ── Ruff ─────────────────────────────────────────────────────
+[tool.ruff]
+line-length    = 100
+target-version = "py311"
+exclude        = [
+    ".git",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "migrations",
+    "deployment",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "W",    # warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # bugbear
+    "C4",   # comprehensions
+    "UP",   # pyupgrade
+    "SIM",  # simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",   # line too long, handled by Black
+    "B008",   # do not perform function calls in argument defaults
+    "B904",   # raise from None
+    "SIM108", # use ternary operator
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*"      = ["S101"]   # allow assert in tests
+"migrations/*" = ["ALL"]
+
+# ── mypy ─────────────────────────────────────────────────────
+# Konfigurasi minimal agar tidak error saat memeriksa direktori
+# Catatan: Jangan gunakan "mypy ." karena akan mencoba mengimpor nama proyek.
+# Gunakan "mypy app adapters application domain infrastructure kernel ports" sebagai gantinya.
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+follow_imports = "skip"
+warn_unused_configs = true
+show_error_codes = true
+pretty = true
+
+# ── Pylint ──────────────────────────────────────────────────
+[tool.pylint.main]
+py-version = "3.11"
+
+[tool.pylint.messages_control]
+disable = [
+    "missing-module-docstring",
+    "missing-class-docstring",
+    "missing-function-docstring",
+    "too-few-public-methods",
+    "duplicate-code",
+    "fixme",
+]
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.pylint.basic]
+good-names = ["id", "e", "f", "i", "j", "k", "ex", "Run", "_"]
+variable-rgx = "[a-z_][a-z0-9_]{0,30}$"
+
+# ── Bandit ───────────────────────────────────────────────────
+[tool.bandit]
+targets    = [
+    "adapters", "application", "app", "audit",
+    "axioms", "bootstrap", "compliance", "config", "constitution",
+    "domain", "infrastructure", "kernel",
+    "policy_engine", "ports", "security_hardening",
+]
+skips      = ["B101", "B311"]   # skip assert and random usage
+
+# ── import-linter ────────────────────────────────────────────
+[tool.importlinter]
+root_packages = [
+    "adapters", "application", "app", "audit",
+    "axioms", "bootstrap", "compliance", "config", "constitution",
+    "domain", "infrastructure", "kernel",
+    "policy_engine", "ports",
+]
+
+[[tool.importlinter.contracts]]
+name    = "Domain tidak boleh import dari Application"
+type    = "forbidden"
+source_modules = ["domain"]
+forbidden_modules = ["application", "adapters", "infrastructure"]
+
+[[tool.importlinter.contracts]]
+name    = "Domain tidak boleh import dari Infrastructure"
+type    = "forbidden"
+source_modules = ["domain"]
+forbidden_modules = ["infrastructure"]
+
+[[tool.importlinter.contracts]]
+name    = "Ports tidak boleh import dari Adapters"
+type    = "forbidden"
+source_modules = ["ports"]
+forbidden_modules = ["adapters", "infrastructure"]
+
+[[tool.importlinter.contracts]]
+name    = "Constitution dan Axioms adalah lapisan paling dalam"
+type    = "forbidden"
+source_modules = ["constitution", "axioms"]
+forbidden_modules = [
+    "kernel", "domain", "application",
+    "ports", "adapters", "infrastructure",
+]
+
+[[tool.importlinter.contracts]]
+name    = "Kernel hanya boleh import dari Constitution dan Axioms"
+type    = "layers"
+layers  = [
+    "adapters", "application", "ports", "kernel",
+    "domain", "policy_engine", "compliance",
+    "axioms", "constitution",
+]

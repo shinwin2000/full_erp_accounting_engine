@@ -1,0 +1,99 @@
+{
+  "dashboard": {
+    "title": "ESG Carbon Dashboard",
+    "uid": "esg-carbon",
+    "tags": ["esg", "carbon", "sustainability"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Carbon Footprint (tCO2e)",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "carbon_emissions_total{scope=\"scope1\"}",
+            "legendFormat": "Scope 1"
+          },
+          {
+            "expr": "carbon_emissions_total{scope=\"scope2\"}",
+            "legendFormat": "Scope 2"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+      },
+      {
+        "id": 2,
+        "title": "Energy Consumption (MWh)",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "energy_consumption_mwh{source=\"electricity\"}",
+            "legendFormat": "Electricity"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+      },
+      {
+        "id": 3,
+        "title": "Green Energy Percentage",
+        "type": "gauge",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "(renewable_energy_mwh / total_energy_mwh) * 100",
+            "legendFormat": "Green %"
+          }
+        ],
+        "gridPos": { "h": 6, "w": 6, "x": 0, "y": 8 }
+      },
+      {
+        "id": 4,
+        "title": "Waste Recycled vs Landfill",
+        "type": "barchart",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "waste_disposal_tonnes{type=\"recycled\"}",
+            "legendFormat": "Recycled"
+          },
+          {
+            "expr": "waste_disposal_tonnes{type=\"landfill\"}",
+            "legendFormat": "Landfill"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 6, "y": 8 }
+      },
+      {
+        "id": 5,
+        "title": "Water Usage (kL)",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "water_consumption_kl",
+            "legendFormat": "Water consumption"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 }
+      },
+      {
+        "id": 6,
+        "title": "ESG Score (Overall)",
+        "type": "stat",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "esg_overall_score",
+            "legendFormat": "Score (0-100)"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 12, "y": 16 }
+      }
+    ],
+    "time": { "from": "now-30d", "to": "now" },
+    "schemaVersion": 36,
+    "version": 1
+  }
+}

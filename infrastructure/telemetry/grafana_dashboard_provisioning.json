@@ -1,0 +1,203 @@
+{
+  "dashboard": {
+    "title": "ERP Accounting Engine - Telemetry Dashboard",
+    "description": "Production monitoring dashboard for ERP Accounting Engine",
+    "tags": ["erp", "accounting", "production"],
+    "timezone": "asia/jakarta",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "title": "Journal Posting Latency (P95)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(erp_journal_posting_latency_seconds_bucket[5m])) by (le, stage))",
+            "legendFormat": "{{stage}}"
+          }
+        ],
+        "yAxis": {"format": "s", "label": "Latency (seconds)"},
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "title": "Journal Posting Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(erp_journal_posting_total[5m])",
+            "legendFormat": "{{status}}"
+          }
+        ],
+        "yAxis": {"format": "reqps", "label": "Requests per second"},
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "title": "GL Balance Summary",
+        "type": "stat",
+        "targets": [
+          {"expr": "erp_gl_balance_total_assets", "legendFormat": "Total Assets"},
+          {"expr": "erp_gl_balance_total_liabilities", "legendFormat": "Total Liabilities"},
+          {"expr": "erp_gl_balance_total_equity", "legendFormat": "Total Equity"},
+          {"expr": "erp_gl_balance_net_income", "legendFormat": "Net Income YTD"}
+        ],
+        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "title": "Balance Check",
+        "type": "singlestat",
+        "targets": [
+          {"expr": "erp_gl_balance_balanced"}
+        ],
+        "valueName": "current",
+        "mappings": [
+          {"text": "BALANCED", "value": 1, "color": "green"},
+          {"text": "UNBALANCED", "value": 0, "color": "red"}
+        ],
+        "gridPos": {"h": 6, "w": 6, "x": 12, "y": 8}
+      },
+      {
+        "title": "Audit Chain Integrity",
+        "type": "stat",
+        "targets": [
+          {"expr": "erp_audit_chain_integrity"}
+        ],
+        "valueName": "current",
+        "mappings": [
+          {"text": "VALID", "value": 1, "color": "green"},
+          {"text": "INVALID", "value": 0, "color": "red"}
+        ],
+        "gridPos": {"h": 6, "w": 6, "x": 18, "y": 8}
+      },
+      {
+        "title": "Coretax API Latency",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(erp_coretax_api_latency_seconds_bucket[5m])) by (le, endpoint))",
+            "legendFormat": "{{endpoint}}"
+          }
+        ],
+        "yAxis": {"format": "s", "label": "Latency (seconds)"},
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14}
+      },
+      {
+        "title": "Coretax API Error Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(erp_coretax_api_errors_total[5m])",
+            "legendFormat": "{{endpoint}} - {{error_type}}"
+          }
+        ],
+        "yAxis": {"format": "errps", "label": "Errors per second"},
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14}
+      },
+      {
+        "title": "Period Close SLO Compliance",
+        "type": "stat",
+        "targets": [
+          {"expr": "erp_period_close_slo_compliance{slo_level=\"target\"}"}
+        ],
+        "valueName": "current",
+        "mappings": [
+          {"text": "COMPLIANT", "value": 1, "color": "green"},
+          {"text": "VIOLATED", "value": 0, "color": "red"}
+        ],
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 22}
+      },
+      {
+        "title": "Period Close Duration",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "erp_period_close_duration_seconds",
+            "legendFormat": "{{legal_entity_id}} - {{fiscal_year}}P{{period}}"
+          }
+        ],
+        "yAxis": {"format": "s", "label": "Duration (seconds)"},
+        "gridPos": {"h": 8, "w": 18, "x": 6, "y": 22}
+      },
+      {
+        "title": "Cache Hit Rate",
+        "type": "graph",
+        "targets": [
+          {"expr": "erp_cache_hit_rate", "legendFormat": "Cache Hit Rate"}
+        ],
+        "yAxis": {"format": "percentunit", "label": "Hit Rate", "max": 1},
+        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 30}
+      },
+      {
+        "title": "Redis Memory Usage",
+        "type": "graph",
+        "targets": [
+          {"expr": "erp_cache_memory_usage_percent", "legendFormat": "Memory Usage %"}
+        ],
+        "yAxis": {"format": "percent", "label": "Memory Usage", "max": 100},
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 30}
+      },
+      {
+        "title": "Active Postings",
+        "type": "graph",
+        "targets": [
+          {"expr": "erp_journal_posting_concurrent", "legendFormat": "Concurrent Postings"}
+        ],
+        "yAxis": {"format": "short", "label": "Count"},
+        "gridPos": {"h": 6, "w": 8, "x": 0, "y": 36}
+      },
+      {
+        "title": "Event Store Size",
+        "type": "graph",
+        "targets": [
+          {"expr": "erp_event_store_total_events", "legendFormat": "Total Events"},
+          {"expr": "erp_event_store_total_streams", "legendFormat": "Total Streams"}
+        ],
+        "yAxis": {"format": "short", "label": "Count"},
+        "gridPos": {"h": 6, "w": 8, "x": 8, "y": 36}
+      },
+      {
+        "title": "Hash Chain Integrity Status",
+        "type": "table",
+        "targets": [
+          {"expr": "erp_audit_chain_integrity", "format": "table"}
+        ],
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 36}
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "legal_entity",
+          "type": "query",
+          "query": "label_values(erp_gl_balance_by_type, legal_entity_id)",
+          "refresh": 2,
+          "includeAll": true,
+          "multi": true
+        }
+      ]
+    },
+    "time": {"from": "now-6h", "to": "now"},
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "type": "tags",
+          "datasource": "loki",
+          "tags": ["deployment"],
+          "enable": true,
+          "iconColor": "blue"
+        },
+        {
+          "name": "Alerts",
+          "type": "tags",
+          "datasource": "loki",
+          "tags": ["alert"],
+          "enable": true,
+          "iconColor": "red"
+        }
+      ]
+    }
+  },
+  "overwrite": true,
+  "folderTitle": "ERP Accounting Engine"
+}

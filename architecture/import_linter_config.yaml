@@ -1,0 +1,255 @@
+# ============================================================
+# import_linter_config.yaml — Konfigurasi Import Linter
+# Referensi visual untuk boundary_checker.py
+# Dibaca oleh: architecture/boundary_checker.py
+#
+# Versi: 2.0.0
+# Last updated: 2026-06-14
+# ============================================================
+
+layer_order:
+  - name: constitution
+    description: Hukum tertinggi sistem — tidak boleh import ke atas
+    color: "#8B0000"
+    modules:
+      - constitution
+
+  - name: axioms
+    description: Aksioma matematika akuntansi
+    color: "#A52A2A"
+    modules:
+      - axioms
+
+  - name: kernel
+    description: Gerbang tunggal, guard, hukum immutable
+    color: "#2F4F4F"
+    modules:
+      - kernel
+    sublayers:
+      - kernel.guards
+      - kernel.immutable_laws
+
+  - name: config
+    description: Konfigurasi sistem
+    color: "#CD853F"
+    modules:
+      - config
+
+  - name: bootstrap
+    description: Startup orchestration
+    color: "#DAA520"
+    modules:
+      - bootstrap
+
+  - name: domain
+    description: DDD aggregates, entities, value objects
+    color: "#006400"
+    modules:
+      - domain
+    sublayers:
+      - domain.reality
+      - domain.intent
+      - domain.causality
+      - domain.legal_entity
+      - domain.iam
+      - domain.coa
+      - domain.journal
+      - domain.subledger_ar
+      - domain.subledger_ap
+      - domain.inventory
+      - domain.fixed_asset
+      - domain.bank_cash
+      - domain.payroll
+      - domain.manufacturing
+      - domain.purchase_sales
+      - domain.project_services
+      - domain.equity_retained
+      - domain.shared_value_objects
+      - domain.tax_transaction
+      - domain.umkm_simplified
+
+  - name: policy_engine
+    description: PSAK, IFRS, pajak Indonesia
+    color: "#00008B"
+    modules:
+      - policy_engine
+    sublayers:
+      - policy_engine.psak
+      - policy_engine.ifrs
+      - policy_engine.tax_indonesia
+
+  - name: compliance
+    description: Checker dan penegak kepatuhan
+    color: "#4B0082"
+    modules:
+      - compliance
+    sublayers:
+      - compliance.legal
+      - compliance.ethics
+
+  - name: ports
+    description: Interface abstrak hexagonal
+    color: "#008B8B"
+    modules:
+      - ports
+    sublayers:
+      - ports.primary
+      - ports.secondary
+
+  - name: application
+    description: Use cases, services, CQRS, sagas
+    color: "#B8860B"
+    modules:
+      - application
+    sublayers:
+      - application.service_layer
+      - application.use_cases
+      - application.workflows
+      - application.sagas
+      - application.commands_cqrs
+      - application.dto_objects
+      - application.mappers
+      - application.events
+      - application.outbox
+
+  - name: event_gateway
+    description: Anti-corruption layer untuk events
+    color: "#8B008B"
+    modules:
+      - event_gateway
+
+  - name: transformers
+    description: Event transformers per domain
+    color: "#9932CC"
+    modules:
+      - transformers
+
+  - name: adapters
+    description: FastAPI, gRPC, Coretax, repository impl
+    color: "#1E90FF"
+    modules:
+      - adapters
+    sublayers:
+      - adapters.primary_api
+      - adapters.coretax_djp
+      - adapters.secondary_impl
+
+  - name: infrastructure
+    description: Database, cache, broker, security
+    color: "#696969"
+    modules:
+      - infrastructure
+    sublayers:
+      - infrastructure.database
+      - infrastructure.event_store
+      - infrastructure.persistence_orm
+      - infrastructure.caching
+      - infrastructure.security
+      - infrastructure.telemetry
+      - infrastructure.file_storage
+      - infrastructure.message_broker
+      - infrastructure.dependency_container
+      - infrastructure.outbox
+
+  - name: audit
+    description: Audit trail, forensik, hash chain
+    color: "#FF4500"
+    modules:
+      - audit
+    sublayers:
+      - audit.sampling_materiality
+
+  - name: projections
+    description: CQRS read models
+    color: "#2E8B57"
+    modules:
+      - projections
+    sublayers:
+      - projections.ledger
+      - projections.subledger
+      - projections.tax
+      - projections.analytics_bi
+
+  - name: reports
+    description: Report generation
+    color: "#20B2AA"
+    modules:
+      - reports
+
+  - name: architecture
+    description: Pemeriksaan dan penegakan arsitektur
+    color: "#8FBC8F"
+    modules:
+      - architecture
+
+  - name: tests
+    description: Test suite
+    color: "#D3D3D3"
+    modules:
+      - tests
+
+# Aturan impor terlarang (forbidden imports)
+forbidden_imports:
+  - from: [constitution, axioms, kernel]
+    to: [config, bootstrap, domain, policy_engine, compliance, application,
+         ports, adapters, infrastructure, event_gateway, transformers,
+         audit, projections, reports, architecture]
+    message: "Foundation layer (constitution/axioms/kernel) cannot depend on higher layers"
+
+  - from: [domain]
+    to: [application, adapters, infrastructure, event_gateway, transformers]
+    message: "Domain layer cannot directly depend on application, adapters, infrastructure, event_gateway, or transformers"
+
+  - from: [ports]
+    to: [adapters, infrastructure]
+    message: "Ports (abstractions) cannot directly depend on concrete adapters or infrastructure"
+
+  - from: [infrastructure]
+    to: [application, domain.aggregates]
+    message: "Infrastructure cannot directly depend on application layer or domain aggregates (only through ports)"
+
+  - from: [application]
+    to: [adapters, infrastructure]
+    message: "Application layer cannot directly depend on adapters or infrastructure (should use ports)"
+
+  - from: [event_gateway]
+    to: [adapters, application]
+    message: "Event gateway should only depend on ports and infrastructure"
+
+  - from: [projections]
+    to: [application]
+    message: "Projections should depend on infrastructure/persistence_orm and domain events, not application services"
+
+# Aturan impor khusus (allowed imports dengan kondisi)
+allowed_imports:
+  - from: [adapters]
+    to: [application, ports, domain, infrastructure, event_gateway, transformers]
+    message: "Adapters may depend on application, ports, domain, infrastructure, event_gateway, transformers"
+
+  - from: [application]
+    to: [domain, ports, kernel]
+    message: "Application may depend on domain, ports, and kernel"
+
+  - from: [infrastructure]
+    to: [domain, ports, config]
+    message: "Infrastructure may depend on domain, ports, and config"
+
+# Kontrak untuk setiap layer
+layer_contracts:
+  constitution:
+    description: "Must not import anything outside constitution"
+    forbidden_modules: [".*"]
+    allowed_modules: ["^constitution\\..*", "^builtins", "typing", "abc", "enum", "dataclasses", "datetime"]
+
+  axioms:
+    description: "Must not import domain/application/adapters"
+    forbidden_modules: ["^domain", "^application", "^adapters", "^infrastructure", "^ports"]
+    allowed_modules: ["^axioms\\..*", "^constitution\\..*", "^builtins", "typing", "enum", "decimal", "datetime"]
+
+  kernel:
+    description: "Only allowed to import constitution, axioms, guards, immutable_laws, ports/primary"
+    allowed_modules:
+      - "^kernel\\..*"
+      - "^constitution\\..*"
+      - "^axioms\\..*"
+      - "^ports\\.primary.*"

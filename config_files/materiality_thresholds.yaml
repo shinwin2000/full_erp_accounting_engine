@@ -1,0 +1,54 @@
+# ============================================================
+# materiality_thresholds.yaml — Ambang Materialitas
+# Dibaca oleh: compliance/ethics/materiality_threshold_quantitative.py
+# audit/sampling_materiality/materiality_threshold_calculator.py
+# ============================================================
+
+materiality:
+  quantitative:
+    basis: total_assets          # total_assets | revenue | equity | net_income
+    percentage: 0.05             # 5% dari basis
+    absolute_minimum_idr: 50000000
+    planning_materiality_factor: 0.75
+    trivial_threshold_factor: 0.05
+
+  qualitative:
+    factors:
+      - regulatory_breach
+      - fraud_indicator
+      - related_party_transaction
+      - management_override
+      - going_concern_indicator
+      - prior_year_error_pattern
+
+  evidence_mandate:
+    threshold_idr: ${MATERIALITY_THRESHOLD_QUANTITATIVE:50000000}
+    require_original_document: true
+    require_digital_signature: false
+
+  disclosure:
+    related_party_threshold_idr: 100000000
+    segment_reporting_threshold_percentage: 0.10
+    contingent_liability_threshold_idr: 50000000
+
+audit_sampling:
+  method: monetary_unit_sampling
+  confidence_level: 0.95
+  expected_error_rate: 0.02
+  tolerable_error_rate: 0.05
+  population_min_items: 50
+  sample_size_formula: mus
+
+  high_risk_categories:
+    - related_party_transactions
+    - manual_journal_entries
+    - period_end_entries
+    - round_number_transactions
+    - entries_outside_business_hours
+    - reversed_entries
+    - entries_by_superadmin
+
+  analytical_procedures:
+    ratio_threshold_deviation: 0.10
+    trend_threshold_deviation: 0.15
+    budget_variance_threshold: 0.20

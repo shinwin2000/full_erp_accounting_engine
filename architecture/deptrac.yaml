@@ -1,0 +1,220 @@
+# ============================================================
+# deptrac.yaml — Deptrac Dependency Configuration
+# Tool: deptrac (PHP/Python architecture enforcement)
+# Komplementer dari .importlinter untuk visualisasi
+#
+# Versi: 2.0.0
+# Last updated: 2026-06-14
+# ============================================================
+
+deptrac:
+  paths:
+    - .
+
+  exclude_files:
+    - "#.*tests.*#"
+    - "#.*migrations.*#"
+    - "#.*deployment.*#"
+    - "#.*__pycache__.*#"
+    - "#.*\\.venv.*#"
+    - "#.*venv.*#"
+
+  layers:
+    # Layer 0: Foundation (Constitution, Axioms, Kernel, Guards, Immutable Laws)
+    - name: Constitution
+      collectors:
+        - type: directory
+          value: constitution/
+    - name: Axioms
+      collectors:
+        - type: directory
+          value: axioms/
+    - name: Kernel
+      collectors:
+        - type: directory
+          value: kernel/
+    - name: Guards
+      collectors:
+        - type: directory
+          value: kernel/guards/
+    - name: ImmutableLaws
+      collectors:
+        - type: directory
+          value: kernel/immutable_laws/
+
+    # Layer 1: Domain & Policy Engine
+    - name: Domain
+      collectors:
+        - type: directory
+          value: domain/
+    - name: PolicyEngine
+      collectors:
+        - type: directory
+          value: policy_engine/
+
+    # Layer 2: Compliance & Audit
+    - name: Compliance
+      collectors:
+        - type: directory
+          value: compliance/
+    - name: Audit
+      collectors:
+        - type: directory
+          value: audit/
+
+    # Layer 3: Configuration & Bootstrap
+    - name: Config
+      collectors:
+        - type: directory
+          value: config/
+    - name: Bootstrap
+      collectors:
+        - type: directory
+          value: bootstrap/
+
+    # Layer 4: Ports (Abstractions)
+    - name: Ports
+      collectors:
+        - type: directory
+          value: ports/
+
+    # Layer 5: Application (Use Cases, Services, Sagas, CQRS)
+    - name: Application
+      collectors:
+        - type: directory
+          value: application/
+
+    # Layer 6: Event Gateway & Transformers
+    - name: EventGateway
+      collectors:
+        - type: directory
+          value: event_gateway/
+    - name: Transformers
+      collectors:
+        - type: directory
+          value: transformers/
+
+    # Layer 7: Infrastructure (Database, Cache, Broker, Security)
+    - name: Infrastructure
+      collectors:
+        - type: directory
+          value: infrastructure/
+
+    # Layer 8: Adapters (Primary API, Secondary Implementations)
+    - name: Adapters
+      collectors:
+        - type: directory
+          value: adapters/
+
+    # Layer 9: Projections & Reports (Read Models)
+    - name: Projections
+      collectors:
+        - type: directory
+          value: projections/
+    - name: Reports
+      collectors:
+        - type: directory
+          value: reports/
+
+    # Layer 10: Architecture & Tests
+    - name: Architecture
+      collectors:
+        - type: directory
+          value: architecture/
+    - name: Tests
+      collectors:
+        - type: directory
+          value: tests/
+
+  ruleset:
+    # Foundation layer (no dependencies)
+    Constitution:   ~
+    Axioms:         ~
+    Kernel:         ~
+    Guards:         ~
+    ImmutableLaws:  ~
+
+    # Config & Bootstrap can depend on foundation
+    Config:
+      - Constitution
+      - Axioms
+    Bootstrap:
+      - Config
+      - Constitution
+      - Axioms
+
+    # Domain & Policy Engine can depend on foundation
+    Domain:
+      - Constitution
+      - Axioms
+    PolicyEngine:
+      - Domain
+      - Constitution
+      - Axioms
+
+    # Compliance & Audit can depend on domain and foundation
+    Compliance:
+      - PolicyEngine
+      - Domain
+      - Constitution
+      - Axioms
+    Audit:
+      - Domain
+      - Infrastructure
+      - Ports
+
+    # Ports can depend on domain and foundation
+    Ports:
+      - Domain
+      - PolicyEngine
+      - Compliance
+
+    # Application can depend on domain, ports, kernel
+    Application:
+      - Domain
+      - PolicyEngine
+      - Compliance
+      - Ports
+      - Kernel
+
+    # Infrastructure can depend on domain, ports, config
+    Infrastructure:
+      - Domain
+      - Ports
+      - Config
+
+    # Event Gateway & Transformers
+    EventGateway:
+      - Domain
+      - Ports
+      - Application
+    Transformers:
+      - Domain
+      - Application
+      - Ports
+
+    # Adapters can depend on application, ports, domain, infrastructure, event_gateway, transformers
+    Adapters:
+      - Application
+      - Ports
+      - Domain
+      - Infrastructure
+      - EventGateway
+      - Transformers
+
+    # Projections & Reports
+    Projections:
+      - Domain
+      - Application
+      - Ports
+    Reports:
+      - Projections
+      - Application
+      - Domain
+
+    # Architecture & Tests
+    Architecture:
+      - Domain
+      - Application
+      - Ports
+    Tests: ~   # Tests can import anything (not enforced)

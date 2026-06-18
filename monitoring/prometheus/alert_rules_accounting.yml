@@ -1,0 +1,92 @@
+# alert_rules_accounting.yml
+# Prometheus alert rules for accounting metrics
+
+groups:
+  - name: accounting_availability
+    interval: 30s
+    rules:
+      - alert: JournalPostingFailureHigh
+        expr: rate(journal_postings_total{status="failed"}[5m]) > 10
+        for: 2m
+        labels:
+          severity: critical
+          component: journal
+        annotations:
+          summary: "High journal posting failure rate"
+          description: "Journal posting failures are at {{ $value }} per second over last 5 minutes"
+
+      - alert: PeriodCloseNotCompleted
+        expr: period_close_success_total{status="success"} == 0 and month() != 1
+        for: 1h
+        labels:
+          severity: warning
+          component: period_close
+        annotations:
+          summary: "Period close not completed for current month"
+          description: "Period close for {{ $labels.period }} has not been completed. Current month: {{ $labels.period }}"
+
+      - alert: GLBalanceAnomaly
+        expr: abs(gl_balance_amount{account_type="asset"} - gl_balance_amount{account_type="liability"} - gl_balance_amount{account_type="equity"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: gl
+        annotations:
+          summary: "General ledger out of balance"
+          description: "Assets ({{ $labels.asset }}) do not equal Liabilities + Equity. Difference: {{ $value }}"
+
+      - alert: AuditEventDropped
+        expr: increase(audit_events_total{event_type="dropped"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: audit
+        annotations:
+          summary: "Audit events being dropped"
+          description: "{{ $value }} audit events dropped in last 5 minutes. Integrity may be compromised."
+
+  - name: accounting_performance
+    interval: 30s
+    rules:
+      - alert: JournalPostingLatencyHigh
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{method="POST", endpoint="/v1/journal"}[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: journal
+        annotations:
+          summary: "Journal posting latency high (p99 > 2s)"
+          description: "p99 latency for journal posting is {{ $value }} seconds"
+
+      - alert: OutboxQueueBacklog
+        expr: queue_size{queue_name="outbox"} > 10000
+        for: 10m
+        labels:
+          severity: warning
+          component: outbox
+        annotations:
+          summary: "Outbox queue backlog exceeded 10,000 messages"
+          description: "Outbox queue has {{ $value }} pending messages. Check relay service."
+
+  - name: accounting_data_integrity
+    interval: 1m
+    rules:
+      - alert: HashChainTampered
+        expr: hash_chain_verified == 0
+        for: 0s
+        labels:
+          severity: critical
+          component: event_store
+        annotations:
+          summary: "Event store hash chain verification failed"
+          description: "The hash chain has been tampered with. Immediate investigation required."
+
+      - alert: EventStoreReplicationLagExcessive
+        expr: event_store_replication_lag_seconds > 60
+        for: 5m
+        labels:
+          severity: warning
+          component: event_store
+        annotations:
+          summary: "Event store replication lag high"
+          description: "Replication lag is {{ $value }} seconds. Target RPO may be at risk."

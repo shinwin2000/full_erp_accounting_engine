@@ -1,0 +1,506 @@
+#!/usr/bin/env python3
+"""
+Module: sod_constraint_checker.py
+Layer: Infrastructure (Security)
+Responsibility: Memeriksa constraint Separation of Duties (SoD) untuk mencegah
+               konflik kepentingan. Mendeteksi apakah user memiliki kombinasi
+               role atau permission yang bertentangan (misal: user yang dapat
+               membuat dan sekaligus menyetujui journal). Mendukung konfigurasi
+               aturan SoD yang dapat disesuaikan per perusahaan.
+
+Dependencies:
+- asyncio, logging, json, datetime
+- app.container (IoCContainer)
+- infrastructure.security.rbac_enforcer_unified (RBACEnforcer)
+- infrastructure.caching.redis_manager (RedisManager)
+- ports.primary.iam_user_repository_port (IAMUserRepositoryPort)
+- config.loader_yaml
+- infrastructure.telemetry.alert_manager_router
+
+Audit: Setiap pelanggaran SoD dicatat. Pelanggaran berulang memicu alert.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import UTC, datetime
+from typing import Any
+from uuid import UUID
+
+from app.container import get_container
+from config.loader_yaml import load_yaml_config
+from infrastructure.caching.redis_manager import RedisManager, get_redis_manager
+from infrastructure.security.rbac_enforcer_unified import RBACEnforcer, get_rbac_enforcer
+from infrastructure.telemetry.alert_manager_router import trigger_alert
+from ports.primary.iam_user_repository_port import IAMUserRepositoryPort
+
+logger = logging.getLogger(__name__)
+
+# ============================================================================
+# CONSTANTS
+# ============================================================================
+
+REDIS_SOD_CACHE_PREFIX = "sod:check:"
+SOD_CHECK_CACHE_TTL_SECONDS = 300  # 5 minutes
+
+# Default SoD rules (can be overridden by config)
+DEFAULT_SOD_RULES = [
+    # Journal related
+    {
+        "id": "SOD_JOURNAL_001",
+        "name": "Journal Creator cannot be Approver",
+        "description": "User cannot both create and approve journal entries",
+        "conflicting_permissions": ["journal:create", "journal:approve"],
+        "severity": "critical",
+        "enabled": True,
+    },
+    {
+        "id": "SOD_JOURNAL_002",
+        "name": "Journal Approver cannot be Poster",
+        "description": "User cannot both approve and post journal entries",
+        "conflicting_permissions": ["journal:approve", "journal:post"],
+        "severity": "critical",
+        "enabled": True,
+    },
+    {
+        "id": "SOD_JOURNAL_003",
+        "name": "Journal Creator cannot be Poster",
+        "description": "User cannot both create and post journal entries",
+        "conflicting_permissions": ["journal:create", "journal:post"],
+        "severity": "critical",
+        "enabled": True,
+    },
+    # AR/AP related
+    {
+        "id": "SOD_AR_001",
+        "name": "AR Invoice Creator cannot be AR Payment Recorder",
+        "description": "User cannot both create AR invoice and record payment for same customer",
+        "conflicting_permissions": ["ar_invoice:create", "ar_payment:record"],
+        "severity": "high",
+        "enabled": True,
+    },
+    {
+        "id": "SOD_AP_001",
+        "name": "AP Invoice Approver cannot be AP Payment Creator",
+        "description": "User cannot both approve AP invoice and create payment",
+        "conflicting_permissions": ["ap_invoice:approve", "ap_payment:create"],
+        "severity": "high",
+        "enabled": True,
+    },
+    # Master data related
+    {
+        "id": "SOD_MASTER_001",
+        "name": "Vendor Creator cannot be AP Invoice Creator",
+        "description": "User cannot both create vendor and create AP invoice",
+        "conflicting_permissions": ["vendor:create", "ap_invoice:create"],
+        "severity": "medium",
+        "enabled": True,
+    },
+    {
+        "id": "SOD_MASTER_002",
+        "name": "Customer Creator cannot be AR Invoice Creator",
+        "description": "User cannot both create customer and create AR invoice",
+        "conflicting_permissions": ["customer:create", "ar_invoice:create"],
+        "severity": "medium",
+        "enabled": True,
+    },
+    # Cash/Bank related
+    {
+        "id": "SOD_CASH_001",
+        "name": "Bank Reconciliation cannot be done by Payment Creator",
+        "description": "User cannot both create payments and perform bank reconciliation",
+        "conflicting_permissions": ["payment:create", "bank:reconcile"],
+        "severity": "critical",
+        "enabled": True,
+    },
+    # User management related
+    {
+        "id": "SOD_USER_001",
+        "name": "User Manager cannot be System Admin",
+        "description": "User cannot both manage users and have system admin rights",
+        "conflicting_permissions": ["user:manage", "system:admin"],
+        "severity": "critical",
+        "enabled": True,
+    },
+    {
+        "id": "SOD_USER_002",
+        "name": "Role Assigner cannot be Role Creator",
+        "description": "User cannot both assign roles to others and create new roles",
+        "conflicting_permissions": ["role:assign", "role:create"],
+        "severity": "high",
+        "enabled": True,
+    },
+    # Tax related
+    {
+        "id": "SOD_TAX_001",
+        "name": "Tax Calculator cannot be Tax Approver",
+        "description": "User cannot both calculate and approve tax filings",
+        "conflicting_permissions": ["tax:calculate", "tax:approve"],
+        "severity": "critical",
+        "enabled": True,
+    },
+    # Period closing related
+    {
+        "id": "SOD_PERIOD_001",
+        "name": "Period Closer cannot be Journal Poster",
+        "description": "User cannot both post journals and close accounting periods",
+        "conflicting_permissions": ["journal:post", "period:close"],
+        "severity": "critical",
+        "enabled": True,
+    },
+]
+
+# ============================================================================
+# EXCEPTIONS
+# ============================================================================
+
+
+class SODConstraintError(Exception):
+    """Base exception untuk SoD constraint checker."""
+    pass
+
+
+class SODViolationError(SODConstraintError):
+    """Terjadi pelanggaran Separation of Duties."""
+
+    def __init__(self, user_id: UUID, violations: list[dict[str, Any]]):
+        self.user_id = user_id
+        self.violations = violations
+        super().__init__(f"SoD violations for user {user_id}: {len(violations)} violation(s)")
+
+
+# ============================================================================
+# SOD CONSTRAINT CHECKER
+# ============================================================================
+
+
+class SODConstraintChecker:
+    """
+    Pemeriksa constraint Separation of Duties.
+
+    Method Standards (ERP):
+    - check_user() - Memeriksa SoD untuk satu user
+    - enforce() - Menerapkan SoD (raise jika melanggar)
+    - check_users_batch() - Batch check untuk multiple users
+    - check_permission_combination() - Cek kombinasi permission
+    - get_all_rules() - Mendapatkan semua aturan SoD
+    - add_rule() - Menambahkan aturan SoD
+    - enable_rule() - Mengaktifkan aturan SoD
+    - disable_rule() - Menonaktifkan aturan SoD
+    - clear_cache() - Membersihkan cache
+    - get_stats() - Mendapatkan statistik
+    - reset() - Reset checker
+    - reload_rules() - Reload aturan dari konfigurasi
+    """
+
+    def __init__(self, config_path: str = "config_files/security_config.yaml"):
+        self._config_path = config_path
+        self.config = self._load_config(config_path)
+        self._rules = self._load_rules()
+        self._redis_manager: RedisManager | None = None
+        self._rbac_enforcer: RBACEnforcer | None = None
+        self._user_repo: IAMUserRepositoryPort | None = None
+        self._violation_cache: dict[str, list[dict]] = {}
+        self._logger = logging.getLogger(f"{__name__}.SODConstraintChecker")
+
+    def _load_config(self, config_path: str) -> dict[str, Any]:
+        try:
+            config = load_yaml_config(config_path)
+            return config.get("sod", {})
+        except Exception as e:
+            self._logger.warning(f"Failed to load SoD config, using defaults: {e}")
+            return {"enabled": True, "cache_ttl_seconds": SOD_CHECK_CACHE_TTL_SECONDS}
+
+    def _load_rules(self) -> list[dict[str, Any]]:
+        """
+        Load SoD rules from config or use defaults.
+        """
+        rules = self.config.get("rules", DEFAULT_SOD_RULES)
+        # Filter enabled rules
+        return [r for r in rules if r.get("enabled", True)]
+
+    async def _get_redis(self) -> RedisManager:
+        if self._redis_manager is None:
+            self._redis_manager = await get_redis_manager()
+        return self._redis_manager
+
+    async def _get_rbac_enforcer(self) -> RBACEnforcer:
+        if self._rbac_enforcer is None:
+            self._rbac_enforcer = await get_rbac_enforcer()
+        return self._rbac_enforcer
+
+    async def _get_user_repo(self) -> IAMUserRepositoryPort:
+        if self._user_repo is None:
+            container = get_container()
+            self._user_repo = container.resolve(IAMUserRepositoryPort)
+        return self._user_repo
+
+    def _get_cache_key(self, user_id: UUID) -> str:
+        """Get Redis cache key for SoD check result."""
+        return f"{REDIS_SOD_CACHE_PREFIX}{user_id}"
+
+    async def check_user(
+        self, user_id: UUID, legal_entity_id: UUID | None = None
+    ) -> list[dict[str, Any]]:
+        """
+        Check SoD violations for a user.
+
+        Args:
+            user_id: User ID to check
+            legal_entity_id: Legal entity context (optional)
+
+        Returns:
+            List of violations (empty if none)
+        """
+        if not user_id:
+            raise ValueError("user_id cannot be None")
+
+        if not self.config.get("enabled", True):
+            return []
+
+        # Check cache
+        cache_key = self._get_cache_key(user_id)
+        redis = await self._get_redis()
+        cached = await redis.get(cache_key)
+
+        if cached:
+            violations = json.loads(cached)
+            self._violation_cache[str(user_id)] = violations
+            return violations
+
+        # Get user permissions
+        enforcer = await self._get_rbac_enforcer()
+        permissions = await enforcer.get_user_permissions(user_id, legal_entity_id)
+        permission_set = set(permissions)
+
+        # Check each rule for conflicts
+        violations = []
+        for rule in self._rules:
+            conflicting_perms = rule.get("conflicting_permissions", [])
+            # Check if user has at least two conflicting permissions
+            user_conflicting = [p for p in conflicting_perms if p in permission_set]
+            if len(user_conflicting) >= 2:
+                violations.append(
+                    {
+                        "rule_id": rule.get("id"),
+                        "rule_name": rule.get("name"),
+                        "description": rule.get("description"),
+                        "severity": rule.get("severity", "medium"),
+                        "conflicting_permissions": user_conflicting,
+                        "detected_at": datetime.now(UTC).isoformat(),
+                    }
+                )
+
+        # Cache result
+        ttl = self.config.get("cache_ttl_seconds", SOD_CHECK_CACHE_TTL_SECONDS)
+        await redis.setex(cache_key, ttl, json.dumps(violations))
+        self._violation_cache[str(user_id)] = violations
+
+        # Alert for critical violations
+        critical_violations = [v for v in violations if v.get("severity") == "critical"]
+        if critical_violations:
+            await trigger_alert(
+                title="SoD Violation Detected",
+                message=f"User {user_id} has {len(critical_violations)} critical SoD violation(s)",
+                severity="critical",
+                source="SODConstraintChecker",
+            )
+
+        return violations
+
+    async def enforce(self, user_id: UUID, legal_entity_id: UUID | None = None) -> None:
+        """
+        Enforce SoD constraints - raises exception if violations found.
+
+        Raises:
+            SODViolationError: If SoD violations are detected
+        """
+        violations = await self.check_user(user_id, legal_entity_id)
+        if violations:
+            raise SODViolationError(user_id, violations)
+
+    async def check_users_batch(
+        self, user_ids: list[UUID], legal_entity_id: UUID | None = None
+    ) -> dict[UUID, list[dict]]:
+        """
+        Check SoD violations for multiple users.
+
+        Returns:
+            Dict mapping user_id to list of violations
+        """
+        if not user_ids:
+            return {}
+
+        results = {}
+        for user_id in user_ids:
+            results[user_id] = await self.check_user(user_id, legal_entity_id)
+        return results
+
+    async def check_permission_combination(self, permissions: list[str]) -> list[dict[str, Any]]:
+        """
+        Check if a combination of permissions violates any SoD rule.
+        """
+        if not permissions:
+            return []
+
+        permission_set = set(permissions)
+        violations = []
+
+        for rule in self._rules:
+            conflicting_perms = rule.get("conflicting_permissions", [])
+            user_conflicting = [p for p in conflicting_perms if p in permission_set]
+            if len(user_conflicting) >= 2:
+                violations.append(
+                    {
+                        "rule_id": rule.get("id"),
+                        "rule_name": rule.get("name"),
+                        "description": rule.get("description"),
+                        "severity": rule.get("severity", "medium"),
+                        "conflicting_permissions": user_conflicting,
+                    }
+                )
+
+        return violations
+
+    async def get_all_rules(self) -> list[dict[str, Any]]:
+        """
+        Get all SoD rules (including disabled ones from config).
+        """
+        return self._rules.copy()
+
+    async def add_rule(self, rule: dict[str, Any]) -> None:
+        """
+        Add a custom SoD rule (runtime, not persisted).
+        """
+        if not rule:
+            raise ValueError("Rule cannot be empty")
+        if "id" not in rule:
+            raise ValueError("Rule must have 'id' field")
+
+        rule["enabled"] = rule.get("enabled", True)
+        self._rules.append(rule)
+        self._logger.info(f"SoD rule added: {rule.get('id')}")
+
+        # Clear cache because rules changed
+        await self.clear_cache()
+
+    async def enable_rule(self, rule_id: str) -> bool:
+        """
+        Enable a SoD rule.
+        """
+        if not rule_id:
+            raise ValueError("rule_id cannot be empty")
+
+        for rule in self._rules:
+            if rule.get("id") == rule_id:
+                rule["enabled"] = True
+                await self.clear_cache()
+                self._logger.info(f"SoD rule enabled: {rule_id}")
+                return True
+        return False
+
+    async def disable_rule(self, rule_id: str) -> bool:
+        """
+        Disable a SoD rule.
+        """
+        if not rule_id:
+            raise ValueError("rule_id cannot be empty")
+
+        for rule in self._rules:
+            if rule.get("id") == rule_id:
+                rule["enabled"] = False
+                await self.clear_cache()
+                self._logger.info(f"SoD rule disabled: {rule_id}")
+                return True
+        return False
+
+    async def clear_cache(self) -> None:
+        """Clear SoD check cache."""
+        self._violation_cache.clear()
+
+        redis = await self._get_redis()
+        pattern = f"{REDIS_SOD_CACHE_PREFIX}*"
+        keys = await redis.keys(pattern)
+        if keys:
+            await redis.delete(*keys)
+
+        self._logger.info("SoD cache cleared")
+
+    async def get_stats(self) -> dict[str, Any]:
+        """
+        Get SoD checker statistics.
+        """
+        return {
+            "enabled": self.config.get("enabled", True),
+            "total_rules": len(self._rules),
+            "cache_size": len(self._violation_cache),
+            "cache_ttl_seconds": self.config.get("cache_ttl_seconds", SOD_CHECK_CACHE_TTL_SECONDS),
+        }
+
+    async def reset(self) -> None:
+        """
+        Reset checker state (clear cache and reload config).
+        """
+        await self.clear_cache()
+        self.config = self._load_config(self._config_path)
+        self._rules = self._load_rules()
+        self._logger.info("SoD checker reset")
+
+    async def reload_rules(self) -> None:
+        """
+        Reload rules from configuration.
+        """
+        self.config = self._load_config(self._config_path)
+        self._rules = self._load_rules()
+        await self.clear_cache()
+        self._logger.info("SoD rules reloaded")
+
+
+# ============================================================================
+# SINGLETON INSTANCE
+# ============================================================================
+
+_sod_checker: SODConstraintChecker | None = None
+
+
+async def get_sod_checker() -> SODConstraintChecker:
+    """Get singleton instance of SODConstraintChecker."""
+    global _sod_checker
+    if _sod_checker is None:
+        _sod_checker = SODConstraintChecker()
+    return _sod_checker
+
+
+# ============================================================================
+# DECORATOR
+# ============================================================================
+
+
+def enforce_sod():
+    """
+    Decorator untuk memeriksa SoD sebelum menjalankan fungsi.
+    """
+
+    def decorator(func):
+        async def wrapper(user_id: UUID, *args, **kwargs):
+            checker = await get_sod_checker()
+            await checker.enforce(user_id)
+            return await func(user_id, *args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+# ============================================================================
+# EXPORTS
+# ============================================================================
+
+__all__ = [
+    "SODConstraintChecker",
+    "SODConstraintError",
+    "SODViolationError",
+    "enforce_sod",
+    "get_sod_checker",
+]

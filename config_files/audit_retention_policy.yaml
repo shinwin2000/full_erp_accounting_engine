@@ -1,0 +1,52 @@
+# ============================================================
+# audit_retention_policy.yaml — Kebijakan Retensi Data Audit
+# Dibaca oleh: audit/ + infrastructure/file_storage/
+# ============================================================
+
+retention:
+  event_store_years: ${AUDIT_LOG_RETENTION_YEARS:10}
+  audit_trail_years: ${AUDIT_LOG_RETENTION_YEARS:10}
+  journal_entries_years: 10
+  financial_statements_years: 10
+  tax_documents_years: 10
+  supporting_documents_years: 10
+  payroll_records_years: 10
+  bank_statements_years: 10
+  contract_records_years: 10
+
+archival:
+  hot_storage_years: 2          # PostgreSQL aktif
+  warm_storage_years: 3         # PostgreSQL partisi lama
+  cold_storage_after_years: ${COLD_STORAGE_AFTER_YEARS:5}
+  cold_storage_provider: glacier
+  compression: zstd
+  encryption: AES-256-GCM
+
+hash_chain:
+  enabled: true
+  integrity_check_schedule: "0 2 * * *"   # Setiap hari jam 02:00
+  full_verify_schedule: "0 3 * * 0"       # Setiap Minggu jam 03:00
+  alert_on_tamper: true
+  alert_channels:
+    - email
+    - slack
+    - pagerduty
+
+backup:
+  full_backup_schedule: "0 1 * * 0"       # Setiap Minggu jam 01:00
+  incremental_schedule: "0 1 * * 1-6"     # Setiap hari kecuali Minggu
+  pitr_enabled: true
+  retention_copies: 4
+  encrypt_backups: true
+  backup_location: ${DR_BACKUP_S3_BUCKET:erp-accounting-backup}
+
+compliance:
+  ojk_reporting_retention_years: 10
+  bi_reporting_retention_years: 10
+  djp_retention_years: 10
+  sox_evidence_retention_years: 7
+
+deletion:
+  personal_data_max_years: 5    # GDPR/UU PDP
+  allow_manual_deletion: false
+  deletion_requires_legal_approval: true

@@ -1,0 +1,827 @@
+# service_fixed_asset.py - Complete rewrite with full implementation
+
+#!/usr/bin/env python3
+
+"""
+Module: service_fixed_asset.py
+
+Layer: 8 - Application / Service Layer
+
+Responsibility:
+    Service layer untuk Fixed Asset Management.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from decimal import ROUND_HALF_EVEN, Decimal
+from enum import Enum
+from uuid import UUID, uuid4
+
+from domain.fixed_asset.aggregate_root import FixedAssetAggregate
+from domain.fixed_asset.asset_entity import AssetStatus, AssetType, DepreciationMethod, FixedAsset
+from domain.fixed_asset.depreciation_schedule_engine import (
+    DepreciationEntry,
+    DepreciationScheduleEngine,
+)
+from domain.fixed_asset.disposal_entity import DisposalType
+from domain.fixed_asset.domain_events import (
+    AssetAcquired,
+    AssetDepreciated,
+    AssetDisposed,
+    AssetImpairmentRecognized,
+)
+from domain.fixed_asset.impairment_tester import ImpairmentTester
+from domain.fixed_asset.invariants import FixedAssetInvariantsValidator
+from ports.primary.event_publisher_port import EventPublisherPort
+from ports.primary.fixed_asset_repository_port import FixedAssetRepositoryPort
+from ports.primary.ledger_repository_port import LedgerRepositoryPort
+from ports.primary.unit_of_work_port import UnitOfWorkPort
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Enums
+# ============================================================================
+
+
+class FixedAssetStatus(str, Enum):
+    """Status aset tetap."""
+
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    UNDER_MAINTENANCE = "UNDER_MAINTENANCE"
+    DISPOSED = "DISPOSED"
+    FULLY_DEPRECIATED = "FULLY_DEPRECIATED"
+    IMPAIRED = "IMPAIRED"
+
+
+class FixedAssetType(str, Enum):
+    """Tipe aset tetap."""
+
+    BUILDING = "BUILDING"
+    MACHINERY = "MACHINERY"
+    VEHICLE = "VEHICLE"
+    FURNITURE = "FURNITURE"
+    COMPUTER = "COMPUTER"
+    LAND = "LAND"
+    OTHER = "OTHER"
+
+
+class FixedAssetDepreciationMethod(str, Enum):
+    """Metode depresiasi."""
+
+    STRAIGHT_LINE = "straight_line"
+    DECLINING_BALANCE = "declining_balance"
+    DOUBLE_DECLINING = "double_declining"
+    SUM_OF_YEARS = "sum_of_years"
+    UNITS_OF_PRODUCTION = "units_of_production"
+
+
+# ============================================================================
+# DTOs
+# ============================================================================
+
+
+@dataclass(kw_only=True)
+class CreateAssetRequest:
+    """Request to create a fixed asset."""
+
+    legal_entity_id: UUID
+    asset_code: str
+    asset_name: str
+    asset_category_id: UUID
+    acquisition_date: date
+    acquisition_cost: Decimal
+    salvage_value: Decimal = Decimal(0)
+    useful_life_years: int = 5
+    depreciation_method: str = "straight_line"
+    location: str | None = None
+    responsible_party: UUID | None = None
+    description: str | None = None
+    supplier_id: UUID | None = None
+    invoice_number: str | None = None
+    is_active: bool = True
+
+
+@dataclass(kw_only=True)
+class AssetResponse:
+    """Response for fixed asset."""
+
+    id: UUID
+    asset_code: str
+    asset_name: str
+    asset_type: str
+    asset_category_id: UUID
+    acquisition_date: date
+    acquisition_cost: Decimal
+    salvage_value: Decimal
+    useful_life_years: int
+    depreciation_method: str
+    accumulated_depreciation: Decimal
+    net_book_value: Decimal
+    location: str | None
+    responsible_party: UUID | None
+    status: str
+    is_active: bool
+    created_at: datetime
+
+
+@dataclass(kw_only=True)
+class DepreciationRunRequest:
+    """Request to run depreciation."""
+
+    legal_entity_id: UUID
+    period_year: int
+    period_month: int
+    posting_date: date
+    user_id: UUID
+
+
+@dataclass(kw_only=True)
+class DepreciationRunResponse:
+    """Response for depreciation run."""
+
+    total_assets_processed: int
+    total_depreciation_amount: Decimal
+    posted_to_gl: bool
+    journal_id: UUID | None = None
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass(kw_only=True)
+class DisposalRequest:
+    """Request to dispose asset."""
+
+    asset_id: UUID
+    disposal_date: date
+    disposal_type: str
+    proceeds_amount: Decimal = Decimal(0)
+    disposal_cost: Decimal = Decimal(0)
+    reason: str | None = None
+    customer_id: UUID | None = None
+    invoice_number: str | None = None
+
+
+@dataclass(kw_only=True)
+class DisposalResponse:
+    """Response for asset disposal."""
+
+    asset_id: UUID
+    asset_code: str
+    disposal_date: date
+    proceeds: Decimal
+    cost: Decimal
+    gain_loss: Decimal
+    journal_id: UUID | None = None
+
+
+@dataclass(kw_only=True)
+class ImpairmentTestRequest:
+    """Request for impairment test."""
+
+    asset_id: UUID
+    test_date: date
+    recoverable_amount: Decimal
+    method: str = "VALUE_IN_USE"
+    notes: str | None = None
+
+
+@dataclass(kw_only=True)
+class ImpairmentTestResponse:
+    """Response for impairment test."""
+
+    asset_id: UUID
+    carrying_amount: Decimal
+    recoverable_amount: Decimal
+    impairment_loss: Decimal
+    needs_impairment: bool
+    journal_id: UUID | None = None
+
+
+@dataclass(kw_only=True)
+class RevaluationRequest:
+    """Request for asset revaluation."""
+
+    asset_id: UUID
+    new_acquisition_cost: Decimal
+    revaluation_date: date
+    notes: str | None = None
+    approved_by: UUID | None = None
+
+
+@dataclass(kw_only=True)
+class RevaluationResponse:
+    """Response for asset revaluation."""
+
+    asset_id: UUID
+    old_net_book_value: Decimal
+    new_net_book_value: Decimal
+    revaluation_increase: Decimal
+    revaluation_decrease: Decimal
+    journal_id: UUID | None = None
+
+
+# ============================================================================
+# Exceptions
+# ============================================================================
+
+
+class FixedAssetServiceError(Exception):
+    pass
+
+
+class AssetNotFoundError(FixedAssetServiceError):
+    pass
+
+
+class AssetAlreadyDisposedError(FixedAssetServiceError):
+    pass
+
+
+class InvalidDepreciationMethodError(FixedAssetServiceError):
+    pass
+
+
+class RevaluationNotAllowedError(FixedAssetServiceError):
+    pass
+
+
+# ============================================================================
+# Main Service
+# ============================================================================
+
+
+class FixedAssetService:
+    """
+    Service untuk Fixed Asset Management.
+    """
+
+    def __init__(
+        self,
+        asset_repo: FixedAssetRepositoryPort,
+        ledger_repo: LedgerRepositoryPort | None = None,
+        uow: UnitOfWorkPort | None = None,
+        event_publisher: EventPublisherPort | None = None,
+    ):
+        if asset_repo is None:
+            raise ValueError("asset_repo is required")
+
+        self._asset_repo = asset_repo
+        self._ledger_repo = ledger_repo
+        self._uow = uow
+        self._event_publisher = event_publisher
+        self._validator = FixedAssetInvariantsValidator()
+        self._depreciation_engine = DepreciationScheduleEngine()
+        self._impairment_tester = ImpairmentTester()
+        self._stats = {"assets_created": 0, "depreciations": 0, "disposals": 0, "impairments": 0}
+
+        logger.info("FixedAssetService initialized")
+
+    # ==================== ASSET MASTER ====================
+
+    async def create_asset(
+        self, request: CreateAssetRequest, user_id: UUID, correlation_id: str | None = None
+    ) -> AssetResponse:
+        """Create a new fixed asset."""
+        # Check unique asset code
+        existing = await self._asset_repo.find_by_code(request.legal_entity_id, request.asset_code)
+        if existing:
+            raise FixedAssetServiceError(f"Asset code {request.asset_code} already exists")
+
+        # Validate depreciation method
+        valid_methods = [m.value for m in FixedAssetDepreciationMethod]
+        if request.depreciation_method.lower() not in valid_methods:
+            raise InvalidDepreciationMethodError(f"Invalid method {request.depreciation_method}")
+
+        # Validate dates
+        if request.acquisition_date > date.today():
+            raise FixedAssetServiceError("Acquisition date cannot be in the future")
+
+        # Create asset
+        asset = FixedAsset(
+            id=uuid4(),
+            legal_entity_id=request.legal_entity_id,
+            asset_code=request.asset_code,
+            name=request.asset_name,
+            description=request.description,
+            asset_type=AssetType.TANGIBLE,
+            status=AssetStatus.ACTIVE,
+            acquisition_date=request.acquisition_date,
+            acquisition_cost=request.acquisition_cost,
+            salvage_value=request.salvage_value,
+            useful_life_years=request.useful_life_years,
+            depreciation_method=DepreciationMethod(request.depreciation_method.lower()),
+            accumulated_depreciation=Decimal("0"),
+            net_book_value=request.acquisition_cost,
+            location=request.location,
+            responsible_person=request.responsible_party,
+            supplier_id=request.supplier_id,
+            po_number=request.invoice_number,
+            category=str(request.asset_category_id),
+            created_by=user_id,
+            created_at=datetime.utcnow(),
+            updated_at=None,
+            updated_by=None,
+        )
+
+        aggregate = FixedAssetAggregate(asset=asset, version=0)
+        aggregate.acquire(user_id)
+
+        await self._asset_repo.save_asset(aggregate)
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["assets_created"] += 1
+
+        if self._event_publisher:
+            event = AssetAcquired(
+                aggregate_id=asset.id,
+                legal_entity_id=asset.legal_entity_id,
+                asset_code=asset.asset_code,
+                acquisition_cost=asset.acquisition_cost,
+                user_id=user_id,
+                occurred_at=datetime.utcnow(),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+
+        logger.info(f"Asset created: {asset.asset_code} - {asset.name}")
+        return self._to_response(asset)
+
+    async def get_asset(self, asset_id: UUID) -> AssetResponse | None:
+        """Get asset by ID."""
+        aggregate = await self._asset_repo.get_asset_by_id(asset_id)
+        if not aggregate:
+            return None
+        return self._to_response(aggregate.asset)
+
+    async def list_assets(
+        self,
+        legal_entity_id: UUID,
+        asset_type: str | None = None,
+        status: str | None = None,
+        category_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[AssetResponse]:
+        """List assets with filters."""
+        assets = await self._asset_repo.list_assets(
+            legal_entity_id=legal_entity_id,
+            asset_type=asset_type,
+            status=status,
+            category_id=category_id,
+            limit=limit,
+            offset=offset,
+        )
+        return [self._to_response(a) for a in assets]
+
+    # ==================== DEPRECIATION ====================
+
+    async def run_monthly_depreciation(
+        self, request: DepreciationRunRequest, correlation_id: str | None = None
+    ) -> DepreciationRunResponse:
+        """Run monthly depreciation for all active assets."""
+        # Get all active assets
+        assets = await self._asset_repo.list_active_assets(request.legal_entity_id)
+        if not assets:
+            return DepreciationRunResponse(
+                total_assets_processed=0,
+                total_depreciation_amount=Decimal("0"),
+                posted_to_gl=False,
+                errors=["No active assets found"],
+            )
+
+        total_depreciation = Decimal("0")
+        processed_count = 0
+        errors = []
+        depreciation_entries = []
+
+        period_end = date(request.period_year, request.period_month, 1)
+        if request.period_month == 12:
+            period_end = date(request.period_year + 1, 1, 1) - timedelta(days=1)
+        else:
+            period_end = date(request.period_year, request.period_month + 1, 1) - timedelta(days=1)
+
+        for agg in assets:
+            asset = agg.asset
+
+            # Skip if fully depreciated
+            if asset.net_book_value <= asset.salvage_value:
+                continue
+
+            # Calculate monthly depreciation
+            monthly_dep = self._calculate_monthly_depreciation(asset, period_end)
+            if monthly_dep <= Decimal("0"):
+                continue
+
+            # Update asset
+            new_accumulated = asset.accumulated_depreciation + monthly_dep
+            new_nbv = asset.acquisition_cost - new_accumulated
+
+            if new_nbv < asset.salvage_value:
+                monthly_dep = asset.net_book_value - asset.salvage_value
+                new_accumulated = asset.accumulated_depreciation + monthly_dep
+                new_nbv = asset.salvage_value
+
+            asset.accumulated_depreciation = new_accumulated
+            asset.net_book_value = new_nbv
+            asset.last_depreciation_date = period_end
+            asset.depreciation_updated_by = request.user_id
+            asset.updated_at = datetime.utcnow()
+
+            await self._asset_repo.save_asset(agg)
+            total_depreciation += monthly_dep
+            processed_count += 1
+            depreciation_entries.append(
+                {
+                    "asset_id": asset.id,
+                    "asset_code": asset.asset_code,
+                    "amount": monthly_dep,
+                    "period": f"{request.period_year}-{request.period_month:02d}",
+                }
+            )
+
+            # Save depreciation entry
+            dep_entry = DepreciationEntry(
+                id=uuid4(),
+                asset_id=asset.id,
+                period_year=request.period_year,
+                period_month=request.period_month,
+                amount=monthly_dep,
+                accumulated_after=asset.accumulated_depreciation,
+                nbv_after=asset.net_book_value,
+                posting_date=request.posting_date,
+                journal_id=None,
+            )
+            await self._asset_repo.save_depreciation_entry(dep_entry)
+
+        # Post to GL
+        journal_id = None
+        posted = False
+        if self._ledger_repo and total_depreciation > 0:
+            journal_id = await self._post_depreciation_journal(
+                request.legal_entity_id,
+                total_depreciation,
+                request.posting_date,
+                request.user_id,
+                request.period_year,
+                request.period_month,
+            )
+            posted = True
+
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["depreciations"] += 1
+
+        if self._event_publisher and total_depreciation > 0:
+            event = AssetDepreciated(
+                legal_entity_id=request.legal_entity_id,
+                period=f"{request.period_year}-{request.period_month:02d}",
+                total_depreciation=total_depreciation,
+                asset_count=processed_count,
+                user_id=request.user_id,
+                occurred_at=datetime.utcnow(),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+
+        logger.info(
+            f"Depreciation run completed: {processed_count} assets, total={total_depreciation}"
+        )
+
+        return DepreciationRunResponse(
+            total_assets_processed=processed_count,
+            total_depreciation_amount=total_depreciation,
+            posted_to_gl=posted,
+            journal_id=journal_id,
+            errors=errors,
+        )
+
+    def _calculate_monthly_depreciation(self, asset: FixedAsset, period_end: date) -> Decimal:
+        """Calculate monthly depreciation based on method."""
+        if asset.depreciation_method == DepreciationMethod.STRAIGHT_LINE:
+            annual_dep = (asset.acquisition_cost - asset.salvage_value) / Decimal(
+                asset.useful_life_years
+            )
+            monthly_dep = annual_dep / Decimal("12")
+            return monthly_dep.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+
+        elif asset.depreciation_method == DepreciationMethod.DECLINING_BALANCE:
+            rate = Decimal("2") / Decimal(asset.useful_life_years)
+            monthly_rate = rate / Decimal("12")
+            nbv = asset.net_book_value
+            monthly_dep = nbv * monthly_rate
+            return monthly_dep.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+
+        elif asset.depreciation_method == DepreciationMethod.SUM_OF_YEARS:
+            remaining_years = asset.useful_life_years - (
+                asset.accumulated_depreciation
+                / ((asset.acquisition_cost - asset.salvage_value) / asset.useful_life_years)
+            )
+            if remaining_years <= 0:
+                return Decimal("0")
+            sum_of_years = asset.useful_life_years * (asset.useful_life_years + 1) / 2
+            annual_dep = (asset.acquisition_cost - asset.salvage_value) * (
+                remaining_years / sum_of_years
+            )
+            monthly_dep = annual_dep / Decimal("12")
+            return monthly_dep.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+
+        else:
+            return Decimal("0")
+
+    async def _post_depreciation_journal(
+        self,
+        legal_entity_id: UUID,
+        amount: Decimal,
+        posting_date: date,
+        user_id: UUID,
+        year: int,
+        month: int,
+    ) -> UUID:
+        """Post depreciation expense to general ledger."""
+        expense_account = "5-5200"  # Depreciation expense
+        accumulated_account = "1-1900"  # Accumulated depreciation
+
+        journal_id = await self._ledger_repo.post_journal(
+            legal_entity_id=legal_entity_id,
+            journal_date=posting_date,
+            period=f"{year}-{month:02d}",
+            description=f"Monthly depreciation for {year}-{month:02d}",
+            lines=[
+                {"account_code": expense_account, "debit": amount, "credit": Decimal("0")},
+                {"account_code": accumulated_account, "debit": Decimal("0"), "credit": amount},
+            ],
+            source_system="fixed_asset",
+            user_id=user_id,
+        )
+        return journal_id
+
+    # ==================== DISPOSAL ====================
+
+    async def dispose_asset(
+        self, request: DisposalRequest, user_id: UUID, correlation_id: str | None = None
+    ) -> DisposalResponse:
+        """Dispose an asset."""
+        aggregate = await self._asset_repo.get_asset_by_id(request.asset_id)
+        if not aggregate:
+            raise AssetNotFoundError(f"Asset {request.asset_id} not found")
+
+        if aggregate.asset.status == AssetStatus.DISPOSED:
+            raise AssetAlreadyDisposedError("Asset already disposed")
+
+        asset = aggregate.asset
+        nbv = asset.net_book_value
+        proceeds_net = request.proceeds_amount - request.disposal_cost
+        gain_loss = proceeds_net - nbv
+
+        # Mark asset as disposed
+        aggregate.dispose(
+            disposal_date=request.disposal_date,
+            disposal_type=DisposalType(request.disposal_type),
+            proceeds=request.proceeds_amount,
+            disposal_cost=request.disposal_cost,
+            gain_loss=gain_loss,
+            reason=request.reason,
+            user_id=user_id,
+        )
+
+        await self._asset_repo.save_asset(aggregate)
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["disposals"] += 1
+
+        # Post disposal journal
+        journal_id = None
+        if self._ledger_repo:
+            journal_id = await self._post_disposal_journal(
+                asset.legal_entity_id,
+                asset,
+                proceeds_net,
+                nbv,
+                gain_loss,
+                request.disposal_date,
+                user_id,
+            )
+
+        if self._event_publisher:
+            event = AssetDisposed(
+                aggregate_id=asset.id,
+                asset_code=asset.asset_code,
+                disposal_date=request.disposal_date,
+                gain_loss=gain_loss,
+                user_id=user_id,
+                occurred_at=datetime.utcnow(),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+
+        logger.info(f"Asset {asset.asset_code} disposed: gain_loss={gain_loss}")
+
+        return DisposalResponse(
+            asset_id=asset.id,
+            asset_code=asset.asset_code,
+            disposal_date=request.disposal_date,
+            proceeds=request.proceeds_amount,
+            cost=request.disposal_cost,
+            gain_loss=gain_loss,
+            journal_id=journal_id,
+        )
+
+    async def _post_disposal_journal(
+        self,
+        legal_entity_id: UUID,
+        asset: FixedAsset,
+        proceeds_net: Decimal,
+        nbv: Decimal,
+        gain_loss: Decimal,
+        disposal_date: date,
+        user_id: UUID,
+    ) -> UUID:
+        """Post disposal journal entry."""
+        asset_account = "1-1000"
+        accumulated_account = "1-1900"
+        gain_account = "4-1000" if gain_loss > 0 else "5-6000"
+        cash_account = "1-1100"
+
+        lines = [
+            {
+                "account_code": accumulated_account,
+                "debit": asset.accumulated_depreciation,
+                "credit": Decimal("0"),
+            },
+            {
+                "account_code": asset_account,
+                "debit": Decimal("0"),
+                "credit": asset.acquisition_cost,
+            },
+            {"account_code": cash_account, "debit": proceeds_net, "credit": Decimal("0")},
+        ]
+
+        if gain_loss > 0:
+            lines.append({"account_code": gain_account, "debit": Decimal("0"), "credit": gain_loss})
+        elif gain_loss < 0:
+            lines.append(
+                {"account_code": gain_account, "debit": abs(gain_loss), "credit": Decimal("0")}
+            )
+
+        journal_id = await self._ledger_repo.post_journal(
+            legal_entity_id=legal_entity_id,
+            journal_date=disposal_date,
+            period=f"{disposal_date.year}-{disposal_date.month:02d}",
+            description=f"Disposal of asset {asset.asset_code}",
+            lines=lines,
+            source_system="fixed_asset",
+            user_id=user_id,
+        )
+        return journal_id
+
+    # ==================== IMPAIRMENT ====================
+
+    async def test_impairment(
+        self, request: ImpairmentTestRequest, user_id: UUID, correlation_id: str | None = None
+    ) -> ImpairmentTestResponse:
+        """Test asset for impairment."""
+        aggregate = await self._asset_repo.get_asset_by_id(request.asset_id)
+        if not aggregate:
+            raise AssetNotFoundError(f"Asset {request.asset_id} not found")
+
+        asset = aggregate.asset
+        carrying = asset.net_book_value
+        recoverable = request.recoverable_amount
+
+        impairment_loss = max(carrying - recoverable, Decimal("0"))
+        needs_impairment = impairment_loss > 0
+        journal_id = None
+
+        if needs_impairment:
+            asset.net_book_value = recoverable
+            asset.accumulated_impairment = (
+                asset.accumulated_impairment or Decimal("0")
+            ) + impairment_loss
+            asset.updated_by = user_id
+            asset.updated_at = datetime.utcnow()
+            await self._asset_repo.save_asset(aggregate)
+
+            if self._ledger_repo:
+                journal_id = await self._post_impairment_journal(
+                    asset.legal_entity_id, asset, impairment_loss, request.test_date, user_id
+                )
+
+            if self._uow:
+                await self._uow.commit()
+
+            self._stats["impairments"] += 1
+
+            if self._event_publisher:
+                event = AssetImpairmentRecognized(
+                    aggregate_id=asset.id,
+                    asset_code=asset.asset_code,
+                    impairment_loss=impairment_loss,
+                    user_id=user_id,
+                    occurred_at=datetime.utcnow(),
+                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+
+        return ImpairmentTestResponse(
+            asset_id=asset.id,
+            carrying_amount=carrying,
+            recoverable_amount=recoverable,
+            impairment_loss=impairment_loss,
+            needs_impairment=needs_impairment,
+            journal_id=journal_id,
+        )
+
+    async def _post_impairment_journal(
+        self,
+        legal_entity_id: UUID,
+        asset: FixedAsset,
+        loss: Decimal,
+        test_date: date,
+        user_id: UUID,
+    ) -> UUID:
+        """Post impairment journal entry."""
+        impairment_loss_account = "5-7000"
+        asset_account = "1-1000"
+
+        journal_id = await self._ledger_repo.post_journal(
+            legal_entity_id=legal_entity_id,
+            journal_date=test_date,
+            period=f"{test_date.year}-{test_date.month:02d}",
+            description=f"Impairment loss for asset {asset.asset_code}",
+            lines=[
+                {"account_code": impairment_loss_account, "debit": loss, "credit": Decimal("0")},
+                {"account_code": asset_account, "debit": Decimal("0"), "credit": loss},
+            ],
+            source_system="fixed_asset",
+            user_id=user_id,
+        )
+        return journal_id
+
+    # ==================== HELPER ====================
+
+    def _to_response(self, asset: FixedAsset) -> AssetResponse:
+        return AssetResponse(
+            id=asset.id,
+            asset_code=asset.asset_code,
+            asset_name=asset.name,
+            asset_type=asset.asset_type.value,
+            asset_category_id=UUID(asset.category) if asset.category else UUID(int=0),
+            acquisition_date=asset.acquisition_date,
+            acquisition_cost=asset.acquisition_cost,
+            salvage_value=asset.salvage_value,
+            useful_life_years=asset.useful_life_years,
+            depreciation_method=asset.depreciation_method.value,
+            accumulated_depreciation=asset.accumulated_depreciation,
+            net_book_value=asset.net_book_value,
+            status=asset.status.value,
+            is_active=asset.status == AssetStatus.ACTIVE,
+            location=asset.location,
+            responsible_party=asset.responsible_person,
+            created_at=asset.created_at,
+        )
+
+    def get_stats(self) -> dict[str, int]:
+        """Get service statistics."""
+        return self._stats.copy()
+
+
+# ============================================================================
+# Factory
+# ============================================================================
+
+
+async def create_fixed_asset_service(
+    asset_repo: FixedAssetRepositoryPort,
+    ledger_repo: LedgerRepositoryPort | None = None,
+    uow: UnitOfWorkPort | None = None,
+    event_publisher: EventPublisherPort | None = None,
+) -> FixedAssetService:
+    return FixedAssetService(asset_repo, ledger_repo, uow, event_publisher)
+
+
+__all__ = [
+    "AssetAlreadyDisposedError",
+    "AssetNotFoundError",
+    "AssetResponse",
+    "CreateAssetRequest",
+    "DepreciationRunRequest",
+    "DepreciationRunResponse",
+    "DisposalRequest",
+    "DisposalResponse",
+    "FixedAssetDepreciationMethod",
+    "FixedAssetService",
+    "FixedAssetServiceError",
+    "FixedAssetStatus",
+    "FixedAssetType",
+    "ImpairmentTestRequest",
+    "ImpairmentTestResponse",
+    "InvalidDepreciationMethodError",
+    "RevaluationNotAllowedError",
+    "RevaluationRequest",
+    "RevaluationResponse",
+    "create_fixed_asset_service",
+]

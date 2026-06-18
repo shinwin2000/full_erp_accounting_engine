@@ -1,0 +1,96 @@
+# prometheus.yml
+# Prometheus main configuration for ERP Accounting Engine
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: production
+    region: ap-southeast-1
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+      scheme: http
+      timeout: 10s
+      api_version: v2
+
+# Load alert rules from this directory
+rule_files:
+  - 'alert_rules_accounting.yml'
+  - 'alert_rules_coretax.yml'
+  - 'alert_rules_security.yml'
+  - '/etc/prometheus/alert_rules_infrastructure.yml'  # if exists
+
+scrape_configs:
+  # Self monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Application metrics (FastAPI)
+  - job_name: 'erp_app'
+    static_configs:
+      - targets: ['app:8000']
+    metrics_path: '/metrics'
+
+  # PostgreSQL metrics
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  # Redis metrics
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # Kafka metrics
+  - job_name: 'kafka'
+    static_configs:
+      - targets:
+          - 'kafka-1:9308'
+          - 'kafka-2:9308'
+          - 'kafka-3:9308'
+
+  # Node exporter
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # Coretax API blackbox
+  - job_name: 'coretax_blackbox'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - 'https://api.coretax.djp.go.id/v1/health'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'blackbox:9115'
+
+  # Custom application metrics
+  - job_name: 'erp_custom'
+    static_configs:
+      - targets: ['app:8000']
+    metrics_path: '/api/v1/metrics/custom'
+    scrape_interval: 10s
+
+remote_write:
+  - url: 'http://thanos-receiver:19291/api/v1/receive'
+    queue_config:
+      capacity: 10000
+      max_shards: 200
+      min_shards: 1
+      max_samples_per_send: 500
+      batch_send_deadline: 5s
+    write_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'up|scrape_.*|.*_total|.*_duration_seconds.*|journal_postings_total|gl_balance_amount|audit_events_total|coretax.*|hash_chain_verified'
+        action: keep

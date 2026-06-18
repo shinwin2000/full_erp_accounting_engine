@@ -1,0 +1,2322 @@
+#!/usr/bin/env python3
+"""
+Module: fastapi_bank_cash_router.py
+Layer: Adapters (Primary API - v1)
+Responsibility: Menyediakan REST API endpoint untuk mengelola Bank & Cash:
+               rekening bank, transaksi bank, rekonsiliasi bank, buku kas
+               (cash book), petty cash fund, transfer antar bank, dan laporan kas.
+
+Method Standards (ERP):
+- create_bank_account() / update_bank_account() / delete_bank_account() / get_bank_account()
+- activate_bank_account() / deactivate_bank_account() / lock_bank_account() / unlock_bank_account()
+- create_transaction() / update_transaction() / delete_transaction() / get_transaction()
+- reverse_transaction() / void_transaction()
+- create_cash_book() / update_cash_book() / close_cash_book() / reopen_cash_book()
+- create_petty_cash() / replenish_petty_cash() / close_petty_cash()
+- create_transfer() / approve_transfer() / cancel_transfer()
+- reconcile_bank() / close_reconciliation() / reverse_reconciliation()
+- import_statement() / export_transactions()
+- get_balance() / get_cash_flow() / get_daily_position()
+- lock_account() / unlock_account() / archive_account() / restore_account()
+- get_account_status() / get_account_history() / get_account_snapshot()
+- audit_trail_account() / can_transition_account()
+- register_account_event() / get_account_events() / clear_account_events()
+- version_account()
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import date, datetime
+from decimal import Decimal
+from enum import Enum
+from typing import Any
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
+    TokenPayload,
+    get_current_legal_entity,
+    get_current_user,
+    require_permission,
+)
+
+logger = logging.getLogger(__name__)
+
+# ============================================================================
+# CONSTANTS & ENUMS
+# ============================================================================
+
+
+class BankAccountType(str, Enum):
+    CHECKING = "checking"
+    SAVINGS = "savings"
+    DEPOSIT = "deposit"
+    LOAN = "loan"
+    CREDIT_CARD = "credit_card"
+    PETTY_CASH = "petty_cash"
+    CASH_ON_HAND = "cash_on_hand"
+
+
+class BankAccountStatus(str, Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    SUSPENDED = "suspended"
+    CLOSED = "closed"
+    LOCKED = "locked"
+    ARCHIVED = "archived"
+
+
+class TransactionType(str, Enum):
+    DEPOSIT = "deposit"  # Setoran tunai/transfer masuk
+    WITHDRAWAL = "withdrawal"  # Penarikan tunai/transfer keluar
+    TRANSFER_IN = "transfer_in"  # Transfer dari rekening lain (internal)
+    TRANSFER_OUT = "transfer_out"  # Transfer ke rekening lain (internal)
+    BANK_CHARGE = "bank_charge"  # Biaya bank
+    INTEREST = "interest"  # Bunga bank
+    ADJUSTMENT = "adjustment"  # Penyesuaian
+    REFUND = "refund"  # Refund
+    CORRECTION = "correction"  # Koreksi
+
+
+class TransactionStatus(str, Enum):
+    DRAFT = "draft"
+    PENDING = "pending"
+    POSTED = "posted"
+    CLEARED = "cleared"
+    REVERSED = "reversed"
+    CANCELLED = "cancelled"
+    VOID = "void"
+    RECONCILED = "reconciled"
+
+
+class ReconciliationStatus(str, Enum):
+    DRAFT = "draft"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CLOSED = "closed"
+    CANCELLED = "cancelled"
+
+
+class CashBookStatus(str, Enum):
+    ACTIVE = "active"
+    CLOSED = "closed"
+    LOCKED = "locked"
+    ARCHIVED = "archived"
+
+
+class PettyCashStatus(str, Enum):
+    ACTIVE = "active"
+    REIMBURSED = "reimbursed"
+    CLOSED = "closed"
+    LOCKED = "locked"
+
+
+class TransferStatus(str, Enum):
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    PROCESSED = "processed"
+    COMPLETED = "completed"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    REVERSED = "reversed"
+
+
+# ============================================================================
+# PYDANTIC SCHEMAS
+# ============================================================================
+
+
+class BankAccountCreateSchema(BaseModel):
+    """Schema untuk membuat rekening bank baru."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    account_number: str = Field(..., min_length=5, max_length=30, description="Nomor rekening")
+    account_name: str = Field(
+        ..., min_length=3, max_length=200, description="Nama pemilik rekening"
+    )
+    bank_name: str = Field(..., max_length=100, description="Nama bank")
+    bank_code: str = Field(..., max_length=10, description="Kode bank (SWIFT/BIC)")
+    currency_code: str = Field("IDR", min_length=3, max_length=3, description="Mata uang")
+    account_type: BankAccountType = Field(BankAccountType.CHECKING, description="Jenis rekening")
+    opening_balance: Decimal = Field(0, decimal_places=2, description="Saldo awal")
+    opening_balance_date: date = Field(default_factory=date.today, description="Tanggal saldo awal")
+    gl_account_id: UUID | None = Field(None, description="Akun GL yang terkait")
+    is_active: bool = True
+    is_default: bool = False
+    bank_address: str | None = Field(None, max_length=500)
+    swift_code: str | None = Field(None, max_length=20)
+    iban: str | None = Field(None, max_length=34)
+    notes: str | None = Field(None, max_length=500)
+    daily_limit: Decimal | None = Field(None, gt=0, decimal_places=2)
+    transaction_limit: Decimal | None = Field(None, gt=0, decimal_places=2)
+
+    @field_validator("account_number")
+    @classmethod
+    def validate_account_number(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Account number is required")
+        return v.strip()
+
+    @field_validator("bank_code")
+    @classmethod
+    def validate_bank_code(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Bank code is required")
+        return v.upper().strip()
+
+
+class BankAccountUpdateSchema(BaseModel):
+    """Schema untuk update rekening bank."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    account_name: str | None = Field(None, min_length=3, max_length=200)
+    is_active: bool | None = None
+    is_default: bool | None = None
+    bank_address: str | None = Field(None, max_length=500)
+    notes: str | None = Field(None, max_length=500)
+    daily_limit: Decimal | None = Field(None, gt=0, decimal_places=2)
+    transaction_limit: Decimal | None = Field(None, gt=0, decimal_places=2)
+    status: BankAccountStatus | None = None
+
+
+class BankAccountResponseSchema(BaseModel):
+    """Response rekening bank."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    account_number: str
+    account_name: str
+    bank_name: str
+    bank_code: str
+    currency_code: str
+    account_type: BankAccountType
+    current_balance: Decimal
+    available_balance: Decimal
+    opening_balance: Decimal
+    opening_balance_date: date
+    gl_account_id: UUID | None
+    status: BankAccountStatus
+    is_active: bool
+    is_default: bool
+    is_locked: bool = False
+    bank_address: str | None
+    swift_code: str | None
+    iban: str | None
+    daily_limit: Decimal | None
+    transaction_limit: Decimal | None
+    notes: str | None
+    created_at: datetime
+    created_by: UUID
+    created_by_name: str | None = None
+    updated_at: datetime
+    updated_by: UUID | None = None
+    version: int = 1
+
+
+class BankTransactionCreateSchema(BaseModel):
+    """Schema untuk membuat transaksi bank manual."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    bank_account_id: UUID = Field(..., description="ID rekening bank")
+    transaction_date: date = Field(default_factory=date.today, description="Tanggal transaksi")
+    transaction_type: TransactionType = Field(..., description="Jenis transaksi")
+    amount: Decimal = Field(..., gt=0, decimal_places=2, description="Jumlah transaksi")
+    description: str = Field(..., max_length=500, description="Deskripsi")
+    reference_number: str | None = Field(None, max_length=50, description="Nomor referensi")
+    counterparty_account: str | None = Field(
+        None, max_length=50, description="Rekening lawan transaksi"
+    )
+    counterparty_name: str | None = Field(None, max_length=200, description="Nama lawan transaksi")
+    transfer_to_account_id: UUID | None = Field(
+        None, description="Untuk transfer internal: rekening tujuan"
+    )
+    post_to_ledger: bool = Field(True, description="Langsung posting ke GL?")
+    notes: str | None = Field(None, max_length=500)
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount(cls, v: Decimal) -> Decimal:
+        if v <= 0:
+            raise ValueError("Amount must be greater than 0")
+        return v
+
+
+class BankTransactionUpdateSchema(BaseModel):
+    """Schema untuk update transaksi bank."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    description: str | None = Field(None, max_length=500)
+    reference_number: str | None = Field(None, max_length=50)
+    notes: str | None = Field(None, max_length=500)
+    status: TransactionStatus | None = None
+
+
+class BankTransactionResponseSchema(BaseModel):
+    """Response transaksi bank."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    transaction_number: str
+    bank_account_id: UUID
+    bank_account_name: str | None
+    transaction_date: date
+    transaction_type: TransactionType
+    amount: Decimal
+    description: str
+    reference_number: str | None
+    counterparty_account: str | None
+    counterparty_name: str | None
+    journal_id: UUID | None
+    status: TransactionStatus
+    reconciled_at: datetime | None = None
+    reconciliation_id: UUID | None = None
+    created_at: datetime
+    created_by: UUID
+    created_by_name: str | None = None
+    version: int = 1
+    is_reversed: bool = False
+    reversed_at: datetime | None = None
+    reversed_by: UUID | None = None
+
+
+class BankTransactionReverseSchema(BaseModel):
+    """Schema untuk membalik transaksi bank."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    reason: str = Field(..., min_length=5, max_length=500)
+    reversal_date: date = Field(default_factory=date.today)
+
+
+class BankReconciliationCreateSchema(BaseModel):
+    """Schema untuk rekonsiliasi bank."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    bank_account_id: UUID = Field(..., description="ID rekening bank")
+    statement_date: date = Field(..., description="Tanggal statement bank")
+    statement_balance: Decimal = Field(
+        ..., decimal_places=2, description="Saldo dari statement bank"
+    )
+    statement_transactions: list[dict[str, Any]] = Field(
+        ..., description="Daftar transaksi dari statement: [{date, description, amount, reference}]"
+    )
+    auto_match_threshold: Decimal = Field(
+        Decimal(0.01), decimal_places=2, description="Toleransi perbedaan"
+    )
+    notes: str | None = Field(None, max_length=500)
+
+
+class BankReconciliationResponseSchema(BaseModel):
+    """Response rekonsiliasi bank."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    reconciliation_number: str
+    bank_account_id: UUID
+    bank_account_name: str | None
+    statement_date: date
+    statement_balance: Decimal
+    book_balance: Decimal
+    difference: Decimal
+    matched_count: int
+    unmatched_book_count: int
+    unmatched_statement_count: int
+    adjustment_amount: Decimal
+    adjustment_journal_id: UUID | None
+    status: ReconciliationStatus
+    notes: str | None
+    created_at: datetime
+    created_by: UUID
+    created_by_name: str | None = None
+    completed_at: datetime | None = None
+    completed_by: UUID | None = None
+    version: int = 1
+
+
+class CashBookCreateSchema(BaseModel):
+    """Schema untuk membuat buku kas."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str = Field(..., min_length=3, max_length=100, description="Nama buku kas")
+    currency_code: str = Field("IDR", min_length=3, max_length=3, description="Mata uang")
+    opening_balance: Decimal = Field(0, decimal_places=2, description="Saldo awal")
+    opening_balance_date: date = Field(default_factory=date.today, description="Tanggal saldo awal")
+    gl_cash_account_id: UUID = Field(..., description="Akun GL untuk kas")
+    gl_bank_account_id: UUID | None = Field(None, description="Akun GL untuk bank")
+    location: str | None = Field(None, max_length=200, description="Lokasi")
+    custodian_id: UUID | None = Field(None, description="Penanggung jawab kas")
+    min_balance: Decimal = Field(0, ge=0, decimal_places=2, description="Saldo minimum")
+    max_balance: Decimal | None = Field(None, gt=0, decimal_places=2, description="Saldo maksimum")
+
+
+class CashBookResponseSchema(BaseModel):
+    """Response buku kas."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    currency_code: str
+    current_balance: Decimal
+    opening_balance: Decimal
+    opening_balance_date: date
+    gl_cash_account_id: UUID
+    gl_bank_account_id: UUID | None
+    status: CashBookStatus
+    location: str | None
+    custodian_id: UUID | None
+    custodian_name: str | None
+    min_balance: Decimal
+    max_balance: Decimal | None
+    is_locked: bool = False
+    created_at: datetime
+    created_by: UUID
+    created_by_name: str | None = None
+    updated_at: datetime
+    version: int = 1
+
+
+class CashTransactionCreateSchema(BaseModel):
+    """Schema untuk transaksi kas."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    cash_book_id: UUID = Field(..., description="ID buku kas")
+    transaction_date: date = Field(default_factory=date.today, description="Tanggal transaksi")
+    transaction_type: TransactionType = Field(..., description="Jenis transaksi (IN/OUT)")
+    amount: Decimal = Field(..., gt=0, decimal_places=2, description="Jumlah")
+    description: str = Field(..., max_length=500, description="Deskripsi")
+    reference_number: str | None = Field(None, max_length=50, description="Nomor referensi")
+    counterparty_name: str | None = Field(None, max_length=200, description="Nama lawan transaksi")
+    post_to_ledger: bool = Field(True, description="Langsung posting ke GL?")
+    notes: str | None = Field(None, max_length=500)
+
+
+class CashTransactionResponseSchema(BaseModel):
+    """Response transaksi kas."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    transaction_number: str
+    cash_book_id: UUID
+    cash_book_name: str | None
+    transaction_date: date
+    transaction_type: TransactionType
+    amount: Decimal
+    description: str
+    reference_number: str | None
+    counterparty_name: str | None
+    journal_id: UUID | None
+    status: TransactionStatus
+    created_at: datetime
+    created_by: UUID
+    created_by_name: str | None = None
+    version: int = 1
+    is_reversed: bool = False
+
+
+class PettyCashCreateSchema(BaseModel):
+    """Schema untuk membuat petty cash fund."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    fund_name: str = Field(..., min_length=3, max_length=100, description="Nama dana")
+    currency_code: str = Field("IDR", min_length=3, max_length=3, description="Mata uang")
+    initial_amount: Decimal = Field(..., gt=0, decimal_places=2, description="Jumlah awal")
+    custodian_id: UUID = Field(..., description="Penanggung jawab dana")
+    gl_petty_cash_account_id: UUID = Field(..., description="Akun GL untuk petty cash")
+    reimbursement_threshold: Decimal = Field(
+        Decimal(1000000), gt=0, decimal_places=2, description="Threshold reimbursement"
+    )
+    fund_location: str | None = Field(None, max_length=200, description="Lokasi")
+    notes: str | None = Field(None, max_length=500)
+
+
+class PettyCashResponseSchema(BaseModel):
+    """Response petty cash fund."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    fund_name: str
+    currency_code: str
+    current_balance: Decimal
+    initial_amount: Decimal
+    custodian_id: UUID
+    custodian_name: str | None
+    gl_account_id: UUID
+    reimbursement_threshold: Decimal
+    status: PettyCashStatus
+    fund_location: str | None
+    notes: str | None
+    created_at: datetime
+    created_by: UUID
+    created_by_name: str | None = None
+    version: int = 1
+
+
+class PettyCashReimbursementSchema(BaseModel):
+    """Schema untuk reimbursement petty cash."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    reimbursement_date: date = Field(
+        default_factory=date.today, description="Tanggal reimbursement"
+    )
+    amount: Decimal = Field(..., gt=0, decimal_places=2, description="Jumlah reimbursement")
+    bank_account_id: UUID = Field(..., description="Rekening bank sumber")
+    description: str = Field(..., max_length=500, description="Deskripsi")
+    notes: str | None = Field(None, max_length=500)
+
+
+class BankTransferCreateSchema(BaseModel):
+    """Schema untuk transfer antar bank (internal)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    from_bank_account_id: UUID = Field(..., description="Rekening sumber")
+    to_bank_account_id: UUID = Field(..., description="Rekening tujuan")
+    transfer_date: date = Field(default_factory=date.today, description="Tanggal transfer")
+    amount: Decimal = Field(..., gt=0, decimal_places=2, description="Jumlah transfer")
+    description: str = Field(..., max_length=500, description="Deskripsi")
+    reference_number: str | None = Field(None, max_length=50, description="Nomor referensi")
+    notes: str | None = Field(None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_accounts(self) -> BankTransferCreateSchema:
+        if self.from_bank_account_id == self.to_bank_account_id:
+            raise ValueError("Source and destination accounts must be different")
+        return self
+
+
+class BankTransferResponseSchema(BaseModel):
+    """Response transfer bank."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    transfer_number: str
+    from_account_id: UUID
+    from_account_name: str | None
+    to_account_id: UUID
+    to_account_name: str | None
+    transfer_date: date
+    amount: Decimal
+    description: str
+    reference_number: str | None
+    notes: str | None
+    status: TransferStatus
+    from_journal_id: UUID | None
+    to_journal_id: UUID | None
+    created_at: datetime
+    created_by: UUID
+    created_by_name: str | None = None
+    approved_at: datetime | None = None
+    approved_by: UUID | None = None
+    processed_at: datetime | None = None
+    version: int = 1
+
+
+class BankTransferApproveSchema(BaseModel):
+    """Schema untuk approve transfer bank."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    approved: bool = Field(..., description="Approve or reject")
+    notes: str | None = Field(None, max_length=500)
+
+
+class CashFlowReportSchema(BaseModel):
+    """Laporan arus kas."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    legal_entity_id: UUID
+    start_date: date
+    end_date: date
+    beginning_cash: Decimal
+    cash_receipts: Decimal
+    cash_disbursements: Decimal
+    net_cash_flow: Decimal
+    ending_cash: Decimal
+    by_category: dict[str, Decimal]
+    generated_at: datetime
+
+
+class DailyCashPositionSchema(BaseModel):
+    """Posisi kas harian."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    as_of_date: date
+    account_type: str
+    account_id: UUID
+    account_name: str
+    currency: str
+    balance: Decimal
+
+
+class AccountBalanceHistorySchema(BaseModel):
+    """Riwayat saldo rekening."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    as_of_date: date
+    balance: Decimal
+    available_balance: Decimal
+    change_from_previous: Decimal
+
+
+# ============================================================================
+# DEPENDENCY INJECTION
+# ============================================================================
+
+
+async def get_bank_cash_service() -> Any:
+    """Get Bank Cash Service instance."""
+    from application.service_layer.service_bank_cash import BankCashService
+    from infrastructure.dependency_container.ioc_container import get_container
+
+    container = get_container()
+    return container.resolve(BankCashService)
+
+
+async def get_bank_reconciliation_use_case() -> Any:
+    """Get Bank Reconciliation Use Case instance."""
+    from application.use_cases.bank_reconciliation import BankReconciliationUseCase
+    from infrastructure.dependency_container.ioc_container import get_container
+
+    container = get_container()
+    return container.resolve(BankReconciliationUseCase)
+
+
+# ============================================================================
+# ROUTER
+# ============================================================================
+
+router = APIRouter(prefix="/bank-cash", tags=["Bank & Cash"])
+
+
+# ----------------------------------------------------------------------------
+# BANK ACCOUNT CRUD OPERATIONS
+# ----------------------------------------------------------------------------
+
+
+@router.post(
+    "/bank-accounts",
+    response_model=BankAccountResponseSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create bank account",
+    operation_id="create_bank_account",
+)
+async def create_bank_account(
+    request: BankAccountCreateSchema,
+    _permission: None = Depends(require_permission("bank:create")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankAccountResponseSchema:
+    """Create a new bank account."""
+    try:
+        result = await service.create_bank_account(
+            legal_entity_id=legal_entity_id,
+            account_number=request.account_number,
+            account_name=request.account_name,
+            bank_name=request.bank_name,
+            bank_code=request.bank_code,
+            currency_code=request.currency_code,
+            account_type=request.account_type.value,
+            opening_balance=request.opening_balance,
+            opening_balance_date=request.opening_balance_date,
+            gl_account_id=request.gl_account_id,
+            is_active=request.is_active,
+            is_default=request.is_default,
+            bank_address=request.bank_address,
+            swift_code=request.swift_code,
+            iban=request.iban,
+            notes=request.notes,
+            daily_limit=request.daily_limit,
+            transaction_limit=request.transaction_limit,
+            created_by=current_user.user_id,
+        )
+
+        return BankAccountResponseSchema(
+            id=result.id,
+            account_number=result.account_number,
+            account_name=result.account_name,
+            bank_name=result.bank_name,
+            bank_code=result.bank_code,
+            currency_code=result.currency_code,
+            account_type=BankAccountType(result.account_type),
+            current_balance=result.current_balance,
+            available_balance=result.available_balance,
+            opening_balance=result.opening_balance,
+            opening_balance_date=result.opening_balance_date,
+            gl_account_id=result.gl_account_id,
+            status=BankAccountStatus(result.status),
+            is_active=result.is_active,
+            is_default=result.is_default,
+            is_locked=result.is_locked,
+            bank_address=result.bank_address,
+            swift_code=result.swift_code,
+            iban=result.iban,
+            daily_limit=result.daily_limit,
+            transaction_limit=result.transaction_limit,
+            notes=result.notes,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            updated_at=result.updated_at,
+            updated_by=result.updated_by,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to create bank account: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/bank-accounts",
+    response_model=list[BankAccountResponseSchema],
+    summary="List bank accounts",
+    operation_id="list_bank_accounts",
+)
+async def list_bank_accounts(
+    account_type: BankAccountType | None = Query(None, description="Filter by account type"),
+    currency: str | None = Query(
+        None, min_length=3, max_length=3, description="Filter by currency"
+    ),
+    is_active: bool | None = Query(None, description="Filter by active status"),
+    _permission: None = Depends(require_permission("bank:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> list[BankAccountResponseSchema]:
+    """List all bank accounts."""
+    try:
+        accounts = await service.list_bank_accounts(
+            legal_entity_id=legal_entity_id,
+            account_type=account_type.value if account_type else None,
+            currency=currency,
+            is_active=is_active,
+        )
+
+        return [
+            BankAccountResponseSchema(
+                id=a.id,
+                account_number=a.account_number,
+                account_name=a.account_name,
+                bank_name=a.bank_name,
+                bank_code=a.bank_code,
+                currency_code=a.currency_code,
+                account_type=BankAccountType(a.account_type),
+                current_balance=a.current_balance,
+                available_balance=a.available_balance,
+                opening_balance=a.opening_balance,
+                opening_balance_date=a.opening_balance_date,
+                gl_account_id=a.gl_account_id,
+                status=BankAccountStatus(a.status),
+                is_active=a.is_active,
+                is_default=a.is_default,
+                is_locked=a.is_locked,
+                bank_address=a.bank_address,
+                swift_code=a.swift_code,
+                iban=a.iban,
+                daily_limit=a.daily_limit,
+                transaction_limit=a.transaction_limit,
+                notes=a.notes,
+                created_at=a.created_at,
+                created_by=a.created_by,
+                created_by_name=a.created_by_name,
+                updated_at=a.updated_at,
+                updated_by=a.updated_by,
+                version=a.version,
+            )
+            for a in accounts
+        ]
+    except Exception as e:
+        logger.exception("Failed to list bank accounts: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/bank-accounts/{account_id}",
+    response_model=BankAccountResponseSchema,
+    summary="Get bank account by ID",
+    operation_id="get_bank_account",
+)
+async def get_bank_account(
+    account_id: UUID,
+    _permission: None = Depends(require_permission("bank:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankAccountResponseSchema:
+    """Get bank account by ID."""
+    try:
+        account = await service.get_bank_account(account_id, legal_entity_id)
+
+        if not account:
+            raise HTTPException(status_code=404, detail="Bank account not found")
+
+        return BankAccountResponseSchema(
+            id=account.id,
+            account_number=account.account_number,
+            account_name=account.account_name,
+            bank_name=account.bank_name,
+            bank_code=account.bank_code,
+            currency_code=account.currency_code,
+            account_type=BankAccountType(account.account_type),
+            current_balance=account.current_balance,
+            available_balance=account.available_balance,
+            opening_balance=account.opening_balance,
+            opening_balance_date=account.opening_balance_date,
+            gl_account_id=account.gl_account_id,
+            status=BankAccountStatus(account.status),
+            is_active=account.is_active,
+            is_default=account.is_default,
+            is_locked=account.is_locked,
+            bank_address=account.bank_address,
+            swift_code=account.swift_code,
+            iban=account.iban,
+            daily_limit=account.daily_limit,
+            transaction_limit=account.transaction_limit,
+            notes=account.notes,
+            created_at=account.created_at,
+            created_by=account.created_by,
+            created_by_name=account.created_by_name,
+            updated_at=account.updated_at,
+            updated_by=account.updated_by,
+            version=account.version,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to get bank account: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.put(
+    "/bank-accounts/{account_id}",
+    response_model=BankAccountResponseSchema,
+    summary="Update bank account",
+    operation_id="update_bank_account",
+)
+async def update_bank_account(
+    account_id: UUID,
+    request: BankAccountUpdateSchema,
+    _permission: None = Depends(require_permission("bank:update")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankAccountResponseSchema:
+    """Update bank account information."""
+    try:
+        result = await service.update_bank_account(
+            account_id=account_id,
+            legal_entity_id=legal_entity_id,
+            account_name=request.account_name,
+            is_active=request.is_active,
+            is_default=request.is_default,
+            bank_address=request.bank_address,
+            notes=request.notes,
+            daily_limit=request.daily_limit,
+            transaction_limit=request.transaction_limit,
+            status=request.status.value if request.status else None,
+            updated_by=current_user.user_id,
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Bank account not found")
+
+        return BankAccountResponseSchema(
+            id=result.id,
+            account_number=result.account_number,
+            account_name=result.account_name,
+            bank_name=result.bank_name,
+            bank_code=result.bank_code,
+            currency_code=result.currency_code,
+            account_type=BankAccountType(result.account_type),
+            current_balance=result.current_balance,
+            available_balance=result.available_balance,
+            opening_balance=result.opening_balance,
+            opening_balance_date=result.opening_balance_date,
+            gl_account_id=result.gl_account_id,
+            status=BankAccountStatus(result.status),
+            is_active=result.is_active,
+            is_default=result.is_default,
+            is_locked=result.is_locked,
+            bank_address=result.bank_address,
+            swift_code=result.swift_code,
+            iban=result.iban,
+            daily_limit=result.daily_limit,
+            transaction_limit=result.transaction_limit,
+            notes=result.notes,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            updated_at=result.updated_at,
+            updated_by=result.updated_by,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to update bank account: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete(
+    "/bank-accounts/{account_id}",
+    response_model=dict[str, Any],
+    summary="Deactivate/close bank account",
+    operation_id="deactivate_bank_account",
+)
+async def deactivate_bank_account(
+    account_id: UUID,
+    permanent: bool = Query(False, description="Permanent closure (cannot be reopened)"),
+    reason: str = Query("", description="Reason for closure"),
+    _permission: None = Depends(require_permission("bank:delete")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> dict[str, Any]:
+    """Deactivate or close bank account."""
+    try:
+        if permanent:
+            result = await service.close_bank_account(
+                account_id, legal_entity_id, current_user.user_id, reason
+            )
+            action = "closed"
+        else:
+            result = await service.deactivate_bank_account(
+                account_id, legal_entity_id, current_user.user_id, reason
+            )
+            action = "deactivated"
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Bank account not found")
+
+        return {
+            "account_id": str(account_id),
+            "account_number": result.account_number,
+            "action": action,
+            "status": result.status,
+            "message": "Bank account {} successfully".format(action),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to deactivate bank account: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/bank-accounts/{account_id}/activate",
+    response_model=BankAccountResponseSchema,
+    summary="Activate bank account",
+    operation_id="activate_bank_account",
+)
+async def activate_bank_account(
+    account_id: UUID,
+    _permission: None = Depends(require_permission("bank:update")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankAccountResponseSchema:
+    """Activate a deactivated bank account."""
+    try:
+        result = await service.activate_bank_account(
+            account_id, legal_entity_id, current_user.user_id
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Bank account not found")
+
+        return BankAccountResponseSchema(
+            id=result.id,
+            account_number=result.account_number,
+            account_name=result.account_name,
+            bank_name=result.bank_name,
+            bank_code=result.bank_code,
+            currency_code=result.currency_code,
+            account_type=BankAccountType(result.account_type),
+            current_balance=result.current_balance,
+            available_balance=result.available_balance,
+            opening_balance=result.opening_balance,
+            opening_balance_date=result.opening_balance_date,
+            gl_account_id=result.gl_account_id,
+            status=BankAccountStatus(result.status),
+            is_active=result.is_active,
+            is_default=result.is_default,
+            is_locked=result.is_locked,
+            bank_address=result.bank_address,
+            swift_code=result.swift_code,
+            iban=result.iban,
+            daily_limit=result.daily_limit,
+            transaction_limit=result.transaction_limit,
+            notes=result.notes,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            updated_at=result.updated_at,
+            updated_by=result.updated_by,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to activate bank account: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/bank-accounts/{account_id}/lock",
+    response_model=BankAccountResponseSchema,
+    summary="Lock bank account",
+    operation_id="lock_bank_account",
+)
+async def lock_bank_account(
+    account_id: UUID,
+    reason: str = Query("", description="Lock reason"),
+    _permission: None = Depends(require_permission("bank:audit")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankAccountResponseSchema:
+    """Lock bank account to prevent transactions."""
+    try:
+        result = await service.lock_bank_account(
+            account_id, legal_entity_id, current_user.user_id, reason
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Bank account not found")
+
+        return BankAccountResponseSchema(
+            id=result.id,
+            account_number=result.account_number,
+            account_name=result.account_name,
+            bank_name=result.bank_name,
+            bank_code=result.bank_code,
+            currency_code=result.currency_code,
+            account_type=BankAccountType(result.account_type),
+            current_balance=result.current_balance,
+            available_balance=result.available_balance,
+            opening_balance=result.opening_balance,
+            opening_balance_date=result.opening_balance_date,
+            gl_account_id=result.gl_account_id,
+            status=BankAccountStatus(result.status),
+            is_active=result.is_active,
+            is_default=result.is_default,
+            is_locked=True,
+            bank_address=result.bank_address,
+            swift_code=result.swift_code,
+            iban=result.iban,
+            daily_limit=result.daily_limit,
+            transaction_limit=result.transaction_limit,
+            notes=result.notes,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            updated_at=result.updated_at,
+            updated_by=result.updated_by,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to lock bank account: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/bank-accounts/{account_id}/unlock",
+    response_model=BankAccountResponseSchema,
+    summary="Unlock bank account",
+    operation_id="unlock_bank_account",
+)
+async def unlock_bank_account(
+    account_id: UUID,
+    _permission: None = Depends(require_permission("bank:audit")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankAccountResponseSchema:
+    """Unlock a locked bank account."""
+    try:
+        result = await service.unlock_bank_account(
+            account_id, legal_entity_id, current_user.user_id
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Bank account not found")
+
+        return BankAccountResponseSchema(
+            id=result.id,
+            account_number=result.account_number,
+            account_name=result.account_name,
+            bank_name=result.bank_name,
+            bank_code=result.bank_code,
+            currency_code=result.currency_code,
+            account_type=BankAccountType(result.account_type),
+            current_balance=result.current_balance,
+            available_balance=result.available_balance,
+            opening_balance=result.opening_balance,
+            opening_balance_date=result.opening_balance_date,
+            gl_account_id=result.gl_account_id,
+            status=BankAccountStatus(result.status),
+            is_active=result.is_active,
+            is_default=result.is_default,
+            is_locked=False,
+            bank_address=result.bank_address,
+            swift_code=result.swift_code,
+            iban=result.iban,
+            daily_limit=result.daily_limit,
+            transaction_limit=result.transaction_limit,
+            notes=result.notes,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            updated_at=result.updated_at,
+            updated_by=result.updated_by,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to unlock bank account: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# BANK TRANSACTIONS
+# ----------------------------------------------------------------------------
+
+
+@router.post(
+    "/transactions",
+    response_model=BankTransactionResponseSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create manual bank transaction",
+    operation_id="create_bank_transaction",
+)
+async def create_bank_transaction(
+    request: BankTransactionCreateSchema,
+    _permission: None = Depends(require_permission("bank:transaction")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankTransactionResponseSchema:
+    """Create a manual bank transaction."""
+    try:
+        result = await service.create_transaction(
+            legal_entity_id=legal_entity_id,
+            bank_account_id=request.bank_account_id,
+            transaction_date=request.transaction_date,
+            transaction_type=request.transaction_type.value,
+            amount=request.amount,
+            description=request.description,
+            reference_number=request.reference_number,
+            counterparty_account=request.counterparty_account,
+            counterparty_name=request.counterparty_name,
+            transfer_to_account_id=request.transfer_to_account_id,
+            post_to_ledger=request.post_to_ledger,
+            notes=request.notes,
+            created_by=current_user.user_id,
+        )
+
+        return BankTransactionResponseSchema(
+            id=result.id,
+            transaction_number=result.transaction_number,
+            bank_account_id=result.bank_account_id,
+            bank_account_name=result.bank_account_name,
+            transaction_date=result.transaction_date,
+            transaction_type=TransactionType(result.transaction_type),
+            amount=result.amount,
+            description=result.description,
+            reference_number=result.reference_number,
+            counterparty_account=result.counterparty_account,
+            counterparty_name=result.counterparty_name,
+            journal_id=result.journal_id,
+            status=TransactionStatus(result.status),
+            reconciled_at=result.reconciled_at,
+            reconciliation_id=result.reconciliation_id,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            version=result.version,
+            is_reversed=result.is_reversed,
+            reversed_at=result.reversed_at,
+            reversed_by=result.reversed_by,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to create bank transaction: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/transactions/{transaction_id}",
+    response_model=BankTransactionResponseSchema,
+    summary="Get bank transaction by ID",
+    operation_id="get_bank_transaction",
+)
+async def get_bank_transaction(
+    transaction_id: UUID,
+    _permission: None = Depends(require_permission("bank:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankTransactionResponseSchema:
+    """Get bank transaction by ID."""
+    try:
+        transaction = await service.get_transaction(transaction_id, legal_entity_id)
+
+        if not transaction:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+
+        return BankTransactionResponseSchema(
+            id=transaction.id,
+            transaction_number=transaction.transaction_number,
+            bank_account_id=transaction.bank_account_id,
+            bank_account_name=transaction.bank_account_name,
+            transaction_date=transaction.transaction_date,
+            transaction_type=TransactionType(transaction.transaction_type),
+            amount=transaction.amount,
+            description=transaction.description,
+            reference_number=transaction.reference_number,
+            counterparty_account=transaction.counterparty_account,
+            counterparty_name=transaction.counterparty_name,
+            journal_id=transaction.journal_id,
+            status=TransactionStatus(transaction.status),
+            reconciled_at=transaction.reconciled_at,
+            reconciliation_id=transaction.reconciliation_id,
+            created_at=transaction.created_at,
+            created_by=transaction.created_by,
+            created_by_name=transaction.created_by_name,
+            version=transaction.version,
+            is_reversed=transaction.is_reversed,
+            reversed_at=transaction.reversed_at,
+            reversed_by=transaction.reversed_by,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to get bank transaction: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.put(
+    "/transactions/{transaction_id}",
+    response_model=BankTransactionResponseSchema,
+    summary="Update bank transaction",
+    operation_id="update_bank_transaction",
+)
+async def update_bank_transaction(
+    transaction_id: UUID,
+    request: BankTransactionUpdateSchema,
+    _permission: None = Depends(require_permission("bank:update")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankTransactionResponseSchema:
+    """Update a bank transaction (only draft/pending status)."""
+    try:
+        result = await service.update_transaction(
+            transaction_id=transaction_id,
+            legal_entity_id=legal_entity_id,
+            description=request.description,
+            reference_number=request.reference_number,
+            notes=request.notes,
+            status=request.status.value if request.status else None,
+            updated_by=current_user.user_id,
+        )
+
+        if not result:
+            raise HTTPException(
+                status_code=404, detail="Transaction not found or cannot be updated"
+            )
+
+        return BankTransactionResponseSchema(
+            id=result.id,
+            transaction_number=result.transaction_number,
+            bank_account_id=result.bank_account_id,
+            bank_account_name=result.bank_account_name,
+            transaction_date=result.transaction_date,
+            transaction_type=TransactionType(result.transaction_type),
+            amount=result.amount,
+            description=result.description,
+            reference_number=result.reference_number,
+            counterparty_account=result.counterparty_account,
+            counterparty_name=result.counterparty_name,
+            journal_id=result.journal_id,
+            status=TransactionStatus(result.status),
+            reconciled_at=result.reconciled_at,
+            reconciliation_id=result.reconciliation_id,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            version=result.version,
+            is_reversed=result.is_reversed,
+            reversed_at=result.reversed_at,
+            reversed_by=result.reversed_by,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to update bank transaction: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/transactions/{transaction_id}/reverse",
+    response_model=BankTransactionResponseSchema,
+    summary="Reverse a transaction",
+    operation_id="reverse_bank_transaction",
+)
+async def reverse_bank_transaction(
+    transaction_id: UUID,
+    request: BankTransactionReverseSchema,
+    _permission: None = Depends(require_permission("bank:reverse")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankTransactionResponseSchema:
+    """Reverse a posted transaction."""
+    try:
+        result = await service.reverse_transaction(
+            transaction_id=transaction_id,
+            reversed_by=current_user.user_id,
+            legal_entity_id=legal_entity_id,
+            reason=request.reason,
+            reversal_date=request.reversal_date,
+        )
+
+        if not result:
+            raise HTTPException(
+                status_code=404, detail="Transaction not found or cannot be reversed"
+            )
+
+        return BankTransactionResponseSchema(
+            id=result.id,
+            transaction_number=result.transaction_number,
+            bank_account_id=result.bank_account_id,
+            bank_account_name=result.bank_account_name,
+            transaction_date=result.transaction_date,
+            transaction_type=TransactionType(result.transaction_type),
+            amount=result.amount,
+            description=result.description,
+            reference_number=result.reference_number,
+            counterparty_account=result.counterparty_account,
+            counterparty_name=result.counterparty_name,
+            journal_id=result.journal_id,
+            status=TransactionStatus(result.status),
+            reconciled_at=result.reconciled_at,
+            reconciliation_id=result.reconciliation_id,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            version=result.version,
+            is_reversed=True,
+            reversed_at=result.reversed_at,
+            reversed_by=result.reversed_by,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to reverse bank transaction: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/transactions",
+    response_model=list[BankTransactionResponseSchema],
+    summary="List bank transactions",
+    operation_id="list_bank_transactions",
+)
+async def list_bank_transactions(
+    bank_account_id: UUID | None = Query(None, description="Filter by bank account"),
+    start_date: date | None = Query(None, description="Start date"),
+    end_date: date | None = Query(None, description="End date"),
+    transaction_type: TransactionType | None = Query(None, description="Filter by type"),
+    status: TransactionStatus | None = Query(None, description="Filter by status"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=500, description="Items per page"),
+    _permission: None = Depends(require_permission("bank:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> list[BankTransactionResponseSchema]:
+    """List bank transactions with filters."""
+    try:
+        transactions = await service.list_transactions(
+            legal_entity_id=legal_entity_id,
+            bank_account_id=bank_account_id,
+            start_date=start_date,
+            end_date=end_date,
+            transaction_type=transaction_type.value if transaction_type else None,
+            status=status.value if status else None,
+            page=page,
+            page_size=page_size,
+        )
+
+        return [
+            BankTransactionResponseSchema(
+                id=t.id,
+                transaction_number=t.transaction_number,
+                bank_account_id=t.bank_account_id,
+                bank_account_name=t.bank_account_name,
+                transaction_date=t.transaction_date,
+                transaction_type=TransactionType(t.transaction_type),
+                amount=t.amount,
+                description=t.description,
+                reference_number=t.reference_number,
+                counterparty_account=t.counterparty_account,
+                counterparty_name=t.counterparty_name,
+                journal_id=t.journal_id,
+                status=TransactionStatus(t.status),
+                reconciled_at=t.reconciled_at,
+                reconciliation_id=t.reconciliation_id,
+                created_at=t.created_at,
+                created_by=t.created_by,
+                created_by_name=t.created_by_name,
+                version=t.version,
+                is_reversed=t.is_reversed,
+                reversed_at=t.reversed_at,
+                reversed_by=t.reversed_by,
+            )
+            for t in transactions
+        ]
+    except Exception as e:
+        logger.exception("Failed to list bank transactions: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# BANK STATEMENT IMPORT
+# ----------------------------------------------------------------------------
+
+
+@router.post(
+    "/import-statement",
+    response_model=dict[str, Any],
+    summary="Import bank statement file",
+    operation_id="import_bank_statement",
+)
+async def import_bank_statement(
+    file: UploadFile = File(..., description="Bank statement file (MT940, CSV, Excel)"),
+    bank_account_id: UUID = Form(..., description="Bank account ID"),
+    statement_date: date = Form(..., description="Statement date"),
+    file_format: str = Form("mt940", description="File format: mt940, csv, excel"),
+    _permission: None = Depends(require_permission("bank:import")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> dict[str, Any]:
+    """Import bank statement file and create transactions."""
+    try:
+        content = await file.read()
+        text_content = content.decode("utf-8", errors="replace")
+
+        result = await service.import_bank_statement(
+            legal_entity_id=legal_entity_id,
+            bank_account_id=bank_account_id,
+            statement_date=statement_date,
+            file_content=text_content,
+            file_format=file_format,
+            imported_by=current_user.user_id,
+        )
+
+        return {
+            "message": "Imported {} transactions".format(result.imported_count),
+            "imported_count": result.imported_count,
+            "skipped_count": result.skipped_count,
+            "errors": result.errors,
+            "bank_account_id": str(bank_account_id),
+            "statement_date": statement_date.isoformat(),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to import bank statement: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# BANK RECONCILIATION
+# ----------------------------------------------------------------------------
+
+
+@router.post(
+    "/reconciliations",
+    response_model=BankReconciliationResponseSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Perform bank reconciliation",
+    operation_id="reconcile_bank",
+)
+async def reconcile_bank(
+    request: BankReconciliationCreateSchema,
+    _permission: None = Depends(require_permission("bank:reconcile")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    use_case: Any = Depends(get_bank_reconciliation_use_case),
+) -> BankReconciliationResponseSchema:
+    """
+    Perform bank reconciliation between book transactions and bank statement.
+
+    - Matches transactions by date, amount, and reference
+    - Identifies unmatched transactions
+    - Creates adjustment journal if needed
+    """
+    try:
+        result = await use_case.reconcile(
+            legal_entity_id=legal_entity_id,
+            bank_account_id=request.bank_account_id,
+            statement_date=request.statement_date,
+            statement_balance=request.statement_balance,
+            statement_transactions=request.statement_transactions,
+            auto_match_threshold=request.auto_match_threshold,
+            notes=request.notes,
+            reconciled_by=current_user.user_id,
+        )
+
+        return BankReconciliationResponseSchema(
+            id=result.id,
+            reconciliation_number=result.reconciliation_number,
+            bank_account_id=result.bank_account_id,
+            bank_account_name=result.bank_account_name,
+            statement_date=result.statement_date,
+            statement_balance=result.statement_balance,
+            book_balance=result.book_balance,
+            difference=result.difference,
+            matched_count=result.matched_count,
+            unmatched_book_count=result.unmatched_book_count,
+            unmatched_statement_count=result.unmatched_statement_count,
+            adjustment_amount=result.adjustment_amount,
+            adjustment_journal_id=result.adjustment_journal_id,
+            status=ReconciliationStatus(result.status),
+            notes=result.notes,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            completed_at=result.completed_at,
+            completed_by=result.completed_by,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to reconcile bank: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/reconciliations/{bank_account_id}",
+    response_model=list[BankReconciliationResponseSchema],
+    summary="Get reconciliation history",
+    operation_id="get_reconciliation_history",
+)
+async def get_reconciliation_history(
+    bank_account_id: UUID,
+    limit: int = Query(12, ge=1, le=100, description="Number of reconciliations to return"),
+    _permission: None = Depends(require_permission("bank:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> list[BankReconciliationResponseSchema]:
+    """Get reconciliation history for a bank account."""
+    try:
+        reconciliations = await service.get_reconciliation_history(
+            bank_account_id=bank_account_id,
+            legal_entity_id=legal_entity_id,
+            limit=limit,
+        )
+
+        return [
+            BankReconciliationResponseSchema(
+                id=r.id,
+                reconciliation_number=r.reconciliation_number,
+                bank_account_id=r.bank_account_id,
+                bank_account_name=r.bank_account_name,
+                statement_date=r.statement_date,
+                statement_balance=r.statement_balance,
+                book_balance=r.book_balance,
+                difference=r.difference,
+                matched_count=r.matched_count,
+                unmatched_book_count=r.unmatched_book_count,
+                unmatched_statement_count=r.unmatched_statement_count,
+                adjustment_amount=r.adjustment_amount,
+                adjustment_journal_id=r.adjustment_journal_id,
+                status=ReconciliationStatus(r.status),
+                notes=r.notes,
+                created_at=r.created_at,
+                created_by=r.created_by,
+                created_by_name=r.created_by_name,
+                completed_at=r.completed_at,
+                completed_by=r.completed_by,
+                version=r.version,
+            )
+            for r in reconciliations
+        ]
+    except Exception as e:
+        logger.exception("Failed to get reconciliation history: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/reconciliations/{reconciliation_id}/close",
+    response_model=BankReconciliationResponseSchema,
+    summary="Close reconciliation",
+    operation_id="close_reconciliation",
+)
+async def close_reconciliation(
+    reconciliation_id: UUID,
+    _permission: None = Depends(require_permission("bank:reconcile")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankReconciliationResponseSchema:
+    """Close a completed reconciliation (prevent further changes)."""
+    try:
+        result = await service.close_reconciliation(
+            reconciliation_id=reconciliation_id,
+            legal_entity_id=legal_entity_id,
+            closed_by=current_user.user_id,
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Reconciliation not found")
+
+        return BankReconciliationResponseSchema(
+            id=result.id,
+            reconciliation_number=result.reconciliation_number,
+            bank_account_id=result.bank_account_id,
+            bank_account_name=result.bank_account_name,
+            statement_date=result.statement_date,
+            statement_balance=result.statement_balance,
+            book_balance=result.book_balance,
+            difference=result.difference,
+            matched_count=result.matched_count,
+            unmatched_book_count=result.unmatched_book_count,
+            unmatched_statement_count=result.unmatched_statement_count,
+            adjustment_amount=result.adjustment_amount,
+            adjustment_journal_id=result.adjustment_journal_id,
+            status=ReconciliationStatus(result.status),
+            notes=result.notes,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            completed_at=result.completed_at,
+            completed_by=result.completed_by,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to close reconciliation: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# CASH BOOK (BUKU KAS)
+# ----------------------------------------------------------------------------
+
+
+@router.post(
+    "/cash-books",
+    response_model=CashBookResponseSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create cash book",
+    operation_id="create_cash_book",
+)
+async def create_cash_book(
+    request: CashBookCreateSchema,
+    _permission: None = Depends(require_permission("cash:create")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> CashBookResponseSchema:
+    """Create a new cash book (buku kas)."""
+    try:
+        result = await service.create_cash_book(
+            legal_entity_id=legal_entity_id,
+            name=request.name,
+            currency_code=request.currency_code,
+            opening_balance=request.opening_balance,
+            opening_balance_date=request.opening_balance_date,
+            gl_cash_account_id=request.gl_cash_account_id,
+            gl_bank_account_id=request.gl_bank_account_id,
+            location=request.location,
+            custodian_id=request.custodian_id,
+            min_balance=request.min_balance,
+            max_balance=request.max_balance,
+            created_by=current_user.user_id,
+        )
+
+        return CashBookResponseSchema(
+            id=result.id,
+            name=result.name,
+            currency_code=result.currency_code,
+            current_balance=result.current_balance,
+            opening_balance=result.opening_balance,
+            opening_balance_date=result.opening_balance_date,
+            gl_cash_account_id=result.gl_cash_account_id,
+            gl_bank_account_id=result.gl_bank_account_id,
+            status=CashBookStatus(result.status),
+            location=result.location,
+            custodian_id=result.custodian_id,
+            custodian_name=result.custodian_name,
+            min_balance=result.min_balance,
+            max_balance=result.max_balance,
+            is_locked=result.is_locked,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            updated_at=result.updated_at,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to create cash book: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/cash-books",
+    response_model=list[CashBookResponseSchema],
+    summary="List cash books",
+    operation_id="list_cash_books",
+)
+async def list_cash_books(
+    status: CashBookStatus | None = Query(None, description="Filter by status"),
+    custodian_id: UUID | None = Query(None, description="Filter by custodian"),
+    _permission: None = Depends(require_permission("cash:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> list[CashBookResponseSchema]:
+    """List all cash books."""
+    try:
+        cash_books = await service.list_cash_books(
+            legal_entity_id=legal_entity_id,
+            status=status.value if status else None,
+            custodian_id=custodian_id,
+        )
+
+        return [
+            CashBookResponseSchema(
+                id=cb.id,
+                name=cb.name,
+                currency_code=cb.currency_code,
+                current_balance=cb.current_balance,
+                opening_balance=cb.opening_balance,
+                opening_balance_date=cb.opening_balance_date,
+                gl_cash_account_id=cb.gl_cash_account_id,
+                gl_bank_account_id=cb.gl_bank_account_id,
+                status=CashBookStatus(cb.status),
+                location=cb.location,
+                custodian_id=cb.custodian_id,
+                custodian_name=cb.custodian_name,
+                min_balance=cb.min_balance,
+                max_balance=cb.max_balance,
+                is_locked=cb.is_locked,
+                created_at=cb.created_at,
+                created_by=cb.created_by,
+                created_by_name=cb.created_by_name,
+                updated_at=cb.updated_at,
+                version=cb.version,
+            )
+            for cb in cash_books
+        ]
+    except Exception as e:
+        logger.exception("Failed to list cash books: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/cash-transactions",
+    response_model=CashTransactionResponseSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Record cash transaction",
+    operation_id="record_cash_transaction",
+)
+async def record_cash_transaction(
+    request: CashTransactionCreateSchema,
+    _permission: None = Depends(require_permission("cash:transaction")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> CashTransactionResponseSchema:
+    """Record a cash transaction (IN/OUT)."""
+    try:
+        result = await service.record_cash_transaction(
+            legal_entity_id=legal_entity_id,
+            cash_book_id=request.cash_book_id,
+            transaction_date=request.transaction_date,
+            transaction_type=request.transaction_type.value,
+            amount=request.amount,
+            description=request.description,
+            reference_number=request.reference_number,
+            counterparty_name=request.counterparty_name,
+            post_to_ledger=request.post_to_ledger,
+            notes=request.notes,
+            created_by=current_user.user_id,
+        )
+
+        return CashTransactionResponseSchema(
+            id=result.id,
+            transaction_number=result.transaction_number,
+            cash_book_id=result.cash_book_id,
+            cash_book_name=result.cash_book_name,
+            transaction_date=result.transaction_date,
+            transaction_type=TransactionType(result.transaction_type),
+            amount=result.amount,
+            description=result.description,
+            reference_number=result.reference_number,
+            counterparty_name=result.counterparty_name,
+            journal_id=result.journal_id,
+            status=TransactionStatus(result.status),
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            version=result.version,
+            is_reversed=result.is_reversed,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to record cash transaction: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# PETTY CASH FUND (KAS KECIL)
+# ----------------------------------------------------------------------------
+
+
+@router.post(
+    "/petty-cash",
+    response_model=PettyCashResponseSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create petty cash fund",
+    operation_id="create_petty_cash",
+)
+async def create_petty_cash_fund(
+    request: PettyCashCreateSchema,
+    _permission: None = Depends(require_permission("cash:create")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> PettyCashResponseSchema:
+    """Create a petty cash fund (kas kecil)."""
+    try:
+        result = await service.create_petty_cash_fund(
+            legal_entity_id=legal_entity_id,
+            fund_name=request.fund_name,
+            currency_code=request.currency_code,
+            initial_amount=request.initial_amount,
+            custodian_id=request.custodian_id,
+            gl_petty_cash_account_id=request.gl_petty_cash_account_id,
+            reimbursement_threshold=request.reimbursement_threshold,
+            fund_location=request.fund_location,
+            notes=request.notes,
+            created_by=current_user.user_id,
+        )
+
+        return PettyCashResponseSchema(
+            id=result.id,
+            fund_name=result.fund_name,
+            currency_code=result.currency_code,
+            current_balance=result.current_balance,
+            initial_amount=result.initial_amount,
+            custodian_id=result.custodian_id,
+            custodian_name=result.custodian_name,
+            gl_account_id=result.gl_account_id,
+            reimbursement_threshold=result.reimbursement_threshold,
+            status=PettyCashStatus(result.status),
+            fund_location=result.fund_location,
+            notes=result.notes,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to create petty cash fund: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/petty-cash/{fund_id}/reimburse",
+    response_model=PettyCashResponseSchema,
+    summary="Reimburse petty cash",
+    operation_id="reimburse_petty_cash",
+)
+async def reimburse_petty_cash(
+    fund_id: UUID,
+    request: PettyCashReimbursementSchema,
+    _permission: None = Depends(require_permission("cash:transaction")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> PettyCashResponseSchema:
+    """Reimburse petty cash fund from bank account."""
+    try:
+        result = await service.reimburse_petty_cash(
+            fund_id=fund_id,
+            legal_entity_id=legal_entity_id,
+            reimbursement_date=request.reimbursement_date,
+            amount=request.amount,
+            bank_account_id=request.bank_account_id,
+            description=request.description,
+            notes=request.notes,
+            reimbursed_by=current_user.user_id,
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Petty cash fund not found")
+
+        return PettyCashResponseSchema(
+            id=result.id,
+            fund_name=result.fund_name,
+            currency_code=result.currency_code,
+            current_balance=result.current_balance,
+            initial_amount=result.initial_amount,
+            custodian_id=result.custodian_id,
+            custodian_name=result.custodian_name,
+            gl_account_id=result.gl_account_id,
+            reimbursement_threshold=result.reimbursement_threshold,
+            status=PettyCashStatus(result.status),
+            fund_location=result.fund_location,
+            notes=result.notes,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to reimburse petty cash: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# BANK TRANSFER (INTERNAL)
+# ----------------------------------------------------------------------------
+
+
+@router.post(
+    "/transfers",
+    response_model=BankTransferResponseSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create internal bank transfer",
+    operation_id="create_bank_transfer",
+)
+async def create_bank_transfer(
+    request: BankTransferCreateSchema,
+    _permission: None = Depends(require_permission("bank:transfer")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankTransferResponseSchema:
+    """Create an internal bank transfer between accounts."""
+    try:
+        result = await service.create_internal_transfer(
+            legal_entity_id=legal_entity_id,
+            from_bank_account_id=request.from_bank_account_id,
+            to_bank_account_id=request.to_bank_account_id,
+            transfer_date=request.transfer_date,
+            amount=request.amount,
+            description=request.description,
+            reference_number=request.reference_number,
+            notes=request.notes,
+            created_by=current_user.user_id,
+        )
+
+        return BankTransferResponseSchema(
+            id=result.id,
+            transfer_number=result.transfer_number,
+            from_account_id=result.from_account_id,
+            from_account_name=result.from_account_name,
+            to_account_id=result.to_account_id,
+            to_account_name=result.to_account_name,
+            transfer_date=result.transfer_date,
+            amount=result.amount,
+            description=result.description,
+            reference_number=result.reference_number,
+            notes=result.notes,
+            status=TransferStatus(result.status),
+            from_journal_id=result.from_journal_id,
+            to_journal_id=result.to_journal_id,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            approved_at=result.approved_at,
+            approved_by=result.approved_by,
+            processed_at=result.processed_at,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to create bank transfer: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/transfers/{transfer_id}/approve",
+    response_model=BankTransferResponseSchema,
+    summary="Approve bank transfer",
+    operation_id="approve_bank_transfer",
+)
+async def approve_bank_transfer(
+    transfer_id: UUID,
+    request: BankTransferApproveSchema,
+    _permission: None = Depends(require_permission("bank:approve_transfer")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankTransferResponseSchema:
+    """Approve or reject a pending bank transfer."""
+    try:
+        if request.approved:
+            result = await service.approve_transfer(
+                transfer_id, legal_entity_id, current_user.user_id, request.notes
+            )
+        else:
+            result = await service.reject_transfer(
+                transfer_id, legal_entity_id, current_user.user_id, request.notes
+            )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Transfer not found")
+
+        return BankTransferResponseSchema(
+            id=result.id,
+            transfer_number=result.transfer_number,
+            from_account_id=result.from_account_id,
+            from_account_name=result.from_account_name,
+            to_account_id=result.to_account_id,
+            to_account_name=result.to_account_name,
+            transfer_date=result.transfer_date,
+            amount=result.amount,
+            description=result.description,
+            reference_number=result.reference_number,
+            notes=result.notes,
+            status=TransferStatus(result.status),
+            from_journal_id=result.from_journal_id,
+            to_journal_id=result.to_journal_id,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            approved_at=result.approved_at,
+            approved_by=result.approved_by,
+            processed_at=result.processed_at,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to approve bank transfer: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/transfers/{transfer_id}/process",
+    response_model=BankTransferResponseSchema,
+    summary="Process bank transfer",
+    operation_id="process_bank_transfer",
+)
+async def process_bank_transfer(
+    transfer_id: UUID,
+    _permission: None = Depends(require_permission("bank:process_transfer")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> BankTransferResponseSchema:
+    """Process an approved bank transfer (create journal entries)."""
+    try:
+        result = await service.process_transfer(transfer_id, legal_entity_id, current_user.user_id)
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Transfer not found")
+
+        return BankTransferResponseSchema(
+            id=result.id,
+            transfer_number=result.transfer_number,
+            from_account_id=result.from_account_id,
+            from_account_name=result.from_account_name,
+            to_account_id=result.to_account_id,
+            to_account_name=result.to_account_name,
+            transfer_date=result.transfer_date,
+            amount=result.amount,
+            description=result.description,
+            reference_number=result.reference_number,
+            notes=result.notes,
+            status=TransferStatus(result.status),
+            from_journal_id=result.from_journal_id,
+            to_journal_id=result.to_journal_id,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            approved_at=result.approved_at,
+            approved_by=result.approved_by,
+            processed_at=result.processed_at,
+            version=result.version,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to process bank transfer: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete(
+    "/transfers/{transfer_id}",
+    response_model=dict[str, Any],
+    summary="Cancel bank transfer",
+    operation_id="cancel_bank_transfer",
+)
+async def cancel_bank_transfer(
+    transfer_id: UUID,
+    reason: str = Query("", description="Cancellation reason"),
+    _permission: None = Depends(require_permission("bank:cancel_transfer")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> dict[str, Any]:
+    """Cancel a pending or approved bank transfer."""
+    try:
+        result = await service.cancel_transfer(
+            transfer_id, legal_entity_id, current_user.user_id, reason
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Transfer not found")
+
+        message = "Transfer cancelled: {}".format(reason) if reason else "Transfer cancelled"
+        return {
+            "transfer_id": str(transfer_id),
+            "transfer_number": result.transfer_number,
+            "status": result.status,
+            "message": message,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to cancel bank transfer: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# REPORTS & DASHBOARD
+# ----------------------------------------------------------------------------
+
+
+@router.get(
+    "/balance/{account_id}",
+    response_model=Decimal,
+    summary="Get current balance of bank account",
+    operation_id="get_bank_balance",
+)
+async def get_bank_balance(
+    account_id: UUID,
+    as_of_date: date = Query(default_factory=date.today, description="Date for balance"),
+    _permission: None = Depends(require_permission("bank:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> Decimal:
+    """Get current balance of a bank account."""
+    try:
+        balance = await service.get_account_balance(account_id, legal_entity_id, as_of_date)
+
+        if balance is None:
+            raise HTTPException(status_code=404, detail="Bank account not found")
+
+        return balance
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to get bank balance: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/balance-history/{account_id}",
+    response_model=list[AccountBalanceHistorySchema],
+    summary="Get balance history of bank account",
+    operation_id="get_bank_balance_history",
+)
+async def get_bank_balance_history(
+    account_id: UUID,
+    start_date: date = Query(..., description="Start date"),
+    end_date: date = Query(..., description="End date"),
+    _permission: None = Depends(require_permission("bank:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> list[AccountBalanceHistorySchema]:
+    """Get balance history of a bank account."""
+    try:
+        history = await service.get_balance_history(
+            account_id=account_id,
+            legal_entity_id=legal_entity_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        return [
+            AccountBalanceHistorySchema(
+                as_of_date=h.as_of_date,
+                balance=h.balance,
+                available_balance=h.available_balance,
+                change_from_previous=h.change_from_previous,
+            )
+            for h in history
+        ]
+    except Exception as e:
+        logger.exception("Failed to get balance history: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/cash-flow",
+    response_model=CashFlowReportSchema,
+    summary="Get cash flow report",
+    operation_id="get_cash_flow_report",
+)
+async def get_cash_flow_report(
+    start_date: date = Query(..., description="Start date"),
+    end_date: date = Query(..., description="End date"),
+    account_type: BankAccountType | None = Query(None, description="Filter by account type"),
+    _permission: None = Depends(require_permission("cash:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> CashFlowReportSchema:
+    """Get cash flow report for the period."""
+    try:
+        report = await service.get_cash_flow_report(
+            legal_entity_id=legal_entity_id,
+            start_date=start_date,
+            end_date=end_date,
+            account_type=account_type.value if account_type else None,
+        )
+
+        return CashFlowReportSchema(
+            legal_entity_id=legal_entity_id,
+            start_date=start_date,
+            end_date=end_date,
+            beginning_cash=report.beginning_cash,
+            cash_receipts=report.cash_receipts,
+            cash_disbursements=report.cash_disbursements,
+            net_cash_flow=report.net_cash_flow,
+            ending_cash=report.ending_cash,
+            by_category=report.by_category,
+            generated_at=datetime.now(),
+        )
+    except Exception as e:
+        logger.exception("Failed to get cash flow report: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/daily-position",
+    response_model=list[DailyCashPositionSchema],
+    summary="Get daily cash position",
+    operation_id="get_daily_cash_position",
+)
+async def get_daily_cash_position(
+    as_of_date: date = Query(default_factory=date.today, description="Date for position"),
+    _permission: None = Depends(require_permission("cash:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> list[DailyCashPositionSchema]:
+    """Get daily cash position across all bank and cash accounts."""
+    try:
+        positions = await service.get_daily_cash_position(legal_entity_id, as_of_date)
+
+        return [
+            DailyCashPositionSchema(
+                as_of_date=as_of_date,
+                account_type=p.account_type,
+                account_id=p.account_id,
+                account_name=p.account_name,
+                currency=p.currency,
+                balance=p.balance,
+            )
+            for p in positions
+        ]
+    except Exception as e:
+        logger.exception("Failed to get daily cash position: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# EXPORT TRANSACTIONS
+# ----------------------------------------------------------------------------
+
+
+@router.get(
+    "/export",
+    summary="Export bank transactions",
+    operation_id="export_bank_transactions",
+)
+async def export_bank_transactions(
+    bank_account_id: UUID = Query(..., description="Bank account ID"),
+    start_date: date = Query(..., description="Start date"),
+    end_date: date = Query(..., description="End date"),
+    format: str = Query("csv", description="Export format: csv, excel"),
+    _permission: None = Depends(require_permission("bank:export")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_bank_cash_service),
+) -> Response:
+    """Export bank transactions to CSV or Excel."""
+    try:
+        data = await service.export_transactions(
+            bank_account_id=bank_account_id,
+            legal_entity_id=legal_entity_id,
+            start_date=start_date,
+            end_date=end_date,
+            format=format,
+        )
+
+        media_type = (
+            "text/csv"
+            if format == "csv"
+            else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        filename = "bank_transactions_{}_{}_{}.{}".format(bank_account_id, start_date, end_date, format)
+
+        return Response(
+            content=data,
+            media_type=media_type,
+            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+        )
+    except Exception as e:
+        logger.exception("Failed to export transactions: {}".format(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# EXPORTS
+# ----------------------------------------------------------------------------
+
+__all__ = ["router"]

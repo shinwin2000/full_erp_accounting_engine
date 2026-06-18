@@ -1,0 +1,488 @@
+#!/usr/bin/env python3
+"""
+Module: warmer_scheduled.py
+Layer: Infrastructure (Caching)
+Responsibility: Menjadwalkan dan mengeksekusi cache warming untuk data yang
+               sering diakses. Cache warming secara proaktif mengisi cache
+               sebelum data diminta oleh user, mengurangi latency.
+               Mendukung warming berdasarkan schedule (cron), event trigger,
+               dan manual. Juga mendukung distributed warming (hanya satu
+               instance yang melakukan warming).
+Dependencies:
+- asyncio, logging, apscheduler
+- infrastructure.caching.redis_manager (RedisManager)
+- application.service_layer.* (untuk mengambil data)
+- app.container (untuk service)
+- infrastructure.telemetry.alert_manager_router
+Audit: Setiap operasi cache warming dicatat. Warming failure memicu alert.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from datetime import datetime
+from typing import Any
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+
+# Internal dependencies
+from infrastructure.caching.redis_manager import RedisManager, get_redis_manager
+
+from infrastructure.telemetry.alert_manager_router import trigger_alert
+from infrastructure.telemetry.structured_json_logging import get_logger
+
+logger = get_logger(__name__)
+
+# ============================================================================
+# CONSTANTS
+# ============================================================================
+
+# Default cache TTL untuk warmed data (24 jam)
+WARMED_CACHE_TTL = 86400
+
+# Distributed lock TTL untuk warming (10 menit)
+WARMING_LOCK_TTL = 600
+
+# Cache key prefixes untuk warmed data
+WARMED_KEY_PREFIX = "warmed:"
+
+# ============================================================================
+# WARMER CONFIGURATION
+# ============================================================================
+
+class WarmingJob:
+    """
+    Konfigurasi untuk satu job cache warming.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        function: Callable[[], Awaitable[dict[str, Any]]],
+        schedule: str,
+        key_pattern: str,
+        ttl_seconds: int = WARMED_CACHE_TTL,
+    ):
+        self.name = name
+        self.function = function
+        self.schedule = schedule  # cron expression or "interval:seconds"
+        self.key_pattern = key_pattern
+        self.ttl_seconds = ttl_seconds
+        self.last_run: datetime | None = None
+        self.last_status: str | None = None
+        self.last_error: str | None = None
+
+# ============================================================================
+# CACHE WARMER
+# ============================================================================
+
+class CacheWarmer:
+    """
+    Scheduled cache warmer.
+
+    Fitur:
+    - Scheduled warming dengan cron
+    - Distributed locking (hanya satu instance yang warm)
+    - Support multiple data sources
+    - Manual warming trigger
+    - Health monitoring
+    """
+
+    def __init__(self, redis_manager: RedisManager | None = None):
+        self._redis_manager = redis_manager
+        self._scheduler: AsyncIOScheduler | None = None
+        self._jobs: dict[str, WarmingJob] = {}
+        self._lock_key = "cache:warmer:lock"
+        self._running = False
+        self._warmed_count = 0
+
+    async def _get_redis(self) -> RedisManager:
+        if self._redis_manager is None:
+            self._redis_manager = await get_redis_manager()
+        return self._redis_manager
+
+    async def _acquire_lock(self, job_name: str) -> bool:
+        """
+        Acquire distributed lock for warming job.
+        """
+        redis = await self._get_redis()
+        lock_key = f"{self._lock_key}:{job_name}"
+        # Use SET NX to acquire lock
+        result = await redis._client.setnx(lock_key, str(datetime.utcnow().timestamp()))
+        if result:
+            await redis.expire(lock_key, WARMING_LOCK_TTL)
+        return result
+
+    async def _release_lock(self, job_name: str) -> None:
+        """
+        Release distributed lock.
+        """
+        redis = await self._get_redis()
+        lock_key = f"{self._lock_key}:{job_name}"
+        await redis.delete(lock_key)
+
+    async def _execute_warming_job(self, job: WarmingJob) -> None:
+        """
+        Execute a warming job.
+        """
+        # Acquire lock to prevent multiple instances warming same data
+        acquired = await self._acquire_lock(job.name)
+        if not acquired:
+            logger.debug(f"Warming job {job.name} already running on another instance, skipping")
+            return
+
+        try:
+            logger.info(f"Starting cache warming job: {job.name}")
+            start_time = datetime.utcnow()
+
+            # Execute the warming function
+            data = await job.function()
+
+            # Store in cache
+            redis = await self._get_redis()
+            for key, value in data.items():
+                full_key = f"{WARMED_KEY_PREFIX}{job.key_pattern.format(**{k: v for k, v in value.items() if isinstance(v, (str, int))})}"
+                await redis.set(full_key, value, ttl_seconds=job.ttl_seconds)
+
+            job.last_run = start_time
+            job.last_status = "success"
+            self._warmed_count += len(data)
+
+            duration = (datetime.utcnow() - start_time).total_seconds()
+            logger.info(
+                f"Cache warming job {job.name} completed: {len(data)} items in {duration:.2f}s"
+            )
+
+        except Exception as e:
+            job.last_status = "failed"
+            job.last_error = str(e)
+            logger.error(f"Cache warming job {job.name} failed: {e}")
+            await trigger_alert(
+                title="Cache Warming Failed",
+                message=f"Warming job {job.name} failed: {e}",
+                severity="warning",
+                source="CacheWarmer",
+            )
+        finally:
+            await self._release_lock(job.name)
+
+    async def start(self) -> None:
+        """
+        Start the cache warmer scheduler.
+        """
+        if self._scheduler is not None:
+            logger.warning("Cache warmer already running")
+            return
+
+        self._scheduler = AsyncIOScheduler(timezone="Asia/Jakarta")
+
+        # Register all jobs
+        for job in self._jobs.values():
+            self._schedule_job(job)
+
+        self._scheduler.start()
+        self._running = True
+        logger.info(f"Cache warmer started with {len(self._jobs)} jobs")
+
+    def _schedule_job(self, job: WarmingJob) -> None:
+        """
+        Schedule a warming job.
+        """
+        if not self._scheduler:
+            raise RuntimeError("Scheduler not started")
+
+        if job.schedule.startswith("interval:"):
+            seconds = int(job.schedule.split(":")[1])
+            trigger = IntervalTrigger(seconds=seconds)
+        else:
+            trigger = CronTrigger.from_crontab(job.schedule)
+
+        self._scheduler.add_job(
+            self._execute_warming_job,
+            trigger=trigger,
+            args=[job],
+            id=f"warming_{job.name}",
+            name=job.name,
+            replace_existing=True,
+        )
+        logger.debug(f"Scheduled warming job {job.name} with trigger {job.schedule}")
+
+    async def stop(self) -> None:
+        """
+        Stop the cache warmer.
+        """
+        if self._scheduler:
+            self._scheduler.shutdown(wait=True)
+            self._scheduler = None
+        self._running = False
+        logger.info("Cache warmer stopped")
+
+    def register_job(self, job: WarmingJob) -> None:
+        """
+        Register a warming job.
+        """
+        self._jobs[job.name] = job
+        if self._scheduler and self._running:
+            self._schedule_job(job)
+        logger.info(f"Registered warming job: {job.name}")
+
+    def unregister_job(self, job_name: str) -> bool:
+        """
+        Unregister a warming job.
+        """
+        if job_name in self._jobs:
+            if self._scheduler:
+                self._scheduler.remove_job(f"warming_{job_name}")
+            del self._jobs[job_name]
+            logger.info(f"Unregistered warming job: {job_name}")
+            return True
+        return False
+
+    async def run_job_now(self, job_name: str) -> dict[str, Any]:
+        """
+        Run a warming job immediately.
+        """
+        job = self._jobs.get(job_name)
+        if not job:
+            raise ValueError(f"Job {job_name} not found")
+
+        await self._execute_warming_job(job)
+        return {
+            "job_name": job_name,
+            "last_run": job.last_run.isoformat() if job.last_run else None,
+            "status": job.last_status,
+            "error": job.last_error,
+        }
+
+    async def get_status(self) -> dict[str, Any]:
+        """
+        Get status of all warming jobs.
+        """
+        jobs_status = []
+        for job in self._jobs.values():
+            jobs_status.append(
+                {
+                    "name": job.name,
+                    "schedule": job.schedule,
+                    "last_run": job.last_run.isoformat() if job.last_run else None,
+                    "status": job.last_status,
+                    "error": job.last_error,
+                }
+            )
+
+        return {
+            "running": self._running,
+            "total_jobs": len(self._jobs),
+            "total_warmed_items": self._warmed_count,
+            "jobs": jobs_status,
+        }
+
+    async def warm_all(self) -> dict[str, Any]:
+        """
+        Run all warming jobs immediately.
+        """
+        results = {}
+        for job_name in self._jobs:
+            try:
+                result = await self.run_job_now(job_name)
+                results[job_name] = result
+            except Exception as e:
+                results[job_name] = {"error": str(e)}
+        return results
+
+# ============================================================================
+# DEFAULT WARMING FUNCTIONS
+# ============================================================================
+
+async def warm_chart_of_accounts() -> dict[str, Any]:
+    """
+    Warm chart of accounts data.
+    """
+    container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+    coa_service = container.resolve("COAService")
+    legal_entities = await coa_service.get_all_legal_entities()
+
+    result = {}
+    for entity in legal_entities:
+        accounts = await coa_service.get_account_hierarchy(entity.id)
+        result[f"coa:{entity.id}"] = {
+            "legal_entity_id": str(entity.id),
+            "accounts": [acc.to_dict() for acc in accounts],
+            "warmed_at": datetime.utcnow().isoformat(),
+        }
+    return result
+
+async def warm_trial_balance() -> dict[str, Any]:
+    """
+    Warm trial balance data for current period.
+    """
+    container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+    ledger_service = container.resolve("LedgerService")
+    legal_entities = await ledger_service.get_all_legal_entities()
+
+    result = {}
+    today = datetime.now().date()
+    for entity in legal_entities:
+        tb = await ledger_service.get_trial_balance(entity.id, today)
+        result[f"trial_balance:{entity.id}:{today.isoformat()}"] = tb
+    return result
+
+async def warm_inventory_summary() -> dict[str, Any]:
+    """
+    Warm inventory summary data.
+    """
+    container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+    inventory_service = container.resolve("InventoryService")
+    legal_entities = await inventory_service.get_all_legal_entities()
+
+    result = {}
+    for entity in legal_entities:
+        summary = await inventory_service.get_inventory_summary(entity.id)
+        result[f"inventory_summary:{entity.id}"] = summary
+    return result
+
+async def warm_ar_aging() -> dict[str, Any]:
+    """
+    Warm AR aging report.
+    """
+    container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+    ar_service = container.resolve("ARService")
+    legal_entities = await ar_service.get_all_legal_entities()
+
+    result = {}
+    today = datetime.now().date()
+    for entity in legal_entities:
+        aging = await ar_service.get_aging_all_customers(entity.id, today)
+        result[f"ar_aging:{entity.id}:{today.isoformat()}"] = aging
+    return result
+
+async def warm_ap_aging() -> dict[str, Any]:
+    """
+    Warm AP aging report.
+    """
+    container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+    ap_service = container.resolve("APService")
+    legal_entities = await ap_service.get_all_legal_entities()
+
+    result = {}
+    today = datetime.now().date()
+    for entity in legal_entities:
+        aging = await ap_service.get_aging_all_vendors(entity.id, today)
+        result[f"ap_aging:{entity.id}:{today.isoformat()}"] = aging
+    return result
+
+async def warm_fixed_asset_summary() -> dict[str, Any]:
+    """
+    Warm fixed asset summary.
+    """
+    container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+    fa_service = container.resolve("FixedAssetService")
+    legal_entities = await fa_service.get_all_legal_entities()
+
+    result = {}
+    today = datetime.now().date()
+    for entity in legal_entities:
+        summary = await fa_service.get_summary(entity.id, today)
+        result[f"fixed_asset_summary:{entity.id}:{today.isoformat()}"] = summary
+    return result
+
+# ============================================================================
+# DEFAULT JOBS
+# ============================================================================
+
+def get_default_warming_jobs() -> list[WarmingJob]:
+    """
+    Get list of default warming jobs.
+    """
+    return [
+        WarmingJob(
+            name="chart_of_accounts",
+            function=warm_chart_of_accounts,
+            schedule="0 2 * * *",  # 2 AM daily
+            key_pattern="coa:{legal_entity_id}",
+            ttl_seconds=WARMED_CACHE_TTL,
+        ),
+        WarmingJob(
+            name="trial_balance",
+            function=warm_trial_balance,
+            schedule="0 3 * * *",  # 3 AM daily
+            key_pattern="trial_balance:{legal_entity_id}:{date}",
+            ttl_seconds=WARMED_CACHE_TTL,
+        ),
+        WarmingJob(
+            name="inventory_summary",
+            function=warm_inventory_summary,
+            schedule="0 4 * * *",  # 4 AM daily
+            key_pattern="inventory_summary:{legal_entity_id}",
+            ttl_seconds=WARMED_CACHE_TTL,
+        ),
+        WarmingJob(
+            name="ar_aging",
+            function=warm_ar_aging,
+            schedule="0 5 * * *",  # 5 AM daily
+            key_pattern="ar_aging:{legal_entity_id}:{date}",
+            ttl_seconds=WARMED_CACHE_TTL,
+        ),
+        WarmingJob(
+            name="ap_aging",
+            function=warm_ap_aging,
+            schedule="0 6 * * *",  # 6 AM daily
+            key_pattern="ap_aging:{legal_entity_id}:{date}",
+            ttl_seconds=WARMED_CACHE_TTL,
+        ),
+        WarmingJob(
+            name="fixed_asset_summary",
+            function=warm_fixed_asset_summary,
+            schedule="0 7 * * *",  # 7 AM daily
+            key_pattern="fixed_asset_summary:{legal_entity_id}:{date}",
+            ttl_seconds=WARMED_CACHE_TTL,
+        ),
+    ]
+
+# ============================================================================
+# SINGLETON INSTANCE
+# ============================================================================
+
+_warmer: CacheWarmer | None = None
+
+async def get_cache_warmer() -> CacheWarmer:
+    """Get singleton instance of CacheWarmer."""
+    global _warmer
+    if _warmer is None:
+        _warmer = CacheWarmer()
+        # Register default jobs
+        for job in get_default_warming_jobs():
+            _warmer.register_job(job)
+    return _warmer
+
+async def start_cache_warmer() -> None:
+    """Start the cache warmer."""
+    warmer = await get_cache_warmer()
+    await warmer.start()
+
+async def stop_cache_warmer() -> None:
+    """Stop the cache warmer."""
+    global _warmer
+    if _warmer:
+        await _warmer.stop()
+        _warmer = None
+
+# ============================================================================
+# EXPORTS
+# ============================================================================
+
+__all__ = [
+    "CacheWarmer",
+    "WarmingJob",
+    "get_cache_warmer",
+    "start_cache_warmer",
+    "stop_cache_warmer",
+    "warm_ap_aging",
+    "warm_ar_aging",
+    "warm_chart_of_accounts",
+    "warm_fixed_asset_summary",
+    "warm_inventory_summary",
+    "warm_trial_balance",
+]

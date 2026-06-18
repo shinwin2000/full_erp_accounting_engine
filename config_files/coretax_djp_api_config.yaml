@@ -1,0 +1,72 @@
+# ============================================================
+# coretax_djp_api_config.yaml — Konfigurasi Coretax DJP
+# Dibaca oleh: adapters/coretax_djp/api_oauth2_client.py
+# ============================================================
+
+coretax:
+  base_url: ${CORETAX_API_BASE_URL:https://preprod.coretaxdjp.pajak.go.id}
+  version: v1
+
+  auth:
+    client_id: ${CORETAX_CLIENT_ID:}
+    client_secret: ${CORETAX_CLIENT_SECRET:}
+    grant_type: client_credentials
+    scope: "read write"
+    token_endpoint: /oauth/token
+    token_expiry_buffer_seconds: 60
+
+  identity:
+    npwp_pemungut: ${CORETAX_NPWP_PEMUNGUT:}
+    nama_pemungut: ${APP_NAME:ERP Accounting Engine}
+
+  endpoints:
+    faktur_keluaran_upload: /api/v1/faktur/keluaran/upload
+    faktur_keluaran_status: /api/v1/faktur/keluaran/status
+    faktur_masukan_query: /api/v1/faktur/masukan/query
+    nsfp_request: /api/v1/nsfp/request
+    nsfp_status: /api/v1/nsfp/status
+    ntpn_validate: /api/v1/ntpn/validate
+    spt_masa_ppn_submit: /api/v1/spt/masa/ppn/submit
+    spt_masa_ppn_status: /api/v1/spt/masa/ppn/status
+    spt_masa_pph21_submit: /api/v1/spt/masa/pph21/submit
+    spt_masa_pph23_submit: /api/v1/spt/masa/pph23/submit
+    spt_tahunan_badan_submit: /api/v1/spt/tahunan/badan/submit
+    ebupot_unifikasi_submit: /api/v1/ebupot/unifikasi/submit
+    emeterai_request: /api/v1/emeterai/request
+    health: /api/v1/health
+
+  http:
+    timeout_seconds: ${CORETAX_TIMEOUT_SECONDS:30}
+    connect_timeout_seconds: 10
+    max_retries: ${CORETAX_MAX_RETRIES:3}
+    retry_backoff_factor: 2
+    retry_status_codes: [429, 500, 502, 503, 504]
+
+  faktur:
+    batch_size: 100
+    max_batch_per_request: 500
+    auto_submit_on_post: false   # true = faktur dikirim otomatis saat jurnal diposting
+    require_ntpn_validation: true
+
+  nsfp:
+    auto_request_on_low: true
+    low_threshold: 50            # Request NSFP baru jika sisa < 50 nomor
+    request_batch_size: 500
+
+  webhook:
+    enabled: true
+    secret: ${CORETAX_WEBHOOK_SECRET:}
+    verify_signature: true
+    events:
+      - faktur.status_changed
+      - nsfp.allocated
+      - ntpn.issued
+      - spt.acknowledged
+
+  logging:
+    log_requests: true
+    log_responses: true
+    mask_sensitive_fields:
+      - client_secret
+      - npwp
+      - nama

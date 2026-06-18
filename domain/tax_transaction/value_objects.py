@@ -1,0 +1,472 @@
+#!/usr/bin/env python3
+"""
+Module: value_objects.py
+Layer: Domain / Tax Transaction
+Responsibility: Value objects untuk tax transaction: NPWP, NSFP, KodeFaktur,
+               MasaPajak, TahunPajak, TarifPajak, KodeBilling.
+
+Metode: validate, normalize, to_string, from_string, to_dict, from_dict,
+        __eq__, __hash__, clone, snapshot, version, audit_trail, touch.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
+
+# ============================================================================
+# NPWP VALUE OBJECT
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class NPWP:
+    """
+    Value object for NPWP (Nomor Pokok Wajib Pajak).
+    Format: 15 digits (XX.XXX.XXX.X-XXX.XXX)
+    """
+
+    value: str
+
+    def __post_init__(self):
+        if not self._is_valid():
+            raise ValueError(f"Invalid NPWP format: {self.value}")
+
+    def _is_valid(self) -> bool:
+        cleaned = re.sub(r"[^0-9]", "", self.value)
+        return len(cleaned) == 15 and cleaned.isdigit()
+
+    def normalize(self) -> NPWP:
+        cleaned = re.sub(r"[^0-9]", "", self.value)
+        formatted = f"{cleaned[0:2]}.{cleaned[2:5]}.{cleaned[5:8]}.{cleaned[8:9]}-{cleaned[9:12]}.{cleaned[12:15]}"
+        return NPWP(formatted)
+
+    def to_string(self) -> str:
+        return self.value
+
+    @classmethod
+    def from_string(cls, value: str) -> NPWP:
+        return cls(value)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"npwp": self.value}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> NPWP:
+        return cls(data["npwp"])
+
+    def clone(self) -> NPWP:
+        return NPWP(self.value)
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"npwp": self.value, "timestamp": datetime.utcnow().isoformat()}
+
+    def version(self) -> int:
+        return 1
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        return [self.to_dict()]
+
+    def touch(self, touched_by: str) -> NPWP:
+        return self.clone()
+
+    def validate(self) -> dict[str, Any]:
+        if not self._is_valid():
+            return {"is_valid": False, "errors": ["Invalid NPWP format"]}
+        return {"is_valid": True, "errors": []}
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, NPWP):
+            return False
+        return re.sub(r"[^0-9]", "", self.value) == re.sub(r"[^0-9]", "", other.value)
+
+    def __hash__(self) -> int:
+        return hash(re.sub(r"[^0-9]", "", self.value))
+
+
+# ============================================================================
+# NSFP VALUE OBJECT (Nomor Seri Faktur Pajak)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class NSFP:
+    """Nomor Seri Faktur Pajak - range nomor faktur."""
+
+    tahun: int
+    bulan: int
+    nomor_awal: int
+    nomor_akhir: int
+
+    def __post_init__(self):
+        if self.tahun < 2000 or self.tahun > 2100:
+            raise ValueError("Invalid year")
+        if self.bulan < 1 or self.bulan > 12:
+            raise ValueError("Invalid month")
+        if self.nomor_awal < 1 or self.nomor_akhir < self.nomor_awal:
+            raise ValueError("Invalid nomor range")
+        if self.nomor_akhir > 99999999:
+            raise ValueError("Nomor cannot exceed 99,999,999")
+
+    def includes(self, nomor: int) -> bool:
+        return self.nomor_awal <= nomor <= self.nomor_akhir
+
+    def to_string(self) -> str:
+        return f"{self.tahun:04d}.{self.bulan:02d}.{self.nomor_awal:08d}-{self.nomor_akhir:08d}"
+
+    @classmethod
+    def from_string(cls, value: str) -> NSFP:
+        parts = value.replace("-", ".").split(".")
+        if len(parts) != 5:
+            raise ValueError(f"Invalid NSFP format: {value}")
+        tahun = int(parts[0])
+        bulan = int(parts[1])
+        nomor_awal = int(parts[2])
+        nomor_akhir = int(parts[3])
+        return cls(tahun=tahun, bulan=bulan, nomor_awal=nomor_awal, nomor_akhir=nomor_akhir)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "tahun": self.tahun,
+            "bulan": self.bulan,
+            "nomor_awal": self.nomor_awal,
+            "nomor_akhir": self.nomor_akhir,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> NSFP:
+        return cls(
+            tahun=data["tahun"],
+            bulan=data["bulan"],
+            nomor_awal=data["nomor_awal"],
+            nomor_akhir=data["nomor_akhir"],
+        )
+
+    def clone(self) -> NSFP:
+        return NSFP(self.tahun, self.bulan, self.nomor_awal, self.nomor_akhir)
+
+    def snapshot(self) -> dict[str, Any]:
+        return self.to_dict()
+
+    def version(self) -> int:
+        return 1
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        return [self.to_dict()]
+
+    def touch(self, touched_by: str) -> NSFP:
+        return self.clone()
+
+    def validate(self) -> dict[str, Any]:
+        try:
+            self.__post_init__()
+            return {"is_valid": True, "errors": []}
+        except ValueError as e:
+            return {"is_valid": False, "errors": [str(e)]}
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, NSFP):
+            return False
+        return (
+            self.tahun == other.tahun
+            and self.bulan == other.bulan
+            and self.nomor_awal == other.nomor_awal
+            and self.nomor_akhir == other.nomor_akhir
+        )
+
+    def __hash__(self) -> int:
+        return hash((self.tahun, self.bulan, self.nomor_awal, self.nomor_akhir))
+
+
+# ============================================================================
+# KODE FAKTUR VALUE OBJECT
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class KodeFaktur:
+    """Kode faktur pajak (2 digit)."""
+
+    value: str
+
+    def __post_init__(self):
+        if not re.match(r"^[0-9]{2}$", self.value):
+            raise ValueError(f"Kode faktur must be 2 digits: {self.value}")
+
+    def to_string(self) -> str:
+        return self.value
+
+    @classmethod
+    def from_string(cls, value: str) -> KodeFaktur:
+        return cls(value)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"kode_faktur": self.value}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> KodeFaktur:
+        return cls(data["kode_faktur"])
+
+    def clone(self) -> KodeFaktur:
+        return KodeFaktur(self.value)
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"kode_faktur": self.value}
+
+    def version(self) -> int:
+        return 1
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        return [self.to_dict()]
+
+    def touch(self, touched_by: str) -> KodeFaktur:
+        return self.clone()
+
+    def validate(self) -> dict[str, Any]:
+        try:
+            self.__post_init__()
+            return {"is_valid": True, "errors": []}
+        except ValueError as e:
+            return {"is_valid": False, "errors": [str(e)]}
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, KodeFaktur):
+            return False
+        return self.value == other.value
+
+    def __hash__(self) -> int:
+        return hash(self.value)
+
+
+# ============================================================================
+# MASA PAJAK VALUE OBJECT
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class MasaPajak:
+    """Month and year for tax period."""
+
+    tahun: int
+    bulan: int
+
+    def __post_init__(self):
+        if self.tahun < 2000 or self.tahun > 2100:
+            raise ValueError("Invalid tax year")
+        if self.bulan < 1 or self.bulan > 12:
+            raise ValueError("Month must be 1-12")
+
+    def to_string(self) -> str:
+        return f"{self.tahun}-{self.bulan:02d}"
+
+    @classmethod
+    def from_string(cls, value: str) -> MasaPajak:
+        parts = value.split("-")
+        if len(parts) != 2:
+            raise ValueError(f"Invalid masa pajak format: {value}")
+        tahun = int(parts[0])
+        bulan = int(parts[1])
+        return cls(tahun, bulan)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"tahun": self.tahun, "bulan": self.bulan}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MasaPajak:
+        return cls(data["tahun"], data["bulan"])
+
+    def clone(self) -> MasaPajak:
+        return MasaPajak(self.tahun, self.bulan)
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"tahun": self.tahun, "bulan": self.bulan}
+
+    def version(self) -> int:
+        return 1
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        return [self.to_dict()]
+
+    def touch(self, touched_by: str) -> MasaPajak:
+        return self.clone()
+
+    def validate(self) -> dict[str, Any]:
+        try:
+            self.__post_init__()
+            return {"is_valid": True, "errors": []}
+        except ValueError as e:
+            return {"is_valid": False, "errors": [str(e)]}
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, MasaPajak):
+            return False
+        return self.tahun == other.tahun and self.bulan == other.bulan
+
+    def __hash__(self) -> int:
+        return hash((self.tahun, self.bulan))
+
+
+# ============================================================================
+# TARIF PAJAK VALUE OBJECT
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class TarifPajak:
+    """Tax rate as decimal (0-100%)."""
+
+    value: Decimal
+    jenis_pajak: str  # PPN, PPh21, PPh23, PPh26, PPh4(2), etc.
+    berlaku_mulai: date
+
+    def __post_init__(self):
+        if self.value < 0 or self.value > 100:
+            raise ValueError(f"Tarif must be between 0 and 100: {self.value}")
+        if not self.jenis_pajak:
+            raise ValueError("Jenis pajak is required")
+
+    def as_decimal(self) -> Decimal:
+        return self.value / Decimal(100)
+
+    def to_string(self) -> str:
+        return f"{self.value}%"
+
+    @classmethod
+    def from_string(cls, value: str, jenis_pajak: str, berlaku_mulai: date) -> TarifPajak:
+        rate = Decimal(value.replace("%", ""))
+        return cls(rate, jenis_pajak, berlaku_mulai)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "value": str(self.value),
+            "jenis_pajak": self.jenis_pajak,
+            "berlaku_mulai": self.berlaku_mulai.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TarifPajak:
+        return cls(
+            value=Decimal(data["value"]),
+            jenis_pajak=data["jenis_pajak"],
+            berlaku_mulai=date.fromisoformat(data["berlaku_mulai"]),
+        )
+
+    def clone(self) -> TarifPajak:
+        return TarifPajak(self.value, self.jenis_pajak, self.berlaku_mulai)
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"value": str(self.value), "jenis_pajak": self.jenis_pajak}
+
+    def version(self) -> int:
+        return 1
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        return [self.to_dict()]
+
+    def touch(self, touched_by: str) -> TarifPajak:
+        return self.clone()
+
+    def validate(self) -> dict[str, Any]:
+        try:
+            self.__post_init__()
+            return {"is_valid": True, "errors": []}
+        except ValueError as e:
+            return {"is_valid": False, "errors": [str(e)]}
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TarifPajak):
+            return False
+        return (
+            self.value == other.value
+            and self.jenis_pajak == other.jenis_pajak
+            and self.berlaku_mulai == other.berlaku_mulai
+        )
+
+    def __hash__(self) -> int:
+        return hash((self.value, self.jenis_pajak, self.berlaku_mulai))
+
+
+# ============================================================================
+# KODE BILLING VALUE OBJECT
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class KodeBilling:
+    """Kode Billing for tax payment (16 digits)."""
+
+    value: str
+
+    def __post_init__(self):
+        if not re.match(r"^[0-9]{16}$", self.value):
+            raise ValueError(f"Kode Billing must be 16 digits: {self.value}")
+
+    def to_string(self) -> str:
+        return self.value
+
+    @classmethod
+    def from_string(cls, value: str) -> KodeBilling:
+        return cls(value)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"kode_billing": self.value}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> KodeBilling:
+        return cls(data["kode_billing"])
+
+    def clone(self) -> KodeBilling:
+        return KodeBilling(self.value)
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"kode_billing": self.value}
+
+    def version(self) -> int:
+        return 1
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        return [self.to_dict()]
+
+    def touch(self, touched_by: str) -> KodeBilling:
+        return self.clone()
+
+    def validate(self) -> dict[str, Any]:
+        try:
+            self.__post_init__()
+            return {"is_valid": True, "errors": []}
+        except ValueError as e:
+            return {"is_valid": False, "errors": [str(e)]}
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, KodeBilling):
+            return False
+        return self.value == other.value
+
+    def __hash__(self) -> int:
+        return hash(self.value)
+
+
+# ============================================================================
+# ALIASES untuk kompatibilitas dengan __init__.py
+# ============================================================================
+
+NPWPVO = NPWP
+NSFPVO = NSFP
+TaxPeriodVO = MasaPajak
+FakturNumberVO = KodeFaktur
+
+__all__ = [
+    "NPWP",
+    "NPWPVO",
+    "NSFP",
+    "NSFPVO",
+    "FakturNumberVO",
+    "KodeBilling",
+    "KodeFaktur",
+    "MasaPajak",
+    "TarifPajak",
+    "TaxPeriodVO",
+]

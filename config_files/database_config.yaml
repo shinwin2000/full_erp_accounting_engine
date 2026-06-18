@@ -1,0 +1,45 @@
+# =============================================================================
+# Database Configuration - ERP Accounting Engine
+# =============================================================================
+# Nilai di sini adalah defaults. Environment variable DATABASE_URL
+# selalu diprioritaskan di atas konfigurasi ini.
+# =============================================================================
+
+database:
+  # Connection (override via DATABASE_URL env var di production)
+  host: "localhost"
+  port: 5432
+  database: "erp_db"
+  user: "postgres"
+  password: null  # Wajib diset via env var DB_PASSWORD atau DATABASE_URL
+
+  # Connection pool
+  pool_size: 20            # Jumlah koneksi permanen di pool
+  max_overflow: 10         # Koneksi tambahan di atas pool_size saat load tinggi
+  pool_timeout: 30         # Detik tunggu koneksi dari pool sebelum timeout
+  pool_recycle: 3600       # Recycle koneksi setelah 1 jam (mencegah stale connection)
+  pool_pre_ping: true      # Ping koneksi sebelum digunakan (deteksi koneksi mati)
+
+  # Query behavior
+  echo: false              # Jangan log semua SQL query (set true untuk debug)
+  echo_pool: false         # Jangan log pool events
+  connect_args:
+    server_settings:
+      application_name: "erp_accounting_engine"
+      statement_timeout: "60000"   # 60 detik max per query
+      lock_timeout: "30000"        # 30 detik max tunggu lock
+
+  # SSL (aktifkan di production)
+  ssl: false
+  ssl_ca_cert: null        # Path ke CA certificate jika ssl=true
+
+  # Migration
+  alembic_table: "alembic_version"
+
+  # Read replica (opsional)
+  read_replica:
+    enabled: false
+    host: null
+    port: 5432
+    pool_size: 10
+    max_overflow: 5

@@ -1,0 +1,128 @@
+# alert_rules_security.yml
+# Prometheus alert rules for security monitoring
+
+groups:
+  - name: security_authentication
+    interval: 30s
+    rules:
+      - alert: MultipleFailedLogins
+        expr: increase(audit_events_total{event_type="login_failure"}[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: auth
+        annotations:
+          summary: "Multiple failed login attempts"
+          description: "{{ $value }} failed logins in last 5 minutes. Possible brute force attack."
+
+      - alert: AccountLockout
+        expr: increase(audit_events_total{event_type="account_locked"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: auth
+        annotations:
+          summary: "Account lockout occurred"
+          description: "Account {{ $labels.user_id }} was locked due to too many failed attempts."
+
+      - alert: UnusualLoginLocation
+        expr: increase(audit_events_total{event_type="login_unusual_location"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: info
+          component: auth
+        annotations:
+          summary: "Login from unusual location detected"
+          description: "{{ $value }} logins from new/unusual locations in last hour."
+
+  - name: security_authorization
+    interval: 30s
+    rules:
+      - alert: UnauthorizedAccessAttempts
+        expr: increase(audit_events_total{event_type="authorization_failure"}[5m]) > 20
+        for: 2m
+        labels:
+          severity: warning
+          component: auth
+        annotations:
+          summary: "High number of unauthorized access attempts"
+          description: "{{ $value }} authorization failures in last 5 minutes."
+
+      - alert: PermissionEscalationDetected
+        expr: increase(audit_events_total{event_type="permission_grant"}[5m]) > 5
+        for: 0m
+        labels:
+          severity: warning
+          component: auth
+        annotations:
+          summary: "Multiple permission grants detected"
+          description: "{{ $value }} permission grants in last 5 minutes. Review for privilege escalation."
+
+  - name: security_integrity
+    interval: 1m
+    rules:
+      - alert: SensitiveDataAccessAlert
+        expr: increase(audit_events_total{event_type="sensitive_data_access"}[15m]) > 10
+        for: 0m
+        labels:
+          severity: info
+          component: security
+        annotations:
+          summary: "High volume of sensitive data access"
+          description: "{{ $value }} accesses to sensitive data in last 15 minutes. Verify legitimate."
+
+      - alert: ConfigurationChangeAlert
+        expr: increase(audit_events_total{event_type="configuration_change"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          component: security
+        annotations:
+          summary: "Configuration change detected"
+          description: "{{ $value }} configuration changes in last 5 minutes. Verify authorized."
+
+  - name: security_network
+    interval: 30s
+    rules:
+      - alert: HighAPIRateFromSingleIP
+        expr: sum(rate(http_requests_total[5m])) by (source_ip) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: network
+        annotations:
+          summary: "High API request rate from single IP"
+          description: "Source IP {{ $labels.source_ip }} is making {{ $value }} requests/sec. Possible DDoS."
+
+      - alert: UnusualUserAgent
+        expr: increase(audit_events_total{event_type="unusual_user_agent"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          component: network
+        annotations:
+          summary: "Unusual user agent detected"
+          description: "Request from unusual user agent: {{ $labels.user_agent }}"
+
+  - name: security_compliance
+    interval: 1m
+    rules:
+      - alert: SanctionListHit
+        expr: increase(audit_events_total{event_type="sanction_list_hit"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: compliance
+        annotations:
+          summary: "Sanction list hit detected"
+          description: "A transaction party matched sanction list. Report to compliance officer."
+
+      - alert: SODViolation
+        expr: increase(audit_events_total{event_type="sod_violation"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: high
+          component: compliance
+        annotations:
+          summary: "Segregation of Duties violation"
+          description: "User {{ $labels.user_id }} has conflicting roles/permissions."

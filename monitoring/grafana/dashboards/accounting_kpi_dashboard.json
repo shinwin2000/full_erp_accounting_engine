@@ -1,0 +1,95 @@
+{
+  "dashboard": {
+    "title": "Accounting KPI Dashboard",
+    "uid": "accounting-kpi",
+    "tags": ["accounting", "kpi", "erp"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Daily Journal Postings",
+        "type": "graph",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "rate(journal_postings_total[1d])",
+            "legendFormat": "Postings per second"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+      },
+      {
+        "id": 2,
+        "title": "GL Balance (Top 5 Accounts)",
+        "type": "barchart",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "topk(5, gl_balance_amount{account_type=\"asset\"})",
+            "legendFormat": "{{account_code}}"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+      },
+      {
+        "id": 3,
+        "title": "Period Close Status",
+        "type": "stat",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "period_close_success_total{status=\"success\"}",
+            "legendFormat": "Success"
+          }
+        ],
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 }
+      },
+      {
+        "id": 4,
+        "title": "Outstanding AR/AP Aging",
+        "type": "table",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "ar_aging_bucket{aging_bucket=\"1-30 days\"}",
+            "legendFormat": "AR 1-30"
+          },
+          {
+            "expr": "ap_aging_bucket{aging_bucket=\"1-30 days\"}",
+            "legendFormat": "AP 1-30"
+          }
+        ],
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 }
+      },
+      {
+        "id": 5,
+        "title": "Revenue vs Expense (MTD)",
+        "type": "gauge",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "sum(gl_balance_amount{account_type=\"revenue\"}) / sum(gl_balance_amount{account_type=\"expense\"})",
+            "legendFormat": "Revenue/Expense Ratio"
+          }
+        ],
+        "gridPos": { "h": 6, "w": 6, "x": 12, "y": 8 }
+      },
+      {
+        "id": 6,
+        "title": "Top 10 Customers by Revenue",
+        "type": "barchart",
+        "datasource": "Prometheus",
+        "targets": [
+          {
+            "expr": "topk(10, customer_revenue_total)",
+            "legendFormat": "{{customer_name}}"
+          }
+        ],
+        "gridPos": { "h": 10, "w": 12, "x": 12, "y": 14 }
+      }
+    ],
+    "time": { "from": "now-7d", "to": "now" },
+    "schemaVersion": 36,
+    "version": 1
+  }
+}

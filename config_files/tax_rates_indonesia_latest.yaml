@@ -1,0 +1,138 @@
+# ============================================================
+# tax_rates_indonesia_latest.yaml — Tarif Pajak Indonesia
+# Sumber: UU HPP No. 7/2021, PMK, dan PER DJP terbaru
+# Dibaca oleh: policy_engine/tax_indonesia/rate_registry_dynamic.py
+# ============================================================
+
+effective_date: "2024-01-01"
+
+ppn:
+  standard_rate: 0.11          # 11% sesuai UU HPP Pasal 7
+  luxury_rate: 0.12            # 12% untuk BKP mewah tertentu
+  rate_0:                      # Tarif 0%
+    - ekspor_bkp
+    - ekspor_jkp
+    - ekspor_barang_tidak_berwujud
+  exempt:
+    - barang_kebutuhan_pokok
+    - jasa_kesehatan
+    - jasa_pendidikan
+    - jasa_keuangan
+    - jasa_asuransi
+    - jasa_keagamaan
+    - jasa_kesenian_hiburan_tertentu
+    - jasa_angkutan_umum
+    - jasa_tenaga_kerja
+    - jasa_telekomunikasi_publik
+    - jasa_pengiriman_surat
+    - emas_batangan
+    - uang_dan_efek
+  ppn_masukan_koefisien_deemed: 0.80  # PM dianggap = 80% PK untuk PKP tertentu
+
+pph_21:
+  method: ter                  # ter | gross_up | net | gross
+  ter_table:                   # Tabel TER sesuai PMK 168/2023
+    - bracket: "0 - 5.400.000"
+      monthly_gross_0_to_5400k: 0.00
+    - bracket: "5.400.001 - 5.650.000"
+      monthly_gross: 0.0025
+    - bracket: "5.650.001 - 5.950.000"
+      monthly_gross: 0.005
+    - bracket: "5.950.001 - 6.300.000"
+      monthly_gross: 0.0075
+    - bracket: "6.300.001 - 6.750.000"
+      monthly_gross: 0.01
+    - bracket: "6.750.001 - 7.500.000"
+      monthly_gross: 0.0125
+    - bracket: "7.500.001 - 8.550.000"
+      monthly_gross: 0.015
+    - bracket: "8.550.001 - 9.650.000"
+      monthly_gross: 0.0175
+    - bracket: "9.650.001 - 10.050.000"
+      monthly_gross: 0.02
+    - bracket: "10.050.001 - 10.350.000"
+      monthly_gross: 0.0225
+    - bracket: "10.350.001 - 10.700.000"
+      monthly_gross: 0.025
+    - bracket: "10.700.001 - 11.050.000"
+      monthly_gross: 0.03
+    - bracket: "> 11.050.000"
+      monthly_gross: progressive  # Gunakan tarif progresif Pasal 17
+  progressive_brackets:
+    - max: 60000000
+      rate: 0.05
+    - max: 250000000
+      rate: 0.15
+    - max: 500000000
+      rate: 0.25
+    - max: 5000000000
+      rate: 0.30
+    - max: null
+      rate: 0.35
+
+ptkp:
+  TK_0: 54000000
+  TK_1: 58500000
+  TK_2: 63000000
+  TK_3: 67500000
+  K_0:  58500000
+  K_1:  63000000
+  K_2:  67500000
+  K_3:  72000000
+  K_I_0: 112500000
+  K_I_1: 117000000
+  K_I_2: 121500000
+  K_I_3: 126000000
+
+pph_22:
+  impor_umum: 0.025
+  impor_tidak_terdaftar: 0.075
+  badan_tertentu: 0.015         # Pemungut badan usaha tertentu
+  penjualan_barang_sangat_mewah: 0.05
+
+pph_23:
+  dividen: 0.15
+  bunga: 0.15
+  royalti: 0.15
+  hadiah_penghargaan: 0.15
+  sewa_harta: 0.02
+  jasa_teknik: 0.02
+  jasa_manajemen: 0.02
+  jasa_konsultan: 0.02
+  jasa_lain: 0.02              # Jasa lain sesuai PMK
+  tanpa_npwp_multiplier: 2.0  # Tarif 2x jika tidak memiliki NPWP
+
+pph_25:
+  angsuran_method: based_on_prior_year_spt
+
+pph_26:
+  default: 0.20                # 20% untuk non-residen tanpa P3B
+  reduced_by_tax_treaty: true
+
+pph_4_ayat_2:
+  bunga_tabungan_deposito: 0.20
+  bunga_obligasi: 0.10         # 10% jika diterima reksa dana
+  dividen_orang_pribadi: 0.10
+  sewa_tanah_bangunan: 0.10
+  pengalihan_hak_tanah_bangunan: 0.025
+  hadiah_undian: 0.25
+  jasa_konstruksi_kualifikasi_kecil: 0.02
+  jasa_konstruksi_kualifikasi_menengah_besar: 0.03
+  jasa_konsultan_konstruksi: 0.04
+  penjualan_saham_bursa: 0.001
+
+pph_badan:
+  tarif_umum: 0.22             # 22% sesuai UU HPP
+  tarif_tbk_40_persen_saham: 0.19  # Diskon 3% jika saham diperdagangkan
+  tarif_umkm_pp23: 0.005       # 0.5% omzet bruto (PP 23/2018)
+  batas_omzet_umkm_pp23: 4800000000
+
+bea_meterai:
+  tarif: 10000                 # Rp 10.000 per dokumen (UU 10/2020)
+  threshold: 5000000           # Dokumen senilai > Rp 5 juta
+
+denda_keterlambatan:
+  bunga_per_bulan: 0.02        # 2% per bulan (KUP Pasal 9)
+  denda_terlambat_lapor_spt_tahunan: 1000000
+  denda_terlambat_lapor_spt_masa_ppn: 500000
+  denda_terlambat_lapor_spt_masa_pph: 100000
