@@ -15,6 +15,7 @@ Audit: Setiap perubahan goodwill dicatat di event store.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date, datetime
@@ -63,10 +64,10 @@ class GoodwillTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         Index("idx_goodwill_legal_entity", "legal_entity_id"),
         Index("idx_goodwill_acquisition_date", "acquisition_date"),
         Index("idx_goodwill_status", "status"),
-        Index("idx_goodwill_cg_unit", "cash_generating_unit")
+        Index("idx_goodwill_cg_unit", "cash_generating_unit"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Identifikasi
     goodwill_code: Mapped[str] = mapped_column(String(50), nullable=False)

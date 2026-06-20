@@ -6,6 +6,7 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel projection_checkpoin
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import datetime
@@ -25,10 +26,10 @@ class ProjectionCheckpointTable(Base, TimestampMixin):
         CheckConstraint("projection_name IS NOT NULL AND projection_name != ''", name="ck_projection_checkpoint_name"),
         Index("idx_projection_checkpoint_name", "projection_name"),
         Index("idx_projection_checkpoint_last_event", "last_event_id"),
-        Index("idx_projection_checkpoint_legal_entity", "legal_entity_id")
+        Index("idx_projection_checkpoint_legal_entity", "legal_entity_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     projection_name: Mapped[str] = mapped_column(String(100), nullable=False)
     last_event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     last_event_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

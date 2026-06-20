@@ -3,8 +3,7 @@
 Module: intangible_revaluation_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel intangible_revaluation.
-               Tabel ini menyimpan history revaluasi aset tidak berwujud (intangible assets),
-               sesuai dengan metode revaluasi yang diizinkan oleh PSAK/IFRS.
+               Tabel ini menyimpan history revaluasi aset tidak berwujud (intangible assets).
 """
 
 from __future__ import annotations
@@ -12,11 +11,11 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, TimestampMixin
 
@@ -29,11 +28,14 @@ class IntangibleRevaluationTable(Base, TimestampMixin, SoftDeleteMixin):
         CheckConstraint("new_carrying_amount >= 0", name="ck_intangible_reval_new_carrying_nonneg"),
         CheckConstraint("surplus_deficit IS NOT NULL", name="ck_intangible_reval_surplus"),
         Index("idx_intangible_reval_asset", "asset_id"),
-        Index("idx_intangible_reval_date", "revaluation_date")
+        Index("idx_intangible_reval_date", "revaluation_date"),
+        {"schema": "public", "extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    asset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("intangible_asset.id"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("public.intangible_asset.id"), nullable=False
+    )
     revaluation_date: Mapped[date] = mapped_column(Date, nullable=False)
 
     old_acquisition_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
@@ -48,15 +50,14 @@ class IntangibleRevaluationTable(Base, TimestampMixin, SoftDeleteMixin):
 
     surplus_deficit: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    journal_id: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    journal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-
-    # Relationship – string reference
-    asset: Mapped[IntangibleAssetTable] = relationship(
-        "IntangibleAssetTable", back_populates="revaluations"
-    )
+    # =========================================================================
+    # RELATIONSHIP: 'asset' is provided by the backref from IntangibleAssetTable.
+    # No explicit relationship definition is needed here.
+    # =========================================================================
 
     def to_dict(self) -> dict[str, Any]:
         return {

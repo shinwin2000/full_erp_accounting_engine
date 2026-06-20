@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_manufacturing_router.py
@@ -22,7 +23,9 @@ Method Standards (ERP):
 - version_work_order()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -31,6 +34,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -577,21 +581,21 @@ class OverheadAllocationResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_manufacturing_service() -> Any:
+async def get_manufacturing_service(request: Request, ) -> Any:
     """Get Manufacturing Service instance."""
     from application.service_layer.service_manufacturing import ManufacturingService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(ManufacturingService)
 
 
 async def get_hpp_close_use_case() -> Any:
     """Get HPP Manufacturing Close Use Case instance."""
     from application.use_cases.hpp_manufacturing_close import HPPManufacturingCloseUseCase
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(HPPManufacturingCloseUseCase)
 
 
@@ -660,7 +664,7 @@ async def create_bom(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create BOM: {e}")
+        logger.exception("Failed to create BOM: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -713,7 +717,7 @@ async def list_bom(
             for b in boms
         ]
     except Exception as e:
-        logger.exception(f"Failed to list BOM: {e}")
+        logger.exception("Failed to list BOM: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -759,7 +763,7 @@ async def get_bom(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get BOM: {e}")
+        logger.exception("Failed to get BOM: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -817,7 +821,7 @@ async def update_bom(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update BOM: {e}")
+        logger.exception("Failed to update BOM: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -851,7 +855,7 @@ async def deactivate_bom(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to deactivate BOM: {e}")
+        logger.exception("Failed to deactivate BOM: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -913,7 +917,7 @@ async def create_routing(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create routing: {e}")
+        logger.exception("Failed to create routing: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -964,7 +968,7 @@ async def list_routing(
             for r in routings
         ]
     except Exception as e:
-        logger.exception(f"Failed to list routing: {e}")
+        logger.exception("Failed to list routing: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1010,7 +1014,7 @@ async def get_routing(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get routing: {e}")
+        logger.exception("Failed to get routing: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1094,7 +1098,7 @@ async def create_work_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create work order: {e}")
+        logger.exception("Failed to create work order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1172,7 +1176,7 @@ async def list_work_orders(
             for wo in result.items
         ]
     except Exception as e:
-        logger.exception(f"Failed to list work orders: {e}")
+        logger.exception("Failed to list work orders: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1239,7 +1243,7 @@ async def get_work_order(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get work order: {e}")
+        logger.exception("Failed to get work order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1321,7 +1325,7 @@ async def update_work_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update work order: {e}")
+        logger.exception("Failed to update work order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1398,7 +1402,7 @@ async def release_work_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to release work order: {e}")
+        logger.exception("Failed to release work order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1477,7 +1481,7 @@ async def complete_work_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to complete work order: {e}")
+        logger.exception("Failed to complete work order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1518,7 +1522,7 @@ async def cancel_work_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to cancel work order: {e}")
+        logger.exception("Failed to cancel work order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1590,7 +1594,7 @@ async def close_work_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to close work order: {e}")
+        logger.exception("Failed to close work order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1645,7 +1649,7 @@ async def list_wip(
             for w in wip_items
         ]
     except Exception as e:
-        logger.exception(f"Failed to list WIP: {e}")
+        logger.exception("Failed to list WIP: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1716,7 +1720,7 @@ async def create_cost_card(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create cost card: {e}")
+        logger.exception("Failed to create cost card: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1773,7 +1777,7 @@ async def list_cost_cards(
             for c in cards
         ]
     except Exception as e:
-        logger.exception(f"Failed to list cost cards: {e}")
+        logger.exception("Failed to list cost cards: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1825,7 +1829,7 @@ async def get_variance_analysis(
             generated_at=result.generated_at,
         )
     except Exception as e:
-        logger.exception(f"Failed to get variance analysis: {e}")
+        logger.exception("Failed to get variance analysis: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1867,7 +1871,7 @@ async def close_hpp_period(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to close HPP: {e}")
+        logger.exception("Failed to close HPP: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1905,15 +1909,15 @@ async def export_work_orders(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"work_orders_{legal_entity_id}_{start_date}_{end_date}.{format}"
+        filename = "work_orders_{}_{}_{}.{}".format(legal_entity_id, start_date, end_date, format)
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
         )
     except Exception as e:
-        logger.exception(f"Failed to export work orders: {e}")
+        logger.exception("Failed to export work orders: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

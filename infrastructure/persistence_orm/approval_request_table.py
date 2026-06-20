@@ -12,6 +12,7 @@ Audit: Setiap perubahan status approval dicatat di event store.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import datetime
@@ -66,23 +67,23 @@ class ApprovalRequestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
         Index("idx_approval_approver", "approver_id"),
         Index("idx_approval_status", "status"),
         Index("idx_approval_deadline", "deadline"),
-        Index("idx_approval_legal_entity", "legal_entity_id")
+        Index("idx_approval_legal_entity", "legal_entity_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Nomor permintaan (human-readable)
     request_number: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Entity yang memerlukan persetujuan
     entity_type: Mapped[str] = mapped_column(String(30), nullable=False)
-    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    entity_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
 
     # Data entity snapshot (opsional, untuk audit)
     entity_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     # Approval metadata
-    approver_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    approver_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     approver_name: Mapped[str] = mapped_column(String(200), nullable=False)
     approver_role: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
@@ -111,7 +112,7 @@ class ApprovalRequestTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Audit
-    requested_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    requested_by: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # ========================================================================

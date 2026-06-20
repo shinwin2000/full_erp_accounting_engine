@@ -13,6 +13,7 @@ Audit: Setiap perubahan status hash chain dicatat.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import UTC, datetime
@@ -41,10 +42,10 @@ class HashChainTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         ),
         Index("idx_hc_stream_name", "stream_name"),
         Index("idx_hc_status", "status"),
-        Index("idx_hc_last_verified", "last_verified_at")
+        Index("idx_hc_last_verified", "last_verified_at"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     stream_name: Mapped[str] = mapped_column(String(255), nullable=False)
     last_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     last_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

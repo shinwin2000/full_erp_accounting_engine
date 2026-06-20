@@ -10,6 +10,8 @@ Komponen yang gagal diimport (kecuali yang benar-benar opsional) akan menyebabka
 """
 
 from __future__ import annotations
+from fastapi import Request
+
 
 import asyncio
 import logging

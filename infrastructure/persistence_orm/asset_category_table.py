@@ -6,6 +6,7 @@ Responsibility: SQLAlchemy ORM model for asset categories used in fixed asset ma
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from typing import Any
@@ -34,11 +35,11 @@ class AssetCategoryTable(Base, TimestampMixin, SoftDeleteMixin, LegalEntityMixin
         ),
         Index("idx_asset_cat_legal_entity", "legal_entity_id"),
         Index("idx_asset_cat_code", "code", unique=True),
-        Index("idx_asset_cat_active", "is_active")
+        Index("idx_asset_cat_active", "is_active"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    legal_entity_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    legal_entity_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     code: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

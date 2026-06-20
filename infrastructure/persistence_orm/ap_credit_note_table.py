@@ -7,11 +7,6 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel ap_credit_note.
                yaitu pengurangan hutang karena retur pembelian, diskon setelah
                faktur, atau koreksi lainnya. Credit note mengurangi outstanding
                balance invoice terkait.
-Dependencies:
-- sqlalchemy.orm (Mapped, mapped_column, relationship)
-- infrastructure.persistence_orm.base_model
-Audit: Setiap credit note AP dicatat di event store. Credit note tidak dapat
-       dihapus, hanya bisa dibatalkan dengan credit note koreksi.
 """
 
 from __future__ import annotations
@@ -48,10 +43,6 @@ if TYPE_CHECKING:
 
 
 class APCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    """
-    Model untuk tabel ap_credit_note.
-    """
-
     __tablename__ = "ap_credit_note"
     __table_args__ = (
         UniqueConstraint(
@@ -68,7 +59,8 @@ class APCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         Index("idx_ap_credit_note_number", "credit_note_number"),
         Index("idx_ap_credit_note_invoice", "invoice_id"),
         Index("idx_ap_credit_note_date", "credit_note_date"),
-        Index("idx_ap_credit_note_status", "status")
+        Index("idx_ap_credit_note_status", "status"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -77,7 +69,9 @@ class APCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     credit_note_date: Mapped[date] = mapped_column(Date, nullable=False)
 
     invoice_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ap_invoice.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("public.ap_invoice.id", ondelete="RESTRICT"),
+        nullable=False,
     )
 
     amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
@@ -93,8 +87,19 @@ class APCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
 
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    # Relationships
-    invoice: Mapped[APInvoiceTable] = relationship("APInvoiceTable", foreign_keys=[invoice_id])
+    # =========================================================================
+    # RELATIONSHIPS
+    # =========================================================================
+
+    invoice: Mapped["APInvoiceTable"] = relationship(
+        "APInvoiceTable",
+        back_populates="credit_notes",
+        foreign_keys=[invoice_id],
+    )
+
+    # =========================================================================
+    # PROPERTIES
+    # =========================================================================
 
     @property
     def is_active(self) -> bool:
@@ -107,6 +112,10 @@ class APCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     @property
     def is_cancelled(self) -> bool:
         return self.status == "cancelled"
+
+    # =========================================================================
+    # METHODS
+    # =========================================================================
 
     def apply(self, applied_by: uuid.UUID) -> None:
         if self.status != "active":

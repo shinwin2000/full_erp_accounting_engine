@@ -9,6 +9,7 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel saga_state.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import datetime
@@ -34,11 +35,11 @@ class SagaStateTable(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_saga_state_type", "saga_type"),
         Index("idx_saga_state_status", "status"),
         Index("idx_saga_state_correlation", "correlation_id"),
-        Index("idx_saga_state_created_at", "created_at")
+        Index("idx_saga_state_created_at", "created_at"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    saga_id: Mapped[uuid.UUID] = mapped_column(
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    saga_id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False
     )  # unique identifier for this saga instance
     saga_type: Mapped[str] = mapped_column(

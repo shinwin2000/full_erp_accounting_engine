@@ -14,7 +14,7 @@ Audit: Perubahan grup konsolidasi dicatat.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Boolean, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -22,11 +22,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, TimestampMixin
 
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.consolidation_group_member_table import ConsolidationGroupMemberTable
+
 
 class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "consolidation_group"
     __table_args__ = (
-        Index("idx_cons_group_name", "group_name", unique=True)
+        Index("idx_cons_group_name", "group_name", unique=True),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -35,13 +39,18 @@ class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    # Relationships - gunakan string reference
-    members: Mapped[list[ConsolidationGroupMemberTable]] = relationship(
+    # =========================================================================
+    # RELATIONSHIPS – menggunakan string reference
+    # =========================================================================
+    members: Mapped[list["ConsolidationGroupMemberTable"]] = relationship(
         "ConsolidationGroupMemberTable",
         back_populates="group",
         cascade="all, delete-orphan",
     )
 
+    # =========================================================================
+    # METHODS
+    # =========================================================================
     def activate(self) -> None:
         self.is_active = True
 

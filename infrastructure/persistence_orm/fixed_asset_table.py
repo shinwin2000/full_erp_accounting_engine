@@ -2,11 +2,7 @@
 """
 Module: fixed_asset_table.py
 Layer: Infrastructure (Persistence ORM)
-Responsibility: Mendefinisikan model SQLAlchemy untuk tabel fixed_asset.
-               Tabel ini menyimpan data master aset tetap (fixed assets),
-               termasuk kode aset, nama, kategori, tanggal perolehan, biaya perolehan,
-               nilai residu, metode depresiasi, masa manfaat, akumulasi depresiasi,
-               dan status aset. Digunakan oleh modul Fixed Asset Management.
+Responsibility: Model untuk tabel fixed_asset.
 """
 
 from __future__ import annotations
@@ -14,6 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -27,7 +24,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -38,12 +35,15 @@ from infrastructure.persistence_orm.base_model import (
     VersionMixin,
 )
 
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.fixed_asset_schedule_table import FixedAssetScheduleTable
+    from infrastructure.persistence_orm.depreciation_schedule_table import DepreciationScheduleTable
+    from infrastructure.persistence_orm.impairment_test_table import ImpairmentTestTable
+    # from .revaluation_table import RevaluationTable
+    # from .disposal_table import DisposalTable
+
 
 class FixedAssetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    """
-    Model untuk tabel fixed_asset.
-    """
-
     __tablename__ = "fixed_asset"
     __table_args__ = (
         UniqueConstraint("asset_code", "legal_entity_id", name="uq_fixed_asset_code_legal_entity"),
@@ -76,30 +76,27 @@ class FixedAssetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         Index("idx_fixed_asset_legal_entity", "legal_entity_id"),
         Index("idx_fixed_asset_acquisition_date", "acquisition_date"),
         Index("idx_fixed_asset_supplier", "supplier_id"),
-        Index("idx_fixed_asset_is_active", "is_active")
+        Index("idx_fixed_asset_is_active", "is_active"),
+        {"schema": "public", "extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Asset identification
     asset_code: Mapped[str] = mapped_column(String(30), nullable=False)
     asset_name: Mapped[str] = mapped_column(String(200), nullable=False)
     asset_category: Mapped[str] = mapped_column(String(50), nullable=False)
 
-    # Acquisition
     acquisition_date: Mapped[date] = mapped_column(Date, nullable=False)
     acquisition_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     residual_value: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
 
-    # Depreciation
     useful_life_years: Mapped[int] = mapped_column(Integer, nullable=False)
     depreciation_method: Mapped[str] = mapped_column(
         String(25), nullable=False, default="straight_line"
     )
     depreciation_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
 
-    # Current state
     accumulated_depreciation: Mapped[Decimal] = mapped_column(
         Numeric(20, 2), nullable=False, default=0
     )
@@ -108,55 +105,60 @@ class FixedAssetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         Numeric(20, 2), nullable=False, default=0
     )
 
-    # Location and responsibility
     location: Mapped[str | None] = mapped_column(String(200), nullable=True)
     responsible_party: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
-    # Reference to purchase
     supplier_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("supplier.id"), nullable=True
+        PGUUID(as_uuid=True), ForeignKey("public.supplier.id"), nullable=True
     )
-    purchase_order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    invoice_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    purchase_order_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    invoice_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    # Serial number
     serial_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
-    # Status
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
-    # Revaluation frequency
     revaluation_frequency: Mapped[str] = mapped_column(String(20), nullable=False, default="never")
 
-    # Notes
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Audit
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # RELATIONSHIPS
     # ========================================================================
 
-    depreciation_schedule: Mapped[list[DepreciationScheduleTable]] = relationship(
-        "DepreciationScheduleTable", back_populates="asset", cascade="all, delete-orphan"
+    # Jadwal depresiasi versi sederhana (FixedAssetScheduleTable)
+    depreciation_schedule: Mapped[list["FixedAssetScheduleTable"]] = relationship(
+        "FixedAssetScheduleTable",
+        back_populates="asset",
+        cascade="all, delete-orphan",
+        order_by="FixedAssetScheduleTable.period",
     )
 
-    revaluations: Mapped[list[RevaluationTable]] = relationship(
-        "RevaluationTable", back_populates="asset", cascade="all, delete-orphan"
+    # Jadwal depresiasi versi komprehensif (DepreciationScheduleTable)
+    detailed_schedules: Mapped[list["DepreciationScheduleTable"]] = relationship(
+        "DepreciationScheduleTable",
+        back_populates="asset",
+        cascade="all, delete-orphan",
+        order_by="DepreciationScheduleTable.period",
     )
 
-    disposals: Mapped[list[DisposalTable]] = relationship(
-        "DisposalTable", back_populates="asset", cascade="all, delete-orphan"
+    # Uji penurunan nilai (impairment)
+    impairment_tests: Mapped[list["ImpairmentTestTable"]] = relationship(
+        "ImpairmentTestTable",
+        back_populates="asset",
+        cascade="all, delete-orphan",
+        order_by="ImpairmentTestTable.test_date",
     )
 
-    impairment_tests: Mapped[list[ImpairmentTestTable]] = relationship(
-        "ImpairmentTestTable", back_populates="asset", cascade="all, delete-orphan"
-    )
+    # Jika nanti ada model RevaluationTable dan DisposalTable, tambahkan di sini
+    # revaluations: Mapped[list["RevaluationTable"]] = relationship(...)
+    # disposals: Mapped[list["DisposalTable"]] = relationship(...)
 
     # ========================================================================
-    # PROPERTIES
+    # PROPERTIES & METHODS
     # ========================================================================
 
     @property
@@ -186,10 +188,6 @@ class FixedAssetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     @property
     def is_active_asset(self) -> bool:
         return self.status == "active" and self.is_active
-
-    # ========================================================================
-    # METHODS
-    # ========================================================================
 
     def record_depreciation(self, amount: Decimal, period_date: date) -> None:
         self.accumulated_depreciation += amount

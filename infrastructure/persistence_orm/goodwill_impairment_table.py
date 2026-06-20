@@ -13,6 +13,7 @@ Audit: Setiap impairment test dicatat dan tidak dapat dihapus (immutable).
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date, datetime
@@ -48,13 +49,13 @@ class GoodwillImpairmentTable(Base, TimestampMixin, LegalEntityMixin):
         ),
         Index("idx_goodwill_imp_goodwill", "goodwill_id"),
         Index("idx_goodwill_imp_date", "test_date"),
-        Index("idx_goodwill_imp_approved_by", "approved_by")
+        Index("idx_goodwill_imp_approved_by", "approved_by"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Relasi ke goodwill
-    goodwill_id: Mapped[uuid.UUID] = mapped_column(
+    goodwill_id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("goodwill.id", ondelete="RESTRICT"),
         nullable=False,

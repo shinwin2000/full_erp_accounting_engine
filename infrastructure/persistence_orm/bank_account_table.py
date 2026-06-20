@@ -6,6 +6,7 @@ Responsibility: Model SQLAlchemy untuk tabel bank_account.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date
@@ -47,10 +48,10 @@ class BankAccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
         Index("idx_bank_account_number", "account_number"),
         Index("idx_bank_account_legal_entity", "legal_entity_id"),
         Index("idx_bank_account_status", "status"),
-        Index("idx_bank_account_gl_account", "gl_account_id")
+        Index("idx_bank_account_gl_account", "gl_account_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     account_number: Mapped[str] = mapped_column(String(50), nullable=False)
     bank_name: Mapped[str] = mapped_column(String(100), nullable=False)
     bank_code: Mapped[str] = mapped_column(String(10), nullable=False)

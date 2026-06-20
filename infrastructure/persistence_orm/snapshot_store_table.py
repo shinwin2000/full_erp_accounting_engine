@@ -7,6 +7,7 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel snapshot store.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import datetime
@@ -33,17 +34,17 @@ class SnapshotStoreTable(Base):
         CheckConstraint("status IN ('active', 'archived', 'deleted')", name="ck_snapshot_status"),
         Index("idx_snapshot_aggregate", "aggregate_id", "aggregate_type", "snapshot_version"),
         Index("idx_snapshot_taken_at", "taken_at"),
-        Index("idx_snapshot_status", "status")
+        Index("idx_snapshot_status", "status"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    aggregate_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    aggregate_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     aggregate_type: Mapped[str] = mapped_column(String(100), nullable=False)
     snapshot_version: Mapped[int] = mapped_column(Integer, nullable=False)
     snapshot_data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     data_format: Mapped[str] = mapped_column(String(20), nullable=False, default="json+zlib")
     is_encrypted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    payload_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
     taken_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

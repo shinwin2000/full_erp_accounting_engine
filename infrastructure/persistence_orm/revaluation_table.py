@@ -3,6 +3,8 @@
 Module: revaluation_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel revaluation.
+               Tabel ini menyimpan history revaluasi aset tetap (fixed asset).
+               Mencatat perubahan nilai perolehan, akumulasi penyusutan, dan NBV.
 """
 
 from __future__ import annotations
@@ -31,11 +33,16 @@ class RevaluationTable(Base, TimestampMixin, SoftDeleteMixin):
         CheckConstraint("old_nbv >= 0", name="ck_revaluation_old_nbv_nonneg"),
         CheckConstraint("new_nbv >= 0", name="ck_revaluation_new_nbv_nonneg"),
         Index("idx_revaluation_asset", "asset_id"),
-        Index("idx_revaluation_date", "revaluation_date")
+        Index("idx_revaluation_date", "revaluation_date"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    asset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("fixed_asset.id"), nullable=False)
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.fixed_asset.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     revaluation_date: Mapped[date] = mapped_column(Date, nullable=False)
     old_acquisition_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     new_acquisition_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
@@ -49,8 +56,18 @@ class RevaluationTable(Base, TimestampMixin, SoftDeleteMixin):
     journal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    asset: Mapped[FixedAssetTable] = relationship("FixedAssetTable", back_populates="revaluations")
+    # =========================================================================
+    # RELATIONSHIPS – menggunakan backref agar FixedAssetTable otomatis mendapat 'revaluations'
+    # =========================================================================
+    asset: Mapped["FixedAssetTable"] = relationship(
+        "FixedAssetTable",
+        backref="revaluations",
+        foreign_keys=[asset_id],
+    )
 
+    # =========================================================================
+    # SERIALIZATION
+    # =========================================================================
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),

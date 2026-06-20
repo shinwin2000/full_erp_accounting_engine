@@ -6,6 +6,7 @@ Responsibility: Model untuk definisi report (query, parameter, template).
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from typing import Any
@@ -28,10 +29,10 @@ class ReportDefinitionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin,
     __table_args__ = (
         Index("idx_report_def_code", "report_code", "legal_entity_id", unique=True),
         Index("idx_report_def_category", "category"),
-        Index("idx_report_def_is_active", "is_active")
+        Index("idx_report_def_is_active", "is_active"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     report_code: Mapped[str] = mapped_column(String(50), nullable=False)
     report_name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

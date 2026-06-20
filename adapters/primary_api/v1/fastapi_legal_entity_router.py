@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_legal_entity_router.py
@@ -22,6 +23,7 @@ Method Standards (ERP):
 """
 
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -30,6 +32,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -386,12 +389,12 @@ class ConsolidationGroupResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_legal_entity_service() -> Any:
+async def get_legal_entity_service(request: Request, ) -> Any:
     """Get Legal Entity Service instance."""
     from application.service_layer.service_legal_entity import LegalEntityService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(LegalEntityService)
 
 
@@ -492,7 +495,7 @@ async def create_legal_entity(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create legal entity: {e}")
+        logger.exception("Failed to create legal entity: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -567,7 +570,7 @@ async def list_legal_entities(
             for le in result.items
         ]
     except Exception as e:
-        logger.exception(f"Failed to list legal entities: {e}")
+        logger.exception("Failed to list legal entities: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -630,7 +633,7 @@ async def get_legal_entity(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get legal entity: {e}")
+        logger.exception("Failed to get legal entity: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -650,72 +653,9 @@ async def get_legal_entity_by_npwp(
         le = await service.get_legal_entity_by_npwp(npwp)
 
         if not le:
-            raise HTTPException(status_code=404, detail=f"Legal entity with NPWP {npwp} not found")
-
-        return LegalEntityResponseSchema(
-            id=le.id,
-            legal_name=le.legal_name,
-            trade_name=le.trade_name,
-            entity_type=LegalEntityType(le.entity_type),
-            registration_number=le.registration_number,
-            npwp=le.npwp,
-            nppp=le.nppp,
-            address=le.address,
-            city=le.city,
-            postal_code=le.postal_code,
-            province=le.province,
-            country=le.country,
-            phone=le.phone,
-            fax=le.fax,
-            email=le.email,
-            website=le.website,
-            established_date=le.established_date,
-            fiscal_year_start=le.fiscal_year_start,
-            fiscal_year_end=le.fiscal_year_end,
-            base_currency=le.base_currency,
-            functional_currency=le.functional_currency,
-            is_taxable=le.is_taxable,
-            is_withholding_agent=le.is_withholding_agent,
-            status=LegalEntityStatus(le.status),
-            is_active=le.is_active,
-            is_locked=le.is_locked,
-            parent_company_id=le.parent_company_id,
-            parent_company_name=le.parent_company_name,
-            consolidation_group_id=le.consolidation_group_id,
-            consolidation_group_name=le.consolidation_group_name,
-            notes=le.notes,
-            created_at=le.created_at,
-            updated_at=le.updated_at,
-            created_by=le.created_by,
-            created_by_name=le.created_by_name,
-            version=le.version,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Failed to get legal entity by NPWP: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.get(
-    "/by-registration/{registration_number}",
-    response_model=LegalEntityResponseSchema,
-    summary="Get legal entity by registration number",
-    operation_id="get_legal_entity_by_registration",
-)
-async def get_legal_entity_by_registration(
-    registration_number: str,
-    _permission: None = Depends(require_permission("legal_entity:read")),
-    service: Any = Depends(get_legal_entity_service),
-) -> LegalEntityResponseSchema:
-    """Get legal entity by registration number (NIB)."""
-    try:
-        le = await service.get_legal_entity_by_registration(registration_number)
-
-        if not le:
             raise HTTPException(
                 status_code=404,
-                detail=f"Legal entity with registration {registration_number} not found",
+                detail="Legal entity with NPWP {} not found".format(npwp),  # nosec
             )
 
         return LegalEntityResponseSchema(
@@ -759,7 +699,73 @@ async def get_legal_entity_by_registration(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get legal entity by registration: {e}")
+        logger.exception("Failed to get legal entity by NPWP: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get(
+    "/by-registration/{registration_number}",
+    response_model=LegalEntityResponseSchema,
+    summary="Get legal entity by registration number",
+    operation_id="get_legal_entity_by_registration",
+)
+async def get_legal_entity_by_registration(
+    registration_number: str,
+    _permission: None = Depends(require_permission("legal_entity:read")),
+    service: Any = Depends(get_legal_entity_service),
+) -> LegalEntityResponseSchema:
+    """Get legal entity by registration number (NIB)."""
+    try:
+        le = await service.get_legal_entity_by_registration(registration_number)
+
+        if not le:
+            raise HTTPException(
+                status_code=404,
+                detail="Legal entity with registration {} not found".format(registration_number),  # nosec
+            )
+
+        return LegalEntityResponseSchema(
+            id=le.id,
+            legal_name=le.legal_name,
+            trade_name=le.trade_name,
+            entity_type=LegalEntityType(le.entity_type),
+            registration_number=le.registration_number,
+            npwp=le.npwp,
+            nppp=le.nppp,
+            address=le.address,
+            city=le.city,
+            postal_code=le.postal_code,
+            province=le.province,
+            country=le.country,
+            phone=le.phone,
+            fax=le.fax,
+            email=le.email,
+            website=le.website,
+            established_date=le.established_date,
+            fiscal_year_start=le.fiscal_year_start,
+            fiscal_year_end=le.fiscal_year_end,
+            base_currency=le.base_currency,
+            functional_currency=le.functional_currency,
+            is_taxable=le.is_taxable,
+            is_withholding_agent=le.is_withholding_agent,
+            status=LegalEntityStatus(le.status),
+            is_active=le.is_active,
+            is_locked=le.is_locked,
+            parent_company_id=le.parent_company_id,
+            parent_company_name=le.parent_company_name,
+            consolidation_group_id=le.consolidation_group_id,
+            consolidation_group_name=le.consolidation_group_name,
+            notes=le.notes,
+            created_at=le.created_at,
+            updated_at=le.updated_at,
+            created_by=le.created_by,
+            created_by_name=le.created_by_name,
+            version=le.version,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to get legal entity by registration: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -841,7 +847,7 @@ async def update_legal_entity(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update legal entity: {e}")
+        logger.exception("Failed to update legal entity: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -876,7 +882,7 @@ async def deactivate_legal_entity(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to deactivate legal entity: {e}")
+        logger.exception("Failed to deactivate legal entity: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -940,7 +946,7 @@ async def activate_legal_entity(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to activate legal entity: {e}")
+        logger.exception("Failed to activate legal entity: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1005,7 +1011,7 @@ async def lock_legal_entity(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to lock legal entity: {e}")
+        logger.exception("Failed to lock legal entity: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1069,7 +1075,7 @@ async def unlock_legal_entity(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to unlock legal entity: {e}")
+        logger.exception("Failed to unlock legal entity: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1118,7 +1124,7 @@ async def get_tax_profile(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get tax profile: {e}")
+        logger.exception("Failed to get tax profile: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1179,7 +1185,7 @@ async def update_tax_profile(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update tax profile: {e}")
+        logger.exception("Failed to update tax profile: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1242,7 +1248,7 @@ async def create_branch(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create branch: {e}")
+        logger.exception("Failed to create branch: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1291,7 +1297,7 @@ async def list_branches(
             for b in branches
         ]
     except Exception as e:
-        logger.exception(f"Failed to list branches: {e}")
+        logger.exception("Failed to list branches: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1337,7 +1343,7 @@ async def get_branch(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get branch: {e}")
+        logger.exception("Failed to get branch: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1398,7 +1404,7 @@ async def update_branch(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update branch: {e}")
+        logger.exception("Failed to update branch: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1435,7 +1441,7 @@ async def close_branch(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to close branch: {e}")
+        logger.exception("Failed to close branch: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1490,7 +1496,7 @@ async def create_consolidation_group(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create consolidation group: {e}")
+        logger.exception("Failed to create consolidation group: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1530,7 +1536,7 @@ async def list_consolidation_groups(
             for g in groups
         ]
     except Exception as e:
-        logger.exception(f"Failed to list consolidation groups: {e}")
+        logger.exception("Failed to list consolidation groups: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1572,7 +1578,7 @@ async def get_consolidation_group(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get consolidation group: {e}")
+        logger.exception("Failed to get consolidation group: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1625,7 +1631,7 @@ async def update_consolidation_group(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update consolidation group: {e}")
+        logger.exception("Failed to update consolidation group: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1657,7 +1663,7 @@ async def deactivate_consolidation_group(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to deactivate consolidation group: {e}")
+        logger.exception("Failed to deactivate consolidation group: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1691,7 +1697,7 @@ async def add_group_member(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to add group member: {e}")
+        logger.exception("Failed to add group member: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1727,7 +1733,7 @@ async def remove_group_member(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to remove group member: {e}")
+        logger.exception("Failed to remove group member: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1765,7 +1771,7 @@ async def get_legal_entity_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get legal entity history: {e}")
+        logger.exception("Failed to get legal entity history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1804,7 +1810,7 @@ async def get_legal_entity_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get legal entity status: {e}")
+        logger.exception("Failed to get legal entity status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

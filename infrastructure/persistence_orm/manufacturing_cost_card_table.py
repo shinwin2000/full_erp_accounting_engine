@@ -6,6 +6,7 @@ Responsibility: Read model untuk kartu biaya produksi (cost card).
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from decimal import Decimal
@@ -23,12 +24,12 @@ class ManufacturingCostCardTable(Base, TimestampMixin):
     __table_args__ = (
         Index("idx_cost_card_product", "product_id"),
         Index("idx_cost_card_period", "period"),
-        CheckConstraint("total_cost >= 0", name="ck_cost_total_nonneg")
+        CheckConstraint("total_cost >= 0", name="ck_cost_total_nonneg"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    cost_card_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cost_card_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     product_code: Mapped[str] = mapped_column(String(50), nullable=False)
     period: Mapped[str] = mapped_column(String(20), nullable=False)
     material_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), default=0)

@@ -6,12 +6,6 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel coretax_faktur.
                Tabel ini menyimpan data faktur pajak (keluaran dan masukan) yang
                dikirim/diterima dari sistem Coretax DJP. Mencakup data penjual,
                pembeli, DPP, PPN, status approval, dan referensi ke dokumen sumber.
-Dependencies:
-- sqlalchemy.orm (Mapped, mapped_column, relationship)
-- sqlalchemy.dialects.postgresql (UUID, NUMERIC)
-- infrastructure.persistence_orm.base_model (Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin)
-Audit: Setiap faktur pajak yang dikirim/diterima dicatat. Status perubahan
-       dari Coretax (approved/rejected) direkam untuk audit.
 """
 
 from __future__ import annotations
@@ -19,6 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import (
     CheckConstraint,
@@ -42,10 +37,6 @@ from infrastructure.persistence_orm.base_model import (
 
 
 class CoretaxFakturTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    """
-    Model untuk tabel coretax_faktur.
-    """
-
     __tablename__ = "coretax_faktur"
     __table_args__ = (
         UniqueConstraint("faktur_number", name="uq_coretax_faktur_number"),
@@ -66,59 +57,52 @@ class CoretaxFakturTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         Index("idx_cf_status", "status"),
         Index("idx_cf_faktur_date", "faktur_date"),
         Index("idx_cf_reference", "reference_type", "reference_id"),
-        Index("idx_cf_legal_entity", "legal_entity_id")
+        Index("idx_cf_legal_entity", "legal_entity_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
-    # Primary key
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Identification
     faktur_number: Mapped[str] = mapped_column(String(50), nullable=False)
     nsfp_used: Mapped[str | None] = mapped_column(String(20), nullable=True)
     faktur_type: Mapped[str] = mapped_column(String(10), nullable=False)
 
-    # Taxpayer (Penjual for keluaran, Pembeli for masukan)
     npwp_penjual: Mapped[str] = mapped_column(String(20), nullable=False)
     nama_penjual: Mapped[str] = mapped_column(String(200), nullable=False)
     alamat_penjual: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # Counterparty (Pembeli for keluaran, Penjual for masukan)
     npwp_pembeli: Mapped[str] = mapped_column(String(20), nullable=False)
     nama_pembeli: Mapped[str] = mapped_column(String(200), nullable=False)
     alamat_pembeli: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # Faktur details
     faktur_date: Mapped[date] = mapped_column(Date, nullable=False)
     dpp: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     ppn: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     ppn_bm: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
 
-    # Status from Coretax
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
     approval_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     approval_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Reference to source document in ERP
     reference_type: Mapped[str] = mapped_column(String(50), nullable=False, default="invoice")
     reference_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    # XML content (for storage/audit)
     xml_content: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    # Additional metadata
     extra_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
-    # Audit
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # RELATIONSHIPS
     # ========================================================================
 
-    lines: Mapped[list[CoretaxFakturLineTable]] = relationship(
-        "CoretaxFakturLineTable", back_populates="faktur", cascade="all, delete-orphan"
+    lines: Mapped[list["CoretaxFakturLineTable"]] = relationship(
+        "CoretaxFakturLineTable",
+        back_populates="faktur",
+        cascade="all, delete-orphan",
+        order_by="CoretaxFakturLineTable.line_number",
     )
 
     # ========================================================================
@@ -162,7 +146,6 @@ class CoretaxFakturTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     # ========================================================================
 
     def submit(self) -> None:
-        """Submit faktur to Coretax system."""
         if self.status != "draft":
             raise ValueError(f"Cannot submit faktur with status {self.status}")
         self.status = "submitted"
@@ -175,9 +158,6 @@ class CoretaxFakturTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         approval_date: date | None = None,
         rejection_reason: str | None = None,
     ) -> None:
-        """
-        Update status faktur based on Coretax response.
-        """
         self.status = new_status
         if approval_code:
             self.approval_code = approval_code
@@ -188,14 +168,12 @@ class CoretaxFakturTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         self.increment_version()
 
     def cancel(self) -> None:
-        """Cancel faktur (only if not yet approved or if approved but before reporting)."""
         if self.status not in ("draft", "submitted", "approved"):
             raise ValueError(f"Cannot cancel faktur with status {self.status}")
         self.status = "cancelled"
         self.increment_version()
 
     def to_dict(self) -> dict:
-        """Convert to dictionary for API response."""
         return {
             "id": str(self.id),
             "faktur_number": self.faktur_number,
@@ -227,17 +205,8 @@ class CoretaxFakturTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         }
 
 
-# ============================================================================
-# HELPER FUNCTION
-# ============================================================================
-
-
 def generate_faktur_number(legal_entity_code: str, year: int, month: int, sequence: int) -> str:
-    """
-    Generate faktur number sesuai format Coretax DJP.
-    Format: KodeTransaksi.Tahun.Bulan.NomorUrut
-    Contoh: 010.2025.01.00000001
-    """
+    """Generate faktur number sesuai format Coretax DJP."""
     return f"{legal_entity_code}.{year}.{month:02d}.{sequence:08d}"
 
 

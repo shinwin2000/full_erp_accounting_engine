@@ -35,7 +35,6 @@ if TYPE_CHECKING:
     from infrastructure.persistence_orm.ap_invoice_table import APInvoiceTable
     from infrastructure.persistence_orm.ap_payment_table import APPaymentTable
     from infrastructure.persistence_orm.ar_invoice_table import ARInvoiceTable
-    from infrastructure.persistence_orm.iam_user_table import IAMUserTable
 
 
 class BupotType(str, enum.Enum):
@@ -61,13 +60,16 @@ class CoretaxBupotTable(Base, UUIDMixin, TimestampMixin):
         Index("ix_coretax_bupot_status_type", "status", "bupot_type"),
         CheckConstraint("tax_rate >= 0 AND tax_rate <= 100", name="ck_bupot_tax_rate"),
         CheckConstraint("tax_amount >= 0", name="ck_bupot_tax_amount"),
-        UniqueConstraint("bupot_number", name="uq_bupot_number")
+        UniqueConstraint("bupot_number", name="uq_bupot_number"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     bupot_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     bupot_type: Mapped[BupotType] = mapped_column(Enum(BupotType), nullable=False, index=True)
-    status: Mapped[BupotStatus] = mapped_column(Enum(BupotStatus), default=BupotStatus.DRAFT, nullable=False)
+    status: Mapped[BupotStatus] = mapped_column(
+        Enum(BupotStatus), default=BupotStatus.DRAFT, nullable=False
+    )
 
     taxpayer_npwp: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     taxpayer_name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -93,57 +95,101 @@ class CoretaxBupotTable(Base, UUIDMixin, TimestampMixin):
     coretax_approved_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     void_reason: Mapped[str | None] = mapped_column(Text)
-    void_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("iam_user.id"))
+
+    # Foreign key ke IAMUser (hanya kolom, tanpa relasi untuk menghindari error mapper)
+    void_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.iam_user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     void_at: Mapped[datetime | None] = mapped_column(DateTime)
 
-    invoice_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("ar_invoice.id", ondelete="SET NULL"))
-    purchase_invoice_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("ap_invoice.id", ondelete="SET NULL"))
-    payment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("ap_payment.id", ondelete="SET NULL"))
+    # Foreign keys dengan skema public
+    invoice_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.ar_invoice.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    purchase_invoice_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.ap_invoice.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    payment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.ap_payment.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
-    # Relationships
-    invoice: Mapped[ARInvoiceTable | None] = relationship("ARInvoiceTable")
-    purchase_invoice: Mapped[APInvoiceTable | None] = relationship("APInvoiceTable")
-    payment: Mapped[APPaymentTable | None] = relationship("APPaymentTable")
-    void_by_user: Mapped[IAMUserTable | None] = relationship("IAMUserTable", foreign_keys=[void_by])
+    # =========================================================================
+    # RELATIONSHIPS
+    # =========================================================================
+
+    # Relasi ke AR Invoice (back_populates="bupots" sudah ditambahkan di ARInvoiceTable)
+    invoice: Mapped["ARInvoiceTable | None"] = relationship(
+        "ARInvoiceTable",
+        foreign_keys=[invoice_id],
+        back_populates="bupots",
+    )
+
+    # Relasi ke AP Invoice (back_populates="bupots" sudah ditambahkan di APInvoiceTable)
+    purchase_invoice: Mapped["APInvoiceTable | None"] = relationship(
+        "APInvoiceTable",
+        foreign_keys=[purchase_invoice_id],
+        back_populates="bupots",
+    )
+
+    # Relasi ke AP Payment (back_populates="bupots" sudah ditambahkan di APPaymentTable)
+    payment: Mapped["APPaymentTable | None"] = relationship(
+        "APPaymentTable",
+        foreign_keys=[payment_id],
+        back_populates="bupots",
+    )
+
+    # =========================================================================
+    # RELASI void_by_user DIHAPUS untuk menghindari error mapper
+    # Akses user void melalui query terpisah atau tambahkan relasi nanti
+    # jika IAMUserTable sudah terdefinisi dengan baik.
+    # =========================================================================
+
+    # =========================================================================
+    # BUSINESS METHODS
+    # =========================================================================
 
     def mark_submitted(self, submission_id: str, response: dict) -> None:
         self.status = BupotStatus.SUBMITTED
         self.coretax_submission_id = submission_id
         self.coretax_response_raw = response
         self.coretax_submitted_at = datetime.utcnow()
-        self.increment_version() if hasattr(self, "increment_version") else None
+        if hasattr(self, "increment_version"):
+            self.increment_version()
 
     def mark_approved(self, response: dict) -> None:
         self.status = BupotStatus.APPROVED
         self.coretax_response_raw = response
         self.coretax_approved_at = datetime.utcnow()
-        self.increment_version() if hasattr(self, "increment_version") else None
+        if hasattr(self, "increment_version"):
+            self.increment_version()
 
     def mark_rejected(self, reason: str, response: dict) -> None:
         self.status = BupotStatus.REJECTED
         self.coretax_status_description = reason
         self.coretax_response_raw = response
-        self.increment_version() if hasattr(self, "increment_version") else None
+        if hasattr(self, "increment_version"):
+            self.increment_version()
 
     def void(self, reason: str, user_id: uuid.UUID) -> None:
         self.status = BupotStatus.VOID
         self.void_reason = reason
         self.void_by = user_id
         self.void_at = datetime.utcnow()
-        self.increment_version() if hasattr(self, "increment_version") else None
+        if hasattr(self, "increment_version"):
+            self.increment_version()
 
-    ar_invoice: Mapped[ARInvoiceTable | None] = relationship(
-        "ARInvoiceTable",
-        foreign_keys="[CoretaxBupotTable.invoice_id]"
-    )
-    purchase_invoice: Mapped[APInvoiceTable | None] = relationship(
-        "APInvoiceTable",
-        foreign_keys="[CoretaxBupotTable.purchase_invoice_id]"
-    )
-    ap_payment: Mapped[APPaymentTable | None] = relationship(
-        "APPaymentTable",
-        foreign_keys="[CoretaxBupotTable.payment_id]"
-    )
+    # =========================================================================
+    # SERIALIZATION
+    # =========================================================================
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),

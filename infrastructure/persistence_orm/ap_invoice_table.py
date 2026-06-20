@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     CheckConstraint,
@@ -33,6 +33,15 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.ap_credit_note_table import APCreditNoteTable
+    from infrastructure.persistence_orm.ap_invoice_line_table import APInvoiceLineTable
+    from infrastructure.persistence_orm.ap_payment_table import APPaymentTable
+    from infrastructure.persistence_orm.coretax_bupot_table import CoretaxBupotTable
+    from infrastructure.persistence_orm.goods_receipt_note_table import GoodsReceiptNoteTable
+    from infrastructure.persistence_orm.purchase_order_table import PurchaseOrderTable
+    from infrastructure.persistence_orm.supplier_table import SupplierTable
 
 
 class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -61,7 +70,8 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_ap_invoice_po", "purchase_order_id"),
         Index("idx_ap_invoice_grn", "goods_receipt_note_id"),
         Index("idx_ap_invoice_3way_status", "three_way_match_status"),
-        Index("idx_ap_invoice_vendor_number", "invoice_number_vendor")
+        Index("idx_ap_invoice_vendor_number", "invoice_number_vendor"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -69,11 +79,14 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
     invoice_number_vendor: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    # Foreign key ke supplier (dengan skema public)
     vendor_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("supplier.id", use_alter=True, name="fk_ap_invoice_supplier"),
-        nullable=False
+        ForeignKey("public.supplier.id", ondelete="RESTRICT"),
+        nullable=False,
     )
+
     total_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal("0.00"))
     paid_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal("0.00"))
     tax_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal("0.00"))
@@ -82,16 +95,19 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
     description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # Foreign keys dengan skema public
     purchase_order_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("purchase_order.id", use_alter=True, name="fk_ap_invoice_po"),
-        nullable=True
+        ForeignKey("public.purchase_order.id", ondelete="SET NULL"),
+        nullable=True,
     )
     goods_receipt_note_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("goods_receipt_note.id", use_alter=True, name="fk_ap_invoice_grn"),
-        nullable=True
+        ForeignKey("public.goods_receipt_note.id", ondelete="SET NULL"),
+        nullable=True,
     )
+
     tax_invoice_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     three_way_match_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
@@ -99,31 +115,65 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     payment_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    # Relationships (hanya string references, tanpa import langsung)
-    supplier: Mapped[SupplierTable] = relationship("SupplierTable", back_populates="ap_invoices")
-    purchase_order: Mapped[PurchaseOrderTable | None] = relationship(
+    # =========================================================================
+    # RELATIONSHIPS
+    # =========================================================================
+
+    supplier: Mapped["SupplierTable"] = relationship(
+        "SupplierTable",
+        back_populates="ap_invoices",
+        foreign_keys=[vendor_id],
+    )
+
+    purchase_order: Mapped["PurchaseOrderTable | None"] = relationship(
         "PurchaseOrderTable",
         back_populates="invoices",
-        foreign_keys="[APInvoiceTable.purchase_order_id]",
+        foreign_keys=[purchase_order_id],
     )
-    goods_receipt_note: Mapped[GoodsReceiptNoteTable | None] = relationship(
+
+    goods_receipt_note: Mapped["GoodsReceiptNoteTable | None"] = relationship(
         "GoodsReceiptNoteTable",
         back_populates="ap_invoices",
-        foreign_keys="[APInvoiceTable.goods_receipt_note_id]",
+        foreign_keys=[goods_receipt_note_id],
     )
-    lines: Mapped[list[APInvoiceLineTable]] = relationship(
+
+    lines: Mapped[list["APInvoiceLineTable"]] = relationship(
         "APInvoiceLineTable",
         back_populates="invoice",
         cascade="all, delete-orphan",
         order_by="APInvoiceLineTable.line_number",
     )
-    payments: Mapped[list[APPaymentTable]] = relationship("APPaymentTable", back_populates="invoice")
 
-    # ========== EVENT STORING (in-memory untuk demo / test) ==========
+    payments: Mapped[list["APPaymentTable"]] = relationship(
+        "APPaymentTable",
+        back_populates="invoice",
+        foreign_keys="[APPaymentTable.invoice_id]",
+        cascade="all, delete-orphan",
+    )
+
+    credit_notes: Mapped[list["APCreditNoteTable"]] = relationship(
+        "APCreditNoteTable",
+        back_populates="invoice",
+        foreign_keys="[APCreditNoteTable.invoice_id]",
+        cascade="all, delete-orphan",
+    )
+
+    # =========================================================================
+    # Bupots (Coretax) – ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
+    # =========================================================================
+    bupots: Mapped[list["CoretaxBupotTable"]] = relationship(
+        "CoretaxBupotTable",
+        back_populates="purchase_invoice",
+        foreign_keys="[CoretaxBupotTable.purchase_invoice_id]",
+        cascade="all, delete-orphan",
+    )
+
+    # =========================================================================
+    # EVENT STORING
+    # =========================================================================
     _events: list[dict[str, Any]] = []
 
     def _record_event(self, event_type: str, data: dict[str, Any]) -> None:
-        """Simpan event dalam memori (tidak permanen)."""
         event = {
             "event_type": event_type,
             "aggregate_id": str(self.id),
@@ -133,19 +183,13 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         self._events.append(event)
 
     def clear_events(self) -> None:
-        """Bersihkan semua event yang tersimpan."""
         self._events.clear()
 
     def get_events(self) -> list[dict[str, Any]]:
-        """Ambil semua event yang telah direkam."""
         return self._events.copy()
 
     @classmethod
     def reconstruct(cls, events: list[dict[str, Any]]) -> APInvoiceTable:
-        """
-        Bangun ulang objek invoice dari daftar event (event sourcing).
-        Hanya untuk keperluan test / replay.
-        """
         instance = cls(
             id=uuid.UUID(events[0]["data"]["id"]) if events else uuid.uuid4(),
             invoice_number=events[0]["data"]["invoice_number"],
@@ -174,7 +218,10 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
                 instance.status = data["new_status"]
         return instance
 
-    # ========== PROPERTIES ==========
+    # =========================================================================
+    # PROPERTIES
+    # =========================================================================
+
     @property
     def outstanding_amount(self) -> Decimal:
         return self.total_amount - self.paid_amount
@@ -216,7 +263,10 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
             return 100.0
         return float((self.paid_amount / self.total_amount) * 100)
 
-    # ========== STATE TRANSITIONS ==========
+    # =========================================================================
+    # STATE TRANSITIONS
+    # =========================================================================
+
     def submit(self) -> None:
         if self.status != "draft":
             raise ValueError(f"Cannot submit invoice with status {self.status}")
@@ -255,13 +305,15 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
             self.paid_amount = new_paid
         self.increment_version()
         if record_event:
-            self._record_event("PaymentRecorded", {"amount": str(amount), "old_paid": str(self.paid_amount - amount), "new_paid": str(self.paid_amount), "old_status": old_status, "new_status": self.status})
+            self._record_event("PaymentRecorded", {
+                "amount": str(amount),
+                "old_paid": str(self.paid_amount - amount),
+                "new_paid": str(self.paid_amount),
+                "old_status": old_status,
+                "new_status": self.status
+            })
 
     def apply_credit_note(self, amount: Decimal, credit_note_id: str, record_event: bool = True) -> None:
-        """
-        Kurangi total amount invoice menggunakan credit note.
-        Tidak boleh mengurangi melebihi outstanding amount.
-        """
         if amount <= 0:
             raise ValueError("Credit note amount must be positive")
         if self.is_paid:
@@ -277,13 +329,13 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
             self.status = "partially_paid"
         self.increment_version()
         if record_event:
-            self._record_event("CreditNoteApplied", {"credit_note_id": credit_note_id, "amount": str(amount), "new_total": str(self.total_amount)})
+            self._record_event("CreditNoteApplied", {
+                "credit_note_id": credit_note_id,
+                "amount": str(amount),
+                "new_total": str(self.total_amount)
+            })
 
     def write_off(self, reason: str, record_event: bool = True) -> None:
-        """
-        Writeâ€‘off sisa tagihan yang tidak tertagih (biasanya kecil).
-        Mengubah status menjadi 'written_off' dan menyesuaikan paid_amount.
-        """
         if self.is_paid:
             raise ValueError("Cannot write off a paid invoice")
         if self.status == "cancelled":

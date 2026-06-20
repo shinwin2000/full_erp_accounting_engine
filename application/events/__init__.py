@@ -73,6 +73,21 @@ from application.events.subscriber_application import (
     create_event_subscriber,
 )
 
+# Global Event Subscribers (for P57)
+from application.events.global_event_subscribers import (
+    handle_account_reactivated_event,
+    handle_bank_account_updated_event,
+    handle_dividend_paid_event,
+    handle_faktur_rejected_event,
+    handle_intangible_asset_revaluated_event,
+    handle_production_completed_event,
+    handle_project_activated_event,
+    handle_role_revoked_event,
+    handle_time_entry_approved_event,
+    handle_work_order_completed_event,
+    register_global_subscribers,
+)
+
 __all__ = [
     # Handler Registry
     "AsyncEventHandler",
@@ -120,4 +135,16 @@ __all__ = [
     "SubscriptionConfig",
     "SubscriptionMode",
     "create_event_subscriber",
+    # Global Event Subscribers
+    "handle_account_reactivated_event",
+    "handle_bank_account_updated_event",
+    "handle_dividend_paid_event",
+    "handle_faktur_rejected_event",
+    "handle_intangible_asset_revaluated_event",
+    "handle_production_completed_event",
+    "handle_project_activated_event",
+    "handle_role_revoked_event",
+    "handle_time_entry_approved_event",
+    "handle_work_order_completed_event",
+    "register_global_subscribers",
 ]

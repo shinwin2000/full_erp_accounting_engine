@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_ledger_router.py
@@ -20,6 +21,7 @@ Method Standards (ERP):
 """
 
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -28,6 +30,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -353,12 +356,12 @@ class AccountActivitySchema(BaseModel):
 # ============================================================================
 
 
-async def get_ledger_service() -> Any:
+async def get_ledger_service(request: Request, ) -> Any:
     """Get Ledger Service instance."""
     from application.service_layer.service_ledger import LedgerService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(LedgerService)
 
 

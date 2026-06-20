@@ -20,6 +20,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -42,6 +43,12 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.ap_invoice_table import APInvoiceTable
+    from infrastructure.persistence_orm.ap_payment_table import APPaymentTable
+    from infrastructure.persistence_orm.goods_receipt_note_table import GoodsReceiptNoteTable
+    from infrastructure.persistence_orm.purchase_order_table import PurchaseOrderTable
 
 
 class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -76,7 +83,8 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         Index("idx_supplier_status", "status"),
         Index("idx_supplier_legal_entity", "legal_entity_id"),
         Index("idx_supplier_category", "category"),
-        Index("idx_supplier_withholding", "withholding_category")
+        Index("idx_supplier_withholding", "withholding_category"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -145,17 +153,39 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # ========================================================================
-    # RELATIONSHIPS
+    # RELATIONSHIPS – semua menggunakan back_populates untuk konsistensi
     # ========================================================================
 
-    ap_invoices: Mapped[list[APInvoiceTable]] = relationship(
-        "APInvoiceTable", back_populates="supplier"
+    # AP Invoices – kolom di APInvoiceTable adalah 'vendor_id'
+    ap_invoices: Mapped[list["APInvoiceTable"]] = relationship(
+        "APInvoiceTable",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+        foreign_keys="[APInvoiceTable.vendor_id]",
     )
-    ap_payments: Mapped[list[APPaymentTable]] = relationship(
-        "APPaymentTable", back_populates="supplier"
+
+    # AP Payments – kolom di APPaymentTable adalah 'supplier_id'
+    ap_payments: Mapped[list["APPaymentTable"]] = relationship(
+        "APPaymentTable",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+        foreign_keys="[APPaymentTable.supplier_id]",
     )
-    purchase_orders: Mapped[list[PurchaseOrderTable]] = relationship(
-        "PurchaseOrderTable", back_populates="supplier"
+
+    # Purchase Orders – kolom di PurchaseOrderTable adalah 'supplier_id'
+    purchase_orders: Mapped[list["PurchaseOrderTable"]] = relationship(
+        "PurchaseOrderTable",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+        foreign_keys="[PurchaseOrderTable.supplier_id]",
+    )
+
+    # Goods Receipt Notes – kolom di GoodsReceiptNoteTable adalah 'supplier_id'
+    goods_receipt_notes: Mapped[list["GoodsReceiptNoteTable"]] = relationship(
+        "GoodsReceiptNoteTable",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+        foreign_keys="[GoodsReceiptNoteTable.supplier_id]",
     )
 
     # ========================================================================
@@ -214,10 +244,6 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
 
     def can_create_po(self) -> bool:
         return self.is_active_supplier
-
-    goods_receipt_notes: Mapped[list[GoodsReceiptNoteTable]] = relationship(
-        "GoodsReceiptNoteTable", back_populates="supplier", cascade="all, delete-orphan"
-    )
 
     def to_dict(self) -> dict:
         return {

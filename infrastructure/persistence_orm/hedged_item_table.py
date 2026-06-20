@@ -10,6 +10,7 @@ Audit: Setiap perubahan hedged item dicatat.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date
@@ -35,11 +36,11 @@ class HedgedItemTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         Index("idx_hedged_item_instrument", "hedge_instrument_id"),
         Index("idx_hedged_item_type", "item_type"),
         Index("idx_hedged_item_status", "status"),
-        Index("idx_hedged_item_period", "start_date", "end_date")
+        Index("idx_hedged_item_period", "start_date", "end_date"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    hedge_instrument_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    hedge_instrument_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     item_type: Mapped[str] = mapped_column(String(30), nullable=False)
     reference_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)

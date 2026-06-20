@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: legal_entity_table.py
@@ -9,10 +10,20 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import Boolean, CheckConstraint, Date, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -21,6 +32,18 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+# Import association table object directly to avoid string lookup issues
+from infrastructure.persistence_orm.iam_user_table import iam_user_legal_entity
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.account_table import AccountTable
+    from infrastructure.persistence_orm.consolidation_group_member_table import ConsolidationGroupMemberTable
+    from infrastructure.persistence_orm.coretax_nsfp_table import CoretaxNSFPTable
+    from infrastructure.persistence_orm.iam_user_table import IAMUserTable
+    from infrastructure.persistence_orm.intangible_asset_table import IntangibleAssetTable
+    from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
+    from infrastructure.persistence_orm.legal_entity_branch_table import LegalEntityBranchTable
 
 
 class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
@@ -31,10 +54,11 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         ),
         Index("idx_legal_entity_npwp", "npwp"),
         Index("idx_legal_entity_parent", "parent_company_id"),
-        Index("idx_legal_entity_consolidation", "consolidation_group_id")
+        Index("idx_legal_entity_consolidation", "consolidation_group_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     legal_name: Mapped[str] = mapped_column(String(200), nullable=False)
     trade_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -69,48 +93,82 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     parent_company_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("legal_entity.id", use_alter=True, name="fk_legal_entity_parent"), nullable=True
+        PGUUID(as_uuid=True),
+        ForeignKey("public.legal_entity.id", use_alter=True, name="fk_legal_entity_parent"),
+        nullable=True,
     )
-    consolidation_group_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    consolidation_group_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     extra_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    # ===== RELATIONSHIPS (semua menggunakan string, tanpa impor langsung) =====
-    parent: Mapped[LegalEntityTable | None] = relationship(
-        "LegalEntityTable", remote_side=[id], back_populates="children"
+    # ===== RELATIONSHIPS =====
+    parent: Mapped[Optional["LegalEntityTable"]] = relationship(
+        "LegalEntityTable",
+        remote_side="LegalEntityTable.id",
+        back_populates="children",
     )
-    children: Mapped[list[LegalEntityTable]] = relationship(
-        "LegalEntityTable", back_populates="parent", cascade="all, delete-orphan"
+    children: Mapped[list["LegalEntityTable"]] = relationship(
+        "LegalEntityTable",
+        back_populates="parent",
+        cascade="all, delete-orphan",
     )
-    branches: Mapped[list[LegalEntityBranchTable]] = relationship(
-        "LegalEntityBranchTable", back_populates="parent_entity", cascade="all, delete-orphan"
+
+    branches: Mapped[list["LegalEntityBranchTable"]] = relationship(
+        "LegalEntityBranchTable",
+        backref="parent_entity",
+        cascade="all, delete-orphan",
+        primaryjoin="LegalEntityTable.id == LegalEntityBranchTable.parent_entity_id",
+        foreign_keys="LegalEntityBranchTable.parent_entity_id",
     )
-    accounts: Mapped[list[AccountTable]] = relationship(
-        "AccountTable", back_populates="legal_entity", cascade="all, delete-orphan"
+
+    accounts: Mapped[list["AccountTable"]] = relationship(
+        "AccountTable",
+        back_populates="legal_entity",
+        cascade="all, delete-orphan",
     )
-    users: Mapped[list[IAMUserTable]] = relationship(
+
+    # Many‑to‑many with IAMUser – using the imported Table object directly
+    users: Mapped[list["IAMUserTable"]] = relationship(
         "IAMUserTable",
-        secondary="iam_user_legal_entity",
+        secondary=iam_user_legal_entity,
         viewonly=True,
         lazy="selectin",
     )
-    journals: Mapped[list[JournalHeaderTable]] = relationship(
+
+    journals: Mapped[list["JournalHeaderTable"]] = relationship(
         "JournalHeaderTable", viewonly=True
     )
-    user: Mapped[IAMUserTable | None] = relationship(
-        "IAMUserTable", back_populates="legal_entity"
+
+    # ========================================================================
+    # NSFP RANGES – menggunakan backref agar CoretaxNSFPTable otomatis punya 'legal_entity'
+    # ========================================================================
+    nsfp_ranges: Mapped[list["CoretaxNSFPTable"]] = relationship(
+        "CoretaxNSFPTable",
+        backref="legal_entity",
+        cascade="all, delete-orphan",
     )
-    consolidation_members: Mapped[list[ConsolidationGroupMemberTable]] = relationship(
-        "ConsolidationGroupMemberTable", back_populates="entity", cascade="all, delete-orphan"
+
+    # ========================================================================
+    # INTANGIBLE ASSETS – menggunakan backref agar IntangibleAssetTable otomatis punya 'legal_entity'
+    # ========================================================================
+    intangible_assets: Mapped[list["IntangibleAssetTable"]] = relationship(
+        "IntangibleAssetTable",
+        backref="legal_entity",
+        cascade="all, delete-orphan",
     )
-    nsfp_ranges: Mapped[list[CoretaxNSFPTable]] = relationship(
-        "CoretaxNSFPTable", back_populates="legal_entity", cascade="all, delete-orphan"
+
+    # ========================================================================
+    # CONSOLIDATION MEMBERS – sudah menggunakan backref
+    # ========================================================================
+    consolidation_members: Mapped[list["ConsolidationGroupMemberTable"]] = relationship(
+        "ConsolidationGroupMemberTable",
+        backref="entity",
+        cascade="all, delete-orphan",
     )
-    intangible_assets: Mapped[list[IntangibleAssetTable]] = relationship(
-        "IntangibleAssetTable", back_populates="legal_entity", cascade="all, delete-orphan"
-    )
+
+    # REMOVED: `user` relationship – it relied on a non‑existent column in IAMUserTable.
 
     @property
     def is_parent_company(self) -> bool:

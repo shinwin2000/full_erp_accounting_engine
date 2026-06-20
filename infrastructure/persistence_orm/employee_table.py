@@ -6,12 +6,6 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel employee.
                Tabel ini menyimpan data master karyawan, termasuk informasi
                pribadi, kontak, data payroll (gaji, PTKP, BPJS), dan status
                kepegawaian. Digunakan oleh modul Payroll, HR, dan IAM.
-Dependencies:
-- sqlalchemy.orm (Mapped, mapped_column, relationship)
-- sqlalchemy.dialects.postgresql (UUID, JSONB)
-- infrastructure.persistence_orm.base_model (Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin)
-Audit: Setiap perubahan data karyawan dicatat di event store.
-       Data sensitif (NPWP, rekening bank) dienkripsi.
 """
 
 from __future__ import annotations
@@ -19,6 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -41,6 +36,11 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.payslip_table import PayslipTable
+    from infrastructure.persistence_orm.salary_component_table import SalaryComponentTable
+    from infrastructure.persistence_orm.time_entry_table import TimeEntryTable
 
 
 class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -79,7 +79,8 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         Index("idx_employee_legal_entity", "legal_entity_id"),
         Index("idx_employee_department", "department"),
         Index("idx_employee_position", "position"),
-        Index("idx_employee_ptkp_status", "ptkp_status")
+        Index("idx_employee_ptkp_status", "ptkp_status"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -125,7 +126,7 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
 
     # Manager hierarchy
     manager_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("employee.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("public.employee.id"), nullable=True
     )
 
     # Payroll data
@@ -180,17 +181,36 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     # RELATIONSHIPS
     # ========================================================================
 
+    # Manager hierarchy (self-referential)
     manager: Mapped[EmployeeTable | None] = relationship(
-        "EmployeeTable", remote_side=[id], back_populates="subordinates"
+        "EmployeeTable", remote_side="EmployeeTable.id", back_populates="subordinates"
     )
     subordinates: Mapped[list[EmployeeTable]] = relationship(
         "EmployeeTable", back_populates="manager"
     )
-    payroll_runs: Mapped[list[PayrollRunTable]] = relationship(
-        "PayrollRunTable", back_populates="employee"
+
+    # Salary components
+    salary_components: Mapped[list["SalaryComponentTable"]] = relationship(
+        "SalaryComponentTable",
+        back_populates="employee",
+        foreign_keys="[SalaryComponentTable.employee_id]",
+        cascade="all, delete-orphan",
     )
-    attendances: Mapped[list[AttendanceTable]] = relationship(
-        "AttendanceTable", back_populates="employee"
+
+    # Time entries
+    time_entries: Mapped[list["TimeEntryTable"]] = relationship(
+        "TimeEntryTable",
+        back_populates="employee",
+        foreign_keys="[TimeEntryTable.employee_id]",
+        cascade="all, delete-orphan",
+    )
+
+    # Payslips (added for back_populates in PayslipTable)
+    payslips: Mapped[list["PayslipTable"]] = relationship(
+        "PayslipTable",
+        back_populates="employee",
+        foreign_keys="[PayslipTable.employee_id]",
+        cascade="all, delete-orphan",
     )
 
     # ========================================================================
@@ -310,16 +330,6 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         self.sick_leave_balance = sick_days
         self.special_leave_balance = 0
         self.increment_version()
-
-    salary_components: Mapped[list[SalaryComponentTable]] = relationship(
-        "SalaryComponentTable", back_populates="employee", foreign_keys="[SalaryComponentTable.employee_id]"
-    )
-    time_entries: Mapped[list[TimeEntryTable]] = relationship(
-        "TimeEntryTable", back_populates="employee", foreign_keys="[TimeEntryTable.employee_id]"
-    )
-    payroll_runs: Mapped[list[PayrollRunTable]] = relationship(
-        "PayrollRunTable", back_populates="employee"
-    )
 
     def to_dict(self) -> dict:
         return {

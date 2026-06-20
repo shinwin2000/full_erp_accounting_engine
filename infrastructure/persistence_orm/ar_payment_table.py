@@ -16,7 +16,6 @@ from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from infrastructure.persistence_orm.ar_invoice_table import ARInvoiceTable
 from infrastructure.persistence_orm.base_model import (
     Base,
     LegalEntityMixin,
@@ -43,14 +42,17 @@ class ARPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_ar_payment_invoice", "invoice_id"),
         Index("idx_ar_payment_date", "payment_date"),
         Index("idx_ar_payment_status", "status"),
-        Index("idx_ar_payment_legal_entity", "legal_entity_id")
+        Index("idx_ar_payment_legal_entity", "legal_entity_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     payment_number: Mapped[str] = mapped_column(String(50), nullable=False)
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
     invoice_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ar_invoice.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("public.ar_invoice.id", ondelete="CASCADE"),
+        nullable=False,
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
@@ -61,10 +63,18 @@ class ARPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    invoice: Mapped[ARInvoiceTable] = relationship("ARInvoiceTable", back_populates="payments")
-    customer: Mapped[CustomerTable | None] = relationship(
-        "CustomerTable", back_populates="ar_payments"
+    # =========================================================================
+    # RELATIONSHIPS
+    # =========================================================================
+    # Link to the invoice – customer is accessible via invoice.customer
+    invoice: Mapped["ARInvoiceTable"] = relationship(
+        "ARInvoiceTable",
+        back_populates="payments",
+        foreign_keys=[invoice_id],
     )
+
+    # REMOVED: customer relationship – there is no foreign key to CustomerTable.
+    # Use payment.invoice.customer to get the customer.
 
     @property
     def is_completed(self) -> bool:

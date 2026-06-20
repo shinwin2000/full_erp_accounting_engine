@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_coa_router.py
@@ -21,7 +22,9 @@ Method Standards (ERP):
 - version_account()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import datetime
@@ -30,6 +33,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -331,12 +335,12 @@ class ImportExportResultSchema(BaseModel):
 # ============================================================================
 
 
-async def get_coa_service() -> Any:
+async def get_coa_service(request: Request, ) -> Any:
     """Get COA Service instance."""
     from application.service_layer.service_coa import COAService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(COAService)
 
 

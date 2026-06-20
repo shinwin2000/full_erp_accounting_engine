@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_inventory_router.py
@@ -22,7 +23,9 @@ Method Standards (ERP):
 - version_item()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -31,6 +34,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -540,12 +544,12 @@ class WarehouseResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_inventory_service() -> Any:
+async def get_inventory_service(request: Request, ) -> Any:
     """Get Inventory Service instance."""
     from application.service_layer.service_inventory import InventoryService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(InventoryService)
 
 
@@ -641,7 +645,7 @@ async def create_item(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create item: {e}")
+        logger.exception("Failed to create item: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -697,7 +701,7 @@ async def get_item(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get item: {e}")
+        logger.exception("Failed to get item: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -718,7 +722,10 @@ async def get_item_by_code(
         item = await inventory_service.get_item_by_code(item_code, legal_entity_id)
 
         if not item:
-            raise HTTPException(status_code=404, detail=f"Item {item_code} not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Item {} not found".format(item_code)
+            )
 
         return ItemResponseSchema(
             id=item.id,
@@ -753,7 +760,7 @@ async def get_item_by_code(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get item by code: {e}")
+        logger.exception("Failed to get item by code: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -832,7 +839,7 @@ async def update_item(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update item: {e}")
+        logger.exception("Failed to update item: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -871,12 +878,12 @@ async def deactivate_item(
             "item_id": str(item_id),
             "item_code": result.item_code,
             "action": action,
-            "message": f"Item {action} successfully",
+            "message": "Item {} successfully".format(action),
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to deactivate item: {e}")
+        logger.exception("Failed to deactivate item: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -935,7 +942,7 @@ async def activate_item(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to activate item: {e}")
+        logger.exception("Failed to activate item: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1011,7 +1018,7 @@ async def list_items(
             for item in result.items
         ]
     except Exception as e:
-        logger.exception(f"Failed to list items: {e}")
+        logger.exception("Failed to list items: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1088,7 +1095,7 @@ async def record_stock_movement(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to record movement: {e}")
+        logger.exception("Failed to record movement: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1142,7 +1149,7 @@ async def get_movement(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get movement: {e}")
+        logger.exception("Failed to get movement: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1170,7 +1177,10 @@ async def reverse_movement(
         )
 
         if not result:
-            raise HTTPException(status_code=404, detail="Movement not found or cannot be reversed")
+            raise HTTPException(
+                status_code=404,
+                detail="Movement not found or cannot be reversed"
+            )
 
         return StockMovementResponseSchema(
             id=result.id,
@@ -1203,7 +1213,7 @@ async def reverse_movement(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to reverse movement: {e}")
+        logger.exception("Failed to reverse movement: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1269,7 +1279,7 @@ async def get_stock_card(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get stock card: {e}")
+        logger.exception("Failed to get stock card: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1328,7 +1338,7 @@ async def create_stock_opname(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create stock opname: {e}")
+        logger.exception("Failed to create stock opname: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1380,7 +1390,7 @@ async def approve_stock_opname(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to approve stock opname: {e}")
+        logger.exception("Failed to approve stock opname: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1419,7 +1429,7 @@ async def cancel_stock_opname(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to cancel stock opname: {e}")
+        logger.exception("Failed to cancel stock opname: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1479,7 +1489,7 @@ async def create_warehouse_transfer(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create warehouse transfer: {e}")
+        logger.exception("Failed to create warehouse transfer: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1529,7 +1539,7 @@ async def approve_warehouse_transfer(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to approve warehouse transfer: {e}")
+        logger.exception("Failed to approve warehouse transfer: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1579,7 +1589,7 @@ async def complete_warehouse_transfer(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to complete warehouse transfer: {e}")
+        logger.exception("Failed to complete warehouse transfer: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1634,7 +1644,7 @@ async def get_inventory_valuation(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get inventory valuation: {e}")
+        logger.exception("Failed to get inventory valuation: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1686,7 +1696,7 @@ async def test_nrv(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to test NRV: {e}")
+        logger.exception("Failed to test NRV: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1732,7 +1742,7 @@ async def get_low_stock_alerts(
             for a in alerts
         ]
     except Exception as e:
-        logger.exception(f"Failed to get low stock alerts: {e}")
+        logger.exception("Failed to get low stock alerts: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1773,7 +1783,7 @@ async def list_warehouses(
             for w in warehouses
         ]
     except Exception as e:
-        logger.exception(f"Failed to list warehouses: {e}")
+        logger.exception("Failed to list warehouses: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1809,15 +1819,15 @@ async def export_items(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"inventory_items_{legal_entity_id}.{format}"
+        filename = "inventory_items_{}.{}".format(legal_entity_id, format)
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
         )
     except Exception as e:
-        logger.exception(f"Failed to export items: {e}")
+        logger.exception("Failed to export items: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

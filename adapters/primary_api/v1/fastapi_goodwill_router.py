@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_goodwill_router.py
@@ -19,6 +20,7 @@ Method Standards (ERP):
 """
 
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -27,6 +29,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -323,12 +326,12 @@ class GoodwillSummaryResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_goodwill_service() -> Any:
+async def get_goodwill_service(request: Request, ) -> Any:
     """Get Goodwill Service instance."""
     from application.service_layer.service_goodwill import GoodwillService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(GoodwillService)
 
 

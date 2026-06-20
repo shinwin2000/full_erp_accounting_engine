@@ -6,6 +6,7 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel ledger_entry.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date
@@ -22,7 +23,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, TimestampMixin
@@ -36,7 +37,10 @@ if TYPE_CHECKING:
 class LedgerEntryTable(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "ledger_entry"
     __table_args__ = (
-        UniqueConstraint("journal_id", "account_code", "line_number", name="uq_ledger_entry_journal_account_line"),
+        UniqueConstraint(
+            "journal_id", "account_code", "line_number",
+            name="uq_ledger_entry_journal_account_line"
+        ),
         CheckConstraint("debit_amount >= 0", name="ck_ledger_entry_debit_nonneg"),
         CheckConstraint("credit_amount >= 0", name="ck_ledger_entry_credit_nonneg"),
         CheckConstraint("debit_amount > 0 OR credit_amount > 0", name="ck_ledger_entry_nonzero"),
@@ -46,12 +50,17 @@ class LedgerEntryTable(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_ledger_entry_date", "posting_date"),
         Index("idx_ledger_entry_legal_entity", "legal_entity_id"),
         Index("idx_ledger_entry_cost_center", "cost_center"),
-        Index("idx_ledger_entry_period", "fiscal_year", "period_month")
+        Index("idx_ledger_entry_period", "fiscal_year", "period_month"),
+        {"schema": "public", "extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    journal_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("journal_header.id"), nullable=False)
-    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("account.id"), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    journal_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("public.journal_header.id"), nullable=False
+    )
+    account_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("public.account.id"), nullable=False
+    )
     account_code: Mapped[str] = mapped_column(String(20), nullable=False)
     line_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     debit_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
@@ -64,12 +73,17 @@ class LedgerEntryTable(Base, TimestampMixin, SoftDeleteMixin):
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
     fiscal_year: Mapped[int] = mapped_column(Integer, nullable=False)
     period_month: Mapped[int] = mapped_column(Integer, nullable=False)
-    legal_entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    legal_entity_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     audit_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
-    journal: Mapped[JournalHeaderTable] = relationship("JournalHeaderTable", back_populates="ledger_entries")
-    account: Mapped[AccountTable] = relationship("AccountTable", back_populates="ledger_entries")
+    # Relationships
+    journal: Mapped["JournalHeaderTable"] = relationship(
+        "JournalHeaderTable", back_populates="ledger_entries"
+    )
+    account: Mapped["AccountTable"] = relationship(
+        "AccountTable", back_populates="ledger_entries"
+    )
 
     @property
     def amount(self) -> Decimal:
@@ -98,11 +112,11 @@ class LedgerEntryTable(Base, TimestampMixin, SoftDeleteMixin):
     @classmethod
     def from_journal_line(
         cls,
-        journal_line: JournalLineTable,
-        journal: JournalHeaderTable,
+        journal_line: "JournalLineTable",
+        journal: "JournalHeaderTable",
         account_id: uuid.UUID,
         legal_entity_id: uuid.UUID,
-    ) -> LedgerEntryTable:
+    ) -> "LedgerEntryTable":
         return cls(
             id=uuid.uuid4(),
             journal_id=journal.id,

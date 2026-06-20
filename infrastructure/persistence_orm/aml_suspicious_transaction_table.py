@@ -12,6 +12,7 @@ Audit: Setiap perubahan status STR dicatat di event store.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date, datetime
@@ -65,15 +66,15 @@ class AMLSuspiciousTransactionTable(Base, TimestampMixin, SoftDeleteMixin, Versi
         Index("idx_aml_str_status", "status"),
         Index("idx_aml_str_risk_level", "risk_level"),
         Index("idx_aml_str_reviewer", "reviewed_by"),
-        Index("idx_aml_str_legal_entity", "legal_entity_id")
+        Index("idx_aml_str_legal_entity", "legal_entity_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
+    id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
     # Transaction reference
-    transaction_id: Mapped[uuid.UUID] = mapped_column(
+    transaction_id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, index=True
     )
     transaction_type: Mapped[str] = mapped_column(
@@ -82,7 +83,7 @@ class AMLSuspiciousTransactionTable(Base, TimestampMixin, SoftDeleteMixin, Versi
     transaction_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Customer information
-    customer_id: Mapped[uuid.UUID] = mapped_column(
+    customer_id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, index=True
     )
     customer_name: Mapped[str] = mapped_column(String(200), nullable=False)

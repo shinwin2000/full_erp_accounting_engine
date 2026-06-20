@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     CheckConstraint,
@@ -25,7 +25,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from infrastructure.persistence_orm.ap_invoice_table import APInvoiceTable
 from infrastructure.persistence_orm.base_model import (
     Base,
     LegalEntityMixin,
@@ -33,7 +32,11 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
-from infrastructure.persistence_orm.supplier_table import SupplierTable
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.ap_invoice_table import APInvoiceTable
+    from infrastructure.persistence_orm.coretax_bupot_table import CoretaxBupotTable
+    from infrastructure.persistence_orm.supplier_table import SupplierTable
 
 
 class APPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -59,17 +62,22 @@ class APPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_ap_payment_date", "payment_date"),
         Index("idx_ap_payment_status", "status"),
         Index("idx_ap_payment_legal_entity", "legal_entity_id"),
-        Index("idx_ap_payment_run", "payment_run_id")
+        Index("idx_ap_payment_run", "payment_run_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     payment_number: Mapped[str] = mapped_column(String(50), nullable=False)
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
     supplier_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("supplier.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("public.supplier.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     invoice_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ap_invoice.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("public.ap_invoice.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     total_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
@@ -82,9 +90,32 @@ class APPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    # Relationships
-    supplier: Mapped[SupplierTable] = relationship("SupplierTable", back_populates="ap_payments")
-    invoice: Mapped[APInvoiceTable] = relationship("APInvoiceTable", back_populates="payments")
+    # ========================================================================
+    # RELATIONSHIPS
+    # ========================================================================
+
+    supplier: Mapped["SupplierTable"] = relationship(
+        "SupplierTable",
+        back_populates="ap_payments",
+        foreign_keys=[supplier_id],
+    )
+    invoice: Mapped["APInvoiceTable"] = relationship(
+        "APInvoiceTable",
+        back_populates="payments",
+        foreign_keys=[invoice_id],
+    )
+
+    # Relasi ke CoretaxBupotTable - menggunakan kolom payment_id
+    bupots: Mapped[list["CoretaxBupotTable"]] = relationship(
+        "CoretaxBupotTable",
+        back_populates="payment",
+        foreign_keys="[CoretaxBupotTable.payment_id]",
+        cascade="all, delete-orphan",
+    )
+
+    # ========================================================================
+    # PROPERTIES
+    # ========================================================================
 
     @property
     def is_approved(self) -> bool:
@@ -97,6 +128,10 @@ class APPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     @property
     def is_cancelled(self) -> bool:
         return self.status == "cancelled"
+
+    # ========================================================================
+    # METHODS
+    # ========================================================================
 
     def submit(self) -> None:
         if self.status != "draft":
@@ -125,10 +160,6 @@ class APPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
             raise ValueError(f"Cannot cancel payment with status {self.status}")
         self.status = "cancelled"
         self.increment_version()
-
-    bupots: Mapped[list[CoretaxBupotTable]] = relationship(
-        "CoretaxBupotTable", back_populates="payment", foreign_keys="[CoretaxBupotTable.ap_payment_id]"
-    )
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -35,6 +36,10 @@ from infrastructure.persistence_orm.base_model import (
     VersionMixin,
 )
 
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.ar_invoice_table import ARInvoiceTable
+    from infrastructure.persistence_orm.customer_table import CustomerTable
+
 
 class SalesOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     __tablename__ = "sales_order"
@@ -56,7 +61,8 @@ class SalesOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         Index("idx_so_status", "status"),
         Index("idx_so_legal_entity", "legal_entity_id"),
         Index("idx_so_expected_ship_date", "expected_ship_date"),
-        Index("idx_so_approved_by", "approved_by")
+        Index("idx_so_approved_by", "approved_by"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -65,7 +71,9 @@ class SalesOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     so_number: Mapped[str] = mapped_column(String(50), nullable=False)
     so_date: Mapped[date] = mapped_column(Date, nullable=False)
     customer_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("customer.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("public.customer.id", ondelete="RESTRICT"),
+        nullable=False,
     )
 
     # Amounts
@@ -107,9 +115,21 @@ class SalesOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     # RELATIONSHIPS
     # ========================================================================
 
-    customer: Mapped[CustomerTable] = relationship("CustomerTable", back_populates="sales_orders")
-    ar_invoices: Mapped[list[ARInvoiceTable]] = relationship(
-        "ARInvoiceTable", back_populates="sales_order"
+    # Customer
+    customer: Mapped["CustomerTable"] = relationship(
+        "CustomerTable",
+        back_populates="sales_orders",
+        foreign_keys=[customer_id],
+    )
+
+    # AR Invoices – foreign key di sisi ARInvoiceTable adalah sales_order_id
+    # Kita tambahkan foreign_keys dan primaryjoin untuk kejelasan
+    ar_invoices: Mapped[list["ARInvoiceTable"]] = relationship(
+        "ARInvoiceTable",
+        back_populates="sales_order",
+        foreign_keys="[ARInvoiceTable.sales_order_id]",
+        primaryjoin="SalesOrderTable.id == ARInvoiceTable.sales_order_id",
+        cascade="all, delete-orphan",
     )
 
     # ========================================================================

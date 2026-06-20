@@ -18,6 +18,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     CheckConstraint,
@@ -30,8 +31,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -41,9 +41,9 @@ from infrastructure.persistence_orm.base_model import (
     VersionMixin,
 )
 
-# ============================================================================
-# STOCK OPNAME HEADER MODEL
-# ============================================================================
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.stock_opname_line_table import StockOpnameLineTable
+    from infrastructure.persistence_orm.warehouse_table import WarehouseTable
 
 
 class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
@@ -67,27 +67,30 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         Index("idx_stock_opname_date", "opname_date"),
         Index("idx_stock_opname_status", "status"),
         Index("idx_stock_opname_location", "location_code"),
-        {"extend_existing": True},
+        Index("idx_stock_opname_warehouse", "warehouse_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    legal_entity_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), nullable=False, index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    legal_entity_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, index=True)
     opname_number: Mapped[str] = mapped_column(String(50), nullable=False)
     opname_date: Mapped[date] = mapped_column(Date, nullable=False)
     location_code: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
-    warehouse_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+
+    # Warehouse reference – now with proper foreign key to "public.warehouse.id"
+    warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("public.warehouse.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
     total_expected_value: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     total_counted_value: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     total_variance_value: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
-    adjustment_journal_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), nullable=True
-    )
+    adjustment_journal_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     completed_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     approved_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
@@ -95,15 +98,28 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     extra_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
-    # Relationships
-    lines: Mapped[list[StockOpnameLineTable]] = relationship(
+    # =========================================================================
+    # RELATIONSHIPS
+    # =========================================================================
+
+    # Lines (one-to-many)
+    lines: Mapped[list["StockOpnameLineTable"]] = relationship(
         "StockOpnameLineTable",
-        back_populates="header",
+        back_populates="stock_opname",
         cascade="all, delete-orphan",
         lazy="selectin",
     )
 
-    # Properties
+    # Warehouse (many-to-one) – added back_populates to match WarehouseTable.stock_opnames
+    warehouse: Mapped["WarehouseTable | None"] = relationship(
+        "WarehouseTable",
+        back_populates="stock_opnames",
+        foreign_keys=[warehouse_id],
+    )
+
+    # =========================================================================
+    # PROPERTIES
+    # =========================================================================
     @property
     def is_draft(self) -> bool:
         return self.status == "draft"
@@ -124,7 +140,9 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     def is_cancelled(self) -> bool:
         return self.status == "cancelled"
 
-    # Methods
+    # =========================================================================
+    # METHODS
+    # =========================================================================
     def mark_in_progress(self, user_id: uuid.UUID) -> None:
         if self.status != "draft":
             raise ValueError(f"Cannot start opname in status {self.status}")
@@ -155,7 +173,7 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
             self.extra_metadata["cancellation_reason"] = reason
         self.increment_version()
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
             "legal_entity_id": str(self.legal_entity_id),
@@ -168,9 +186,7 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
             "total_expected_value": str(self.total_expected_value),
             "total_counted_value": str(self.total_counted_value),
             "total_variance_value": str(self.total_variance_value),
-            "adjustment_journal_id": str(self.adjustment_journal_id)
-            if self.adjustment_journal_id
-            else None,
+            "adjustment_journal_id": str(self.adjustment_journal_id) if self.adjustment_journal_id else None,
             "completed_by": str(self.completed_by) if self.completed_by else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "approved_by": str(self.approved_by) if self.approved_by else None,
@@ -181,84 +197,4 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         }
 
 
-# ============================================================================
-# STOCK OPNAME LINE MODEL
-# ============================================================================
-
-
-class StockOpnameLineTable(Base, TimestampMixin):
-    """
-    Model untuk tabel stock_opname_lines (detail per item).
-    """
-
-    __tablename__ = "stock_opname_lines"
-    __table_args__ = (
-        UniqueConstraint("stock_opname_id", "item_id", name="uq_stock_opname_line_item"),
-        Index("idx_stock_opname_line_header", "stock_opname_id"),
-        Index("idx_stock_opname_line_item", "item_id"),
-        Index("idx_stock_opname_line_variance", "variance_quantity"),
-        {"extend_existing": True},
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    stock_opname_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("stock_opname.id", ondelete="CASCADE"), nullable=False
-    )
-    item_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
-    item_code: Mapped[str] = mapped_column(String(50), nullable=False)
-    item_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    uom: Mapped[str] = mapped_column(String(10), nullable=False, default="PCS")
-    expected_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False, default=0)
-    counted_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False, default=0)
-    variance_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False, default=0)
-    unit_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
-    variance_value: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    counted_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
-    counted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    verified_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
-    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    # Relationships
-    header: Mapped[StockOpnameTable] = relationship("StockOpnameTable", back_populates="lines")
-
-    # Methods
-    def set_count(self, quantity: Decimal, user_id: uuid.UUID) -> None:
-        if quantity < 0:
-            raise ValueError("Counted quantity cannot be negative")
-        self.counted_quantity = quantity
-        self.variance_quantity = self.counted_quantity - self.expected_quantity
-        self.variance_value = self.variance_quantity * self.unit_cost
-        self.counted_by = user_id
-        self.counted_at = datetime.utcnow()
-        self.increment_version()
-
-    def verify(self, user_id: uuid.UUID) -> None:
-        self.verified_by = user_id
-        self.verified_at = datetime.utcnow()
-        self.increment_version()
-
-    def to_dict(self) -> dict:
-        return {
-            "id": str(self.id),
-            "stock_opname_id": str(self.stock_opname_id),
-            "item_id": str(self.item_id),
-            "item_code": self.item_code,
-            "item_name": self.item_name,
-            "uom": self.uom,
-            "expected_quantity": str(self.expected_quantity),
-            "counted_quantity": str(self.counted_quantity),
-            "variance_quantity": str(self.variance_quantity),
-            "unit_cost": str(self.unit_cost),
-            "variance_value": str(self.variance_value),
-            "notes": self.notes,
-            "counted_by": str(self.counted_by) if self.counted_by else None,
-            "counted_at": self.counted_at.isoformat() if self.counted_at else None,
-            "verified_by": str(self.verified_by) if self.verified_by else None,
-            "verified_at": self.verified_at.isoformat() if self.verified_at else None,
-        }
-
-
-__all__ = ["Base", "StockOpnameLineTable", "StockOpnameTable"]
+__all__ = ["StockOpnameTable"]

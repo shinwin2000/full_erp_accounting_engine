@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.ap_invoice_table import APInvoiceTable
 
 
 class APInvoiceLineTable(Base, TimestampMixin):
@@ -26,12 +29,16 @@ class APInvoiceLineTable(Base, TimestampMixin):
         CheckConstraint("unit_price >= 0", name="ck_ap_invoice_line_unit_price_nonneg"),
         CheckConstraint("amount >= 0", name="ck_ap_invoice_line_amount_nonneg"),
         Index("idx_ap_invoice_line_invoice", "invoice_id"),
-        Index("idx_ap_invoice_line_account", "account_code")
+        Index("idx_ap_invoice_line_account", "account_code"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     invoice_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ap_invoice.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("public.ap_invoice.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -45,13 +52,25 @@ class APInvoiceLineTable(Base, TimestampMixin):
     cost_center: Mapped[str | None] = mapped_column(String(50), nullable=True)
     project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    # Relationship
-    invoice: Mapped[APInvoiceTable] = relationship("APInvoiceTable", back_populates="lines")
+    # =========================================================================
+    # RELATIONSHIPS
+    # =========================================================================
+    invoice: Mapped["APInvoiceTable"] = relationship(
+        "APInvoiceTable",
+        back_populates="lines",
+        foreign_keys=[invoice_id],
+    )
 
+    # =========================================================================
+    # PROPERTIES
+    # =========================================================================
     @property
     def net_amount(self) -> Decimal:
         return self.quantity * self.unit_price
 
+    # =========================================================================
+    # METHODS
+    # =========================================================================
     def recalc_total(self) -> None:
         net = self.net_amount
         self.amount = net

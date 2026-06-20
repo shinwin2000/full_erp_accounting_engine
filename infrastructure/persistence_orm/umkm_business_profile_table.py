@@ -6,6 +6,7 @@ Responsibility: Model untuk profil bisnis UMKM (simplified accounting).
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from typing import Any
@@ -35,10 +36,10 @@ class UMKMProfileTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
             name="ck_umkm_tax_method",
         ),
         Index("idx_umkm_profile_legal_entity", "legal_entity_id"),
-        Index("idx_umkm_profile_business_type", "business_type")
+        Index("idx_umkm_profile_business_type", "business_type"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     business_name: Mapped[str] = mapped_column(String(200), nullable=False)
     business_type: Mapped[str] = mapped_column(String(20), nullable=False, default="individual")
     taxpayer_npwp: Mapped[str | None] = mapped_column(String(20), nullable=True)

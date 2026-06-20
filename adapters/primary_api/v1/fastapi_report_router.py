@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_report_router.py
@@ -22,7 +23,9 @@ Method Standards (ERP):
 - version_report()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -30,6 +33,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -334,30 +338,30 @@ class ReportDistributionResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_report_service() -> Any:
+async def get_report_service(request: Request, ) -> Any:
     """Get Report Service instance."""
     from application.service_layer.service_report import ReportService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(ReportService)
 
 
 async def get_report_scheduler() -> Any:
     """Get Report Scheduler instance."""
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
     from reports.scheduler_cron import ReportScheduler
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(ReportScheduler)
 
 
 async def get_report_distributor() -> Any:
     """Get Report Distributor instance."""
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
     from reports.distributor_email_whatsapp import ReportDistributor
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(ReportDistributor)
 
 
@@ -388,7 +392,7 @@ def _get_filename(report_number: str, report_format: ReportFormat) -> str:
         ReportFormat.JSON: "json",
         ReportFormat.XML: "xml",
     }.get(report_format, "pdf")
-    return f"{report_number}.{extension}"
+    return "{}.{}".format(report_number, extension)
 
 
 # ============================================================================
@@ -437,7 +441,7 @@ async def generate_balance_sheet(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url=f"/api/v1/reports/{result.id}/download",
+            download_url="/api/v1/reports/{}/download".format(result.id),
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -447,7 +451,7 @@ async def generate_balance_sheet(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate balance sheet: {e}")
+        logger.exception("Failed to generate balance sheet: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -486,7 +490,7 @@ async def generate_income_statement(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url=f"/api/v1/reports/{result.id}/download",
+            download_url="/api/v1/reports/{}/download".format(result.id),
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -496,7 +500,7 @@ async def generate_income_statement(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate income statement: {e}")
+        logger.exception("Failed to generate income statement: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -533,7 +537,7 @@ async def generate_cash_flow(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url=f"/api/v1/reports/{result.id}/download",
+            download_url="/api/v1/reports/{}/download".format(result.id),
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -543,7 +547,7 @@ async def generate_cash_flow(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate cash flow: {e}")
+        logger.exception("Failed to generate cash flow: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -579,7 +583,7 @@ async def generate_equity_statement(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url=f"/api/v1/reports/{result.id}/download",
+            download_url="/api/v1/reports/{}/download".format(result.id),
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -589,7 +593,7 @@ async def generate_equity_statement(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate equity statement: {e}")
+        logger.exception("Failed to generate equity statement: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -630,7 +634,7 @@ async def generate_trial_balance(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url=f"/api/v1/reports/{result.id}/download",
+            download_url="/api/v1/reports/{}/download".format(result.id),
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -640,7 +644,7 @@ async def generate_trial_balance(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate trial balance: {e}")
+        logger.exception("Failed to generate trial balance: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -679,7 +683,7 @@ async def generate_general_ledger(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url=f"/api/v1/reports/{result.id}/download",
+            download_url="/api/v1/reports/{}/download".format(result.id),
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -689,7 +693,7 @@ async def generate_general_ledger(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate general ledger: {e}")
+        logger.exception("Failed to generate general ledger: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -730,7 +734,7 @@ async def generate_ar_aging(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url=f"/api/v1/reports/{result.id}/download",
+            download_url="/api/v1/reports/{}/download".format(result.id),
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -740,7 +744,7 @@ async def generate_ar_aging(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate AR aging: {e}")
+        logger.exception("Failed to generate AR aging: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -776,7 +780,7 @@ async def generate_ap_aging(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url=f"/api/v1/reports/{result.id}/download",
+            download_url="/api/v1/reports/{}/download".format(result.id),
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -786,7 +790,7 @@ async def generate_ap_aging(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate AP aging: {e}")
+        logger.exception("Failed to generate AP aging: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -829,7 +833,7 @@ async def generate_stock_card(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url=f"/api/v1/reports/{result.id}/download",
+            download_url="/api/v1/reports/{}/download".format(result.id),
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -839,7 +843,7 @@ async def generate_stock_card(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate stock card: {e}")
+        logger.exception("Failed to generate stock card: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -881,7 +885,7 @@ async def generate_tax_summary(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url=f"/api/v1/reports/{result.id}/download",
+            download_url="/api/v1/reports/{}/download".format(result.id),
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -891,7 +895,7 @@ async def generate_tax_summary(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate tax summary: {e}")
+        logger.exception("Failed to generate tax summary: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -932,7 +936,7 @@ async def generate_financial_ratios(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url=f"/api/v1/reports/{result.id}/download",
+            download_url="/api/v1/reports/{}/download".format(result.id),
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -942,7 +946,7 @@ async def generate_financial_ratios(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate financial ratios: {e}")
+        logger.exception("Failed to generate financial ratios: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -984,7 +988,7 @@ async def generate_budget_vs_actual(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url=f"/api/v1/reports/{result.id}/download",
+            download_url="/api/v1/reports/{}/download".format(result.id),
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -994,7 +998,7 @@ async def generate_budget_vs_actual(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate budget vs actual: {e}")
+        logger.exception("Failed to generate budget vs actual: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1041,7 +1045,7 @@ async def list_reports(
                 status=ReportStatus(r.status),
                 file_size_bytes=r.file_size_bytes,
                 file_path=r.file_path,
-                download_url=f"/api/v1/reports/{r.id}/download",
+                download_url="/api/v1/reports/{}/download".format(r.id),
                 parameters=r.parameters,
                 generated_at=r.generated_at,
                 generated_by=r.generated_by,
@@ -1059,7 +1063,7 @@ async def list_reports(
             page_size=page_size,
         )
     except Exception as e:
-        logger.exception(f"Failed to list reports: {e}")
+        logger.exception("Failed to list reports: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1090,7 +1094,7 @@ async def get_report(
             status=ReportStatus(report.status),
             file_size_bytes=report.file_size_bytes,
             file_path=report.file_path,
-            download_url=f"/api/v1/reports/{report.id}/download",
+            download_url="/api/v1/reports/{}/download".format(report.id),
             parameters=report.parameters,
             generated_at=report.generated_at,
             generated_by=report.generated_by,
@@ -1101,7 +1105,7 @@ async def get_report(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get report: {e}")
+        logger.exception("Failed to get report: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1125,7 +1129,8 @@ async def download_report(
 
         if report.status != ReportStatus.GENERATED.value:
             raise HTTPException(
-                status_code=400, detail=f"Report not ready (status: {report.status})"
+                status_code=400,
+                detail="Report not ready (status: {})".format(report.status),  # nosec
             )
 
         if report.is_deleted:
@@ -1148,7 +1153,7 @@ async def download_report(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to download report: {e}")
+        logger.exception("Failed to download report: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1181,7 +1186,7 @@ async def delete_report(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to delete report: {e}")
+        logger.exception("Failed to delete report: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1236,7 +1241,7 @@ async def send_report(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to send report: {e}")
+        logger.exception("Failed to send report: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1304,7 +1309,7 @@ async def schedule_report(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to schedule report: {e}")
+        logger.exception("Failed to schedule report: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1355,7 +1360,7 @@ async def list_scheduled_reports(
             for s in schedules
         ]
     except Exception as e:
-        logger.exception(f"Failed to list scheduled reports: {e}")
+        logger.exception("Failed to list scheduled reports: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1403,7 +1408,7 @@ async def get_scheduled_report(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get scheduled report: {e}")
+        logger.exception("Failed to get scheduled report: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1469,7 +1474,7 @@ async def update_scheduled_report(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update scheduled report: {e}")
+        logger.exception("Failed to update scheduled report: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1502,7 +1507,7 @@ async def delete_scheduled_report(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to delete scheduled report: {e}")
+        logger.exception("Failed to delete scheduled report: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1546,7 +1551,7 @@ async def get_report_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get report status: {e}")
+        logger.exception("Failed to get report status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1579,7 +1584,7 @@ async def get_report_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get report history: {e}")
+        logger.exception("Failed to get report history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

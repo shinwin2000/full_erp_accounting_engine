@@ -62,7 +62,7 @@ class TaxTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, L
         Index("idx_tax_tx_type_period", "tax_type", "tax_period_year", "tax_period_month"),
         Index("idx_tax_tx_status", "status"),
         Index("idx_tax_tx_reference", "reference_id", "reference_type"),
-        Index("idx_tax_tx_legal_entity", "legal_entity_id")
+        Index("idx_tax_tx_legal_entity", "legal_entity_id"),
     )
 
     # Transaction identification

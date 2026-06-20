@@ -6,6 +6,7 @@ Responsibility: Tabel untuk SPT (Surat Pemberitahuan) yang disubmit ke Coretax D
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date, datetime
@@ -28,10 +29,10 @@ class CoretaxSPTTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     __table_args__ = (
         Index("idx_coretax_spt_npwp_tahun_bulan", "npwp", "tahun", "bulan"),
         Index("idx_coretax_spt_status", "status"),
-        Index("idx_coretax_spt_legal_entity", "legal_entity_id")
+        Index("idx_coretax_spt_legal_entity", "legal_entity_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     spt_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     spt_type: Mapped[str] = mapped_column(String(50), nullable=False)
     npwp: Mapped[str] = mapped_column(String(20), nullable=False)

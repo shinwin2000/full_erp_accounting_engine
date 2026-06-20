@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_fixed_asset_router.py
@@ -21,7 +22,9 @@ Method Standards (ERP):
 - version_asset()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -30,6 +33,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -451,21 +455,21 @@ class FixedAssetSummaryResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_fixed_asset_service() -> Any:
+async def get_fixed_asset_service(request: Request, ) -> Any:
     """Get Fixed Asset Service instance."""
     from application.service_layer.service_fixed_asset import FixedAssetService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(FixedAssetService)
 
 
 async def get_depreciation_run_use_case() -> Any:
     """Get Depreciation Monthly Run Use Case instance."""
     from application.use_cases.depreciation_monthly_run import DepreciationMonthlyRunUseCase
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(DepreciationMonthlyRunUseCase)
 
 

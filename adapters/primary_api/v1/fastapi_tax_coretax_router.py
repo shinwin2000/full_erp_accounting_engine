@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_tax_coretax_router.py
@@ -26,7 +27,9 @@ Method Standards (ERP):
 - version_faktur()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -35,6 +38,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -572,30 +576,30 @@ class TaxFilingStatusSchema(BaseModel):
 # ============================================================================
 
 
-async def get_tax_service() -> Any:
+async def get_tax_service(request: Request, ) -> Any:
     """Get Tax Service instance."""
     from application.service_layer.service_tax import TaxService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(TaxService)
 
 
-async def get_coretax_service() -> Any:
+async def get_coretax_service(request: Request, ) -> Any:
     """Get Coretax Service instance."""
     from application.service_layer.service_coretax import CoretaxService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(CoretaxService)
 
 
 async def get_coretax_bulk_use_case() -> Any:
     """Get Coretax Bulk Submission Use Case instance."""
     from application.use_cases.coretax_bulk_submission import CoretaxBulkSubmissionUseCase
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(CoretaxBulkSubmissionUseCase)
 
 
@@ -653,7 +657,7 @@ async def calculate_tax(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to calculate tax: {e}")
+        logger.exception("Failed to calculate tax: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -721,7 +725,7 @@ async def create_faktur_pajak(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create faktur pajak: {e}")
+        logger.exception("Failed to create faktur pajak: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -779,7 +783,7 @@ async def list_faktur_pajak(
             for f in result.items
         ]
     except Exception as e:
-        logger.exception(f"Failed to list faktur pajak: {e}")
+        logger.exception("Failed to list faktur pajak: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -828,7 +832,7 @@ async def get_faktur_pajak(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get faktur pajak: {e}")
+        logger.exception("Failed to get faktur pajak: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -867,7 +871,7 @@ async def cancel_faktur_pajak(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to cancel faktur pajak: {e}")
+        logger.exception("Failed to cancel faktur pajak: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -912,7 +916,7 @@ async def request_nsfp(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to request NSFP: {e}")
+        logger.exception("Failed to request NSFP: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -946,7 +950,7 @@ async def get_nsfp_quota(
             "available_in_cache": quota.available_in_cache,
         }
     except Exception as e:
-        logger.exception(f"Failed to get NSFP quota: {e}")
+        logger.exception("Failed to get NSFP quota: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -993,7 +997,7 @@ async def validate_ntpn(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to validate NTPN: {e}")
+        logger.exception("Failed to validate NTPN: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1035,7 +1039,7 @@ async def submit_spt_ppn(
         return CoretaxSubmissionResponseSchema(
             submission_id=result.id,
             submission_type="spt_ppn",
-            reference_number=f"SPT-{request.tahun_pajak}-{request.masa_pajak:02d}",
+            reference_number="SPT-{}-{:02d}".format(request.tahun_pajak, request.masa_pajak),
             status=result.status,
             coretax_tracking_id=result.coretax_tracking_id,
             coretax_response=result.coretax_response,
@@ -1046,7 +1050,7 @@ async def submit_spt_ppn(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to submit SPT PPN: {e}")
+        logger.exception("Failed to submit SPT PPN: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1085,7 +1089,7 @@ async def submit_spt_pph21(
         return CoretaxSubmissionResponseSchema(
             submission_id=result.id,
             submission_type="spt_pph21",
-            reference_number=f"SPT21-{request.tahun_pajak}-{request.masa_pajak:02d}",
+            reference_number="SPT21-{}-{:02d}".format(request.tahun_pajak, request.masa_pajak),
             status=result.status,
             coretax_tracking_id=result.coretax_tracking_id,
             coretax_response=result.coretax_response,
@@ -1096,7 +1100,7 @@ async def submit_spt_pph21(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to submit SPT PPh 21: {e}")
+        logger.exception("Failed to submit SPT PPh 21: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1136,8 +1140,8 @@ async def submit_spt_pph23(
 
         return CoretaxSubmissionResponseSchema(
             submission_id=result.id,
-            submission_type=f"spt_pph{request.jenis_pajak}",
-            reference_number=f"SPT{request.jenis_pajak}-{request.tahun_pajak}-{request.masa_pajak:02d}",
+            submission_type="spt_pph{}".format(request.jenis_pajak),
+            reference_number="SPT{}-{}-{:02d}".format(request.jenis_pajak, request.tahun_pajak, request.masa_pajak),
             status=result.status,
             coretax_tracking_id=result.coretax_tracking_id,
             coretax_response=result.coretax_response,
@@ -1148,7 +1152,7 @@ async def submit_spt_pph23(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to submit SPT PPh 23: {e}")
+        logger.exception("Failed to submit SPT PPh 23: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1191,7 +1195,7 @@ async def submit_spt_tahunan_badan(
         return CoretaxSubmissionResponseSchema(
             submission_id=result.id,
             submission_type="spt_tahunan_badan",
-            reference_number=f"SPT-B-{request.tahun_pajak}",
+            reference_number="SPT-B-{}".format(request.tahun_pajak),
             status=result.status,
             coretax_tracking_id=result.coretax_tracking_id,
             coretax_response=result.coretax_response,
@@ -1202,7 +1206,7 @@ async def submit_spt_tahunan_badan(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to submit SPT Tahunan Badan: {e}")
+        logger.exception("Failed to submit SPT Tahunan Badan: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1259,7 +1263,7 @@ async def create_e_bupot(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create e-Bupot: {e}")
+        logger.exception("Failed to create e-Bupot: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1305,7 +1309,7 @@ async def list_e_bupot(
             for b in result.items
         ]
     except Exception as e:
-        logger.exception(f"Failed to list e-Bupot: {e}")
+        logger.exception("Failed to list e-Bupot: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1335,9 +1339,8 @@ async def validate_e_meterai(
         )
 
         return {
-            "meterai_code": request.meterai_code[:8] + "..." + request.meterai_code[-4:]
-            if request.meterai_code
-            else None,
+            "meterai_code": (request.meterai_code[:8] + "..." + request.meterai_code[-4:]
+                             if request.meterai_code else None),
             "is_valid": result.is_valid,
             "status": result.status,
             "value": float(result.value),
@@ -1348,7 +1351,7 @@ async def validate_e_meterai(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to validate e-Meterai: {e}")
+        logger.exception("Failed to validate e-Meterai: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1388,7 +1391,7 @@ async def purchase_e_meterai(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to purchase e-Meterai: {e}")
+        logger.exception("Failed to purchase e-Meterai: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1427,7 +1430,7 @@ async def bulk_submit_faktur(
             "errors": result.errors,
         }
     except Exception as e:
-        logger.exception(f"Failed to bulk submit faktur: {e}")
+        logger.exception("Failed to bulk submit faktur: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1467,7 +1470,7 @@ async def get_coretax_dashboard(
             pending_bupot=dashboard.pending_bupot,
         )
     except Exception as e:
-        logger.exception(f"Failed to get Coretax dashboard: {e}")
+        logger.exception("Failed to get Coretax dashboard: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1511,7 +1514,7 @@ async def get_tax_filing_status(
             for s in statuses
         ]
     except Exception as e:
-        logger.exception(f"Failed to get tax filing status: {e}")
+        logger.exception("Failed to get tax filing status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1552,7 +1555,7 @@ async def get_tax_due_dates(
             for d in due_dates
         ]
     except Exception as e:
-        logger.exception(f"Failed to get tax due dates: {e}")
+        logger.exception("Failed to get tax due dates: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1608,7 +1611,7 @@ async def get_tax_summary(
             "generated_at": datetime.now().isoformat(),
         }
     except Exception as e:
-        logger.exception(f"Failed to get tax summary: {e}")
+        logger.exception("Failed to get tax summary: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1646,15 +1649,15 @@ async def export_tax_data(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"tax_data_{legal_entity_id}_{start_date}_{end_date}.{format}"
+        filename = "tax_data_{}_{}_{}.{}".format(legal_entity_id, start_date, end_date, format)
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
         )
     except Exception as e:
-        logger.exception(f"Failed to export tax data: {e}")
+        logger.exception("Failed to export tax data: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

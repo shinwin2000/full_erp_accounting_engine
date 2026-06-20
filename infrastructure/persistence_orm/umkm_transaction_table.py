@@ -6,6 +6,7 @@ Responsibility: Model untuk transaksi UMKM (simplified accounting).
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date, datetime
@@ -33,11 +34,11 @@ class UMKMTransactionTable(Base):
         Index("idx_umkm_tx_profile", "profile_id"),
         Index("idx_umkm_tx_date", "transaction_date"),
         Index("idx_umkm_tx_type", "transaction_type"),
-        Index("idx_umkm_tx_status", "status")
+        Index("idx_umkm_tx_status", "status"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    profile_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    profile_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     transaction_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
     transaction_type: Mapped[str] = mapped_column(String(20), nullable=False)

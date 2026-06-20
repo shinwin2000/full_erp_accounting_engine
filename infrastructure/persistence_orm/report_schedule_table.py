@@ -6,6 +6,7 @@ Responsibility: Model untuk penjadwalan laporan (cron, next run, last run, recip
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import datetime
@@ -22,11 +23,11 @@ class ReportScheduleTable(Base):
     __tablename__ = "report_schedule"
     __table_args__ = (
         Index("idx_report_schedule_definition", "definition_id"),
-        Index("idx_report_schedule_next_run", "next_run_at")
+        Index("idx_report_schedule_next_run", "next_run_at"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    definition_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("report_definition.id"), nullable=False)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    definition_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("report_definition.id"), nullable=False)
     cron_expression: Mapped[str] = mapped_column(String(100), nullable=False)
     next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

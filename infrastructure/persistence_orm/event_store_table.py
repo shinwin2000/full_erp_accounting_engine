@@ -17,6 +17,7 @@ Audit: Tabel ini bersifat immutable. Trigger PostgreSQL mencegah UPDATE/DELETE.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import UTC, datetime
@@ -56,10 +57,10 @@ class EventStoreTable(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_es_event_type", "event_type"),
         Index("idx_es_timestamp", "timestamp"),
         Index("idx_es_legal_entity", "legal_entity_id"),
-        Index("idx_es_aggregate_id", "aggregate_id")
+        Index("idx_es_aggregate_id", "aggregate_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     stream_name: Mapped[str] = mapped_column(String(255), nullable=False)
     sequence_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
 

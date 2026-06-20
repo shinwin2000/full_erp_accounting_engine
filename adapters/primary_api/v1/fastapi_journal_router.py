@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_journal_router.py
@@ -21,7 +22,9 @@ Method Standards (ERP):
 - version_journal()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -30,6 +33,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -162,7 +166,9 @@ class JournalCreateSchema(BaseModel):
 
         if abs(total_debit - total_credit) > Decimal("0.01"):
             raise ValueError(
-                f"Total debit ({total_debit:.2f}) must equal total credit ({total_credit:.2f})"
+                "Total debit ({:.2f}) must equal total credit ({:.2f})".format(
+                    total_debit, total_credit
+                )
             )
         return self
 
@@ -284,39 +290,39 @@ class JournalReverseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_journal_service() -> Any:
+async def get_journal_service(request: Request, ) -> Any:
     """Get Journal Service instance."""
     from application.service_layer.service_journal import JournalService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(JournalService)
 
 
 async def get_post_journal_use_case() -> Any:
     """Get Post Journal Use Case instance."""
     from application.use_cases.post_journal_entry import PostJournalEntryUseCase
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(PostJournalEntryUseCase)
 
 
 async def get_approve_journal_use_case() -> Any:
     """Get Approve Journal Four Eyes Use Case instance."""
     from application.use_cases.approve_journal_four_eyes import ApproveJournalFourEyesUseCase
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(ApproveJournalFourEyesUseCase)
 
 
 async def get_reverse_journal_use_case() -> Any:
     """Get Reverse Journal Use Case instance."""
     from application.use_cases.reverse_journal import ReverseJournalUseCase
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(ReverseJournalUseCase)
 
 
@@ -432,7 +438,7 @@ async def create_journal(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create journal: {e}")
+        logger.exception("Failed to create journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -499,7 +505,7 @@ async def get_journal(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get journal: {e}")
+        logger.exception("Failed to get journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -520,7 +526,10 @@ async def get_journal_by_number(
         journal = await journal_service.get_journal_by_number(journal_number, legal_entity_id)
 
         if not journal:
-            raise HTTPException(status_code=404, detail=f"Journal {journal_number} not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Journal {} not found".format(journal_number)
+            )
 
         return JournalResponseSchema(
             id=journal.id,
@@ -566,7 +575,7 @@ async def get_journal_by_number(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get journal by number: {e}")
+        logger.exception("Failed to get journal by number: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -670,7 +679,7 @@ async def update_journal(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update journal: {e}")
+        logger.exception("Failed to update journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -708,7 +717,7 @@ async def cancel_journal(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to cancel journal: {e}")
+        logger.exception("Failed to cancel journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -778,7 +787,7 @@ async def restore_journal(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to restore journal: {e}")
+        logger.exception("Failed to restore journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -820,7 +829,7 @@ async def submit_journal(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to submit journal: {e}")
+        logger.exception("Failed to submit journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -869,7 +878,7 @@ async def approve_journal(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to approve journal: {e}")
+        logger.exception("Failed to approve journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -904,13 +913,13 @@ async def reject_journal(
             journal_number=result.journal_number,
             action="reject",
             status=JournalStatus(result.status),
-            message=f"Journal rejected: {request.reason}",
+            message="Journal rejected: {}".format(request.reason),
             timestamp=datetime.now(),
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to reject journal: {e}")
+        logger.exception("Failed to reject journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -956,7 +965,7 @@ async def post_journal(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to post journal: {e}")
+        logger.exception("Failed to post journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1000,13 +1009,13 @@ async def reverse_journal(
             journal_number=result.original_number,
             action="reverse",
             status=JournalStatus(result.original_status),
-            message=f"Reversal journal created: {result.reversal_number}",
+            message="Reversal journal created: {}".format(result.reversal_number),
             timestamp=datetime.now(),
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to reverse journal: {e}")
+        logger.exception("Failed to reverse journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1052,7 +1061,7 @@ async def unpost_journal(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to unpost journal: {e}")
+        logger.exception("Failed to unpost journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1095,7 +1104,7 @@ async def lock_journal(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to lock journal: {e}")
+        logger.exception("Failed to lock journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1132,7 +1141,7 @@ async def unlock_journal(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to unlock journal: {e}")
+        logger.exception("Failed to unlock journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1237,7 +1246,7 @@ async def list_journals(
             total_credit=result.total_credit,
         )
     except Exception as e:
-        logger.exception(f"Failed to list journals: {e}")
+        logger.exception("Failed to list journals: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1278,7 +1287,7 @@ async def validate_journal(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to validate journal: {e}")
+        logger.exception("Failed to validate journal: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1325,7 +1334,7 @@ async def get_journal_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get journal status: {e}")
+        logger.exception("Failed to get journal status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1359,7 +1368,7 @@ async def get_journal_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get journal history: {e}")
+        logger.exception("Failed to get journal history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1398,7 +1407,7 @@ async def get_journal_ledger_entries(
             for e in entries
         ]
     except Exception as e:
-        logger.exception(f"Failed to get ledger entries: {e}")
+        logger.exception("Failed to get ledger entries: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1438,15 +1447,17 @@ async def export_journals(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"journals_{legal_entity_id}_{start_date}_{end_date}.{format}"
+        filename = "journals_{}_{}_{}.{}".format(
+            legal_entity_id, start_date, end_date, format
+        )
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
         )
     except Exception as e:
-        logger.exception(f"Failed to export journals: {e}")
+        logger.exception("Failed to export journals: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

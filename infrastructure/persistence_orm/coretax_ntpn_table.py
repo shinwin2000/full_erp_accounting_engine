@@ -6,6 +6,7 @@ Responsibility: Coretax NTPN (Nomor Transaksi Penerimaan Negara) table.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date, datetime
@@ -24,10 +25,10 @@ class CoretaxNTPNTable(Base, TimestampMixin):
     __table_args__ = (
         Index("idx_coretax_ntpn_npwp", "npwp"),
         Index("idx_coretax_ntpn_payment_date", "payment_date"),
-        UniqueConstraint("ntpn", name="uq_coretax_ntpn")
+        UniqueConstraint("ntpn", name="uq_coretax_ntpn"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     ntpn: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)

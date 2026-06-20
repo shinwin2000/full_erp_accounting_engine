@@ -10,13 +10,18 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import Base, LegalEntityMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    # Mencegah circular import / NameError saat runtime
+    from infrastructure.persistence_orm.bank_account_table import BankAccountTable
 
 
 class BankReconciliationTable(Base, TimestampMixin, LegalEntityMixin):
@@ -31,12 +36,19 @@ class BankReconciliationTable(Base, TimestampMixin, LegalEntityMixin):
         Index("idx_bank_recon_bank_account", "bank_account_id"),
         Index("idx_bank_recon_statement_date", "statement_date"),
         Index("idx_bank_recon_status", "status"),
-        Index("idx_bank_recon_period", "period_start", "period_end")
+        Index("idx_bank_recon_period", "period_start", "period_end"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    legal_entity_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
-    bank_account_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    legal_entity_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    
+    # [FIX]: Penambahan ForeignKey eksplisit ke tabel bank_account
+    bank_account_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), 
+        ForeignKey("bank_account.id"), 
+        nullable=False
+    )
+    
     statement_date: Mapped[date] = mapped_column(Date, nullable=False)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
@@ -49,11 +61,16 @@ class BankReconciliationTable(Base, TimestampMixin, LegalEntityMixin):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    # Relationships
-    items: Mapped[list[BankReconciliationItemTable]] = relationship(
-        "BankReconciliationItemTable", back_populates="reconciliation", cascade="all, delete-orphan"
+    # [FIX]: Relationships menggunakan String Literal dan Fully Qualified Path
+    items: Mapped[list["BankReconciliationItemTable"]] = relationship(
+        "BankReconciliationItemTable", 
+        back_populates="reconciliation", 
+        cascade="all, delete-orphan"
     )
-    bank_account: Mapped[BankAccountTable] = relationship("BankAccountTable", back_populates="reconciliations")
+    bank_account: Mapped["BankAccountTable"] = relationship(
+        "infrastructure.persistence_orm.bank_account_table.BankAccountTable", 
+        back_populates="reconciliations"
+    )
 
     @property
     def is_reconciled(self) -> bool:
@@ -112,11 +129,11 @@ class BankReconciliationItemTable(Base):
         Index("idx_bank_recon_item_reconciliation", "reconciliation_id"),
         Index("idx_bank_recon_item_transaction", "transaction_id"),
         Index("idx_bank_recon_item_type", "item_type"),
-        Index("idx_bank_recon_item_status", "status")
+        Index("idx_bank_recon_item_status", "status"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    reconciliation_id: Mapped[uuid.UUID] = mapped_column(
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    reconciliation_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("bank_reconciliations.id", ondelete="CASCADE"), nullable=False
     )
     transaction_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
@@ -130,7 +147,11 @@ class BankReconciliationItemTable(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
-    reconciliation: Mapped[BankReconciliationTable] = relationship("BankReconciliationTable", back_populates="items")
+    # [FIX]: Relationships menggunakan String Literal
+    reconciliation: Mapped["BankReconciliationTable"] = relationship(
+        "BankReconciliationTable", 
+        back_populates="items"
+    )
 
     def match(self) -> None:
         self.is_matched = 1

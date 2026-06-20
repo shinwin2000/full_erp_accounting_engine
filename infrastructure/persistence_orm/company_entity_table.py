@@ -12,6 +12,7 @@ Audit: Setiap perubahan data perusahaan dicatat di event store.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from typing import Any
@@ -31,8 +32,8 @@ from infrastructure.persistence_orm.base_model import (
 class CompanyEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     __tablename__ = "company_entity"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    legal_entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    legal_entity_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     legal_name: Mapped[str] = mapped_column(String(200), nullable=False)
     trade_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)

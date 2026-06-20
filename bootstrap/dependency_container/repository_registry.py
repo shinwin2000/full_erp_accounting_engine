@@ -2,35 +2,13 @@
 """
 Module: repository_registry.py
 Layer: Bootstrap (Dependency Container)
-Responsibility: Registry khusus untuk repository pattern.
+Responsibility: Registry khusus untuk repository pattern dengan lazy imports.
 """
 
 from __future__ import annotations
 
 import logging
 from typing import Any
-
-from adapters.secondary_impl.sqlalchemy_account_repository_impl import SQLAlchemyAccountRepository
-from adapters.secondary_impl.sqlalchemy_ap_repository_impl import SQLAlchemyAPRepository
-from adapters.secondary_impl.sqlalchemy_ar_repository_impl import SQLAlchemyARRepository
-from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import SQLAlchemyBankCashRepository
-from adapters.secondary_impl.sqlalchemy_bill_of_materials_repository_impl import SQLAlchemyBillOfMaterialsRepository
-from adapters.secondary_impl.sqlalchemy_customer_repository_impl import SQLAlchemyCustomerRepository
-from adapters.secondary_impl.sqlalchemy_employee_repository_impl import SQLAlchemyEmployeeRepository
-from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import SQLAlchemyFixedAssetRepository
-from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import SQLAlchemyIAMUserRepository
-from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import SQLAlchemyInventoryRepository
-from adapters.secondary_impl.sqlalchemy_journal_repository_impl import SQLAlchemyJournalRepository
-from adapters.secondary_impl.sqlalchemy_ledger_repository_impl import SQLAlchemyLedgerRepository
-from adapters.secondary_impl.sqlalchemy_legal_entity_repository_impl import SQLAlchemyLegalEntityRepository
-from adapters.secondary_impl.sqlalchemy_outbox_repository_impl import SQLAlchemyOutboxRepository
-from adapters.secondary_impl.sqlalchemy_project_repository_impl import SQLAlchemyProjectRepository
-from adapters.secondary_impl.sqlalchemy_purchase_order_repository_impl import SQLAlchemyPurchaseOrderRepository
-from adapters.secondary_impl.sqlalchemy_sales_order_repository_impl import SQLAlchemySalesOrderRepository
-from adapters.secondary_impl.sqlalchemy_supplier_repository_impl import SQLAlchemySupplierRepository
-from adapters.secondary_impl.sqlalchemy_system_setting_repository_impl import SQLAlchemySystemSettingRepository
-from adapters.secondary_impl.sqlalchemy_tax_repository_impl import SQLAlchemyTaxRepository
-from adapters.secondary_impl.sqlalchemy_work_order_repository_impl import SQLAlchemyWorkOrderRepository
 
 from bootstrap.dependency_container.ioc_container import IoCContainer, get_container
 from ports.primary.account_repository_port import AccountRepositoryPort
@@ -59,28 +37,37 @@ logger = logging.getLogger(__name__)
 
 
 class RepositoryRegistry:
-    """
-    Registry khusus untuk repository.
-
-    Method Standards:
-    - register_all() - Mendaftar semua repository
-    - register() - Mendaftar repository tunggal
-    - unregister() - Menghapus repository
-    - get_repository_interface() - Mendapatkan interface
-    - resolve() - Resolusi sync
-    - resolve_async() - Resolusi async
-    - list_repositories() - Daftar repository
-    - has_repository() - Cek repository
-    - reset() - Reset registry
-    """
-
     def __init__(self, container: IoCContainer | None = None):
         self._container = container or get_container()
         self._repositories: dict[str, type] = {}
         self._logger = logging.getLogger(f"{__name__}.RepositoryRegistry")
 
     def register_all(self) -> None:
-        """Register all repositories to the container."""
+        """Register all repositories to the container using lazy imports."""
+        
+        # Lazy imports for SQLAlchemy implementations
+        from adapters.secondary_impl.sqlalchemy_account_repository_impl import SQLAlchemyAccountRepository
+        from adapters.secondary_impl.sqlalchemy_ap_repository_impl import SQLAlchemyAPRepository
+        from adapters.secondary_impl.sqlalchemy_ar_repository_impl import SQLAlchemyARRepository
+        from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import SQLAlchemyBankCashRepository
+        from adapters.secondary_impl.sqlalchemy_bill_of_materials_repository_impl import SQLAlchemyBillOfMaterialsRepository
+        from adapters.secondary_impl.sqlalchemy_customer_repository_impl import SQLAlchemyCustomerRepository
+        from adapters.secondary_impl.sqlalchemy_employee_repository_impl import SQLAlchemyEmployeeRepository
+        from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import SQLAlchemyFixedAssetRepository
+        from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import SQLAlchemyIAMUserRepository
+        from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import SQLAlchemyInventoryRepository
+        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import SQLAlchemyJournalRepository
+        from adapters.secondary_impl.sqlalchemy_ledger_repository_impl import SQLAlchemyLedgerRepository
+        from adapters.secondary_impl.sqlalchemy_legal_entity_repository_impl import SQLAlchemyLegalEntityRepository
+        from adapters.secondary_impl.sqlalchemy_outbox_repository_impl import SQLAlchemyOutboxRepository
+        from adapters.secondary_impl.sqlalchemy_project_repository_impl import SQLAlchemyProjectRepository
+        from adapters.secondary_impl.sqlalchemy_purchase_order_repository_impl import SQLAlchemyPurchaseOrderRepository
+        from adapters.secondary_impl.sqlalchemy_sales_order_repository_impl import SQLAlchemySalesOrderRepository
+        from adapters.secondary_impl.sqlalchemy_supplier_repository_impl import SQLAlchemySupplierRepository
+        from adapters.secondary_impl.sqlalchemy_system_setting_repository_impl import SQLAlchemySystemSettingRepository
+        from adapters.secondary_impl.sqlalchemy_tax_repository_impl import SQLAlchemyTaxRepository
+        from adapters.secondary_impl.sqlalchemy_work_order_repository_impl import SQLAlchemyWorkOrderRepository
+
         self._container.register_singleton(JournalRepositoryPort, SQLAlchemyJournalRepository)
         self._container.register_singleton(LedgerRepositoryPort, SQLAlchemyLedgerRepository)
         self._container.register_singleton(AccountRepositoryPort, SQLAlchemyAccountRepository)
@@ -128,7 +115,6 @@ class RepositoryRegistry:
         self._logger.info(f"Registered {len(self._repositories)} repositories")
 
     def register(self, name: str, interface: type) -> None:
-        """Register a single repository."""
         if not name:
             raise ValueError("Repository name cannot be empty")
         if not interface:
@@ -137,7 +123,6 @@ class RepositoryRegistry:
         self._logger.debug(f"Registered repository: {name} -> {interface.__name__}")
 
     def unregister(self, name: str) -> bool:
-        """Unregister a repository."""
         if name in self._repositories:
             del self._repositories[name]
             self._logger.debug(f"Unregistered repository: {name}")
@@ -145,35 +130,29 @@ class RepositoryRegistry:
         return False
 
     def get_repository_interface(self, name: str) -> type | None:
-        """Get repository interface by name."""
         if not name:
             raise ValueError("Repository name cannot be empty")
         return self._repositories.get(name)
 
     def resolve(self, name: str, **kwargs) -> Any:
-        """Resolve repository by name (sync)."""
         interface = self.get_repository_interface(name)
         if not interface:
             raise ValueError(f"Repository not found: {name}")
         return self._container.resolve(interface, **kwargs)
 
     async def resolve_async(self, name: str, **kwargs) -> Any:
-        """Resolve repository asynchronously by name."""
         interface = self.get_repository_interface(name)
         if not interface:
             raise ValueError(f"Repository not found: {name}")
         return await self._container.resolve_async(interface, **kwargs)
 
     def list_repositories(self) -> list[str]:
-        """List all registered repository names."""
         return sorted(self._repositories.keys())
 
     def has_repository(self, name: str) -> bool:
-        """Check if repository exists."""
         return name in self._repositories
 
     def reset(self) -> None:
-        """Reset registry."""
         self._repositories.clear()
         self._logger.info("Repository registry reset")
 
@@ -186,7 +165,6 @@ _repository_registry: RepositoryRegistry | None = None
 
 
 def get_repository_registry() -> RepositoryRegistry:
-    """Get singleton instance of RepositoryRegistry."""
     global _repository_registry
     if _repository_registry is None:
         _repository_registry = RepositoryRegistry()

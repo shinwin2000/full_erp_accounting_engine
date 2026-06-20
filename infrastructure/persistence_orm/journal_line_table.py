@@ -6,13 +6,22 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel journal_line.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Numeric, String
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    Numeric,
+    String,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -31,6 +40,11 @@ if TYPE_CHECKING:
 class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     __tablename__ = "journal_line"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["account_code", "legal_entity_id"],
+            ["public.account.account_code", "public.account.legal_entity_id"],
+            name="fk_journal_line_account",
+        ),
         CheckConstraint("debit_amount >= 0", name="ck_journal_line_debit_nonneg"),
         CheckConstraint("credit_amount >= 0", name="ck_journal_line_credit_nonneg"),
         CheckConstraint("debit_amount > 0 OR credit_amount > 0", name="ck_journal_line_nonzero"),
@@ -38,11 +52,14 @@ class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
         Index("idx_journal_line_journal", "journal_id"),
         Index("idx_journal_line_account", "account_code"),
         Index("idx_journal_line_legal_entity", "legal_entity_id"),
-        Index("idx_journal_line_cost_center", "cost_center")
+        Index("idx_journal_line_cost_center", "cost_center"),
+        {"schema": "public", "extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    journal_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("journal_header.id"), nullable=False)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    journal_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("public.journal_header.id"), nullable=False
+    )
     account_code: Mapped[str] = mapped_column(String(20), nullable=False)
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -54,11 +71,18 @@ class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
     account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     audit_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
-    journal: Mapped[JournalHeaderTable] = relationship("JournalHeaderTable", back_populates="lines")
-    account: Mapped[AccountTable | None] = relationship(
+    # Relasi
+    journal: Mapped["JournalHeaderTable"] = relationship(
+        "JournalHeaderTable",
+        back_populates="lines",
+        foreign_keys=[journal_id],
+    )
+    account: Mapped["AccountTable"] = relationship(
         "AccountTable",
-        foreign_keys=[account_code],
-        primaryjoin="JournalLineTable.account_code == AccountTable.account_code",
+        back_populates="journal_lines",
+        primaryjoin="and_(JournalLineTable.account_code == AccountTable.account_code, "
+                    "JournalLineTable.legal_entity_id == AccountTable.legal_entity_id)",
+        foreign_keys="[JournalLineTable.account_code, JournalLineTable.legal_entity_id]",
         viewonly=True,
     )
 

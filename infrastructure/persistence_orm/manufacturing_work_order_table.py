@@ -6,6 +6,7 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel work order manufaktu
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date, datetime
@@ -49,12 +50,12 @@ class ManufacturingWorkOrderTable(Base, TimestampMixin, SoftDeleteMixin, Version
         Index("idx_wo_status", "status"),
         Index("idx_wo_legal_entity", "legal_entity_id"),
         Index("idx_wo_planned_start_date", "planned_start_date"),
-        Index("idx_wo_actual_completion_date", "actual_completion_date")
+        Index("idx_wo_actual_completion_date", "actual_completion_date"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     wo_number: Mapped[str] = mapped_column(String(50), nullable=False)
-    product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     product_code: Mapped[str] = mapped_column(String(50), nullable=False)
     product_name: Mapped[str] = mapped_column(String(200), nullable=False)
     bill_of_materials_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

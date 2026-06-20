@@ -25,7 +25,8 @@ from infrastructure.persistence_orm.base_model import (
 )
 
 if TYPE_CHECKING:
-    from infrastructure.persistence_orm.employee_table import EmployeeTable
+    from infrastructure.persistence_orm.payslip_table import PayslipTable
+    from infrastructure.persistence_orm.salary_component_table import SalaryComponentTable
 
 
 class PayrollRunTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -44,7 +45,8 @@ class PayrollRunTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         Index("idx_payroll_run_legal_entity", "legal_entity_id"),
         Index("idx_payroll_run_period", "period_year", "period_month"),
         Index("idx_payroll_run_status", "status"),
-        Index("idx_payroll_run_number", "run_number")
+        Index("idx_payroll_run_number", "run_number"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -65,8 +67,29 @@ class PayrollRunTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    # Relationship
-    employee: Mapped[EmployeeTable] = relationship("EmployeeTable", back_populates="payroll_runs")
+    # ========================================================================
+    # RELATIONSHIPS
+    # ========================================================================
+
+    # Salary components
+    salary_components: Mapped[list["SalaryComponentTable"]] = relationship(
+        "SalaryComponentTable",
+        back_populates="payroll_run",
+        foreign_keys="[SalaryComponentTable.payroll_run_id]",
+        cascade="all, delete-orphan",
+    )
+
+    # Payslips (added for back_populates in PayslipTable)
+    payslips: Mapped[list["PayslipTable"]] = relationship(
+        "PayslipTable",
+        back_populates="payroll_run",
+        foreign_keys="[PayslipTable.payroll_run_id]",
+        cascade="all, delete-orphan",
+    )
+
+    # ========================================================================
+    # PROPERTIES
+    # ========================================================================
 
     @property
     def is_calculated(self) -> bool:
@@ -94,6 +117,10 @@ class PayrollRunTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
             return Decimal(0)
         return self.total_net_salary / self.total_employees
 
+    # ========================================================================
+    # METHODS
+    # ========================================================================
+
     def approve(self, approved_by: uuid.UUID) -> None:
         if self.status != "calculated":
             raise ValueError(f"Cannot approve payroll run with status {self.status}")
@@ -117,16 +144,18 @@ class PayrollRunTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         self.status = "cancelled"
         self.increment_version()
 
-    def update_totals(self, total_employees: int, total_net_salary: Decimal, total_tax: Decimal, total_deductions: Decimal) -> None:
+    def update_totals(
+        self,
+        total_employees: int,
+        total_net_salary: Decimal,
+        total_tax: Decimal,
+        total_deductions: Decimal,
+    ) -> None:
         self.total_employees = total_employees
         self.total_net_salary = total_net_salary
         self.total_tax = total_tax
         self.total_deductions = total_deductions
         self.increment_version()
-
-    salary_components: Mapped[list[SalaryComponentTable]] = relationship(
-        "SalaryComponentTable", back_populates="payroll_run", foreign_keys="[SalaryComponentTable.payroll_run_id]"
-    )
 
     def to_dict(self) -> dict[str, Any]:
         return {

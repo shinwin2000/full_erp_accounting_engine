@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -24,7 +25,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -34,6 +35,11 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.inventory_fifo_layer_table import InventoryFIFOLayerTable
+    from infrastructure.persistence_orm.inventory_movement_table import InventoryMovementTable
+    from infrastructure.persistence_orm.warehouse_table import WarehouseTable
 
 
 class InventoryItemTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -70,7 +76,8 @@ class InventoryItemTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         Index("idx_inventory_item_warehouse", "warehouse_id"),
         Index("idx_inventory_item_valuation", "valuation_method"),
         Index("idx_inventory_item_stock_status", "current_stock", "reorder_point"),
-        Index("idx_inventory_item_is_active", "is_active")
+        Index("idx_inventory_item_is_active", "is_active"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -108,32 +115,43 @@ class InventoryItemTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     tax_rate_purchase: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=11)
     tax_rate_sales: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=11)
 
-    # Warehouse
+    # Warehouse (foreign key with schema)
     warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("warehouse.id"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("public.warehouse.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     # Additional info
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    # JSON field untuk menyimpan data tambahan (dulu bernama 'metadata', sekarang 'extra_data' untuk menghindari reserved attribute)
+    extra_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default={})
+
     # Audit
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # ========================================================================
-    # RELATIONSHIPS
+    # RELATIONSHIPS (menggunakan backref agar child tidak perlu referensi)
     # ========================================================================
 
-    movements: Mapped[list[InventoryMovementTable]] = relationship(
-        "InventoryMovementTable", back_populates="item", cascade="all, delete-orphan"
+    movements: Mapped[list["InventoryMovementTable"]] = relationship(
+        "InventoryMovementTable",
+        backref="item",
+        cascade="all, delete-orphan",
     )
 
-    fifo_layers: Mapped[list[InventoryFIFOLayerTable]] = relationship(
-        "InventoryFIFOLayerTable", back_populates="item", cascade="all, delete-orphan"
+    fifo_layers: Mapped[list["InventoryFIFOLayerTable"]] = relationship(
+        "InventoryFIFOLayerTable",
+        backref="item",
+        cascade="all, delete-orphan",
     )
 
-    warehouse: Mapped[WarehouseTable | None] = relationship(
-        "WarehouseTable", back_populates="items"
+    warehouse: Mapped["WarehouseTable | None"] = relationship(
+        "WarehouseTable",
+        back_populates="items",
+        foreign_keys=[warehouse_id],
     )
 
     # ========================================================================
@@ -175,11 +193,11 @@ class InventoryItemTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     def update_standard_cost(self, new_standard_cost: Decimal, effective_date: str) -> None:
         old = self.standard_cost
         self.standard_cost = new_standard_cost
-        if not self.metadata:
-            self.metadata = {}
-        if "cost_history" not in self.metadata:
-            self.metadata["cost_history"] = []
-        self.metadata["cost_history"].append(
+        if not self.extra_data:
+            self.extra_data = {}
+        if "cost_history" not in self.extra_data:
+            self.extra_data["cost_history"] = []
+        self.extra_data["cost_history"].append(
             {"date": effective_date, "old_cost": float(old), "new_cost": float(new_standard_cost)}
         )
         self.increment_version()

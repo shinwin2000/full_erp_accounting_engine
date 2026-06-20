@@ -24,7 +24,9 @@ Method Standards (ERP):
 - version_account()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -32,6 +34,8 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID
+
+from adapters.dependency_provider import get_service
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
@@ -587,21 +591,21 @@ class AccountBalanceHistorySchema(BaseModel):
 # ============================================================================
 
 
-async def get_bank_cash_service() -> Any:
+async def get_bank_cash_service(request: Request, ) -> Any:
     """Get Bank Cash Service instance."""
     from application.service_layer.service_bank_cash import BankCashService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(BankCashService)
 
 
 async def get_bank_reconciliation_use_case() -> Any:
     """Get Bank Reconciliation Use Case instance."""
     from application.use_cases.bank_reconciliation import BankReconciliationUseCase
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(BankReconciliationUseCase)
 
 

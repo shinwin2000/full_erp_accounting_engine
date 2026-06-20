@@ -6,6 +6,7 @@ Responsibility: Read model untuk kartu stok inventory.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date
@@ -29,12 +30,12 @@ class InventoryStockCardTable(Base, TimestampMixin, LegalEntityMixin):
         Index("idx_isc_movement", "movement_id"),
         CheckConstraint("in_quantity >= 0", name="ck_isc_in_nonneg"),
         CheckConstraint("out_quantity >= 0", name="ck_isc_out_nonneg"),
-        CheckConstraint("balance_quantity >= 0", name="ck_isc_balance_nonneg")
+        CheckConstraint("balance_quantity >= 0", name="ck_isc_balance_nonneg"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    movement_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, unique=True)
-    item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    movement_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False, unique=True)
+    item_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     item_code: Mapped[str] = mapped_column(String(50), nullable=False)
     item_name: Mapped[str] = mapped_column(String(200), nullable=False)
     uom: Mapped[str] = mapped_column(String(10), nullable=False, default="PCS")

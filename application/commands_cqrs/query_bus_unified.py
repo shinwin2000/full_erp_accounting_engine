@@ -1,4 +1,4 @@
-# query_bus_unified.py - Hardened version with complete implementation
+# query_bus_unified.py - Hardened version with BaseQuery (fix P56)
 
 #!/usr/bin/env python3
 
@@ -44,10 +44,10 @@ logger = logging.getLogger(__name__)
 TResult = TypeVar("TResult")
 
 
-# === 1. QUERY BASE CLASS ===
+# === 1. QUERY BASE CLASS (renamed from Query) ===
 
 
-class Query(Generic[TResult]):
+class BaseQuery(Generic[TResult]):
     """
     Base class untuk semua query.
     Query bersifat read-only dan memiliki tipe result.
@@ -116,7 +116,7 @@ class Query(Generic[TResult]):
         return self.get_per_page()
 
     def __repr__(self) -> str:
-        return f"Query({self.query_type}, id={self.query_id})"
+        return f"BaseQuery({self.query_type}, id={self.query_id})"
 
 
 # === 2. QUERY RESULT ===
@@ -236,8 +236,8 @@ class QueryMiddleware:
 
     async def process(
         self,
-        query: Query,
-        handler: Callable[[Query], Any],
+        query: BaseQuery,
+        handler: Callable[[BaseQuery], Any],
         context: dict[str, Any],
     ) -> Any:
         """Process query through middleware."""
@@ -253,8 +253,8 @@ class LoggingQueryMiddleware(QueryMiddleware):
 
     async def process(
         self,
-        query: Query,
-        handler: Callable[[Query], Any],
+        query: BaseQuery,
+        handler: Callable[[BaseQuery], Any],
         context: dict[str, Any],
     ) -> Any:
         log_data = {
@@ -290,8 +290,8 @@ class TimeoutQueryMiddleware(QueryMiddleware):
 
     async def process(
         self,
-        query: Query,
-        handler: Callable[[Query], Any],
+        query: BaseQuery,
+        handler: Callable[[BaseQuery], Any],
         context: dict[str, Any],
     ) -> Any:
         timeout = context.get("timeout_seconds", self._default_timeout)
@@ -319,7 +319,7 @@ class CacheQueryMiddleware(QueryMiddleware):
         # In-memory fallback cache
         self._memory_cache: dict[str, tuple[Any, float]] = {}
 
-    def _generate_cache_key(self, query: Query) -> str:
+    def _generate_cache_key(self, query: BaseQuery) -> str:
         """Generate cache key from query."""
         query_dict = query.to_dict()
         query_dict.pop("query_id", None)  # Remove unique ID
@@ -362,8 +362,8 @@ class CacheQueryMiddleware(QueryMiddleware):
 
     async def process(
         self,
-        query: Query,
-        handler: Callable[[Query], Any],
+        query: BaseQuery,
+        handler: Callable[[BaseQuery], Any],
         context: dict[str, Any],
     ) -> Any:
         # Check if caching is enabled for this query
@@ -496,7 +496,7 @@ class UnifiedQueryBus:
                 f"Circuit breaker for {query_type} opened after {cb['failures']} failures"
             )
 
-    async def dispatch(self, query: Query[TResult]) -> QueryResult[TResult]:
+    async def dispatch(self, query: BaseQuery[TResult]) -> QueryResult[TResult]:
         """
         Dispatch query ke handler.
         Jika cache enabled, cek cache terlebih dahulu.
@@ -532,7 +532,7 @@ class UnifiedQueryBus:
                 raise QueryNotFoundError(f"No handler for query type: {query_type}")
 
             # Build middleware chain
-            async def final_handler(q: Query) -> Any:
+            async def final_handler(q: BaseQuery) -> Any:
                 return await handler(q)
 
             # Apply middlewares in reverse order
@@ -750,7 +750,7 @@ def reset_query_bus() -> None:
     _query_bus_instance = None
 
 
-async def dispatch_query(query: Query[TResult]) -> QueryResult[TResult]:
+async def dispatch_query(query: BaseQuery[TResult]) -> QueryResult[TResult]:
     """Convenience function to dispatch query using singleton bus."""
     return await get_query_bus().dispatch(query)
 
@@ -758,9 +758,9 @@ async def dispatch_query(query: Query[TResult]) -> QueryResult[TResult]:
 # === 8. EXPORTS ===
 
 __all__ = [
+    "BaseQuery",
     "CacheQueryMiddleware",
     "LoggingQueryMiddleware",
-    "Query",
     "QueryBus",
     "QueryBusError",
     "QueryExecutionError",
@@ -774,5 +774,3 @@ __all__ = [
     "get_query_bus",
     "reset_query_bus",
 ]
-
-QueryBusUnified = UnifiedQueryBus

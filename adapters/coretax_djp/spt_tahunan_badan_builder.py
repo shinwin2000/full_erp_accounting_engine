@@ -356,7 +356,7 @@ class SPTTahunanBadan:
     @property
     def ntpn_masked(self) -> str | None:
         if self._ntpn and len(self._ntpn) > 8:
-            return f"{self._ntpn[:8]}...{self._ntpn[-4:]}"
+            return "{}...{}".format(self._ntpn[:8], self._ntpn[-4:])
         return self._ntpn
 
     @property
@@ -489,9 +489,9 @@ class SPTTahunanBadan:
 
     def update(self, data: dict[str, Any], updated_by: UUID) -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")
+            raise SPTBadanLockedError("SPT {} is locked".format(self._tahun_pajak))
         if self._status not in [SPTStatus.DRAFT, SPTStatus.PENDING, SPTStatus.REJECTED]:
-            raise SPTBadanInvalidStateError(f"Cannot update SPT in status {self._status.value}")
+            raise SPTBadanInvalidStateError("Cannot update SPT in status {}".format(self._status.value))
         old_data = self.to_dict()
         if "penghasilan_neto_komersial" in data:
             self._penghasilan_neto_komersial = Decimal(str(data["penghasilan_neto_komersial"]))
@@ -519,7 +519,7 @@ class SPTTahunanBadan:
 
     def delete(self, deleted_by: UUID, permanent: bool = False) -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")
+            raise SPTBadanLockedError("SPT {} is locked".format(self._tahun_pajak))
         if permanent:
             self._status = SPTStatus.VOID
             self._cancelled_at = datetime.now()
@@ -539,7 +539,7 @@ class SPTTahunanBadan:
 
     def restore(self, restored_by: UUID) -> SPTTahunanBadan:
         if self._status not in [SPTStatus.ARCHIVED, SPTStatus.VOID]:
-            raise SPTBadanInvalidStateError(f"Cannot restore SPT in status {self._status.value}")
+            raise SPTBadanInvalidStateError("Cannot restore SPT in status {}".format(self._status.value))
         self._status = SPTStatus.DRAFT
         self._cancelled_at = None
         self._updated_at = datetime.now()
@@ -555,7 +555,7 @@ class SPTTahunanBadan:
 
     def activate(self, activated_by: UUID) -> SPTTahunanBadan:
         if self._status != SPTStatus.DRAFT:
-            raise SPTBadanInvalidStateError(f"Cannot activate SPT in status {self._status.value}")
+            raise SPTBadanInvalidStateError("Cannot activate SPT in status {}".format(self._status.value))
         self._status = SPTStatus.PENDING
         self._updated_at = datetime.now()
         self._version += 1
@@ -570,7 +570,7 @@ class SPTTahunanBadan:
 
     def deactivate(self, deactivated_by: UUID) -> SPTTahunanBadan:
         if self._status != SPTStatus.PENDING:
-            raise SPTBadanInvalidStateError(f"Cannot deactivate SPT in status {self._status.value}")
+            raise SPTBadanInvalidStateError("Cannot deactivate SPT in status {}".format(self._status.value))
         self._status = SPTStatus.DRAFT
         self._updated_at = datetime.now()
         self._version += 1
@@ -585,7 +585,7 @@ class SPTTahunanBadan:
 
     def lock(self, locked_by: UUID, reason: str = "") -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} already locked")
+            raise SPTBadanLockedError("SPT {} already locked".format(self._tahun_pajak))
         self._locked_at = datetime.now()
         self._locked_by = locked_by
         self._status = SPTStatus.LOCKED
@@ -603,7 +603,7 @@ class SPTTahunanBadan:
 
     def unlock(self, unlocked_by: UUID) -> SPTTahunanBadan:
         if not self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is not locked")
+            raise SPTBadanLockedError("SPT {} is not locked".format(self._tahun_pajak))
         self._locked_at = None
         self._locked_by = None
         self._status = SPTStatus.PENDING
@@ -620,9 +620,9 @@ class SPTTahunanBadan:
 
     def validate(self, validator_id: UUID) -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")
+            raise SPTBadanLockedError("SPT {} is locked".format(self._tahun_pajak))
         if self._status not in [SPTStatus.DRAFT, SPTStatus.PENDING, SPTStatus.CALCULATED]:
-            raise SPTBadanInvalidStateError(f"Cannot validate SPT in status {self._status.value}")
+            raise SPTBadanInvalidStateError("Cannot validate SPT in status {}".format(self._status.value))
         errors = []
         if self._penghasilan_kena_pajak < 0:
             errors.append("Penghasilan Kena Pajak tidak boleh negatif")
@@ -636,18 +636,30 @@ class SPTTahunanBadan:
             errors.append("Tahun pajak tidak valid")
         expected_penghasilan_kena_pajak = max(self._penghasilan_neto_fiskal - self._kompensasi_kerugian, Decimal(0))
         if abs(self._penghasilan_kena_pajak - expected_penghasilan_kena_pajak) > Decimal("0.01"):
-            errors.append(f"PKP tidak konsisten: expected {expected_penghasilan_kena_pajak}, got {self._penghasilan_kena_pajak}")
+            errors.append(
+                "PKP tidak konsisten: expected {}, got {}".format(
+                    expected_penghasilan_kena_pajak, self._penghasilan_kena_pajak
+                )
+            )
         expected_pph = (self._penghasilan_kena_pajak * self._tarif).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if abs(self._pph_terutang - expected_pph) > Decimal("0.01"):
-            errors.append(f"PPh terutang tidak sesuai: expected {expected_pph}, got {self._pph_terutang}")
+            errors.append(
+                "PPh terutang tidak sesuai: expected {}, got {}".format(
+                    expected_pph, self._pph_terutang
+                )
+            )
         expected_kurang_bayar = max(self._pph_terutang - self._total_kredit_pajak, Decimal(0))
         if abs(self._kurang_bayar - expected_kurang_bayar) > Decimal("0.01"):
-            errors.append(f"Kurang bayar tidak konsisten: expected {expected_kurang_bayar}, got {self._kurang_bayar}")
+            errors.append(
+                "Kurang bayar tidak konsisten: expected {}, got {}".format(
+                    expected_kurang_bayar, self._kurang_bayar
+                )
+            )
         if self._kurang_bayar > 0 and self._ntpn:
             if not self._validate_ntpn_format(self._ntpn):
                 errors.append("Format NTPN tidak valid (harus 16 digit)")
         if errors:
-            raise SPTBadanValidationError(f"Validasi gagal: {'; '.join(errors)}")
+            raise SPTBadanValidationError("Validasi gagal: {}".format("; ".join(errors)))
         self._status = SPTStatus.VALIDATED
         self._updated_at = datetime.now()
         self._version += 1
@@ -663,9 +675,9 @@ class SPTTahunanBadan:
 
     def approve(self, approver_id: UUID, notes: str = "") -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")
+            raise SPTBadanLockedError("SPT {} is locked".format(self._tahun_pajak))
         if self._status != SPTStatus.SUBMITTED:
-            raise SPTBadanInvalidStateError(f"Cannot approve SPT in status {self._status.value}")
+            raise SPTBadanInvalidStateError("Cannot approve SPT in status {}".format(self._status.value))
         self._status = SPTStatus.APPROVED
         self._approved_at = datetime.now()
         self._updated_at = datetime.now()
@@ -682,9 +694,9 @@ class SPTTahunanBadan:
 
     def reject(self, rejector_id: UUID, reason: str) -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")
+            raise SPTBadanLockedError("SPT {} is locked".format(self._tahun_pajak))
         if self._status not in [SPTStatus.PENDING, SPTStatus.SUBMITTED, SPTStatus.VALIDATED]:
-            raise SPTBadanInvalidStateError(f"Cannot reject SPT in status {self._status.value}")
+            raise SPTBadanInvalidStateError("Cannot reject SPT in status {}".format(self._status.value))
         self._status = SPTStatus.REJECTED
         self._rejected_at = datetime.now()
         self._rejection_reason = reason
@@ -702,7 +714,7 @@ class SPTTahunanBadan:
 
     def calculate(self, calculator_id: UUID) -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")
+            raise SPTBadanLockedError("SPT {} is locked".format(self._tahun_pajak))
         self._penghasilan_kena_pajak = max(self._penghasilan_neto_fiskal - self._kompensasi_kerugian, Decimal(0))
         self._pph_terutang = (self._penghasilan_kena_pajak * self._tarif).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         self._kurang_bayar = max(self._pph_terutang - self._total_kredit_pajak, Decimal(0))
@@ -727,9 +739,9 @@ class SPTTahunanBadan:
 
     def submit(self, submitted_by: UUID) -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")
+            raise SPTBadanLockedError("SPT {} is locked".format(self._tahun_pajak))
         if self._status not in [SPTStatus.PENDING, SPTStatus.VALIDATED, SPTStatus.CALCULATED]:
-            raise SPTBadanInvalidStateError(f"Cannot submit SPT in status {self._status.value}")
+            raise SPTBadanInvalidStateError("Cannot submit SPT in status {}".format(self._status.value))
         self.validate(submitted_by)
         self._generate_xml()
         self._status = SPTStatus.SUBMITTED
@@ -747,9 +759,9 @@ class SPTTahunanBadan:
 
     def cancel(self, cancelled_by: UUID, reason: str) -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")
+            raise SPTBadanLockedError("SPT {} is locked".format(self._tahun_pajak))
         if self._status in [SPTStatus.CANCELLED, SPTStatus.VOID, SPTStatus.CLOSED]:
-            raise SPTBadanInvalidStateError(f"Cannot cancel SPT in status {self._status.value}")
+            raise SPTBadanInvalidStateError("Cannot cancel SPT in status {}".format(self._status.value))
         self._status = SPTStatus.CANCELLED
         self._cancelled_at = datetime.now()
         self._cancellation_reason = reason
@@ -767,7 +779,7 @@ class SPTTahunanBadan:
 
     def void(self, voided_by: UUID, reason: str) -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")
+            raise SPTBadanLockedError("SPT {} is locked".format(self._tahun_pajak))
         self._status = SPTStatus.VOID
         self._cancelled_at = datetime.now()
         self._cancellation_reason = reason
@@ -966,7 +978,9 @@ class SPTTahunanBadan:
 
     def transition(self, new_status: SPTStatus, actor_id: UUID, reason: str = "") -> SPTTahunanBadan:
         if not self.can_transition(new_status):
-            raise SPTBadanInvalidStateError(f"Status transition invalid: {self._status.value} -> {new_status.value}")
+            raise SPTBadanInvalidStateError(
+                "Status transition invalid: {} -> {}".format(self._status.value, new_status.value)
+            )
         old_status = self._status
         self._status = new_status
         self._updated_at = datetime.now()
@@ -1020,7 +1034,7 @@ class SPTTahunanBadan:
 
     def add_koreksi_positif(self, jenis_kode: str, jumlah: Decimal, keterangan: str = "", sumber: str = "") -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")
+            raise SPTBadanLockedError("SPT {} is locked".format(self._tahun_pajak))
         koreksi = KoreksiFiskal(
             jenis_koreksi="positif",
             jenis_kode=jenis_kode,
@@ -1037,7 +1051,7 @@ class SPTTahunanBadan:
 
     def add_koreksi_negatif(self, jenis_kode: str, jumlah: Decimal, keterangan: str = "", sumber: str = "") -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")
+            raise SPTBadanLockedError("SPT {} is locked".format(self._tahun_pajak))
         koreksi = KoreksiFiskal(
             jenis_koreksi="negatif",
             jenis_kode=jenis_kode,
@@ -1054,7 +1068,7 @@ class SPTTahunanBadan:
 
     def add_pemegang_saham(self, npwp: str, nama: str, persentase: Decimal, jumlah_modal: Decimal, alamat: str = "", kewarganegaraan: str = "WNI") -> SPTTahunanBadan:
         if self.is_locked:
-            raise SPTBadanLockedError(f"SPT {self._tahun_pajak} is locked")
+            raise SPTBadanLockedError("SPT {} is locked".format(self._tahun_pajak))
         pemegang = PemegangSaham(
             npwp=npwp,
             nama=nama,
@@ -1082,7 +1096,7 @@ class SPTTahunanBadan:
 
     def set_ntpn(self, ntpn: str) -> SPTTahunanBadan:
         if not self._validate_ntpn_format(ntpn):
-            raise SPTBadanValidationError(f"Invalid NTPN format: {ntpn}")
+            raise SPTBadanValidationError("Invalid NTPN format: {}".format(ntpn))
         self._ntpn = ntpn
         self._updated_at = datetime.now()
         self._version += 1
@@ -1110,7 +1124,14 @@ class SPTTahunanBadan:
         return correction_spt
 
     def _calculate_hash(self) -> None:
-        data = f"{self._spt_id}{self._npwp_badan}{self._tahun_pajak}{self._pph_terutang}{self._status.value}{self._version}"
+        data = "{}{}{}{}{}{}".format(
+            self._spt_id,
+            self._npwp_badan,
+            self._tahun_pajak,
+            self._pph_terutang,
+            self._status.value,
+            self._version
+        )
         self._hash = hashlib.sha256(data.encode()).hexdigest()
 
     def _generate_xml(self) -> str:
@@ -1125,40 +1146,40 @@ class SPTTahunanBadan:
             ET.SubElement(kepala, "NPWP").text = self._npwp_badan
             ET.SubElement(kepala, "Tanggal").text = date.today().isoformat()
             bagian_a = ET.SubElement(root, "PenghasilanNeto")
-            ET.SubElement(bagian_a, "Komersial").text = f"{self._penghasilan_neto_komersial:.2f}"
-            ET.SubElement(bagian_a, "Fiskal").text = f"{self._penghasilan_neto_fiskal:.2f}"
-            ET.SubElement(bagian_a, "KompensasiKerugian").text = f"{self._kompensasi_kerugian:.2f}"
-            ET.SubElement(bagian_a, "PenghasilanKenaPajak").text = f"{self._penghasilan_kena_pajak:.2f}"
+            ET.SubElement(bagian_a, "Komersial").text = "{:.2f}".format(self._penghasilan_neto_komersial)
+            ET.SubElement(bagian_a, "Fiskal").text = "{:.2f}".format(self._penghasilan_neto_fiskal)
+            ET.SubElement(bagian_a, "KompensasiKerugian").text = "{:.2f}".format(self._kompensasi_kerugian)
+            ET.SubElement(bagian_a, "PenghasilanKenaPajak").text = "{:.2f}".format(self._penghasilan_kena_pajak)
             if self._koreksi_positif or self._koreksi_negatif:
                 koreksi_elem = ET.SubElement(root, "KoreksiFiskal")
                 for k in self._koreksi_positif:
                     item = ET.SubElement(koreksi_elem, "KoreksiPositif")
                     ET.SubElement(item, "Uraian").text = k.keterangan or JENIS_KOREKSI.get(k.jenis_kode, "Lainnya")
-                    ET.SubElement(item, "Jumlah").text = f"{k.jumlah:.2f}"
+                    ET.SubElement(item, "Jumlah").text = "{:.2f}".format(k.jumlah)
                 for k in self._koreksi_negatif:
                     item = ET.SubElement(koreksi_elem, "KoreksiNegatif")
                     ET.SubElement(item, "Uraian").text = k.keterangan or JENIS_KOREKSI.get(k.jenis_kode, "Lainnya")
-                    ET.SubElement(item, "Jumlah").text = f"{k.jumlah:.2f}"
+                    ET.SubElement(item, "Jumlah").text = "{:.2f}".format(k.jumlah)
             bagian_b = ET.SubElement(root, "PPhTerutang")
-            ET.SubElement(bagian_b, "Tarif").text = f"{float(self._tarif) * 100:.2f}"
-            ET.SubElement(bagian_b, "Jumlah").text = f"{self._pph_terutang:.2f}"
+            ET.SubElement(bagian_b, "Tarif").text = "{:.2f}".format(float(self._tarif) * 100)
+            ET.SubElement(bagian_b, "Jumlah").text = "{:.2f}".format(self._pph_terutang)
             kredit_elem = ET.SubElement(root, "KreditPajak")
-            ET.SubElement(kredit_elem, "Total").text = f"{self._total_kredit_pajak:.2f}"
+            ET.SubElement(kredit_elem, "Total").text = "{:.2f}".format(self._total_kredit_pajak)
             bayar_elem = ET.SubElement(root, "Pembayaran")
             if self._kurang_bayar > 0:
-                ET.SubElement(bayar_elem, "KurangBayar").text = f"{self._kurang_bayar:.2f}"
+                ET.SubElement(bayar_elem, "KurangBayar").text = "{:.2f}".format(self._kurang_bayar)
                 if self._ntpn:
                     ET.SubElement(bayar_elem, "NTPN").text = self._ntpn
             else:
-                ET.SubElement(bayar_elem, "LebihBayar").text = f"{self._lebih_bayar:.2f}"
+                ET.SubElement(bayar_elem, "LebihBayar").text = "{:.2f}".format(self._lebih_bayar)
             if self._pemegang_saham:
                 saham_elem = ET.SubElement(root, "DaftarPemegangSaham")
                 for sh in self._pemegang_saham:
                     sh_elem = ET.SubElement(saham_elem, "PemegangSaham")
                     ET.SubElement(sh_elem, "NPWP").text = sh.npwp
                     ET.SubElement(sh_elem, "Nama").text = sh.nama
-                    ET.SubElement(sh_elem, "Persentase").text = f"{sh.persentase:.2f}"
-                    ET.SubElement(sh_elem, "JumlahModal").text = f"{sh.jumlah_modal:.2f}"
+                    ET.SubElement(sh_elem, "Persentase").text = "{:.2f}".format(sh.persentase)
+                    ET.SubElement(sh_elem, "JumlahModal").text = "{:.2f}".format(sh.jumlah_modal)
                     if sh.alamat:
                         ET.SubElement(sh_elem, "Alamat").text = sh.alamat
                     ET.SubElement(sh_elem, "Kewarganegaraan").text = sh.kewarganegaraan
@@ -1167,7 +1188,7 @@ class SPTTahunanBadan:
             self._xml_content = dom.toprettyxml(indent="  ")
             return self._xml_content
         except Exception as e:
-            raise SPTBadanXMLGenerationError(f"Failed to create XML SPT: {e}")
+            raise SPTBadanXMLGenerationError("Failed to create XML SPT: {}".format(e))
 
     def _validate_ntpn_format(self, ntpn: str) -> bool:
         import re
@@ -1208,7 +1229,7 @@ class _FallbackSPTBadanRepository(SPTBadanRepositoryPort):
 
     async def add(self, spt: SPTTahunanBadan) -> None:
         self._store[spt.spt_id] = spt
-        key = f"{spt.npwp_badan}:{spt.tahun_pajak}:{spt.correction_number}"
+        key = "{}:{}:{}".format(spt.npwp_badan, spt.tahun_pajak, spt.correction_number)
         self._by_npwp_tahun[key] = spt.spt_id
         if spt.tracking_id:
             self._by_tracking_id[spt.tracking_id] = spt.spt_id
@@ -1242,7 +1263,12 @@ class _FallbackSPTBadanRepository(SPTBadanRepositoryPort):
         return [s for s in self._store.values() if s.status == status]
 
     async def get_pending_submissions(self) -> list[SPTTahunanBadan]:
-        return [s for s in self._store.values() if s.status in [SPTStatus.PENDING, SPTStatus.VALIDATED, SPTStatus.CALCULATED, SPTStatus.SUBMITTED]]
+        return [
+            s
+            for s in self._store.values()
+            if s.status
+            in [SPTStatus.PENDING, SPTStatus.VALIDATED, SPTStatus.CALCULATED, SPTStatus.SUBMITTED]
+        ]
 
     async def exists(self, npwp: str, tahun: int, correction_number: int = 0) -> bool:
         return await self.get_by_npwp_tahun(npwp, tahun) is not None
@@ -1284,7 +1310,7 @@ class SPTTahunanBadanBuilder:
             bucket = self._load_config().get("coretax_djp", {}).get("spt_tahunan", {}).get("file_storage_bucket", "coretax-spt-tahunan")
             self._file_storage = S3FileStorageAdapter(bucket_name=bucket)
         except Exception as e:
-            logger.warning(f"File storage not available for SPT Tahunan: {e}")
+            logger.warning("File storage not available for SPT Tahunan: {}".format(e))
 
     async def _get_coretax_client(self):
         if self._coretax_client is None:
@@ -1304,7 +1330,7 @@ class SPTTahunanBadanBuilder:
         return self._tax_service
 
     def _get_cache_key(self, npwp: str, tahun: int) -> str:
-        return f"spt_tahunan_badan:{npwp}:{tahun}"
+        return "spt_tahunan_badan:{}:{}".format(npwp, tahun)
 
     async def _get_cached(self, cache_key: str) -> dict[str, Any] | None:
         ttl = self._load_config().get("coretax_djp", {}).get("spt_tahunan", {}).get("cache_ttl_seconds", CACHE_TTL_SECONDS)
@@ -1392,7 +1418,7 @@ class SPTTahunanBadanBuilder:
                 "commercial_financials": commercial_financials,
             }
         except Exception as e:
-            logger.error(f"Failed to collect data for SPT Tahunan Badan: {e}")
+            logger.error("Failed to collect data for SPT Tahunan Badan: {}".format(e))
             return {
                 "npwp_badan": npwp_badan,
                 "tahun_pajak": tahun_pajak,
@@ -1528,7 +1554,7 @@ class SPTTahunanBadanBuilder:
                     spt.set_coretax_response(response)
                     await self._repository.update(spt)
                     if self._file_storage:
-                        file_name = f"spt_tahunan_{spt.npwp_badan}_{spt.tahun_pajak}.xml"
+                        file_name = "spt_tahunan_{}_{}.xml".format(spt.npwp_badan, spt.tahun_pajak)
                         await self._file_storage.upload(
                             xml_content.encode("utf-8"),
                             file_name,
@@ -1545,7 +1571,9 @@ class SPTTahunanBadanBuilder:
                         from infrastructure.telemetry.alert_manager_router import trigger_alert
                         await trigger_alert(
                             title="SPT Tahunan Badan Submitted",
-                            message=f"SPT Tahunan for {spt.npwp_badan} year {spt.tahun_pajak} submitted successfully",
+                            message="SPT Tahunan for {} year {} submitted successfully".format(
+                                spt.npwp_badan, spt.tahun_pajak
+                            ),
                             severity="info",
                             source="SPTTahunanBadanBuilder",
                         )
@@ -1563,17 +1591,17 @@ class SPTTahunanBadanBuilder:
                 except CoretaxAuthError as e:
                     if attempt == MAX_RETRY_ATTEMPTS - 1:
                         raise
-                    logger.warning(f"Retry {attempt + 1} for SPT Tahunan submission: {e}")
+                    logger.warning("Retry {} for SPT Tahunan submission: {}".format(attempt + 1, e))
                 except Exception as e:
                     if attempt == MAX_RETRY_ATTEMPTS - 1:
                         raise
-                    logger.warning(f"Retry {attempt + 1} for SPT Tahunan submission: {e}")
+                    logger.warning("Retry {} for SPT Tahunan submission: {}".format(attempt + 1, e))
         except (SPTBadanValidationError, SPTBadanLockedError, SPTBadanInvalidStateError, SPTBadanCalculationError) as e:
             return {"success": False, "error": str(e)}
         except CoretaxAuthError as e:
             spt.transition(SPTStatus.ERROR, submitted_by, str(e))
             await self._repository.update(spt)
-            return {"success": False, "error": f"Coretax authentication failed: {e}"}
+            return {"success": False, "error": "Coretax authentication failed: {}".format(e)}
         except Exception as e:
             logger.exception("Failed to submit SPT Tahunan Badan")
             spt.transition(SPTStatus.ERROR, submitted_by, str(e))
@@ -1582,7 +1610,7 @@ class SPTTahunanBadanBuilder:
                 from infrastructure.telemetry.alert_manager_router import trigger_alert
                 await trigger_alert(
                     title="SPT Tahunan Badan Submission Failed",
-                    message=f"Failed to submit SPT Tahunan: {e}",
+                    message="Failed to submit SPT Tahunan: {}".format(e),
                     severity="critical",
                     source="SPTTahunanBadanBuilder",
                 )
@@ -1602,7 +1630,7 @@ class SPTTahunanBadanBuilder:
                 "message": "Not yet submitted to Coretax",
             }
         client = await self._get_coretax_client()
-        endpoint = f"{CORETAX_SPT_STATUS_ENDPOINT}/{spt.tracking_id}"
+        endpoint = "{}/{}".format(CORETAX_SPT_STATUS_ENDPOINT, spt.tracking_id)
         try:
             response = await client.get(endpoint)
             new_status = response.get("status")
@@ -1620,7 +1648,7 @@ class SPTTahunanBadanBuilder:
                 "rejection_reason": response.get("rejection_reason"),
             }
         except Exception as e:
-            logger.error(f"Failed to check SPT status: {e}")
+            logger.error("Failed to check SPT status: {}".format(e))
             return {"success": False, "error": str(e)}
 
     async def cancel_spt(self, spt_id: UUID, cancelled_by: UUID, reason: str) -> dict[str, Any]:
@@ -1636,7 +1664,7 @@ class SPTTahunanBadanBuilder:
                 try:
                     await client.post(CORETAX_SPT_CANCEL_ENDPOINT, payload)
                 except Exception as e:
-                    logger.warning(f"Failed to cancel SPT in Coretax: {e}")
+                    logger.warning("Failed to cancel SPT in Coretax: {}".format(e))
             cache_key = self._get_cache_key(spt.npwp_badan, spt.tahun_pajak)
             if cache_key in self._cache:
                 del self._cache[cache_key]

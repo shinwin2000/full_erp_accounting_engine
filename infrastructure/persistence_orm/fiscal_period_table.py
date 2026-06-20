@@ -30,7 +30,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
     Base,
@@ -60,7 +60,8 @@ class FiscalPeriodTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         Index("idx_fiscal_period_legal_entity", "legal_entity_id"),
         Index("idx_fiscal_period_dates", "start_date", "end_date"),
         Index("idx_fiscal_period_status", "status"),
-        Index("idx_fiscal_period_year", "fiscal_year")
+        Index("idx_fiscal_period_year", "fiscal_year"),
+        {"schema": "public", "extend_existing": True},
     )
 
     # Period identification
@@ -92,11 +93,12 @@ class FiscalPeriodTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
 
     # ========================================================================
     # RELATIONSHIPS
+    # Relationship to JournalHeaderTable is REMOVED because there is no
+    # foreign key in journal_header referencing fiscal_period.id.
+    # To add it later, ensure JournalHeaderTable has a period_id column
+    # with ForeignKey("public.fiscal_period.id") and define the relationship
+    # there with back_populates="period".
     # ========================================================================
-
-    journals: Mapped[list[JournalHeaderTable]] = relationship(
-        "JournalHeaderTable", back_populates="period"
-    )
 
     # ========================================================================
     # PROPERTIES

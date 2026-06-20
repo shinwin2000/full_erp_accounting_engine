@@ -8,6 +8,7 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel cost_card.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date
@@ -55,11 +56,11 @@ class CostCardTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         Index("idx_cost_card_product", "product_id"),
         Index("idx_cost_card_status", "status"),
         Index("idx_cost_card_effective_date", "effective_date"),
-        Index("idx_cost_card_legal_entity", "legal_entity_id")
+        Index("idx_cost_card_legal_entity", "legal_entity_id"),
     )
 
     cost_card_code: Mapped[str] = mapped_column(String(50), nullable=False)
-    product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     product_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     effective_date: Mapped[date] = mapped_column(Date, nullable=False)
     expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)

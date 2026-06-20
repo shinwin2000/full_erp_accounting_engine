@@ -10,6 +10,7 @@ Audit: Setiap uji efektivitas dicatat.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date
@@ -34,11 +35,11 @@ class HedgeEffectivenessTestTable(Base, TimestampMixin, SoftDeleteMixin, Version
     __table_args__ = (
         Index("idx_hedge_test_instrument", "hedge_instrument_id"),
         Index("idx_hedge_test_date", "test_date"),
-        Index("idx_hedge_test_result", "result")
+        Index("idx_hedge_test_result", "result"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    hedge_instrument_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    hedge_instrument_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     test_date: Mapped[date] = mapped_column(Date, nullable=False)
     prospective_range_low: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
     prospective_range_high: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)

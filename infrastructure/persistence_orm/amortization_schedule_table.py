@@ -14,7 +14,7 @@ from decimal import Decimal
 
 from sqlalchemy import CheckConstraint, Date, Enum, ForeignKey, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base, TimestampMixin, UUIDMixin
 
@@ -32,12 +32,13 @@ class AmortizationScheduleTable(Base, UUIDMixin, TimestampMixin):
         CheckConstraint("planned_amount >= 0", name="ck_amort_planned_nonneg"),
         CheckConstraint("actual_amount IS NULL OR actual_amount >= 0", name="ck_amort_actual_nonneg"),
         Index("ix_amort_asset_period", "asset_id", "period_date", unique=True),
-        Index("ix_amort_status", "status")
+        Index("ix_amort_status", "status"),
+        {"schema": "public"},
     )
 
     asset_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("intangible_asset.id", ondelete="CASCADE"),
+        ForeignKey("public.intangible_asset.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -51,14 +52,17 @@ class AmortizationScheduleTable(Base, UUIDMixin, TimestampMixin):
         Enum(AmortizationStatus), default=AmortizationStatus.PENDING, nullable=False, index=True
     )
     journal_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("journal_header.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True), ForeignKey("public.journal_header.id", ondelete="SET NULL"), nullable=True
     )
     journal_entry_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     adjustment_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
-    # Relationships (string references)
-    asset: Mapped[IntangibleAssetTable] = relationship(back_populates="amortization_schedules")
-    journal: Mapped[JournalHeaderTable | None] = relationship(back_populates="amortization_schedules")
+    # =========================================================================
+    # RELATIONSHIPS are defined via backrefs on the parent side:
+    #   - IntangibleAssetTable.amortization_schedules (backref="asset")
+    #   - JournalHeaderTable.amortization_schedules (backref="amortization_schedules")
+    # No explicit relationship definitions are needed here.
+    # =========================================================================
 
     def mark_posted(self, actual: Decimal, journal_id: uuid.UUID, journal_number: str) -> None:
         self.actual_amount = actual

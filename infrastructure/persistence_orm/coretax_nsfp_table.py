@@ -24,7 +24,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base, TimestampMixin, UUIDMixin
 
@@ -42,37 +42,52 @@ class CoretaxNSFPTable(Base, UUIDMixin, TimestampMixin):
     __table_args__ = (
         CheckConstraint("start_number > 0", name="ck_nsfp_start_positive"),
         CheckConstraint("end_number >= start_number", name="ck_nsfp_end_ge_start"),
-        CheckConstraint("current_number BETWEEN start_number AND end_number", name="ck_nsfp_current_in_range"),
+        CheckConstraint(
+            "current_number BETWEEN start_number AND end_number",
+            name="ck_nsfp_current_in_range",
+        ),
         CheckConstraint("used_count >= 0", name="ck_nsfp_used_count"),
         Index("ix_nsfp_legal_status", "legal_entity_id", "status"),
-        UniqueConstraint("legal_entity_id", "start_number", name="uq_nsfp_legal_start")
+        UniqueConstraint(
+            "legal_entity_id", "start_number", name="uq_nsfp_legal_start"
+        ),
+        {"schema": "public", "extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     start_number: Mapped[int] = mapped_column(Integer, nullable=False)
     end_number: Mapped[int] = mapped_column(Integer, nullable=False)
     current_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[NSFStatus] = mapped_column(Enum(NSFStatus), default=NSFStatus.ACTIVE, nullable=False, index=True)
+    status: Mapped[NSFStatus] = mapped_column(
+        Enum(NSFStatus), default=NSFStatus.ACTIVE, nullable=False, index=True
+    )
     request_id: Mapped[str | None] = mapped_column(String(100))
     approval_code: Mapped[str | None] = mapped_column(String(50))
     issued_date: Mapped[date] = mapped_column(Date, nullable=False)
     expiry_date: Mapped[date | None] = mapped_column(Date)
-    legal_entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("legal_entity.id"), nullable=False, index=True)
+    legal_entity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.legal_entity.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     used_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    cancelled_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("iam_user.id"))
-    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime)
+    cancelled_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancellation_reason: Mapped[str | None] = mapped_column(String(200))
 
-    # ===== RELATIONSHIPS (semua menggunakan string, tanpa impor langsung) =====
-    legal_entity: Mapped[LegalEntityTable] = relationship(
-        "LegalEntityTable",
-        back_populates="nsfp_ranges"
-    )
-    cancelled_by_user: Mapped[IAMUserTable | None] = relationship(
-        "IAMUserTable",
-        foreign_keys=[cancelled_by]
-    )
+    # =========================================================================
+    # RELATIONSHIPS DIHAPUS – navigasi ke LegalEntityTable disediakan oleh backref
+    # dari LegalEntityTable.nsfp_ranges (backref="legal_entity").
+    # =========================================================================
 
+    # =========================================================================
+    # PROPERTIES
+    # =========================================================================
     @property
     def remaining(self) -> int:
         return self.end_number - self.current_number
@@ -86,7 +101,9 @@ class CoretaxNSFPTable(Base, UUIDMixin, TimestampMixin):
 
     def allocate_next_number(self) -> int:
         if not self.is_available():
-            raise ValueError(f"NSFP range {self.start_number}-{self.end_number} tidak tersedia")
+            raise ValueError(
+                f"NSFP range {self.start_number}-{self.end_number} tidak tersedia"
+            )
         next_num = self.current_number + 1
         self.current_number = next_num
         self.used_count += 1

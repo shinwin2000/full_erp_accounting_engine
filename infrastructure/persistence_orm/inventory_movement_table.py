@@ -3,10 +3,6 @@
 Module: inventory_movement_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel inventory_movement.
-               Tabel ini menyimpan setiap pergerakan stok (in/out/adjustment/transfer)
-               untuk setiap item. Mencatat quantity, unit cost, total cost, referensi
-               transaksi (sales order, purchase order, production order, dll),
-               warehouse asal/tujuan, batch number, dan expiry date.
 """
 
 from __future__ import annotations
@@ -14,6 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
     CheckConstraint,
@@ -24,7 +21,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -35,12 +32,11 @@ from infrastructure.persistence_orm.base_model import (
     VersionMixin,
 )
 
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.warehouse_table import WarehouseTable
+
 
 class InventoryMovementTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    """
-    Model untuk tabel inventory_movement.
-    """
-
     __tablename__ = "inventory_movement"
     __table_args__ = (
         UniqueConstraint(
@@ -69,72 +65,64 @@ class InventoryMovementTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
         Index("idx_inventory_movement_to_warehouse", "to_warehouse_id"),
         Index("idx_inventory_movement_reference", "reference_type", "reference_id"),
         Index("idx_inventory_movement_batch", "batch_number"),
-        Index("idx_inventory_movement_legal_entity", "legal_entity_id")
+        Index("idx_inventory_movement_legal_entity", "legal_entity_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Movement identification
     movement_number: Mapped[str] = mapped_column(String(50), nullable=False)
     movement_type: Mapped[str] = mapped_column(String(15), nullable=False)
 
-    # Item reference
+    # Foreign key ke inventory_item (tanpa relasi, karena backref dari InventoryItemTable)
     item_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("inventory_item.id"), nullable=False
+        PGUUID(as_uuid=True),
+        ForeignKey("public.inventory_item.id", ondelete="CASCADE"),
+        nullable=False,
     )
 
-    # Quantities
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     uom: Mapped[str] = mapped_column(String(10), nullable=False)
 
-    # Cost
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     total_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
 
-    # Date
     movement_date: Mapped[date] = mapped_column(Date, nullable=False)
 
-    # Reference
     reference_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    reference_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reference_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    # Warehouse
+    # Foreign keys to warehouse
     warehouse_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("warehouse.id"), nullable=False
+        PGUUID(as_uuid=True),
+        ForeignKey("public.warehouse.id", ondelete="CASCADE"),
+        nullable=False,
     )
     to_warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("warehouse.id"), nullable=True
+        PGUUID(as_uuid=True),
+        ForeignKey("public.warehouse.id", ondelete="CASCADE"),
+        nullable=True,
     )
 
-    # Batch tracking
     batch_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-
-    # Additional info
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
-
-    # Audit
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
-    # RELATIONSHIPS
+    # RELATIONSHIPS (hanya untuk warehouse, karena item dan fifo_layers via backref)
     # ========================================================================
 
-    from_warehouse: Mapped[WarehouseTable] = relationship(
-        "WarehouseTable", back_populates="movements_from",
-        foreign_keys="[InventoryMovementTable.warehouse_id]"
+    from_warehouse: Mapped["WarehouseTable"] = relationship(
+        "WarehouseTable",
+        back_populates="movements_from",
+        foreign_keys=[warehouse_id],
     )
-    to_warehouse: Mapped[WarehouseTable | None] = relationship(
-        "WarehouseTable", back_populates="movements_to",
-        foreign_keys="[InventoryMovementTable.to_warehouse_id]"
-    )
-    item: Mapped[InventoryItemTable] = relationship(
-        "InventoryItemTable", back_populates="movements"
-    )
-    warehouse: Mapped[WarehouseTable] = relationship("WarehouseTable", foreign_keys=[warehouse_id])
-    to_warehouse: Mapped[WarehouseTable | None] = relationship(
-        "WarehouseTable", foreign_keys=[to_warehouse_id]
+    to_warehouse: Mapped[Optional["WarehouseTable"]] = relationship(
+        "WarehouseTable",
+        back_populates="movements_to",
+        foreign_keys=[to_warehouse_id],
     )
 
     # ========================================================================
@@ -162,7 +150,6 @@ class InventoryMovementTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
     # ========================================================================
 
     def reverse(self, reason: str, reversed_by: uuid.UUID) -> None:
-        """Not a typical method, but for completeness."""
         self.increment_version()
 
 

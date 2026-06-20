@@ -12,7 +12,7 @@ import enum
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import (
     Boolean,
@@ -25,10 +25,10 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from infrastructure.persistence_orm.base_model import Base, TimestampMixin, UUIDMixin
+from infrastructure.persistence_orm.base_model import Base, TimestampMixin
 
 
 class IntangibleAssetType(str, enum.Enum):
@@ -48,7 +48,7 @@ class AmortizationMethod(str, enum.Enum):
     UNITS_OF_PRODUCTION = "UNITS_OF_PRODUCTION"
 
 
-class IntangibleAssetTable(Base, UUIDMixin, TimestampMixin):
+class IntangibleAssetTable(Base, TimestampMixin):
     __tablename__ = "intangible_asset"
     __table_args__ = (
         CheckConstraint("useful_life_years > 0", name="ck_intangible_useful_life"),
@@ -58,39 +58,53 @@ class IntangibleAssetTable(Base, UUIDMixin, TimestampMixin):
         CheckConstraint("carrying_amount >= 0", name="ck_intangible_carrying"),
         Index("ix_intangible_legal_entity", "legal_entity_id"),
         Index("ix_intangible_active", "is_active"),
-        Index("ix_intangible_asset_code", "asset_code")
+        Index("ix_intangible_asset_code", "asset_code"),
+        {"schema": "public", "extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     asset_name: Mapped[str] = mapped_column(String(200), nullable=False)
     asset_type: Mapped[IntangibleAssetType] = mapped_column(Enum(IntangibleAssetType), nullable=False, index=True)
-    description: Mapped[str | None] = mapped_column(Text)
-    legal_entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("legal_entity.id"), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    legal_entity_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("public.legal_entity.id"), nullable=False
+    )
     acquisition_date: Mapped[date] = mapped_column(Date, nullable=False)
     acquisition_cost: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     residual_value: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=0)
     useful_life_years: Mapped[int] = mapped_column(nullable=False)
-    amortization_method: Mapped[AmortizationMethod] = mapped_column(Enum(AmortizationMethod), default=AmortizationMethod.STRAIGHT_LINE)
+    amortization_method: Mapped[AmortizationMethod] = mapped_column(
+        Enum(AmortizationMethod), default=AmortizationMethod.STRAIGHT_LINE
+    )
     accumulated_amortization: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=0)
-    last_amortization_date: Mapped[date | None] = mapped_column(Date)
+    last_amortization_date: Mapped[Optional[date]] = mapped_column(Date)
     carrying_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     impairment_loss: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=0)
-    impairment_date: Mapped[date | None] = mapped_column(Date)
+    impairment_date: Mapped[Optional[date]] = mapped_column(Date)
     revaluation_surplus: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    disposed_date: Mapped[date | None] = mapped_column(Date)
-    disposal_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
-    supporting_document_url: Mapped[str | None] = mapped_column(String(500))
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    disposed_date: Mapped[Optional[date]] = mapped_column(Date)
+    disposal_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 2))
+    supporting_document_url: Mapped[Optional[str]] = mapped_column(String(500))
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    # Relationships – all using string references (forward declarations)
-    legal_entity: Mapped[LegalEntityTable] = relationship("LegalEntityTable", back_populates="intangible_assets")
-    amortization_schedules: Mapped[list[AmortizationScheduleTable]] = relationship(
-        "AmortizationScheduleTable", back_populates="asset", cascade="all, delete-orphan"
+    # =========================================================================
+    # RELATIONSHIPS – defined only on this side using backref.
+    # Child tables (IntangibleRevaluationTable, AmortizationScheduleTable)
+    # will automatically get an 'asset' attribute.
+    # No explicit import of child classes is needed at runtime.
+    # =========================================================================
+    amortization_schedules: Mapped[list["AmortizationScheduleTable"]] = relationship(
+        "AmortizationScheduleTable",
+        backref="asset",
+        cascade="all, delete-orphan",
     )
-    revaluations: Mapped[list[IntangibleRevaluationTable]] = relationship(
-        "IntangibleRevaluationTable", back_populates="asset", cascade="all, delete-orphan"
+
+    revaluations: Mapped[list["IntangibleRevaluationTable"]] = relationship(
+        "IntangibleRevaluationTable",
+        backref="asset",
+        cascade="all, delete-orphan",
     )
 
     @property

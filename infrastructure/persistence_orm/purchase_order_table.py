@@ -28,9 +28,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-if TYPE_CHECKING:
-    from infrastructure.persistence_orm.ap_invoice_table import APInvoiceTable
-
 from infrastructure.persistence_orm.base_model import (
     Base,
     LegalEntityMixin,
@@ -38,6 +35,11 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.ap_invoice_table import APInvoiceTable
+    from infrastructure.persistence_orm.goods_receipt_note_table import GoodsReceiptNoteTable
+    from infrastructure.persistence_orm.supplier_table import SupplierTable
 
 
 class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -60,7 +62,8 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         Index("idx_po_status", "status"),
         Index("idx_po_legal_entity", "legal_entity_id"),
         Index("idx_po_expected_date", "expected_delivery_date"),
-        Index("idx_po_approved_by", "approved_by")
+        Index("idx_po_approved_by", "approved_by"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -68,8 +71,8 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     po_date: Mapped[date] = mapped_column(Date, nullable=False)
     supplier_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("supplier.id", use_alter=True, name="fk_po_supplier"),
-        nullable=False
+        ForeignKey("public.supplier.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     total_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal("0.00"))
     received_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal("0.00"))
@@ -91,21 +94,36 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    # Relationships (hanya string references)
-    supplier: Mapped[SupplierTable] = relationship("SupplierTable", back_populates="purchase_orders")
-    goods_receipt_notes: Mapped[list[GoodsReceiptNoteTable]] = relationship("GoodsReceiptNoteTable", back_populates="purchase_order")
-    invoices: Mapped[list[APInvoiceTable]] = relationship(
-        "APInvoiceTable", back_populates="purchase_order",
-        foreign_keys="[APInvoiceTable.purchase_order_id]"
+    # =========================================================================
+    # RELATIONSHIPS
+    # =========================================================================
+    supplier: Mapped["SupplierTable"] = relationship(
+        "SupplierTable",
+        back_populates="purchase_orders",
+        foreign_keys=[supplier_id],
     )
-    lines: Mapped[list[PurchaseOrderLineTable]] = relationship(
+    goods_receipt_notes: Mapped[list["GoodsReceiptNoteTable"]] = relationship(
+        "GoodsReceiptNoteTable",
+        back_populates="purchase_order",
+        foreign_keys="[GoodsReceiptNoteTable.purchase_order_id]",
+        cascade="all, delete-orphan",
+    )
+    invoices: Mapped[list["APInvoiceTable"]] = relationship(
+        "APInvoiceTable",
+        back_populates="purchase_order",
+        foreign_keys="[APInvoiceTable.purchase_order_id]",
+        cascade="all, delete-orphan",
+    )
+    lines: Mapped[list["PurchaseOrderLineTable"]] = relationship(
         "PurchaseOrderLineTable",
         back_populates="purchase_order",
         cascade="all, delete-orphan",
         order_by="PurchaseOrderLineTable.line_number",
     )
 
-    # ========== EVENT STORING ==========
+    # =========================================================================
+    # EVENT STORING
+    # =========================================================================
     _events: list[dict[str, Any]] = []
 
     def _record_event(self, event_type: str, data: dict[str, Any]) -> None:
@@ -154,7 +172,9 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
                 instance.close(record_event=False)
         return instance
 
-    # ========== PROPERTIES ==========
+    # =========================================================================
+    # PROPERTIES
+    # =========================================================================
     @property
     def outstanding_amount(self) -> Decimal:
         return self.total_amount - self.received_amount
@@ -184,7 +204,9 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
             return date.today() > self.expected_delivery_date
         return False
 
-    # ========== STATE TRANSITIONS ==========
+    # =========================================================================
+    # STATE TRANSITIONS
+    # =========================================================================
     def submit(self, record_event: bool = True) -> None:
         if self.status != "draft":
             raise ValueError(f"Cannot submit PO with status {self.status}")
@@ -201,7 +223,10 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         self.approved_at = datetime.utcnow()
         self.increment_version()
         if record_event:
-            self._record_event("Approved", {"approved_by": str(approved_by), "approved_at": self.approved_at.isoformat()})
+            self._record_event("Approved", {
+                "approved_by": str(approved_by),
+                "approved_at": self.approved_at.isoformat()
+            })
 
     def reject(self) -> None:
         if self.status != "submitted":
@@ -224,7 +249,13 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         self.actual_delivery_date = date.today()
         self.increment_version()
         if record_event:
-            self._record_event("ReceiptRecorded", {"amount": str(amount), "old_received": str(self.received_amount - amount), "new_received": str(self.received_amount), "old_status": old_status, "new_status": self.status})
+            self._record_event("ReceiptRecorded", {
+                "amount": str(amount),
+                "old_received": str(self.received_amount - amount),
+                "new_received": str(self.received_amount),
+                "old_status": old_status,
+                "new_status": self.status
+            })
 
     def cancel(self, record_event: bool = True) -> None:
         if self.status in ("cancelled", "closed"):
@@ -243,18 +274,23 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
             self._record_event("Closed", {"previous_status": "fully_received"})
 
 
-class PurchaseOrderLineTable(Base):
+class PurchaseOrderLineTable(Base, TimestampMixin):
     __tablename__ = "purchase_order_line"
     __table_args__ = (
         UniqueConstraint("po_id", "line_number", name="uq_po_line_number"),
         CheckConstraint("quantity > 0", name="ck_po_line_qty_positive"),
         CheckConstraint("unit_price >= 0", name="ck_po_line_unit_price_nonneg"),
         Index("idx_po_line_po", "po_id"),
-        Index("idx_po_line_product", "product_id")
+        Index("idx_po_line_product", "product_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    po_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("purchase_order.id", ondelete="CASCADE"), nullable=False)
+    po_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.purchase_order.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     line_number: Mapped[int] = mapped_column(nullable=False)
     product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     product_code: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -266,7 +302,14 @@ class PurchaseOrderLineTable(Base):
     received_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False, default=0)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
-    purchase_order: Mapped[PurchaseOrderTable] = relationship("PurchaseOrderTable", back_populates="lines")
+    # =========================================================================
+    # RELATIONSHIPS
+    # =========================================================================
+    purchase_order: Mapped["PurchaseOrderTable"] = relationship(
+        "PurchaseOrderTable",
+        back_populates="lines",
+        foreign_keys=[po_id],
+    )
 
 
 __all__ = ["PurchaseOrderLineTable", "PurchaseOrderTable"]

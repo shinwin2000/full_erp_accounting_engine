@@ -12,6 +12,7 @@ Audit: Perubahan rule dicatat di event store.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import datetime
@@ -69,10 +70,10 @@ class ApprovalRuleTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         Index("idx_approval_rule_entity_type", "entity_type"),
         Index("idx_approval_rule_legal_entity", "legal_entity_id"),
         Index("idx_approval_rule_is_active", "is_active"),
-        Index("idx_approval_rule_priority", "priority")
+        Index("idx_approval_rule_priority", "priority"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Identifikasi
     rule_code: Mapped[str] = mapped_column(String(50), nullable=False)

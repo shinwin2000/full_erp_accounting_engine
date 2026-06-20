@@ -2,11 +2,7 @@
 """
 Module: depreciation_schedule_table.py
 Layer: Infrastructure (Persistence ORM)
-Responsibility: Mendefinisikan model SQLAlchemy untuk tabel depreciation_schedule.
-               Tabel ini menyimpan jadwal depresiasi untuk setiap aset tetap per periode.
-               Setiap baris merepresentasikan satu periode depresiasi (bulan/kuartal/tahun)
-               dengan informasi depreciation amount, accumulated depreciation,
-               net book value setelah depresiasi, dan status posting.
+Responsibility: Model untuk jadwal depresiasi aset tetap (Versi Komprehensif).
 """
 
 from __future__ import annotations
@@ -14,6 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -25,7 +22,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -36,14 +33,13 @@ from infrastructure.persistence_orm.base_model import (
     VersionMixin,
 )
 
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.fixed_asset_table import FixedAssetTable
+
 
 class DepreciationScheduleTable(
     Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin
 ):
-    """
-    Model untuk tabel depreciation_schedule.
-    """
-
     __tablename__ = "depreciation_schedule"
     __table_args__ = (
         UniqueConstraint(
@@ -68,22 +64,18 @@ class DepreciationScheduleTable(
         Index("idx_depreciation_schedule_asset", "asset_id"),
         Index("idx_depreciation_schedule_period", "fiscal_year", "month"),
         Index("idx_depreciation_schedule_status", "status"),
-        Index("idx_depreciation_schedule_legal_entity", "legal_entity_id")
+        Index("idx_depreciation_schedule_legal_entity", "legal_entity_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-
-    # Asset reference
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("fixed_asset.id"), nullable=False
+        PGUUID(as_uuid=True), ForeignKey("public.fixed_asset.id"), nullable=False
     )
-
-    # Period information
     period: Mapped[int] = mapped_column(Integer, nullable=False)
     fiscal_year: Mapped[int] = mapped_column(Integer, nullable=False)
     month: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    # Depreciation amounts
     depreciation_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     accumulated_depreciation: Mapped[Decimal] = mapped_column(
         Numeric(20, 2), nullable=False, default=0
@@ -91,30 +83,16 @@ class DepreciationScheduleTable(
     net_book_value: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
 
-    # Status
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
-
-    # Journal reference
-    journal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    journal_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    # Additional info
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    # Audit
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-
-    # ========================================================================
-    # RELATIONSHIPS
-    # ========================================================================
-
-    asset: Mapped[FixedAssetTable] = relationship(
-        "FixedAssetTable", back_populates="depreciation_schedule"
+    asset: Mapped["FixedAssetTable"] = relationship(
+        "FixedAssetTable",
+        back_populates="detailed_schedules",
     )
-
-    # ========================================================================
-    # PROPERTIES
-    # ========================================================================
 
     @property
     def is_posted(self) -> bool:
@@ -127,10 +105,6 @@ class DepreciationScheduleTable(
     @property
     def period_display(self) -> str:
         return f"{self.fiscal_year}-{self.month:02d}"
-
-    # ========================================================================
-    # METHODS
-    # ========================================================================
 
     def mark_posted(self, journal_id: uuid.UUID) -> None:
         if self.status != "pending":

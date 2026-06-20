@@ -1,4 +1,4 @@
-# subscriber_application.py - Hardened version with complete implementation
+# subscriber_application.py - Hardened version with complete implementation and global subscribers registration
 
 #!/usr/bin/env python3
 
@@ -26,6 +26,7 @@ from uuid import UUID
 
 from application.events.handler_registry import event_handler_registry
 from application.events.publisher_application import EventEnvelope
+from application.events.global_event_subscribers import register_global_subscribers
 
 logger = logging.getLogger(__name__)
 
@@ -380,10 +381,17 @@ class ApplicationEventSubscriber:
             "last_error": None,
             "last_error_time": None,
         }
+        # Register global subscribers once
+        self._subscribers_registered = False
 
     async def start(self) -> None:
         self._running = True
         self._queue = asyncio.Queue(maxsize=self._config.prefetch_count * self._config.worker_count)
+
+        # Register global event subscribers if not already done
+        if not self._subscribers_registered:
+            register_global_subscribers()
+            self._subscribers_registered = True
 
         retry_policy = SimpleRetryPolicy(
             max_attempts=self._config.max_retry_attempts, base_delay=0.5, max_delay=10.0

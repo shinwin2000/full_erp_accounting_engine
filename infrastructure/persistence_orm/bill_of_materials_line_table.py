@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     CheckConstraint,
@@ -37,6 +37,9 @@ from infrastructure.persistence_orm.base_model import (
     VersionMixin,
 )
 
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.bill_of_materials_table import BillOfMaterialsTable
+
 
 class BillOfMaterialsLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     """
@@ -52,11 +55,16 @@ class BillOfMaterialsLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMix
         CheckConstraint("unit_cost >= 0", name="ck_bom_line_unit_cost_nonneg"),
         CheckConstraint("total_cost >= 0", name="ck_bom_line_total_cost_nonneg"),
         Index("idx_bom_line_bom", "bom_id"),
-        Index("idx_bom_line_component", "component_product_id")
+        Index("idx_bom_line_component", "component_product_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    bom_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("bill_of_materials.id", ondelete="CASCADE"), nullable=False)
+    bom_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.bill_of_materials.id", ondelete="CASCADE"),  # schema explicitly added
+        nullable=False,
+    )
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
     component_product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     component_product_code: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -69,9 +77,14 @@ class BillOfMaterialsLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMix
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    # Relationship (gunakan string reference)
-    bom: Mapped[BillOfMaterialsTable] = relationship(
-        "BillOfMaterialsTable", back_populates="lines"
+    # =========================================================================
+    # RELATIONSHIP back to header (many-to-one)
+    # Menggunakan back_populates yang sama dengan di BillOfMaterialsTable.lines
+    # =========================================================================
+    bom: Mapped["BillOfMaterialsTable"] = relationship(
+        "BillOfMaterialsTable",
+        back_populates="lines",
+        foreign_keys=[bom_id],
     )
 
     def calculate_total_cost(self) -> None:

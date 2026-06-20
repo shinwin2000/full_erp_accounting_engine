@@ -24,7 +24,8 @@ class CoretaxEMeteraiTable(Base, TimestampMixin, SoftDeleteMixin):
     __table_args__ = (
         Index("idx_coretax_emeterai_npwp", "npwp"),
         Index("idx_coretax_emeterai_status", "status"),
-        UniqueConstraint("meterai_code", name="uq_coretax_emeterai_code")
+        UniqueConstraint("meterai_code", name="uq_coretax_emeterai_code"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

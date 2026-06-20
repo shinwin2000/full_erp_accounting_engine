@@ -6,6 +6,7 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel audit_event.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import datetime
@@ -31,10 +32,10 @@ class AuditEventTable(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_ae_legal_entity", "legal_entity_id"),
         Index("idx_ae_timestamp", "timestamp"),
         Index("idx_ae_correlation_id", "correlation_id"),
-        Index("idx_ae_aggregate", "aggregate_type", "aggregate_id")
+        Index("idx_ae_aggregate", "aggregate_type", "aggregate_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False, default="INFO")
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

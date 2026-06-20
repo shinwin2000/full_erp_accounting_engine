@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_purchase_sales_router.py
@@ -23,7 +24,9 @@ Method Standards (ERP):
 - version_po() / version_so()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -32,6 +35,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -528,12 +532,12 @@ class DeliveryOrderResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_purchase_sales_service() -> Any:
+async def get_purchase_sales_service(request: Request, ) -> Any:
     """Get Purchase Sales Service instance."""
     from application.service_layer.service_purchase_sales import PurchaseSalesService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(PurchaseSalesService)
 
 
@@ -622,7 +626,7 @@ async def create_purchase_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create purchase order: {e}")
+        logger.exception("Failed to create purchase order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -686,7 +690,7 @@ async def get_purchase_order(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get purchase order: {e}")
+        logger.exception("Failed to get purchase order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -707,7 +711,10 @@ async def get_purchase_order_by_number(
         po = await service.get_purchase_order_by_number(po_number, legal_entity_id)
 
         if not po:
-            raise HTTPException(status_code=404, detail=f"Purchase order {po_number} not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Purchase order {} not found".format(po_number),  # nosec
+            )
 
         return PurchaseOrderResponseSchema(
             id=po.id,
@@ -750,7 +757,7 @@ async def get_purchase_order_by_number(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get purchase order by number: {e}")
+        logger.exception("Failed to get purchase order by number: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -825,7 +832,7 @@ async def list_purchase_orders(
             for po in result.items
         ]
     except Exception as e:
-        logger.exception(f"Failed to list purchase orders: {e}")
+        logger.exception("Failed to list purchase orders: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -902,7 +909,7 @@ async def update_purchase_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update purchase order: {e}")
+        logger.exception("Failed to update purchase order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -974,7 +981,7 @@ async def submit_purchase_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to submit purchase order: {e}")
+        logger.exception("Failed to submit purchase order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1046,7 +1053,7 @@ async def approve_purchase_order(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to approve purchase order: {e}")
+        logger.exception("Failed to approve purchase order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1116,7 +1123,7 @@ async def reject_purchase_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to reject purchase order: {e}")
+        logger.exception("Failed to reject purchase order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1154,7 +1161,7 @@ async def cancel_purchase_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to cancel purchase order: {e}")
+        logger.exception("Failed to cancel purchase order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1221,7 +1228,7 @@ async def close_purchase_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to close purchase order: {e}")
+        logger.exception("Failed to close purchase order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1303,7 +1310,7 @@ async def create_sales_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create sales order: {e}")
+        logger.exception("Failed to create sales order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1367,7 +1374,7 @@ async def get_sales_order(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get sales order: {e}")
+        logger.exception("Failed to get sales order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1388,7 +1395,10 @@ async def get_sales_order_by_number(
         so = await service.get_sales_order_by_number(so_number, legal_entity_id)
 
         if not so:
-            raise HTTPException(status_code=404, detail=f"Sales order {so_number} not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Sales order {} not found".format(so_number),  # nosec
+            )
 
         return SalesOrderResponseSchema(
             id=so.id,
@@ -1431,7 +1441,7 @@ async def get_sales_order_by_number(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get sales order by number: {e}")
+        logger.exception("Failed to get sales order by number: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1506,7 +1516,7 @@ async def list_sales_orders(
             for so in result.items
         ]
     except Exception as e:
-        logger.exception(f"Failed to list sales orders: {e}")
+        logger.exception("Failed to list sales orders: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1583,7 +1593,7 @@ async def update_sales_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update sales order: {e}")
+        logger.exception("Failed to update sales order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1655,7 +1665,7 @@ async def submit_sales_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to submit sales order: {e}")
+        logger.exception("Failed to submit sales order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1727,7 +1737,7 @@ async def approve_sales_order(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to approve sales order: {e}")
+        logger.exception("Failed to approve sales order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1797,7 +1807,7 @@ async def reject_sales_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to reject sales order: {e}")
+        logger.exception("Failed to reject sales order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1835,7 +1845,7 @@ async def cancel_sales_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to cancel sales order: {e}")
+        logger.exception("Failed to cancel sales order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1900,7 +1910,7 @@ async def close_sales_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to close sales order: {e}")
+        logger.exception("Failed to close sales order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1960,7 +1970,7 @@ async def create_goods_receipt(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create goods receipt: {e}")
+        logger.exception("Failed to create goods receipt: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2010,7 +2020,7 @@ async def confirm_goods_receipt(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to confirm goods receipt: {e}")
+        logger.exception("Failed to confirm goods receipt: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2048,7 +2058,7 @@ async def cancel_goods_receipt(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to cancel goods receipt: {e}")
+        logger.exception("Failed to cancel goods receipt: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2115,7 +2125,7 @@ async def create_delivery_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create delivery order: {e}")
+        logger.exception("Failed to create delivery order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2167,7 +2177,7 @@ async def confirm_delivery_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to confirm delivery order: {e}")
+        logger.exception("Failed to confirm delivery order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2225,7 +2235,7 @@ async def ship_delivery_order(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to ship delivery order: {e}")
+        logger.exception("Failed to ship delivery order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2276,7 +2286,7 @@ async def get_purchase_order_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get purchase order status: {e}")
+        logger.exception("Failed to get purchase order status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2322,7 +2332,7 @@ async def get_sales_order_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get sales order status: {e}")
+        logger.exception("Failed to get sales order status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2356,7 +2366,7 @@ async def get_purchase_order_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get purchase order history: {e}")
+        logger.exception("Failed to get purchase order history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2390,7 +2400,7 @@ async def get_sales_order_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get sales order history: {e}")
+        logger.exception("Failed to get sales order history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2428,15 +2438,15 @@ async def export_purchase_orders(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"purchase_orders_{legal_entity_id}_{start_date}_{end_date}.{format}"
+        filename = "purchase_orders_{}_{}_{}.{}".format(legal_entity_id, start_date, end_date, format)
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
         )
     except Exception as e:
-        logger.exception(f"Failed to export purchase orders: {e}")
+        logger.exception("Failed to export purchase orders: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2469,15 +2479,15 @@ async def export_sales_orders(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"sales_orders_{legal_entity_id}_{start_date}_{end_date}.{format}"
+        filename = "sales_orders_{}_{}_{}.{}".format(legal_entity_id, start_date, end_date, format)
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
         )
     except Exception as e:
-        logger.exception(f"Failed to export sales orders: {e}")
+        logger.exception("Failed to export sales orders: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

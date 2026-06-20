@@ -3,15 +3,6 @@
 Module: journal_header_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel journal_header.
-               Tabel ini menyimpan header jurnal (voucher), termasuk nomor voucher,
-               tanggal, deskripsi, status, total debit/credit, dan metadata.
-               Setiap jurnal memiliki satu header dan satu atau lebih line.
-Dependencies:
-- sqlalchemy.orm (Mapped, mapped_column, relationship)
-- sqlalchemy.dialects.postgresql (UUID, NUMERIC)
-- infrastructure.persistence_orm.base_model (Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin)
-Audit: Setiap perubahan status jurnal dicatat di event store.
-       Jurnal yang sudah diposting tidak dapat diubah.
 """
 
 from __future__ import annotations
@@ -19,6 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
     CheckConstraint,
@@ -30,33 +22,37 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
     Base,
-    LegalEntityMixin,
     SoftDeleteMixin,
     TimestampMixin,
     VersionMixin,
 )
 
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.fiscal_period_table import FiscalPeriodTable
+    from infrastructure.persistence_orm.journal_line_table import JournalLineTable
+    from infrastructure.persistence_orm.ledger_entry_table import LedgerEntryTable
+    from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
 
-class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
-    """
-    Model untuk tabel journal_header.
-    """
 
+class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     __tablename__ = "journal_header"
     __table_args__ = (
         UniqueConstraint(
-            "voucher_number", "legal_entity_id", name="uq_journal_header_voucher_legal_entity"
+            "voucher_number", "legal_entity_id",
+            name="uq_journal_header_voucher_legal_entity"
         ),
         CheckConstraint(
-            "voucher_number IS NOT NULL AND voucher_number != ''", name="ck_journal_header_voucher"
+            "voucher_number IS NOT NULL AND voucher_number != ''",
+            name="ck_journal_header_voucher"
         ),
         CheckConstraint(
-            "description IS NOT NULL AND description != ''", name="ck_journal_header_description"
+            "description IS NOT NULL AND description != ''",
+            name="ck_journal_header_description"
         ),
         CheckConstraint(
             "status IN ('draft', 'submitted', 'approved', 'posted', 'reversed', 'cancelled')",
@@ -72,13 +68,12 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         Index("idx_journal_header_source", "source_type", "source_id"),
         Index("idx_journal_header_created_by", "created_by"),
         Index("idx_journal_header_approved_by", "approved_by"),
-        Index("idx_journal_header_posted_by", "posted_by")
+        Index("idx_journal_header_posted_by", "posted_by"),
+        {"schema": "public", "extend_existing": True},
     )
 
     # Journal identification
-    voucher_number: Mapped[str] = mapped_column(
-        String(50), nullable=False
-    )  # unique per legal entity
+    voucher_number: Mapped[str] = mapped_column(String(50), nullable=False)
     journal_date: Mapped[date] = mapped_column(Date, nullable=False)
     description: Mapped[str] = mapped_column(String(500), nullable=False)
 
@@ -91,38 +86,65 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
 
     # Approval (4-eyes principle)
-    approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Posting
-    posted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    posted_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    posted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Reversal information
-    reversed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    reversed_journal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    original_journal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reversed_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    reversed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    reversed_journal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("public.journal_header.id", name="fk_journal_header_reversed_journal"),
+        nullable=True,
+        index=True,
+    )
+    original_journal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("public.journal_header.id", name="fk_journal_header_original_journal"),
+        nullable=True,
+        index=True,
+    )
 
     # Reference and source
-    reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reference_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="manual")
-    source_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    source_id: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    # Period association
-    period_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("fiscal_period.id"), nullable=True
+    # Period association (foreign key only – relationship removed to avoid mapper conflict)
+    period_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("public.fiscal_period.id"), nullable=True
     )
 
     # Audit
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
-    # RELATIONSHIPS (semua menggunakan string referensi)
+    # OVERRIDE legal_entity_id dari LegalEntityMixin agar menggunakan schema public
     # ========================================================================
+    legal_entity_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("public.legal_entity.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # ========================================================================
+    # RELATIONSHIPS
+    # ========================================================================
+
+    # Legal Entity
+    legal_entity: Mapped["LegalEntityTable"] = relationship(
+        "LegalEntityTable",
+        back_populates="journals",
+        foreign_keys=[legal_entity_id],
+    )
 
     # Journal lines (one-to-many)
-    lines: Mapped[list[JournalLineTable]] = relationship(
+    lines: Mapped[list["JournalLineTable"]] = relationship(
         "JournalLineTable",
         back_populates="journal",
         cascade="all, delete-orphan",
@@ -130,22 +152,27 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     )
 
     # Ledger entries (one-to-many, after posting)
-    ledger_entries: Mapped[list[LedgerEntryTable]] = relationship(
+    ledger_entries: Mapped[list["LedgerEntryTable"]] = relationship(
         "LedgerEntryTable", back_populates="journal"
     )
 
-    # Fiscal period (many-to-one)
-    period: Mapped[FiscalPeriodTable | None] = relationship(
-        "FiscalPeriodTable", back_populates="journals"
+    # Self-reference for reversal
+    reversed_journal: Mapped[Optional["JournalHeaderTable"]] = relationship(
+        "JournalHeaderTable",
+        remote_side="JournalHeaderTable.id",
+        foreign_keys=[reversed_journal_id],
+        uselist=False,
+    )
+    original_journal: Mapped[Optional["JournalHeaderTable"]] = relationship(
+        "JournalHeaderTable",
+        remote_side="JournalHeaderTable.id",
+        foreign_keys=[original_journal_id],
+        uselist=False,
     )
 
-    # Self-reference for reversal
-    reversed_journal: Mapped[JournalHeaderTable | None] = relationship(
-        "JournalHeaderTable", remote_side=[id], foreign_keys=[reversed_journal_id], uselist=False
-    )
-    original_journal: Mapped[JournalHeaderTable | None] = relationship(
-        "JournalHeaderTable", remote_side=[id], foreign_keys=[original_journal_id], uselist=False
-    )
+    # PERIOD RELATIONSHIP REMOVED – hanya foreign key period_id yang tersisa.
+    # Jika navigasi diperlukan di masa depan, tambahkan relasi dengan back_populates
+    # setelah FiscalPeriodTable memiliki relasi 'journals'.
 
     # ========================================================================
     # PROPERTIES
@@ -153,7 +180,6 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
 
     @property
     def is_balanced(self) -> bool:
-        """Check if journal is balanced (debit = credit)."""
         return abs(self.total_debit - self.total_credit) < Decimal("0.01")
 
     @property
@@ -182,22 +208,18 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
 
     @property
     def can_be_modified(self) -> bool:
-        """Check if journal can still be modified."""
         return self.status in ("draft", "submitted")
 
     @property
     def can_be_approved(self) -> bool:
-        """Check if journal can be approved."""
         return self.status == "submitted"
 
     @property
     def can_be_posted(self) -> bool:
-        """Check if journal can be posted."""
         return self.status == "approved" and self.is_balanced
 
     @property
     def can_be_reversed(self) -> bool:
-        """Check if journal can be reversed."""
         return self.status == "posted" and self.reversed_journal_id is None
 
     # ========================================================================
@@ -205,14 +227,12 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     # ========================================================================
 
     def submit(self, submitted_by: uuid.UUID) -> None:
-        """Submit journal for approval."""
         if self.status != "draft":
             raise ValueError(f"Cannot submit journal with status {self.status}")
         self.status = "submitted"
         self.increment_version()
 
     def approve(self, approved_by: uuid.UUID) -> None:
-        """Approve journal (4-eyes principle)."""
         if self.status != "submitted":
             raise ValueError(f"Cannot approve journal with status {self.status}")
         self.status = "approved"
@@ -220,15 +240,13 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         self.approved_at = datetime.utcnow()
         self.increment_version()
 
-    def reject(self, rejected_by: uuid.UUID, reason: str | None = None) -> None:
-        """Reject journal (return to draft)."""
+    def reject(self, rejected_by: uuid.UUID, reason: Optional[str] = None) -> None:
         if self.status != "submitted":
             raise ValueError(f"Cannot reject journal with status {self.status}")
         self.status = "draft"
         self.increment_version()
 
     def post(self, posted_by: uuid.UUID) -> None:
-        """Post journal to ledger."""
         if self.status != "approved":
             raise ValueError(f"Cannot post journal with status {self.status}")
         if not self.is_balanced:
@@ -239,7 +257,6 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         self.increment_version()
 
     def reverse(self, reversed_by: uuid.UUID, reversal_journal_id: uuid.UUID) -> None:
-        """Mark journal as reversed."""
         if self.status != "posted":
             raise ValueError(f"Cannot reverse journal with status {self.status}")
         self.status = "reversed"
@@ -249,7 +266,6 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         self.increment_version()
 
     def cancel(self, cancelled_by: uuid.UUID) -> None:
-        """Cancel journal (soft delete)."""
         if self.status not in ("draft", "submitted"):
             raise ValueError(f"Cannot cancel journal with status {self.status}")
         self.status = "cancelled"

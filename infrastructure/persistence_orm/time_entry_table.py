@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -36,6 +37,10 @@ from infrastructure.persistence_orm.base_model import (
     VersionMixin,
 )
 
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.employee_table import EmployeeTable
+    from infrastructure.persistence_orm.project_table import ProjectTable
+
 
 class TimeEntryTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     __tablename__ = "time_entry"
@@ -52,17 +57,22 @@ class TimeEntryTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_time_entry_date", "entry_date"),
         Index("idx_time_entry_status", "status"),
         Index("idx_time_entry_legal_entity", "legal_entity_id"),
-        Index("idx_time_entry_approved_by", "approved_by")
+        Index("idx_time_entry_approved_by", "approved_by"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Employee and project
     employee_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("employee.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("public.employee.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     project_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("project.id"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("public.project.id", ondelete="SET NULL"),
+        nullable=True,
     )
     work_order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
@@ -104,9 +114,15 @@ class TimeEntryTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # RELATIONSHIPS
     # ========================================================================
 
-    employee: Mapped[EmployeeTable] = relationship("EmployeeTable", foreign_keys=[employee_id])
-    project: Mapped[ProjectTable | None] = relationship(
-        "ProjectTable", back_populates="time_entries"
+    employee: Mapped["EmployeeTable"] = relationship(
+        "EmployeeTable",
+        foreign_keys=[employee_id],
+        back_populates="time_entries",  # harus ditambahkan di EmployeeTable
+    )
+    project: Mapped["ProjectTable | None"] = relationship(
+        "ProjectTable",
+        foreign_keys=[project_id],
+        back_populates="time_entries",  # harus ditambahkan di ProjectTable
     )
 
     # ========================================================================

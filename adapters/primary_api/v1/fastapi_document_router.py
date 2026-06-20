@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_document_router.py
@@ -23,7 +24,9 @@ Method Standards (ERP):
 - version_document()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import hashlib
 import logging
@@ -35,6 +38,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -263,12 +267,12 @@ class DocumentIntegrityResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_document_service() -> Any:
+async def get_document_service(request: Request, ) -> Any:
     """Get Document Service instance."""
     from application.service_layer.service_document import DocumentService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(DocumentService)
 
 

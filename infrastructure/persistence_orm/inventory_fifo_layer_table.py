@@ -25,7 +25,6 @@ from infrastructure.persistence_orm.base_model import (
 )
 
 if TYPE_CHECKING:
-    from infrastructure.persistence_orm.inventory_item_table import InventoryItemTable
     from infrastructure.persistence_orm.inventory_movement_table import InventoryMovementTable
 
 
@@ -41,24 +40,50 @@ class InventoryFIFOLayerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixi
         Index("idx_inventory_fifo_layer_purchase_date", "purchase_date"),
         Index("idx_inventory_fifo_layer_movement", "movement_id"),
         Index("idx_inventory_fifo_layer_legal_entity", "legal_entity_id"),
-        Index("idx_inventory_fifo_layer_remaining_only", "remaining_quantity", "item_id")
+        Index("idx_inventory_fifo_layer_remaining_only", "remaining_quantity", "item_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("inventory_item.id"), nullable=False)
+
+    # Foreign key ke inventory_item (relasi via backref dari InventoryItemTable)
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.inventory_item.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     remaining_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     uom: Mapped[str] = mapped_column(String(10), nullable=False, default="pcs")
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
     purchase_date: Mapped[date] = mapped_column(Date, nullable=False)
-    movement_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("inventory_movement.id"), nullable=True)
+
+    movement_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.inventory_movement.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     batch_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    item: Mapped[InventoryItemTable] = relationship("InventoryItemTable", back_populates="fifo_layers")
-    inbound_movement: Mapped[InventoryMovementTable | None] = relationship("InventoryMovementTable", foreign_keys=[movement_id])
+    # ========================================================================
+    # RELATIONSHIPS
+    # ========================================================================
 
+    # Relasi ke movement menggunakan backref agar InventoryMovementTable
+    # otomatis mendapat properti 'fifo_layers' tanpa perlu didefinisikan di sana.
+    inbound_movement: Mapped["InventoryMovementTable | None"] = relationship(
+        "InventoryMovementTable",
+        foreign_keys=[movement_id],
+        backref="fifo_layers",
+    )
+
+    # ========================================================================
+    # PROPERTIES
+    # ========================================================================
     @property
     def total_value(self) -> Decimal:
         return self.remaining_quantity * self.unit_cost
@@ -74,6 +99,9 @@ class InventoryFIFOLayerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixi
         consumed = self.quantity - self.remaining_quantity
         return float((consumed / self.quantity) * 100)
 
+    # ========================================================================
+    # METHODS
+    # ========================================================================
     def consume(self, quantity: Decimal) -> Decimal:
         if quantity <= 0:
             return 0

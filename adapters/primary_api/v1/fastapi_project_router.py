@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_project_router.py
@@ -23,6 +24,7 @@ Method Standards (ERP):
 """
 
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -31,6 +33,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -467,12 +470,12 @@ class UtilizationReportSchema(BaseModel):
 # ============================================================================
 
 
-async def get_project_service() -> Any:
+async def get_project_service(request: Request, ) -> Any:
     """Get Project Service instance."""
     from application.service_layer.service_project import ProjectService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(ProjectService)
 
 
@@ -560,7 +563,7 @@ async def create_project(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create project: {e}")
+        logger.exception("Failed to create project: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -620,7 +623,7 @@ async def get_project(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get project: {e}")
+        logger.exception("Failed to get project: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -641,7 +644,10 @@ async def get_project_by_code(
         project = await service.get_project_by_code(project_code, legal_entity_id)
 
         if not project:
-            raise HTTPException(status_code=404, detail=f"Project {project_code} not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Project {} not found".format(project_code),  # nosec
+            )
 
         return ProjectResponseSchema(
             id=project.id,
@@ -680,7 +686,7 @@ async def get_project_by_code(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get project by code: {e}")
+        logger.exception("Failed to get project by code: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -753,7 +759,7 @@ async def update_project(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update project: {e}")
+        logger.exception("Failed to update project: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -793,12 +799,12 @@ async def close_project(
             "project_code": result.project_code,
             "action": action,
             "status": result.status,
-            "message": f"Project {action} successfully",
+            "message": "Project {} successfully".format(action),  # nosec
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to close project: {e}")
+        logger.exception("Failed to close project: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -859,7 +865,7 @@ async def activate_project(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to activate project: {e}")
+        logger.exception("Failed to activate project: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -923,7 +929,7 @@ async def suspend_project(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to suspend project: {e}")
+        logger.exception("Failed to suspend project: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1003,7 +1009,7 @@ async def list_projects(
             for p in result.items
         ]
     except Exception as e:
-        logger.exception(f"Failed to list projects: {e}")
+        logger.exception("Failed to list projects: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1051,7 +1057,7 @@ async def get_project_cost(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get project cost: {e}")
+        logger.exception("Failed to get project cost: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1101,7 +1107,7 @@ async def get_project_revenue(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get project revenue: {e}")
+        logger.exception("Failed to get project revenue: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1170,7 +1176,7 @@ async def create_time_entry(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create time entry: {e}")
+        logger.exception("Failed to create time entry: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1240,7 +1246,7 @@ async def list_time_entries(
             for t in result.items
         ]
     except Exception as e:
-        logger.exception(f"Failed to list time entries: {e}")
+        logger.exception("Failed to list time entries: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1305,7 +1311,7 @@ async def update_time_entry(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update time entry: {e}")
+        logger.exception("Failed to update time entry: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1369,7 +1375,7 @@ async def approve_time_entry(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to approve time entry: {e}")
+        logger.exception("Failed to approve time entry: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1433,7 +1439,7 @@ async def reject_time_entry(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to reject time entry: {e}")
+        logger.exception("Failed to reject time entry: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1496,7 +1502,7 @@ async def create_retainer_contract(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create retainer contract: {e}")
+        logger.exception("Failed to create retainer contract: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1546,7 +1552,7 @@ async def recognize_revenue(
             for r in results
         ]
     except Exception as e:
-        logger.exception(f"Failed to recognize revenue: {e}")
+        logger.exception("Failed to recognize revenue: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1589,7 +1595,7 @@ async def get_project_dashboard(
             as_of_date=as_of_date,
         )
     except Exception as e:
-        logger.exception(f"Failed to get project dashboard: {e}")
+        logger.exception("Failed to get project dashboard: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1631,7 +1637,7 @@ async def get_utilization_report(
             by_project=report.by_project,
         )
     except Exception as e:
-        logger.exception(f"Failed to get utilization report: {e}")
+        logger.exception("Failed to get utilization report: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1670,7 +1676,7 @@ async def get_project_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get project history: {e}")
+        logger.exception("Failed to get project history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1714,7 +1720,7 @@ async def get_project_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get project status: {e}")
+        logger.exception("Failed to get project status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1748,15 +1754,15 @@ async def export_projects(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"projects_{legal_entity_id}.{format}"
+        filename = "projects_{}.{}".format(legal_entity_id, format)
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
         )
     except Exception as e:
-        logger.exception(f"Failed to export projects: {e}")
+        logger.exception("Failed to export projects: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

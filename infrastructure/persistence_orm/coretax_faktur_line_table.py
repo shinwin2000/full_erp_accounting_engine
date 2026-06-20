@@ -37,11 +37,16 @@ class CoretaxFakturLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
         CheckConstraint("amount >= 0", name="ck_cfl_amount_nonneg"),
         CheckConstraint("tax_amount >= 0", name="ck_cfl_tax_amount_nonneg"),
         Index("idx_cfl_faktur", "faktur_id"),
-        Index("idx_cfl_line_number", "faktur_id", "line_number")
+        Index("idx_cfl_line_number", "faktur_id", "line_number"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    faktur_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("coretax_faktur.id"), nullable=False)
+    faktur_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.coretax_faktur.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=1)
@@ -50,7 +55,19 @@ class CoretaxFakturLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
     tax_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
 
-    faktur: Mapped[CoretaxFakturTable] = relationship("CoretaxFakturTable", back_populates="lines")
+    # ========================================================================
+    # RELATIONSHIPS
+    # ========================================================================
+
+    faktur: Mapped["CoretaxFakturTable"] = relationship(
+        "CoretaxFakturTable",
+        back_populates="lines",
+        foreign_keys=[faktur_id],
+    )
+
+    # ========================================================================
+    # PROPERTIES
+    # ========================================================================
 
     @property
     def total_amount(self) -> Decimal:
@@ -61,6 +78,10 @@ class CoretaxFakturLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
         if self.amount == 0:
             return Decimal(0)
         return (self.tax_amount / self.amount) * 100
+
+    # ========================================================================
+    # METHODS
+    # ========================================================================
 
     def calculate_amount(self) -> None:
         self.amount = self.quantity * self.unit_price

@@ -12,6 +12,7 @@ Audit: Setiap actual dicatat dan tidak dapat diubah setelah diposting.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date, datetime
@@ -49,15 +50,15 @@ class BudgetActualTable(Base, TimestampMixin, LegalEntityMixin):
         Index("idx_budget_actual_budget", "budget_id"),
         Index("idx_budget_actual_date", "transaction_date"),
         Index("idx_budget_actual_source", "source_type", "source_id"),
-        Index("idx_budget_actual_legal_entity", "legal_entity_id")
+        Index("idx_budget_actual_legal_entity", "legal_entity_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
+    id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
     # Referensi ke budget
-    budget_id: Mapped[uuid.UUID] = mapped_column(
+    budget_id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("budget.id", ondelete="RESTRICT"),
         nullable=False,
@@ -71,7 +72,7 @@ class BudgetActualTable(Base, TimestampMixin, LegalEntityMixin):
 
     # Source transaksi
     source_type: Mapped[str] = mapped_column(String(30), nullable=False)
-    source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    source_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     source_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Deskripsi

@@ -12,6 +12,7 @@ Audit: Setiap transaksi kas dicatat di event store.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date, datetime
@@ -39,11 +40,11 @@ class CashBookTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         CheckConstraint("current_balance >= 0", name="ck_cash_book_balance_nonneg"),
         CheckConstraint("opening_balance >= 0", name="ck_cash_book_opening_nonneg"),
         Index("idx_cash_book_legal_entity", "legal_entity_id"),
-        Index("idx_cash_book_currency", "currency_code")
+        Index("idx_cash_book_currency", "currency_code"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    legal_entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    legal_entity_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     currency_code: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
     current_balance: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)

@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_ap_router.py
@@ -22,6 +23,7 @@ Method Standards (ERP):
 """
 
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -29,7 +31,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID
-
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -468,21 +470,21 @@ class APInvoiceActionResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_ap_service() -> Any:
+async def get_ap_service(request: Request, ) -> Any:
     """Get AP Service instance."""
     from application.service_layer.service_ap import APService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(APService)
 
 
 async def get_ap_payment_run_use_case() -> Any:
     """Get AP Payment Run Use Case instance."""
     from application.use_cases.ap_payment_run import APPaymentRunUseCase
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(APPaymentRunUseCase)
 
 

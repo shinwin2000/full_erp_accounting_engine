@@ -20,7 +20,9 @@ Method Standards (ERP):
 - version_approval() / version_approval_matrix()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -29,6 +31,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -395,12 +398,12 @@ class ApprovalStatsResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_approval_service() -> Any:
+async def get_approval_service(request: Request, ) -> Any:
     """Get Approval Service instance."""
     from application.service_layer.service_approval import ApprovalService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(ApprovalService)
 
 
@@ -482,7 +485,7 @@ async def submit_for_approval(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to submit approval: {e}")
+        logger.exception("Failed to submit approval: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -537,7 +540,7 @@ async def get_approval_request(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get approval request: {e}")
+        logger.exception("Failed to get approval request: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -559,7 +562,7 @@ async def get_approval_request_by_number(
 
         if not result:
             raise HTTPException(
-                status_code=404, detail=f"Approval request {request_number} not found"
+                status_code=404, detail="Approval request {} not found".format(request_number)
             )
 
         return ApprovalResponseSchema(
@@ -594,7 +597,7 @@ async def get_approval_request_by_number(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get approval request by number: {e}")
+        logger.exception("Failed to get approval request by number: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -655,7 +658,7 @@ async def recall_approval(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to recall approval: {e}")
+        logger.exception("Failed to recall approval: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -693,7 +696,7 @@ async def cancel_approval(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to cancel approval: {e}")
+        logger.exception("Failed to cancel approval: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -774,7 +777,7 @@ async def perform_approval_action(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to process approval action: {e}")
+        logger.exception("Failed to process approval action: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -847,7 +850,7 @@ async def list_approval_requests(
             for r in result.items
         ]
     except Exception as e:
-        logger.exception(f"Failed to list approval requests: {e}")
+        logger.exception("Failed to list approval requests: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -899,7 +902,7 @@ async def get_my_approval_tasks(
             for t in tasks
         ]
     except Exception as e:
-        logger.exception(f"Failed to get approval tasks: {e}")
+        logger.exception("Failed to get approval tasks: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -928,7 +931,7 @@ async def get_my_approval_tasks_count(
             "overdue": counts.overdue,
         }
     except Exception as e:
-        logger.exception(f"Failed to get approval tasks count: {e}")
+        logger.exception("Failed to get approval tasks count: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -971,7 +974,7 @@ async def get_approval_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get approval history: {e}")
+        logger.exception("Failed to get approval history: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1030,7 +1033,7 @@ async def create_approval_matrix(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create approval matrix: {e}")
+        logger.exception("Failed to create approval matrix: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1076,7 +1079,7 @@ async def list_approval_matrices(
             for m in matrices
         ]
     except Exception as e:
-        logger.exception(f"Failed to list approval matrices: {e}")
+        logger.exception("Failed to list approval matrices: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1119,7 +1122,7 @@ async def get_approval_matrix(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get approval matrix: {e}")
+        logger.exception("Failed to get approval matrix: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1175,7 +1178,7 @@ async def update_approval_matrix(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update approval matrix: {e}")
+        logger.exception("Failed to update approval matrix: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1213,12 +1216,12 @@ async def delete_approval_matrix(
             "matrix_id": str(matrix_id),
             "matrix_code": result.matrix_code,
             "action": action,
-            "message": f"Approval matrix {action}",
+            "message": "Approval matrix {}".format(action),
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to delete approval matrix: {e}")
+        logger.exception("Failed to delete approval matrix: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1268,7 +1271,7 @@ async def delegate_approval(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create delegation: {e}")
+        logger.exception("Failed to create delegation: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1310,7 +1313,7 @@ async def list_my_delegations(
             for d in delegations
         ]
     except Exception as e:
-        logger.exception(f"Failed to list delegations: {e}")
+        logger.exception("Failed to list delegations: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1344,7 +1347,7 @@ async def revoke_delegation(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to revoke delegation: {e}")
+        logger.exception("Failed to revoke delegation: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1389,7 +1392,7 @@ async def get_approval_statistics(
             as_of_date=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get approval statistics: {e}")
+        logger.exception("Failed to get approval statistics: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1452,7 +1455,7 @@ async def get_entity_approval_status(
             history=result.history,
         )
     except Exception as e:
-        logger.exception(f"Failed to get entity approval status: {e}")
+        logger.exception("Failed to get entity approval status: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1490,15 +1493,17 @@ async def export_approval_requests(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"approval_requests_{legal_entity_id}_{start_date}_{end_date}.{format}"
+        filename = "approval_requests_{}_{}_{}.{}".format(
+            legal_entity_id, start_date, end_date, format
+        )
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
         )
     except Exception as e:
-        logger.exception(f"Failed to export approval requests: {e}")
+        logger.exception("Failed to export approval requests: {}", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

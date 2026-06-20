@@ -15,24 +15,30 @@ from sqlalchemy import CheckConstraint, ForeignKey, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from infrastructure.persistence_orm.base_model import Base
+from infrastructure.persistence_orm.base_model import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from infrastructure.persistence_orm.stock_opname_table import StockOpnameTable
 
 
-class StockOpnameLineTable(Base):
+class StockOpnameLineTable(Base, TimestampMixin):
     __tablename__ = "stock_opname_line"
     __table_args__ = (
         CheckConstraint("system_quantity >= 0", name="ck_sol_system_qty_nonneg"),
         CheckConstraint("physical_quantity >= 0", name="ck_sol_physical_qty_nonneg"),
         CheckConstraint("difference_quantity IS NOT NULL", name="ck_sol_diff_not_null"),
         Index("idx_sol_opname", "stock_opname_id"),
-        Index("idx_sol_product", "product_id")
+        Index("idx_sol_product", "product_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    stock_opname_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("stock_opname.id", ondelete="CASCADE"), nullable=False, index=True)
+    stock_opname_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.stock_opname.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     product_code: Mapped[str] = mapped_column(String(50), nullable=False)
     product_name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -45,8 +51,19 @@ class StockOpnameLineTable(Base):
     adjustment_journal_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
-    stock_opname: Mapped[StockOpnameTable] = relationship("StockOpnameTable", back_populates="lines")
+    # =========================================================================
+    # RELATIONSHIP back to header
+    # Menggunakan back_populates="lines" dari StockOpnameTable
+    # =========================================================================
+    stock_opname: Mapped["StockOpnameTable"] = relationship(
+        "StockOpnameTable",
+        back_populates="lines",
+        foreign_keys=[stock_opname_id],
+    )
 
+    # =========================================================================
+    # PROPERTIES
+    # =========================================================================
     @property
     def is_over(self) -> bool:
         return self.difference_quantity > 0
@@ -63,6 +80,9 @@ class StockOpnameLineTable(Base):
     def absolute_difference(self) -> Decimal:
         return abs(self.difference_quantity)
 
+    # =========================================================================
+    # METHODS
+    # =========================================================================
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),

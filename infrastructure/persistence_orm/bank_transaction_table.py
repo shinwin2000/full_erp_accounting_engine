@@ -8,6 +8,7 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel bank_transaction.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date
@@ -59,17 +60,17 @@ class BankTransactionTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
         Index("idx_bank_tx_type", "transaction_type"),
         Index("idx_bank_tx_status", "status"),
         Index("idx_bank_tx_reference", "reference_number"),
-        Index("idx_bank_tx_reconciliation", "reconciliation_id")
+        Index("idx_bank_tx_reconciliation", "reconciliation_id"),
     )
 
     # Primary key
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Transaction identification
     transaction_number: Mapped[str] = mapped_column(String(50), nullable=False)
 
     # Foreign key
-    bank_account_id: Mapped[uuid.UUID] = mapped_column(
+    bank_account_id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("bank_account.id"), nullable=False
     )
 

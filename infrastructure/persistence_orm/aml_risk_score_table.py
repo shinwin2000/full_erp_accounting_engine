@@ -12,6 +12,7 @@ Audit: Setiap perubahan risiko dicatat di event store.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import datetime
@@ -65,15 +66,15 @@ class AMLRiskScoreTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         Index("idx_aml_risk_score", "risk_score"),
         Index("idx_aml_risk_category", "risk_category"),
         Index("idx_aml_risk_calculated_at", "calculated_at"),
-        Index("idx_aml_risk_legal_entity", "legal_entity_id")
+        Index("idx_aml_risk_legal_entity", "legal_entity_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
+    id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
     # Reference to customer (or entity being scored)
-    customer_id: Mapped[uuid.UUID] = mapped_column(
+    customer_id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, index=True
     )
     customer_type: Mapped[str] = mapped_column(

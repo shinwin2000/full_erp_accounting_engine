@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base
 
@@ -22,11 +22,17 @@ class LegalEntityBranchTable(Base):
     __tablename__ = "legal_entity_branch"
     __table_args__ = (
         Index("idx_leb_parent", "parent_entity_id"),
-        Index("idx_leb_code", "branch_code")
+        Index("idx_leb_code", "branch_code"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    parent_entity_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("legal_entity.id", ondelete="CASCADE"), nullable=False, index=True)
+    parent_entity_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("public.legal_entity.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     branch_name: Mapped[str] = mapped_column(String(200), nullable=False)
     branch_code: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -36,12 +42,16 @@ class LegalEntityBranchTable(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    parent_entity: Mapped[LegalEntityTable] = relationship(
-        "LegalEntityTable", back_populates="branches", foreign_keys=[parent_entity_id]
-    )
+    # =========================================================================
+    # RELATIONSHIP
+    # parent_entity disediakan oleh backref dari LegalEntityTable.branches
+    # Tidak perlu mendefinisikan relationship di sini.
+    # =========================================================================
 
     def to_dict(self) -> dict[str, Any]:
         return {

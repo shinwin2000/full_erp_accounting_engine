@@ -34,8 +34,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -79,7 +78,8 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         Index("idx_payslip_status", "status"),
         Index("idx_payslip_period", "period_year", "period_month"),
         Index("idx_payslip_payment_date", "payment_date"),
-        Index("idx_payslip_net_pay", "net_pay")
+        Index("idx_payslip_net_pay", "net_pay"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -93,17 +93,21 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
 
     # Employee (denormalized for read performance)
     employee_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("employee.id"), nullable=False
+        PGUUID(as_uuid=True),
+        ForeignKey("public.employee.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     employee_code: Mapped[str] = mapped_column(String(50), nullable=False)
     employee_name: Mapped[str] = mapped_column(String(200), nullable=False)
     position: Mapped[str | None] = mapped_column(String(100), nullable=True)
     department: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    employment_status: Mapped[str | None] = mapped_column(String(50), nullable=True)  # permanent, contract, etc.
+    employment_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Payroll run reference
     payroll_run_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("payroll_run.id"), nullable=False
+        PGUUID(as_uuid=True),
+        ForeignKey("public.payroll_run.id", ondelete="RESTRICT"),
+        nullable=False,
     )
 
     # Income components
@@ -116,9 +120,9 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
 
     # Deduction components
     tax_pph21: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal(0))
-    bpjs_employment: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal(0))  # JHT
+    bpjs_employment: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal(0))
     bpjs_health: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal(0))
-    bpjs_pension: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal(0))  # Jaminan Pensiun
+    bpjs_pension: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal(0))
     loan_deduction: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal(0))
     cooperative_deduction: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal(0))
     other_deductions: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal(0))
@@ -159,8 +163,16 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     # RELATIONSHIPS
     # ========================================================================
 
-    employee: Mapped[EmployeeTable] = relationship("EmployeeTable", foreign_keys=[employee_id])
-    payroll_run: Mapped[PayrollRunTable] = relationship("PayrollRunTable", foreign_keys=[payroll_run_id])
+    employee: Mapped["EmployeeTable"] = relationship(
+        "EmployeeTable",
+        foreign_keys=[employee_id],
+        back_populates="payslips",  # harus ditambahkan di EmployeeTable
+    )
+    payroll_run: Mapped["PayrollRunTable"] = relationship(
+        "PayrollRunTable",
+        foreign_keys=[payroll_run_id],
+        back_populates="payslips",  # harus ditambahkan di PayrollRunTable
+    )
 
     # ========================================================================
     # PROPERTIES
@@ -188,26 +200,22 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
 
     @property
     def total_income(self) -> Decimal:
-        """Calculate total income from all components."""
         return (self.basic_salary + self.allowances + self.overtime + self.bonus +
                 self.thirteenth_month + self.other_income)
 
     @property
     def total_deductions_calc(self) -> Decimal:
-        """Calculate total deductions from all components."""
         return (self.tax_pph21 + self.bpjs_employment + self.bpjs_health +
                 self.bpjs_pension + self.loan_deduction + self.cooperative_deduction +
                 self.other_deductions)
 
     @property
     def is_balanced(self) -> bool:
-        """Check if gross_income - total_deductions equals net_pay."""
         expected_net = self.total_income - self.total_deductions_calc
         return abs(expected_net - self.net_pay) <= Decimal("0.01")
 
     @property
     def tax_rate_effective(self) -> Decimal:
-        """Calculate effective tax rate as percentage of gross income."""
         if self.gross_income == 0:
             return Decimal(0)
         return (self.tax_pph21 / self.gross_income * 100).quantize(Decimal("0.01"))
@@ -217,7 +225,6 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     # ========================================================================
 
     def approve(self, approved_by: uuid.UUID) -> PayslipTable:
-        """Approve the payslip. Returns a new instance (immutable)."""
         if self.status != "generated":
             raise ValueError(f"Cannot approve payslip with status {self.status}")
         from dataclasses import replace
@@ -231,7 +238,6 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
 
     def mark_paid(self, payment_date: date, payment_reference: str | None = None,
                   payment_run_id: uuid.UUID | None = None) -> PayslipTable:
-        """Mark payslip as paid. Returns a new instance."""
         if self.status not in ("generated", "approved"):
             raise ValueError(f"Cannot mark payslip as paid with status {self.status}")
         from dataclasses import replace
@@ -247,7 +253,6 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         return new
 
     def cancel(self) -> PayslipTable:
-        """Cancel the payslip. Returns a new instance."""
         if self.status == "paid":
             raise ValueError("Cannot cancel a paid payslip")
         from dataclasses import replace
@@ -258,7 +263,6 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         return new
 
     def recalculate(self) -> PayslipTable:
-        """Recalculate all totals based on components. Returns a new instance."""
         from dataclasses import replace
         new = replace(self)
         new.gross_income = new.total_income
@@ -271,7 +275,6 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         return new
 
     def update_notes(self, notes: str) -> PayslipTable:
-        """Update notes. Returns a new instance."""
         if self.status == "paid":
             raise ValueError("Cannot update notes for a paid payslip")
         from dataclasses import replace
@@ -320,10 +323,6 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         notes: str | None = None,
         created_by: uuid.UUID | None = None,
     ) -> PayslipTable:
-        """
-        Factory method to create a new payslip.
-        Automatically calculates gross_income, total_deductions, net_pay.
-        """
         gross_income = (basic_salary + allowances + overtime + bonus +
                         thirteenth_month + other_income)
         total_deductions = (tax_pph21 + bpjs_employment + bpjs_health +
@@ -392,9 +391,6 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         other_deductions: Decimal = Decimal(0),
         **kwargs,
     ) -> PayslipTable:
-        """
-        Simplified factory using payroll_run and employee objects.
-        """
         return cls.create(
             legal_entity_id=payroll_run.legal_entity_id,
             payslip_number=payslip_number,
@@ -419,7 +415,6 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     # ========================================================================
 
     def to_dict(self) -> dict:
-        """Convert to dictionary for JSON serialization."""
         return {
             "id": str(self.id),
             "legal_entity_id": str(self.legal_entity_id),
@@ -469,7 +464,6 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         }
 
     def to_db_record(self) -> dict:
-        """Convert to database-friendly format (flat)."""
         return {
             "id": self.id,
             "legal_entity_id": self.legal_entity_id,
@@ -518,10 +512,6 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
             "version": self.version,
         }
 
-    # ========================================================================
-    # DUNDER METHODS
-    # ========================================================================
-
     def __str__(self) -> str:
         return f"Payslip {self.payslip_number} - {self.employee_name} - {self.period_display}"
 
@@ -537,7 +527,6 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         return hash(self.id)
 
 
-# Type aliases for compatibility
 PayslipReadModel = PayslipTable
 
 __all__ = ["PayslipReadModel", "PayslipTable"]

@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_ar_router.py
@@ -22,7 +23,9 @@ Method Standards (ERP):
 - version_invoice()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime, timedelta
@@ -31,6 +34,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -521,21 +525,21 @@ class ARWriteOffResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_ar_service() -> Any:
+async def get_ar_service(request: Request, ) -> Any:
     """Get AR Service instance."""
     from application.service_layer.service_ar import ARService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(ARService)
 
 
 async def get_ar_collection_workflow() -> Any:
     """Get AR Collection Workflow Use Case instance."""
     from application.use_cases.ar_collection_workflow import ARCollectionWorkflowUseCase
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(ARCollectionWorkflowUseCase)
 
 

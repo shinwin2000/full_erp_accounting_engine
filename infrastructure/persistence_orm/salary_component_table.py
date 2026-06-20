@@ -50,12 +50,21 @@ class SalaryComponentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
         CheckConstraint("amount >= 0", name="ck_salary_component_amount_nonneg"),
         Index("idx_salary_component_employee", "employee_id"),
         Index("idx_salary_component_payroll_run", "payroll_run_id"),
-        Index("idx_salary_component_type", "component_type")
+        Index("idx_salary_component_type", "component_type"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    employee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("employee.id"), nullable=False)
-    payroll_run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("payroll_run.id"), nullable=False)
+    employee_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.employee.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    payroll_run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.payroll_run.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     component_name: Mapped[str] = mapped_column(String(100), nullable=False)
     component_type: Mapped[str] = mapped_column(String(20), nullable=False)
     calculation_type: Mapped[str] = mapped_column(String(20), nullable=False, default="fixed")
@@ -65,10 +74,26 @@ class SalaryComponentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    # Relationships
-    employee: Mapped[EmployeeTable] = relationship("EmployeeTable", back_populates="salary_components")
-    payroll_run: Mapped[PayrollRunTable] = relationship("PayrollRunTable", back_populates="salary_components")
+    # =========================================================================
+    # RELATIONSHIPS
+    # Menggunakan back_populates yang cocok dengan relasi di EmployeeTable
+    # (salary_components) dan PayrollRunTable (salary_components).
+    # =========================================================================
+    employee: Mapped["EmployeeTable"] = relationship(
+        "EmployeeTable",
+        back_populates="salary_components",
+        foreign_keys=[employee_id],
+    )
 
+    payroll_run: Mapped["PayrollRunTable"] = relationship(
+        "PayrollRunTable",
+        back_populates="salary_components",
+        foreign_keys=[payroll_run_id],
+    )
+
+    # =========================================================================
+    # PROPERTIES
+    # =========================================================================
     @property
     def is_earnings(self) -> bool:
         return self.component_type == "earnings"
@@ -96,6 +121,9 @@ class SalaryComponentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
             return (self.amount * self.rate_percentage / 100).quantize(Decimal("0.01"))
         return self.amount
 
+    # =========================================================================
+    # METHODS
+    # =========================================================================
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),

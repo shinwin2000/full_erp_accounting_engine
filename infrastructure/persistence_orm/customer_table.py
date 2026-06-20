@@ -29,9 +29,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-if TYPE_CHECKING:
-    from infrastructure.persistence_orm.ar_payment_table import ARPaymentTable
-
 from infrastructure.persistence_orm.base_model import (
     Base,
     LegalEntityMixin,
@@ -39,6 +36,11 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.ar_invoice_table import ARInvoiceTable
+    from infrastructure.persistence_orm.retainer_contract_table import RetainerContractTable
+    from infrastructure.persistence_orm.sales_order_table import SalesOrderTable
 
 
 class CustomerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -65,7 +67,8 @@ class CustomerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         Index("idx_customer_status", "status"),
         Index("idx_customer_legal_entity", "legal_entity_id"),
         Index("idx_customer_category", "category"),
-        Index("idx_customer_sales_person", "sales_person_id")
+        Index("idx_customer_sales_person", "sales_person_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -132,14 +135,25 @@ class CustomerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     # RELATIONSHIPS
     # ========================================================================
 
-    ar_invoices: Mapped[list[ARInvoiceTable]] = relationship(
-        "ARInvoiceTable", back_populates="customer"
+    # AR Invoices
+    ar_invoices: Mapped[list["ARInvoiceTable"]] = relationship(
+        "ARInvoiceTable",
+        back_populates="customer",
+        cascade="all, delete-orphan",
     )
-    ar_payments: Mapped[list[ARPaymentTable]] = relationship(
-        "ARPaymentTable", back_populates="customer"
+
+    # Sales Orders
+    sales_orders: Mapped[list["SalesOrderTable"]] = relationship(
+        "SalesOrderTable",
+        back_populates="customer",
+        cascade="all, delete-orphan",
     )
-    sales_orders: Mapped[list[SalesOrderTable]] = relationship(
-        "SalesOrderTable", back_populates="customer"
+
+    # Retainer Contracts
+    retainer_contracts: Mapped[list["RetainerContractTable"]] = relationship(
+        "RetainerContractTable",
+        back_populates="customer",
+        cascade="all, delete-orphan",
     )
 
     # ========================================================================

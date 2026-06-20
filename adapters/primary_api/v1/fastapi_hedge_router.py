@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_hedge_router.py
@@ -21,6 +22,7 @@ Method Standards (ERP):
 """
 
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -29,6 +31,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -485,12 +488,12 @@ class HedgeDashboardResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_hedge_service() -> Any:
+async def get_hedge_service(request: Request, ) -> Any:
     """Get Hedge Service instance."""
     from application.service_layer.service_hedge import HedgeService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(HedgeService)
 
 
@@ -576,7 +579,7 @@ async def create_derivative(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create derivative: {e}")
+        logger.exception("Failed to create derivative: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -637,7 +640,7 @@ async def list_derivatives(
             for d in derivatives
         ]
     except Exception as e:
-        logger.exception(f"Failed to list derivatives: {e}")
+        logger.exception("Failed to list derivatives: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -693,7 +696,7 @@ async def get_derivative(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get derivative: {e}")
+        logger.exception("Failed to get derivative: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -761,7 +764,7 @@ async def update_derivative(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update derivative: {e}")
+        logger.exception("Failed to update derivative: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -800,7 +803,7 @@ async def terminate_derivative(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to terminate derivative: {e}")
+        logger.exception("Failed to terminate derivative: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -883,7 +886,7 @@ async def create_hedge_relationship(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create hedge relationship: {e}")
+        logger.exception("Failed to create hedge relationship: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -945,7 +948,7 @@ async def list_hedge_relationships(
             for r in relationships
         ]
     except Exception as e:
-        logger.exception(f"Failed to list hedge relationships: {e}")
+        logger.exception("Failed to list hedge relationships: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1002,7 +1005,7 @@ async def get_hedge_relationship(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get hedge relationship: {e}")
+        logger.exception("Failed to get hedge relationship: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1069,7 +1072,7 @@ async def update_hedge_relationship(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update hedge relationship: {e}")
+        logger.exception("Failed to update hedge relationship: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1133,7 +1136,7 @@ async def designate_hedge(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to designate hedge: {e}")
+        logger.exception("Failed to designate hedge: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1201,7 +1204,7 @@ async def discontinue_hedge(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to discontinue hedge: {e}")
+        logger.exception("Failed to discontinue hedge: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1262,7 +1265,7 @@ async def run_effectiveness_test(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to run effectiveness test: {e}")
+        logger.exception("Failed to run effectiveness test: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1304,7 +1307,7 @@ async def list_effectiveness_tests(
             for t in tests
         ]
     except Exception as e:
-        logger.exception(f"Failed to list effectiveness tests: {e}")
+        logger.exception("Failed to list effectiveness tests: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1365,7 +1368,7 @@ async def record_fair_value(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to record fair value: {e}")
+        logger.exception("Failed to record fair value: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1416,7 +1419,7 @@ async def get_fair_value_history(
             for m in measurements
         ]
     except Exception as e:
-        logger.exception(f"Failed to get fair value history: {e}")
+        logger.exception("Failed to get fair value history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1465,7 +1468,7 @@ async def recognize_ineffectiveness(
             for r in results
         ]
     except Exception as e:
-        logger.exception(f"Failed to recognize ineffectiveness: {e}")
+        logger.exception("Failed to recognize ineffectiveness: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1506,7 +1509,7 @@ async def get_hedge_dashboard(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get hedge dashboard: {e}")
+        logger.exception("Failed to get hedge dashboard: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1545,7 +1548,7 @@ async def get_hedge_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get hedge history: {e}")
+        logger.exception("Failed to get hedge history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1592,7 +1595,7 @@ async def get_hedge_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get hedge status: {e}")
+        logger.exception("Failed to get hedge status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1626,15 +1629,15 @@ async def export_derivatives(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"derivatives_{legal_entity_id}_{as_of_date}.{format}"
+        filename = "derivatives_{}_{}.{}".format(legal_entity_id, as_of_date, format)
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
         )
     except Exception as e:
-        logger.exception(f"Failed to export derivatives: {e}")
+        logger.exception("Failed to export derivatives: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1663,15 +1666,15 @@ async def export_hedge_relationships(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"hedge_relationships_{legal_entity_id}_{as_of_date}.{format}"
+        filename = "hedge_relationships_{}_{}.{}".format(legal_entity_id, as_of_date, format)
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
         )
     except Exception as e:
-        logger.exception(f"Failed to export hedge relationships: {e}")
+        logger.exception("Failed to export hedge relationships: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -36,6 +37,10 @@ from infrastructure.persistence_orm.base_model import (
     VersionMixin,
 )
 
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.retainer_contract_table import RetainerContractTable
+    from infrastructure.persistence_orm.time_entry_table import TimeEntryTable
+
 
 class ProjectTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     __tablename__ = "project"
@@ -57,7 +62,8 @@ class ProjectTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         Index("idx_project_legal_entity", "legal_entity_id"),
         Index("idx_project_start_date", "start_date"),
         Index("idx_project_end_date", "end_date"),
-        Index("idx_project_manager", "project_manager_id")
+        Index("idx_project_manager", "project_manager_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -66,7 +72,9 @@ class ProjectTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     project_code: Mapped[str] = mapped_column(String(50), nullable=False)
     project_name: Mapped[str] = mapped_column(String(200), nullable=False)
     customer_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("customer.id"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("public.customer.id", ondelete="SET NULL"),
+        nullable=True,
     )
     customer_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
@@ -115,15 +123,23 @@ class ProjectTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     # RELATIONSHIPS
     # ========================================================================
 
-    cost_trackers: Mapped[list[ProjectCostTrackerTable]] = relationship(
-        "ProjectCostTrackerTable", back_populates="project", cascade="all, delete-orphan"
+    # Retainer Contracts (connected via retainer_contract_table)
+    retainer_contracts: Mapped[list["RetainerContractTable"]] = relationship(
+        "RetainerContractTable",
+        back_populates="project",
+        cascade="all, delete-orphan",
     )
-    billing_schedules: Mapped[list[ProjectBillingScheduleTable]] = relationship(
-        "ProjectBillingScheduleTable", back_populates="project", cascade="all, delete-orphan"
+
+    # Time entries (connected via time_entry_table)
+    time_entries: Mapped[list["TimeEntryTable"]] = relationship(
+        "TimeEntryTable",
+        back_populates="project",
+        foreign_keys="[TimeEntryTable.project_id]",
+        cascade="all, delete-orphan",
     )
-    time_entries: Mapped[list[TimeEntryTable]] = relationship(
-        "TimeEntryTable", back_populates="project"
-    )
+
+    # REMOVED: cost_trackers (ProjectCostTrackerTable not defined)
+    # REMOVED: billing_schedules (ProjectBillingScheduleTable not defined)
 
     # ========================================================================
     # PROPERTIES

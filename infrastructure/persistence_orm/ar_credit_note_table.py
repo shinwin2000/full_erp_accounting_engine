@@ -22,7 +22,6 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-# Menambahkan DateTime ke dalam daftar objek yang diimpor dari sqlalchemy
 from sqlalchemy import (
     CheckConstraint,
     Date,
@@ -49,11 +48,6 @@ if TYPE_CHECKING:
     from infrastructure.persistence_orm.ar_invoice_table import ARInvoiceTable
 
 
-# ============================================================================
-# MODEL
-# ============================================================================
-
-
 class ARCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     """
     Model untuk tabel ar_credit_note.
@@ -76,16 +70,19 @@ class ARCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         Index("idx_ar_credit_note_invoice", "invoice_id"),
         Index("idx_ar_credit_note_date", "credit_note_date"),
         Index("idx_ar_credit_note_status", "status"),
-        Index("idx_ar_credit_note_legal_entity", "legal_entity_id")
+        Index("idx_ar_credit_note_legal_entity", "legal_entity_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
     # Credit Note Identification
     credit_note_number: Mapped[str] = mapped_column(String(50), nullable=False)
     credit_note_date: Mapped[date] = mapped_column(Date, nullable=False)
 
-    # Reference to Invoice Header
+    # Reference to Invoice Header (with schema)
     invoice_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("ar_invoice.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("public.ar_invoice.id", ondelete="RESTRICT"),
+        nullable=False,
     )
 
     # Financials
@@ -113,7 +110,11 @@ class ARCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     # RELATIONSHIPS
     # ========================================================================
 
-    invoice: Mapped[ARInvoiceTable] = relationship("ARInvoiceTable", foreign_keys=[invoice_id])
+    invoice: Mapped["ARInvoiceTable"] = relationship(
+        "ARInvoiceTable",
+        foreign_keys=[invoice_id],
+        back_populates="credit_notes",
+    )
 
     # ========================================================================
     # PROPERTIES
@@ -147,9 +148,5 @@ class ARCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         self.status = "cancelled"
         self.increment_version()
 
-
-# ============================================================================
-# EXPORTS
-# ============================================================================
 
 __all__ = ["ARCreditNoteTable"]

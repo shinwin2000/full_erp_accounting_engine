@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_forex_router.py
@@ -23,7 +24,9 @@ Method Standards (ERP):
 - version_rate()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -32,6 +35,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -370,21 +374,21 @@ class ForexDashboardResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_forex_service() -> Any:
+async def get_forex_service(request: Request, ) -> Any:
     """Get Forex Service instance."""
     from application.service_layer.service_forex import ForexService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(ForexService)
 
 
 async def get_forex_revaluation_use_case() -> Any:
     """Get Forex Revaluation Use Case instance."""
     from application.use_cases.forex_revaluation import ForexRevaluationUseCase
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(ForexRevaluationUseCase)
 
 

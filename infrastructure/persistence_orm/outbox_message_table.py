@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""
+Module: outbox_message_table.py
+Layer: Infrastructure (Persistence ORM)
+Responsibility: Alias untuk OutboxTable (forward compatibility).
+"""
+
+from __future__ import annotations
+
+from infrastructure.persistence_orm.outbox_table import OutboxTable as OutboxMessageTable
+from infrastructure.persistence_orm.outbox_table import OutboxStatus, OutboxRecord
+
+__all__ = ["OutboxMessageTable", "OutboxStatus", "OutboxRecord"]

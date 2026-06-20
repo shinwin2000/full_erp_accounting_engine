@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_iam_router.py
@@ -25,7 +26,9 @@ Method Standards (ERP):
 - version_user()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import datetime
@@ -33,6 +36,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -306,7 +310,7 @@ class ChangePasswordSchema(BaseModel):
     def validate_new_password(cls, v: str) -> str:
         if len(v) < DEFAULT_PASSWORD_MIN_LENGTH:
             raise ValueError(
-                f"Password must be at least {DEFAULT_PASSWORD_MIN_LENGTH} characters"
+                "Password must be at least {} characters".format(DEFAULT_PASSWORD_MIN_LENGTH)
             )
         return v
 
@@ -419,12 +423,12 @@ class UserAuditLogSchema(BaseModel):
 # ============================================================================
 
 
-async def get_iam_service() -> Any:
+async def get_iam_service(request: Request, ) -> Any:
     """Get IAM Service instance."""
     from application.service_layer.service_iam import IAMService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(IAMService)
 
 
@@ -474,7 +478,7 @@ async def create_user(
         )
 
         # FIX: Jangan log password
-        logger.info(f"User created: {request.username}")
+        logger.info("User created: {}".format(request.username))
 
         return UserResponseSchema(
             id=result.id,
@@ -505,7 +509,7 @@ async def create_user(
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         # FIX: Jangan log detail error yang mungkin mengandung password
-        logger.exception(f"Failed to create user: {type(e).__name__}")
+        logger.exception("Failed to create user: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -568,7 +572,7 @@ async def list_users(
         ]
     except Exception as e:
         # FIX: Jangan log detail error
-        logger.exception(f"Failed to list users: {type(e).__name__}")
+        logger.exception("Failed to list users: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -618,7 +622,7 @@ async def get_user(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get user: {type(e).__name__}")
+        logger.exception("Failed to get user: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -638,7 +642,7 @@ async def get_user_by_username(
         user = await service.get_user_by_username(username)
 
         if not user:
-            raise HTTPException(status_code=404, detail=f"User {username} not found")
+            raise HTTPException(status_code=404, detail="User {} not found".format(username))
 
         return UserResponseSchema(
             id=user.id,
@@ -668,7 +672,7 @@ async def get_user_by_username(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get user by username: {type(e).__name__}")
+        logger.exception("Failed to get user by username: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -704,7 +708,7 @@ async def update_user(
         if not result:
             raise HTTPException(status_code=404, detail="User not found or cannot be updated")
 
-        logger.info(f"User updated: {user_id}")
+        logger.info("User updated: {}".format(user_id))
 
         return UserResponseSchema(
             id=result.id,
@@ -734,7 +738,7 @@ async def update_user(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update user: {type(e).__name__}")
+        logger.exception("Failed to update user: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -764,19 +768,19 @@ async def deactivate_user(
         if not result:
             raise HTTPException(status_code=404, detail="User not found")
 
-        logger.info(f"User {action}: {user_id}")
+        logger.info("User {}: {}".format(action, user_id))
 
         return {
             "user_id": str(user_id),
             "username": result.username,
             "action": action,
             "status": result.status,
-            "message": f"User {action} successfully",
+            "message": "User {} successfully".format(action),
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to deactivate user: {type(e).__name__}")
+        logger.exception("Failed to deactivate user: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -799,7 +803,7 @@ async def activate_user(
         if not result:
             raise HTTPException(status_code=404, detail="User not found")
 
-        logger.info(f"User activated: {user_id}")
+        logger.info("User activated: {}".format(user_id))
 
         return UserResponseSchema(
             id=result.id,
@@ -829,7 +833,7 @@ async def activate_user(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to activate user: {type(e).__name__}")
+        logger.exception("Failed to activate user: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -861,7 +865,7 @@ async def lock_user(
         if not result:
             raise HTTPException(status_code=404, detail="User not found")
 
-        logger.info(f"User locked: {user_id}")
+        logger.info("User locked: {}".format(user_id))
 
         return UserResponseSchema(
             id=result.id,
@@ -891,7 +895,7 @@ async def lock_user(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to lock user: {type(e).__name__}")
+        logger.exception("Failed to lock user: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -914,7 +918,7 @@ async def unlock_user(
         if not result:
             raise HTTPException(status_code=404, detail="User not found")
 
-        logger.info(f"User unlocked: {user_id}")
+        logger.info("User unlocked: {}".format(user_id))
 
         return UserResponseSchema(
             id=result.id,
@@ -944,7 +948,7 @@ async def unlock_user(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to unlock user: {type(e).__name__}")
+        logger.exception("Failed to unlock user: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -976,7 +980,7 @@ async def create_role(
             created_by=current_user.user_id,
         )
 
-        logger.info(f"Role created: {request.name}")
+        logger.info("Role created: {}".format(request.name))
 
         return RoleResponseSchema(
             id=result.id,
@@ -997,7 +1001,7 @@ async def create_role(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create role: {type(e).__name__}")
+        logger.exception("Failed to create role: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1040,7 +1044,7 @@ async def list_roles(
             for r in roles
         ]
     except Exception as e:
-        logger.exception(f"Failed to list roles: {type(e).__name__}")
+        logger.exception("Failed to list roles: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1081,7 +1085,7 @@ async def get_role(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get role: {type(e).__name__}")
+        logger.exception("Failed to get role: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1111,7 +1115,7 @@ async def update_role(
         if not result:
             raise HTTPException(status_code=404, detail="Role not found")
 
-        logger.info(f"Role updated: {role_id}")
+        logger.info("Role updated: {}".format(role_id))
 
         return RoleResponseSchema(
             id=result.id,
@@ -1132,7 +1136,7 @@ async def update_role(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update role: {type(e).__name__}")
+        logger.exception("Failed to update role: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1155,7 +1159,7 @@ async def delete_role(
         if not result:
             raise HTTPException(status_code=404, detail="Role not found or cannot be deleted")
 
-        logger.info(f"Role deleted: {role_id}")
+        logger.info("Role deleted: {}".format(role_id))
 
         return {
             "role_id": str(role_id),
@@ -1166,7 +1170,7 @@ async def delete_role(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to delete role: {type(e).__name__}")
+        logger.exception("Failed to delete role: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1196,7 +1200,7 @@ async def assign_roles_to_user(
             assigned_by=current_user.user_id,
         )
 
-        logger.info(f"Roles assigned to user: {user_id}")
+        logger.info("Roles assigned to user: {}".format(user_id))
 
         return [
             RoleResponseSchema(
@@ -1220,7 +1224,7 @@ async def assign_roles_to_user(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to assign roles to user: {type(e).__name__}")
+        logger.exception("Failed to assign roles to user: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1259,7 +1263,7 @@ async def get_user_roles(
             for r in roles
         ]
     except Exception as e:
-        logger.exception(f"Failed to get user roles: {type(e).__name__}")
+        logger.exception("Failed to get user roles: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1283,7 +1287,7 @@ async def remove_role_from_user(
         if not result:
             raise HTTPException(status_code=404, detail="User or role not found")
 
-        logger.info(f"Role removed from user: {user_id}")
+        logger.info("Role removed from user: {}".format(user_id))
 
         return {
             "user_id": str(user_id),
@@ -1295,7 +1299,7 @@ async def remove_role_from_user(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to remove role from user: {type(e).__name__}")
+        logger.exception("Failed to remove role from user: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1332,7 +1336,7 @@ async def list_permissions(
             for p in permissions
         ]
     except Exception as e:
-        logger.exception(f"Failed to list permissions: {type(e).__name__}")
+        logger.exception("Failed to list permissions: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1357,7 +1361,7 @@ async def assign_permissions_to_role(
             assigned_by=current_user.user_id,
         )
 
-        logger.info(f"Permissions assigned to role: {role_id}")
+        logger.info("Permissions assigned to role: {}".format(role_id))
 
         return [
             PermissionResponseSchema(
@@ -1374,7 +1378,7 @@ async def assign_permissions_to_role(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to assign permissions to role: {type(e).__name__}")
+        logger.exception("Failed to assign permissions to role: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1406,7 +1410,7 @@ async def get_role_permissions(
             for p in permissions
         ]
     except Exception as e:
-        logger.exception(f"Failed to get role permissions: {type(e).__name__}")
+        logger.exception("Failed to get role permissions: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1432,7 +1436,7 @@ async def remove_permission_from_role(
         if not result:
             raise HTTPException(status_code=404, detail="Role or permission not found")
 
-        logger.info(f"Permission removed from role: {role_id}")
+        logger.info("Permission removed from role: {}".format(role_id))
 
         return {
             "role_id": str(role_id),
@@ -1444,7 +1448,7 @@ async def remove_permission_from_role(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to remove permission from role: {type(e).__name__}")
+        logger.exception("Failed to remove permission from role: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1515,7 +1519,7 @@ async def login(
         raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
         # FIX: Jangan log detail error yang mungkin mengandung password/token
-        logger.exception(f"Login failed: {type(e).__name__}")
+        logger.exception("Login failed: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1535,7 +1539,7 @@ async def logout(
         logger.info("User logged out")
     except Exception as e:
         # FIX: Jangan log detail error
-        logger.exception(f"Logout failed: {type(e).__name__}")
+        logger.exception("Logout failed: {}".format(type(e).__name__))
     return None
 
 
@@ -1592,7 +1596,7 @@ async def refresh_token(
         raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
         # FIX: Jangan log detail error yang mungkin mengandung token
-        logger.exception(f"Session refresh failed: {type(e).__name__}")
+        logger.exception("Session refresh failed: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1619,14 +1623,14 @@ async def change_password(
             raise HTTPException(status_code=400, detail="Old password incorrect")
 
         # FIX: Jangan log password
-        logger.info(f"Credential updated for user: {current_user.user_id}")
+        logger.info("Credential updated for user: {}".format(current_user.user_id))
 
         return None
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         # FIX: Jangan log detail error yang mungkin mengandung password
-        logger.exception(f"Credential change failed: {type(e).__name__}")
+        logger.exception("Credential change failed: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1656,7 +1660,7 @@ async def forgot_password(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         # FIX: Jangan log detail error
-        logger.exception(f"Reset request failed: {type(e).__name__}")
+        logger.exception("Reset request failed: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1688,7 +1692,7 @@ async def reset_password(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         # FIX: Jangan log detail error yang mungkin mengandung password/token
-        logger.exception(f"Reset failed: {type(e).__name__}")
+        logger.exception("Reset failed: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1714,7 +1718,7 @@ async def setup_mfa(
             issuer=MFA_ISSUER_NAME,
         )
 
-        logger.info(f"MFA setup initiated for user: {current_user.user_id}")
+        logger.info("MFA setup initiated for user: {}".format(current_user.user_id))
 
         return MFASetupResponseSchema(
             secret_key=result.secret_key,
@@ -1723,7 +1727,7 @@ async def setup_mfa(
             issuer=MFA_ISSUER_NAME,
         )
     except Exception as e:
-        logger.exception(f"MFA setup failed: {type(e).__name__}")
+        logger.exception("MFA setup failed: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1746,13 +1750,13 @@ async def verify_mfa(
         )
 
         if success:
-            logger.info(f"MFA enabled for user: {current_user.user_id}")
+            logger.info("MFA enabled for user: {}".format(current_user.user_id))
 
         return {"enabled": success}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.exception(f"MFA verification failed: {type(e).__name__}")
+        logger.exception("MFA verification failed: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1776,13 +1780,13 @@ async def disable_mfa(
         )
 
         if success:
-            logger.info(f"MFA disabled for user: {current_user.user_id}")
+            logger.info("MFA disabled for user: {}".format(current_user.user_id))
 
         return {"disabled": success}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.exception(f"MFA disable failed: {type(e).__name__}")
+        logger.exception("MFA disable failed: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1823,7 +1827,7 @@ async def get_user_sessions(
             for s in sessions
         ]
     except Exception as e:
-        logger.exception(f"Failed to get user sessions: {type(e).__name__}")
+        logger.exception("Failed to get user sessions: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1845,13 +1849,13 @@ async def revoke_session(
         if not success:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        logger.info(f"Session revoked: {session_id}")
+        logger.info("Session revoked: {}".format(session_id))
 
         return None
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to revoke session: {type(e).__name__}")
+        logger.exception("Failed to revoke session: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1871,7 +1875,7 @@ async def revoke_all_other_sessions(
         logger.info("All other sessions revoked")
         return None
     except Exception as e:
-        logger.exception(f"Failed to revoke all other sessions: {type(e).__name__}")
+        logger.exception("Failed to revoke all other sessions: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1921,7 +1925,7 @@ async def get_login_attempts(
             for a in attempts
         ]
     except Exception as e:
-        logger.exception(f"Failed to get login attempts: {type(e).__name__}")
+        logger.exception("Failed to get login attempts: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1954,7 +1958,7 @@ async def get_user_audit_log(
             for l in logs
         ]
     except Exception as e:
-        logger.exception(f"Failed to get user audit log: {type(e).__name__}")
+        logger.exception("Failed to get user audit log: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2002,7 +2006,7 @@ async def get_user_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get user status: {type(e).__name__}")
+        logger.exception("Failed to get user status: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2035,7 +2039,7 @@ async def get_user_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get user history: {type(e).__name__}")
+        logger.exception("Failed to get user history: {}".format(type(e).__name__))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

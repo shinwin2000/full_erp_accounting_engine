@@ -1,4 +1,5 @@
-# command_bus_unified.py - Hardened version with complete implementation
+# command_bus_unified.py - Hardened version with BaseCommand (fix P56)
+# (Ganti seluruh isi file dengan kode di bawah)
 
 #!/usr/bin/env python3
 
@@ -208,10 +209,10 @@ class Span:
         return (end - self.start_time) * 1000
 
 
-# === 2. COMMAND BASE CLASS ===
+# === 2. BASE COMMAND CLASS (renamed from Command) ===
 
 
-class Command(Generic[T]):
+class BaseCommand(Generic[T]):
     """
     Base class untuk semua command.
     Setiap command minimal harus memiliki command_id dan command_type.
@@ -281,7 +282,7 @@ class Command(Generic[T]):
         return self._result
 
     def __repr__(self) -> str:
-        return f"Command({self.command_type}, id={self.command_id})"
+        return f"BaseCommand({self.command_type}, id={self.command_id})"
 
 
 # === 3. COMMAND BUS EXCEPTIONS ===
@@ -340,8 +341,8 @@ class Middleware:
 
     async def process(
         self,
-        command: Command,
-        handler: Callable[[Command], Awaitable[CommandResult]],
+        command: BaseCommand,
+        handler: Callable[[BaseCommand], Awaitable[CommandResult]],
         context: dict[str, Any],
     ) -> CommandResult:
         """Process command dengan middleware. Panggil handler jika middleware ingin melanjutkan."""
@@ -358,8 +359,8 @@ class LoggingMiddleware(Middleware):
 
     async def process(
         self,
-        command: Command,
-        handler: Callable[[Command], Awaitable[CommandResult]],
+        command: BaseCommand,
+        handler: Callable[[BaseCommand], Awaitable[CommandResult]],
         context: dict[str, Any],
     ) -> CommandResult:
         log_data = {
@@ -405,8 +406,8 @@ class AuditMiddleware(Middleware):
 
     async def process(
         self,
-        command: Command,
-        handler: Callable[[Command], Awaitable[CommandResult]],
+        command: BaseCommand,
+        handler: Callable[[BaseCommand], Awaitable[CommandResult]],
         context: dict[str, Any],
     ) -> CommandResult:
         # Catat command mulai
@@ -434,8 +435,8 @@ class IdempotencyMiddleware(Middleware):
 
     async def process(
         self,
-        command: Command,
-        handler: Callable[[Command], Awaitable[CommandResult]],
+        command: BaseCommand,
+        handler: Callable[[BaseCommand], Awaitable[CommandResult]],
         context: dict[str, Any],
     ) -> CommandResult:
         if not command.idempotency_key:
@@ -484,8 +485,8 @@ class TransactionMiddleware(Middleware):
 
     async def process(
         self,
-        command: Command,
-        handler: Callable[[Command], Awaitable[CommandResult]],
+        command: BaseCommand,
+        handler: Callable[[BaseCommand], Awaitable[CommandResult]],
         context: dict[str, Any],
     ) -> CommandResult:
         # Wrap handler dalam transaksi
@@ -504,8 +505,8 @@ class TimeoutMiddleware(Middleware):
 
     async def process(
         self,
-        command: Command,
-        handler: Callable[[Command], Awaitable[CommandResult]],
+        command: BaseCommand,
+        handler: Callable[[BaseCommand], Awaitable[CommandResult]],
         context: dict[str, Any],
     ) -> CommandResult:
         timeout = command.metadata.get("timeout_seconds", self._default_timeout)
@@ -532,8 +533,8 @@ class RetryMiddleware(Middleware):
 
     async def process(
         self,
-        command: Command,
-        handler: Callable[[Command], Awaitable[CommandResult]],
+        command: BaseCommand,
+        handler: Callable[[BaseCommand], Awaitable[CommandResult]],
         context: dict[str, Any],
     ) -> CommandResult:
         last_exception = None
@@ -574,8 +575,8 @@ class RateLimitMiddleware(Middleware):
 
     async def process(
         self,
-        command: Command,
-        handler: Callable[[Command], Awaitable[CommandResult]],
+        command: BaseCommand,
+        handler: Callable[[BaseCommand], Awaitable[CommandResult]],
         context: dict[str, Any],
     ) -> CommandResult:
         # Determine rate limit key
@@ -653,7 +654,7 @@ class UnifiedCommandBus:
         }
 
         # Event subscribers
-        self._event_subscribers: list[Callable[[Command, CommandResult], None]] = []
+        self._event_subscribers: list[Callable[[BaseCommand, CommandResult], None]] = []
 
         logger.info(
             "UnifiedCommandBus initialized",
@@ -705,7 +706,7 @@ class UnifiedCommandBus:
 
         self._middlewares = middlewares
 
-    async def dispatch(self, command: Command) -> CommandResult:
+    async def dispatch(self, command: BaseCommand) -> CommandResult:
         """
         Dispatch command ke handler yang sesuai.
         Melewati pipeline middleware.
@@ -753,7 +754,7 @@ class UnifiedCommandBus:
                 )
 
             # Build middleware chain
-            async def final_handler(cmd: Command) -> CommandResult:
+            async def final_handler(cmd: BaseCommand) -> CommandResult:
                 # Execute through sealed gate
                 result = await self._sealed_gate.execute(
                     command_type=cmd.command_type,
@@ -844,7 +845,7 @@ class UnifiedCommandBus:
             ContextHolder.clear()
 
     def register_handler(
-        self, command_type: str, handler: Callable[[Command], Awaitable[CommandResult]]
+        self, command_type: str, handler: Callable[[BaseCommand], Awaitable[CommandResult]]
     ) -> None:
         """Register command handler."""
         self._registry.register_handler(command_type, handler)
@@ -857,16 +858,16 @@ class UnifiedCommandBus:
             self._middlewares.insert(position, middleware)
         logger.info(f"Registered middleware: {middleware.name}")
 
-    def subscribe(self, callback: Callable[[Command, CommandResult], None]) -> None:
+    def subscribe(self, callback: Callable[[BaseCommand, CommandResult], None]) -> None:
         """Subscribe to command execution events."""
         self._event_subscribers.append(callback)
 
-    def unsubscribe(self, callback: Callable[[Command, CommandResult], None]) -> None:
+    def unsubscribe(self, callback: Callable[[BaseCommand, CommandResult], None]) -> None:
         """Unsubscribe from command execution events."""
         if callback in self._event_subscribers:
             self._event_subscribers.remove(callback)
 
-    async def _notify_subscribers(self, command: Command, result: CommandResult) -> None:
+    async def _notify_subscribers(self, command: BaseCommand, result: CommandResult) -> None:
         """Notify all subscribers of command execution."""
         for subscriber in self._event_subscribers:
             try:
@@ -1022,7 +1023,7 @@ def get_command_bus() -> UnifiedCommandBus:
     return _command_bus_instance
 
 
-async def dispatch_command(command: Command) -> CommandResult:
+async def dispatch_command(command: BaseCommand) -> CommandResult:
     """Convenience function to dispatch command using singleton bus."""
     return await get_command_bus().dispatch(command)
 
@@ -1039,8 +1040,8 @@ def reset_command_bus() -> None:
 
 __all__ = [
     "AuditMiddleware",
+    "BaseCommand",
     "CachePort",
-    "Command",
     "CommandBus",
     "CommandBusClosedError",
     "CommandBusError",
@@ -1063,5 +1064,3 @@ __all__ = [
     "get_command_bus",
     "reset_command_bus",
 ]
-
-CommandBusUnified = UnifiedCommandBus

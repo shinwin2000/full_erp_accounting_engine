@@ -6,6 +6,7 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel petty_cash_fund.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from decimal import Decimal
@@ -34,17 +35,17 @@ class PettyCashFundTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         CheckConstraint("current_balance >= 0", name="ck_petty_cash_balance_nonneg"),
         CheckConstraint("status IN ('active', 'closed')", name="ck_petty_cash_status"),
         Index("idx_petty_cash_legal_entity", "legal_entity_id"),
-        Index("idx_petty_cash_custodian", "custodian_id")
+        Index("idx_petty_cash_custodian", "custodian_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     fund_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    legal_entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    legal_entity_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     currency_code: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
     current_balance: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     initial_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
-    custodian_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    gl_account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    custodian_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    gl_account_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     reimbursement_threshold: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=1000000)
     fund_location: Mapped[str | None] = mapped_column(String(200), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")

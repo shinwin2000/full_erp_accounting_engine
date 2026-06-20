@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_audit_router.py
@@ -22,7 +23,9 @@ Method Standards (ERP):
 - version_audit_record()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -31,6 +34,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -450,12 +454,12 @@ class AuditStatisticsSchema(BaseModel):
 # ============================================================================
 
 
-async def get_audit_service() -> Any:
+async def get_audit_service(request: Request, ) -> Any:
     """Get Audit Service instance."""
     from application.service_layer.service_audit import AuditService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(AuditService)
 
 

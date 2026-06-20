@@ -60,7 +60,7 @@ class SystemSettingTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         Index("idx_system_setting_category", "category"),
         Index("idx_system_setting_scope", "scope"),
         Index("idx_system_setting_legal_entity", "legal_entity_id"),
-        Index("idx_system_setting_status", "is_active")
+        Index("idx_system_setting_status", "is_active"),
     )
 
     # Setting identification

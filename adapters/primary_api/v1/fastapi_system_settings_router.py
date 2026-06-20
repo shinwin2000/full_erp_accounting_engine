@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_system_settings_router.py
@@ -5,7 +6,9 @@ Layer: Adapters (Primary API - v1)
 Responsibility: REST API endpoint untuk system settings.
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 import re
@@ -14,6 +17,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -499,11 +503,11 @@ class SettingSchemaSchema(BaseModel):
 # ============================================================================
 
 
-async def get_settings_service() -> Any:
+async def get_settings_service(request: Request, ) -> Any:
     from application.service_layer.service_system_settings import SystemSettingsService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(SystemSettingsService)
 
 
@@ -594,7 +598,7 @@ async def create_setting(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create setting: {e}")
+        logger.exception("Failed to create setting: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -613,7 +617,10 @@ async def get_setting(
     try:
         setting = await service.get_setting(key, legal_entity_id)
         if not setting:
-            raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Setting '{}' not found".format(key),  # nosec
+            )
         return SettingResponseSchema(
             id=setting.id,
             key=setting.key,
@@ -647,7 +654,7 @@ async def get_setting(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get setting: {e}")
+        logger.exception("Failed to get setting: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -706,7 +713,7 @@ async def get_settings_by_category(
             for s in settings
         ]
     except Exception as e:
-        logger.exception(f"Failed to get settings by category: {e}")
+        logger.exception("Failed to get settings by category: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -745,7 +752,10 @@ async def update_setting(
             updated_by=current_user.user_id,
         )
         if not result:
-            raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Setting '{}' not found".format(key),  # nosec
+            )
         return SettingResponseSchema(
             id=result.id,
             key=result.key,
@@ -781,7 +791,7 @@ async def update_setting(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update setting: {e}")
+        logger.exception("Failed to update setting: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -804,14 +814,21 @@ async def deactivate_setting(
             key, legal_entity_id, current_user.user_id, reason
         )
         if not result:
-            raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
-        return {"key": key, "deactivated": True, "message": f"Setting '{key}' deactivated"}
+            raise HTTPException(
+                status_code=404,
+                detail="Setting '{}' not found".format(key),  # nosec
+            )
+        return {
+            "key": key,
+            "deactivated": True,
+            "message": "Setting '{}' deactivated".format(key),  # nosec
+        }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to deactivate setting: {e}")
+        logger.exception("Failed to deactivate setting: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -831,63 +848,9 @@ async def activate_setting(
     try:
         result = await service.activate_setting(key, legal_entity_id, current_user.user_id)
         if not result:
-            raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
-        return SettingResponseSchema(
-            id=result.id,
-            key=result.key,
-            value=result.value,
-            data_type=SettingDataType(result.data_type),
-            description=result.description,
-            category=SettingCategory(result.category),
-            scope=SettingScope(result.scope),
-            legal_entity_id=result.legal_entity_id,
-            user_id=result.user_id,
-            role_id=result.role_id,
-            branch_id=result.branch_id,
-            validation_regex=result.validation_regex,
-            min_value=result.min_value,
-            max_value=result.max_value,
-            allowed_values=result.allowed_values,
-            default_value=result.default_value,
-            is_readonly=result.is_readonly,
-            is_encrypted=result.is_encrypted,
-            is_active=result.is_active,
-            is_locked=result.is_locked,
-            tags=result.tags,
-            version=result.version,
-            created_at=result.created_at,
-            updated_at=result.updated_at,
-            created_by=result.created_by,
-            created_by_name=result.created_by_name,
-            updated_by=result.updated_by,
-            updated_by_name=result.updated_by_name,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        logger.exception(f"Failed to activate setting: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.post(
-    "/{key}/reset",
-    response_model=SettingResponseSchema,
-    summary="Reset setting to default",
-    operation_id="reset_setting",
-)
-async def reset_setting(
-    key: str,
-    reason: str = Query("", description="Reason for reset"),
-    _permission: None = Depends(require_permission("settings:update")),
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
-) -> SettingResponseSchema:
-    try:
-        result = await service.reset_to_default(key, legal_entity_id, current_user.user_id, reason)
-        if not result:
             raise HTTPException(
-                status_code=404, detail=f"Setting '{key}' not found or no default"
+                status_code=404,
+                detail="Setting '{}' not found".format(key),  # nosec
             )
         return SettingResponseSchema(
             id=result.id,
@@ -922,7 +885,65 @@ async def reset_setting(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to reset setting: {e}")
+        logger.exception("Failed to activate setting: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post(
+    "/{key}/reset",
+    response_model=SettingResponseSchema,
+    summary="Reset setting to default",
+    operation_id="reset_setting",
+)
+async def reset_setting(
+    key: str,
+    reason: str = Query("", description="Reason for reset"),
+    _permission: None = Depends(require_permission("settings:update")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_settings_service),
+) -> SettingResponseSchema:
+    try:
+        result = await service.reset_to_default(key, legal_entity_id, current_user.user_id, reason)
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail="Setting '{}' not found or no default".format(key),  # nosec
+            )
+        return SettingResponseSchema(
+            id=result.id,
+            key=result.key,
+            value=result.value,
+            data_type=SettingDataType(result.data_type),
+            description=result.description,
+            category=SettingCategory(result.category),
+            scope=SettingScope(result.scope),
+            legal_entity_id=result.legal_entity_id,
+            user_id=result.user_id,
+            role_id=result.role_id,
+            branch_id=result.branch_id,
+            validation_regex=result.validation_regex,
+            min_value=result.min_value,
+            max_value=result.max_value,
+            allowed_values=result.allowed_values,
+            default_value=result.default_value,
+            is_readonly=result.is_readonly,
+            is_encrypted=result.is_encrypted,
+            is_active=result.is_active,
+            is_locked=result.is_locked,
+            tags=result.tags,
+            version=result.version,
+            created_at=result.created_at,
+            updated_at=result.updated_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            updated_by=result.updated_by,
+            updated_by_name=result.updated_by_name,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to reset setting: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -960,7 +981,7 @@ async def bulk_update_settings(
             "dry_run": request.dry_run,
         }
     except Exception as e:
-        logger.exception(f"Failed to bulk update settings: {e}")
+        logger.exception("Failed to bulk update settings: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -989,7 +1010,7 @@ async def bulk_reset_settings(
             "errors": result.errors,
         }
     except Exception as e:
-        logger.exception(f"Failed to bulk reset settings: {e}")
+        logger.exception("Failed to bulk reset settings: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1017,7 +1038,7 @@ async def export_settings(
         )
         return data
     except Exception as e:
-        logger.exception(f"Failed to export settings: {e}")
+        logger.exception("Failed to export settings: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1048,7 +1069,7 @@ async def import_settings(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to import settings: {e}")
+        logger.exception("Failed to import settings: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1081,7 +1102,7 @@ async def validate_setting(
             normalized_value=result.normalized_value,
         )
     except Exception as e:
-        logger.exception(f"Failed to validate setting: {e}")
+        logger.exception("Failed to validate setting: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1117,7 +1138,7 @@ async def get_setting_schema(
             for s in schemas
         ]
     except Exception as e:
-        logger.exception(f"Failed to get setting schema: {e}")
+        logger.exception("Failed to get setting schema: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1144,7 +1165,7 @@ async def get_setting_categories(
             for c in categories
         ]
     except Exception as e:
-        logger.exception(f"Failed to get setting categories: {e}")
+        logger.exception("Failed to get setting categories: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1184,7 +1205,7 @@ async def get_setting_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get setting history: {e}")
+        logger.exception("Failed to get setting history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1223,7 +1244,7 @@ async def get_settings_audit_trail(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get settings audit trail: {e}")
+        logger.exception("Failed to get settings audit trail: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1249,7 +1270,10 @@ async def lock_setting(
     try:
         result = await service.lock_setting(key, legal_entity_id, current_user.user_id, reason)
         if not result:
-            raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Setting '{}' not found".format(key),  # nosec
+            )
         return SettingResponseSchema(
             id=result.id,
             key=result.key,
@@ -1285,7 +1309,7 @@ async def lock_setting(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to lock setting: {e}")
+        logger.exception("Failed to lock setting: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1306,7 +1330,10 @@ async def unlock_setting(
     try:
         result = await service.unlock_setting(key, legal_entity_id, current_user.user_id, reason)
         if not result:
-            raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
+            raise HTTPException(
+                status_code=404,
+                detail="Setting '{}' not found".format(key),  # nosec
+            )
         return SettingResponseSchema(
             id=result.id,
             key=result.key,
@@ -1340,7 +1367,7 @@ async def unlock_setting(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to unlock setting: {e}")
+        logger.exception("Failed to unlock setting: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

@@ -20,6 +20,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -41,6 +42,14 @@ from infrastructure.persistence_orm.base_model import (
     TimestampMixin,
     VersionMixin,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.persistence_orm.ar_credit_note_table import ARCreditNoteTable
+    from infrastructure.persistence_orm.ar_invoice_line_table import ARInvoiceLineTable
+    from infrastructure.persistence_orm.ar_payment_table import ARPaymentTable
+    from infrastructure.persistence_orm.coretax_bupot_table import CoretaxBupotTable
+    from infrastructure.persistence_orm.customer_table import CustomerTable
+    from infrastructure.persistence_orm.sales_order_table import SalesOrderTable
 
 
 class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
@@ -70,7 +79,8 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_ar_invoice_status", "status"),
         Index("idx_ar_invoice_legal_entity", "legal_entity_id"),
         Index("idx_ar_invoice_sales_order", "sales_order_id"),
-        Index("idx_ar_invoice_outstanding", "total_amount", "paid_amount")
+        Index("idx_ar_invoice_outstanding", "total_amount", "paid_amount"),
+        {"schema": "public", "extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -80,9 +90,11 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
 
-    # Customer
+    # Customer (foreign key with schema)
     customer_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("customer.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("public.customer.id", ondelete="RESTRICT"),
+        nullable=False,
     )
 
     # Financial totals
@@ -101,7 +113,9 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # Reference
     reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     sales_order_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("sales_order.id"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("public.sales_order.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     # Tax invoice (faktur pajak)
@@ -118,20 +132,50 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # RELATIONSHIPS
     # ========================================================================
 
-    customer: Mapped[CustomerTable] = relationship("CustomerTable", back_populates="ar_invoices")
-    sales_order: Mapped[SalesOrderTable | None] = relationship(
-        "SalesOrderTable", back_populates="ar_invoices"
+    # Customer
+    customer: Mapped["CustomerTable"] = relationship(
+        "CustomerTable",
+        back_populates="ar_invoices",
+        foreign_keys=[customer_id],
     )
 
-    lines: Mapped[list[ARInvoiceLineTable]] = relationship(
+    # Sales Order (optional)
+    sales_order: Mapped["SalesOrderTable | None"] = relationship(
+        "SalesOrderTable",
+        back_populates="ar_invoices",
+        foreign_keys=[sales_order_id],
+    )
+
+    # Invoice lines
+    lines: Mapped[list["ARInvoiceLineTable"]] = relationship(
         "ARInvoiceLineTable",
         back_populates="invoice",
         cascade="all, delete-orphan",
         order_by="ARInvoiceLineTable.line_number",
     )
 
-    payments: Mapped[list[ARPaymentTable]] = relationship(
-        "ARPaymentTable", back_populates="invoice"
+    # Payments
+    payments: Mapped[list["ARPaymentTable"]] = relationship(
+        "ARPaymentTable",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+    )
+
+    # Credit Notes
+    credit_notes: Mapped[list["ARCreditNoteTable"]] = relationship(
+        "ARCreditNoteTable",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+    )
+
+    # ========================================================================
+    # Bupots (Coretax) – ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
+    # ========================================================================
+    bupots: Mapped[list["CoretaxBupotTable"]] = relationship(
+        "CoretaxBupotTable",
+        back_populates="invoice",
+        foreign_keys="[CoretaxBupotTable.invoice_id]",
+        cascade="all, delete-orphan",
     )
 
     # ========================================================================

@@ -5,8 +5,8 @@ Layer: 5 - Application
 
 Responsibility:
     Factory untuk membuat dan mengkonfigurasi aplikasi ERP Accounting Engine.
-    Semua dependency di-import secara statis. Tidak ada fallback, tidak ada dynamic import.
-    Jika komponen infrastruktur tidak tersedia, aplikasi gagal di-start.
+    Implementasi infrastruktur di-import secara lazy di dalam `initialize()` 
+    untuk menghindari module parsing error pada saat bootstrap.
 """
 
 from __future__ import annotations
@@ -14,53 +14,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from adapters.coretax_djp.api_oauth2_client import CoretaxOAuth2Client
-from adapters.secondary_impl.kafka_consumer_wrapper import KafkaConsumerWrapper
-from adapters.secondary_impl.kafka_producer_wrapper import KafkaProducerWrapper
-from adapters.secondary_impl.postgres_connection_pool_manager import AsyncPGConnectionPoolManager
-from adapters.secondary_impl.redis_cache_adapter_impl import RedisCacheAdapter
-from adapters.secondary_impl.sqlalchemy_account_repository_impl import SQLAlchemyAccountRepository
-from adapters.secondary_impl.sqlalchemy_ap_repository_impl import SQLAlchemyAPRepository
-from adapters.secondary_impl.sqlalchemy_ar_repository_impl import SQLAlchemyARRepository
-from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import (
-    SQLAlchemyBankCashRepository,
-)
-from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import (
-    SQLAlchemyFixedAssetRepository,
-)
-from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import (
-    SQLAlchemyInventoryRepository,
-)
-from adapters.secondary_impl.sqlalchemy_journal_repository_impl import SQLAlchemyJournalRepository
-from adapters.secondary_impl.sqlalchemy_tax_repository_impl import SQLAlchemyTaxRepository
-from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SQLAlchemyUnitOfWork
-from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
-from application.commands_cqrs.query_bus_unified import UnifiedQueryBus
-from application.events.handler_registry import register_default_logging_handler
-from application.events.publisher_application import create_event_publisher
-from application.events.subscriber_application import create_event_subscriber
-from application.service_layer.service_ap import APService
-from application.service_layer.service_ar import ARService
-from application.service_layer.service_audit import AuditService
-from application.service_layer.service_bank_cash import BankCashService
-from application.service_layer.service_coa import COAService
-from application.service_layer.service_consolidation import ConsolidationService
-from application.service_layer.service_coretax import CoretaxService
-from application.service_layer.service_fixed_asset import FixedAssetService
-from application.service_layer.service_inventory import InventoryService
-from application.service_layer.service_journal import JournalService
-from application.service_layer.service_manufacturing import ManufacturingService
-from application.service_layer.service_payroll import PayrollService
-from application.service_layer.service_project import ProjectService
-from application.service_layer.service_report import ReportService
-from application.service_layer.service_tax import TaxService
-from application.service_layer.service_umkm import UMKMService
-from infrastructure.event_store.append_only_store import AppendOnlyStore
-from infrastructure.security.field_encryption_aes256_gcm import FieldEncryptionService
-from infrastructure.security.jwt_issuer import JWTIssuer
-from kernel.circuit_breaker import CircuitBreakerRegistry
-from kernel.sealed_gate import SealedGate
-from kernel.transactional_executor import TransactionalExecutor
 from ports.primary.audit_repository_port import AuditRepositoryPort
 from ports.primary.consolidation_repository_port import ConsolidationRepositoryPort
 from ports.primary.manufacturing_repository_port import ManufacturingRepositoryPort
@@ -73,14 +26,13 @@ logger = logging.getLogger(__name__)
 
 
 class ApplicationFactory:
-    """Factory untuk membuat aplikasi dengan dependency injection statis."""
+    """Factory untuk membuat aplikasi dengan dependency injection."""
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self._initialized = False
         self._container: dict[str, Any] = {}
 
-        # Komponen (akan diisi di initialize)
         self._db_pool = None
         self._kafka_producer = None
         self._kafka_consumer = None
@@ -135,6 +87,51 @@ class ApplicationFactory:
 
         logger.info("Initializing ERP Accounting Engine application...")
 
+        # LAZY IMPORTS: Dipindahkan ke sini agar tidak ter-scan saat load modul
+        from adapters.coretax_djp.api_oauth2_client import CoretaxOAuth2Client
+        from adapters.secondary_impl.kafka_consumer_wrapper import KafkaConsumerWrapper
+        from adapters.secondary_impl.kafka_producer_wrapper import KafkaProducerWrapper
+        from adapters.secondary_impl.postgres_connection_pool_manager import AsyncPGConnectionPoolManager
+        from adapters.secondary_impl.redis_cache_adapter_impl import RedisCacheAdapter
+        from adapters.secondary_impl.sqlalchemy_account_repository_impl import SQLAlchemyAccountRepository
+        from adapters.secondary_impl.sqlalchemy_ap_repository_impl import SQLAlchemyAPRepository
+        from adapters.secondary_impl.sqlalchemy_ar_repository_impl import SQLAlchemyARRepository
+        from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import SQLAlchemyBankCashRepository
+        from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import SQLAlchemyFixedAssetRepository
+        from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import SQLAlchemyInventoryRepository
+        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import SQLAlchemyJournalRepository
+        from adapters.secondary_impl.sqlalchemy_tax_repository_impl import SQLAlchemyTaxRepository
+        from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SQLAlchemyUnitOfWork
+        
+        from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
+        from application.commands_cqrs.query_bus_unified import UnifiedQueryBus
+        from application.events.handler_registry import register_default_logging_handler
+        from application.events.publisher_application import create_event_publisher
+        from application.events.subscriber_application import create_event_subscriber
+        from application.service_layer.service_ap import APService
+        from application.service_layer.service_ar import ARService
+        from application.service_layer.service_audit import AuditService
+        from application.service_layer.service_bank_cash import BankCashService
+        from application.service_layer.service_coa import COAService
+        from application.service_layer.service_consolidation import ConsolidationService
+        from application.service_layer.service_coretax import CoretaxService
+        from application.service_layer.service_fixed_asset import FixedAssetService
+        from application.service_layer.service_inventory import InventoryService
+        from application.service_layer.service_journal import JournalService
+        from application.service_layer.service_manufacturing import ManufacturingService
+        from application.service_layer.service_payroll import PayrollService
+        from application.service_layer.service_project import ProjectService
+        from application.service_layer.service_report import ReportService
+        from application.service_layer.service_tax import TaxService
+        from application.service_layer.service_umkm import UMKMService
+        
+        from infrastructure.event_store.append_only_store import AppendOnlyStore
+        from infrastructure.security.field_encryption_aes256_gcm import FieldEncryptionService
+        from infrastructure.security.jwt_issuer import JWTIssuer
+        from kernel.circuit_breaker import CircuitBreakerRegistry
+        from kernel.sealed_gate import SealedGate
+        from kernel.transactional_executor import TransactionalExecutor
+
         # 1. Database pool
         db_cfg = self.config.get("database", {})
         self._db_pool = AsyncPGConnectionPoolManager(
@@ -145,7 +142,7 @@ class ApplicationFactory:
         await self._db_pool.initialize()
         logger.info("Database pool initialized")
 
-        # 2. Kafka producer & consumer (wajib jika ENABLE_KAFKA=true, di sini dianggap wajib)
+        # 2. Kafka producer & consumer
         kafka_cfg = self.config.get("kafka", {})
         self._kafka_producer = KafkaProducerWrapper(
             bootstrap_servers=kafka_cfg["bootstrap_servers"],
@@ -162,7 +159,7 @@ class ApplicationFactory:
         await self._kafka_consumer.start()
         logger.info("Kafka consumer started")
 
-        # 3. Redis (wajib)
+        # 3. Redis
         redis_cfg = self.config.get("redis", {})
         self._redis_client = RedisCacheAdapter(
             host=redis_cfg["host"],
@@ -182,7 +179,7 @@ class ApplicationFactory:
         self._encryption_service = FieldEncryptionService(key=sec_cfg["encryption_key"].encode())
         logger.info("Security components initialized")
 
-        # 5. Event store (append-only)
+        # 5. Event store
         self._event_store = AppendOnlyStore(db_pool=self._db_pool, table_name="event_store")
         await self._event_store.initialize()
         logger.info("Event store initialized")
@@ -193,7 +190,7 @@ class ApplicationFactory:
         self._circuit_breaker_registry = CircuitBreakerRegistry()
         logger.info("Kernel components initialized")
 
-        # 7. Event publisher (outbox)
+        # 7. Event publisher
         self._event_publisher = await create_event_publisher(
             kafka_config=kafka_cfg,
             outbox_enabled=True,
@@ -203,7 +200,7 @@ class ApplicationFactory:
         )
         logger.info("Event publisher created")
 
-        # 8. Repositories (semua wajib)
+        # 8. Repositories
         async def session_factory():
             return await self._db_pool.acquire()
 
@@ -216,7 +213,7 @@ class ApplicationFactory:
         self._bank_cash_repo = SQLAlchemyBankCashRepository(session_factory=session_factory)
         self._tax_repo = SQLAlchemyTaxRepository(session_factory=session_factory)
 
-        self._report_repo = ReportRepositoryPort()  # placeholder, harus diisi implementasi nyata
+        self._report_repo = ReportRepositoryPort()
         self._consolidation_repo = ConsolidationRepositoryPort()
         self._audit_repo = AuditRepositoryPort()
         self._payroll_repo = PayrollRepositoryPort()

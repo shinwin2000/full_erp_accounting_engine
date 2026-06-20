@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Module: fastapi_umkm_router.py
@@ -19,7 +20,9 @@ Method Standards (ERP):
 - version_journal()
 """
 
+
 from __future__ import annotations
+from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -28,6 +31,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from adapters.dependency_provider import get_service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -316,12 +320,12 @@ class TransactionSummarySchema(BaseModel):
 # ============================================================================
 
 
-async def get_umkm_service() -> Any:
+async def get_umkm_service(request: Request, ) -> Any:
     """Get UMKM Simplified Service instance."""
     from application.service_layer.service_umkm import UMKMSimplifiedService
-    from infrastructure.dependency_container.ioc_container import get_container
+    from fastapi import Request
 
-    container = get_container()
+    container = request.app.state.container
     return container.resolve(UMKMSimplifiedService)
 
 
@@ -395,7 +399,7 @@ async def create_journal_entry(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create journal entry: {e}")
+        logger.exception("Failed to create journal entry: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -458,7 +462,7 @@ async def list_journal_entries(
             for j in result.items
         ]
     except Exception as e:
-        logger.exception(f"Failed to list journal entries: {e}")
+        logger.exception("Failed to list journal entries: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -510,7 +514,7 @@ async def get_journal_entry(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get journal entry: {e}")
+        logger.exception("Failed to get journal entry: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -578,7 +582,7 @@ async def update_journal_entry(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update journal entry: {e}")
+        logger.exception("Failed to update journal entry: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -616,7 +620,7 @@ async def cancel_journal_entry(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to cancel journal entry: {e}")
+        logger.exception("Failed to cancel journal entry: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -671,7 +675,7 @@ async def post_journal_entry(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to post journal entry: {e}")
+        logger.exception("Failed to post journal entry: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -732,7 +736,7 @@ async def reverse_journal_entry(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to reverse journal entry: {e}")
+        logger.exception("Failed to reverse journal entry: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -779,7 +783,7 @@ async def get_income_statement(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get income statement: {e}")
+        logger.exception("Failed to get income statement: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -814,7 +818,7 @@ async def get_balance_sheet(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get balance sheet: {e}")
+        logger.exception("Failed to get balance sheet: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -857,7 +861,7 @@ async def get_cash_flow(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get cash flow: {e}")
+        logger.exception("Failed to get cash flow: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -900,7 +904,7 @@ async def get_tax_compliance(
             calculated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get tax compliance: {e}")
+        logger.exception("Failed to get tax compliance: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -950,7 +954,7 @@ async def get_business_profile(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get business profile: {e}")
+        logger.exception("Failed to get business profile: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1013,7 +1017,7 @@ async def update_business_profile(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update business profile: {e}")
+        logger.exception("Failed to update business profile: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1054,7 +1058,7 @@ async def get_transaction_summary(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get transaction summary: {e}")
+        logger.exception("Failed to get transaction summary: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1126,7 +1130,7 @@ async def get_journal_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get journal history: {e}")
+        logger.exception("Failed to get journal history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1165,7 +1169,7 @@ async def get_journal_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get journal status: {e}")
+        logger.exception("Failed to get journal status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1201,15 +1205,15 @@ async def export_transactions(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"umkm_transactions_{legal_entity_id}_{start_date}_{end_date}.{format}"
+        filename = "umkm_transactions_{}_{}_{}.{}".format(legal_entity_id, start_date, end_date, format)
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
+            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
         )
     except Exception as e:
-        logger.exception(f"Failed to export transactions: {e}")
+        logger.exception("Failed to export transactions: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

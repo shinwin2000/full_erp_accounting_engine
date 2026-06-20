@@ -3,13 +3,6 @@
 Module: warehouse_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel warehouse (gudang).
-               Tabel ini menyimpan data gudang/lokasi penyimpanan barang,
-               termasuk alamat, kapasitas, dan status operasional.
-Dependencies:
-- sqlalchemy.orm (Mapped, mapped_column, relationship)
-- sqlalchemy.dialects.postgresql (UUID, JSONB)
-- infrastructure.persistence_orm.base_model (Base, TimestampMixin, SoftDeleteMixin, VersionMixin)
-Audit: Setiap perubahan pada warehouse dicatat di event store.
 """
 
 from __future__ import annotations
@@ -22,18 +15,19 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    ForeignKey,
     Index,
     Numeric,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
     Base,
+    LegalEntityMixin,
     SoftDeleteMixin,
     TimestampMixin,
     VersionMixin,
@@ -45,17 +39,7 @@ if TYPE_CHECKING:
     from infrastructure.persistence_orm.stock_opname_table import StockOpnameTable
 
 
-# ============================================================================
-# WAREHOUSE MODEL
-# ============================================================================
-
-
-class WarehouseTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
-    """
-    Model untuk tabel warehouse.
-    Menyimpan data gudang/lokasi penyimpanan.
-    """
-
+class WarehouseTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     __tablename__ = "warehouse"
     __table_args__ = (
         UniqueConstraint("warehouse_code", "legal_entity_id", name="uq_warehouse_code_entity"),
@@ -72,22 +56,19 @@ class WarehouseTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         Index("idx_warehouse_status", "status"),
         Index("idx_warehouse_type", "warehouse_type"),
         Index("idx_warehouse_location", "location_code"),
-        {"extend_existing": True},
+        {"schema": "public", "extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    legal_entity_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), nullable=False, index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # legal_entity_id sudah ditangani oleh LegalEntityMixin
+    # tapi kita tetap mendefinisikan ulang jika perlu, atau biarkan mixin menyediakannya.
+    # Karena kita menggunakan LegalEntityMixin, kolom legal_entity_id sudah ada.
+    # Jadi kita tidak perlu mendefinisikan ulang di sini.
+    # Namun jika ingin eksplisit, bisa ditambahkan. Tapi biarkan mixin yang menangani.
 
-    # Basic information
     warehouse_code: Mapped[str] = mapped_column(String(50), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    warehouse_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="standard"
-    )  # standard, cold_storage, hazardous, bonded
+    warehouse_type: Mapped[str] = mapped_column(String(50), nullable=False, default="standard")
     location_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -98,56 +79,45 @@ class WarehouseTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
     contact_person: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
-    # Capacity and utilization
-    total_capacity: Mapped[Decimal] = mapped_column(
-        Numeric(20, 2), nullable=False, default=0
-    )  # in cubic meters or pallets
+    total_capacity: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     used_capacity: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     capacity_uom: Mapped[str] = mapped_column(String(10), nullable=False, default="PALLET")
 
-    # Status
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-
-    # Operating hours
-    operating_hours: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True
-    )  # {"monday": "09:00-17:00", ...}
-
-    # Notes
+    operating_hours: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    # Audit
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
-
-    # Extra metadata
     extra_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # ========================================================================
     # RELATIONSHIPS
     # ========================================================================
 
-    # Items in this warehouse (via inventory item table)
-    items: Mapped[list[InventoryItemTable]] = relationship(
-        "InventoryItemTable", back_populates="warehouse", lazy="selectin"
+    items: Mapped[list["InventoryItemTable"]] = relationship(
+        "InventoryItemTable",
+        back_populates="warehouse",
+        lazy="selectin",
     )
 
-    # Stock movements from/to this warehouse
-    movements_from: Mapped[list[InventoryMovementTable]] = relationship(
+    movements_from: Mapped[list["InventoryMovementTable"]] = relationship(
         "InventoryMovementTable",
-        foreign_keys="InventoryMovementTable.from_warehouse_id",
+        foreign_keys="[InventoryMovementTable.warehouse_id]",
         back_populates="from_warehouse",
     )
-    movements_to: Mapped[list[InventoryMovementTable]] = relationship(
+    movements_to: Mapped[list["InventoryMovementTable"]] = relationship(
         "InventoryMovementTable",
-        foreign_keys="InventoryMovementTable.to_warehouse_id",
+        foreign_keys="[InventoryMovementTable.to_warehouse_id]",
         back_populates="to_warehouse",
     )
 
-    # Stock opname records at this warehouse
-    stock_opnames: Mapped[list[StockOpnameTable]] = relationship(
-        "StockOpnameTable", foreign_keys="StockOpnameTable.warehouse_id"
+    # Relasi stock_opnames diperbaiki: back_populates="warehouse" dan tanpa foreign_keys
+    # SQLAlchemy akan otomatis mendeteksi foreign key dari StockOpnameTable.warehouse_id
+    stock_opnames: Mapped[list["StockOpnameTable"]] = relationship(
+        "StockOpnameTable",
+        back_populates="warehouse",
+        lazy="selectin",
     )
 
     # ========================================================================
@@ -200,9 +170,7 @@ class WarehouseTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     def set_maintenance(self, user_id: uuid.UUID, until_date: date | None = None) -> None:
         self.status = "maintenance"
         if self.extra_metadata:
-            self.extra_metadata["maintenance_until"] = (
-                until_date.isoformat() if until_date else None
-            )
+            self.extra_metadata["maintenance_until"] = until_date.isoformat() if until_date else None
             self.extra_metadata["maintenance_by"] = str(user_id)
         self.increment_version()
 
@@ -260,4 +228,4 @@ class WarehouseTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         }
 
 
-__all__ = ["Base", "WarehouseTable"]
+__all__ = ["WarehouseTable"]

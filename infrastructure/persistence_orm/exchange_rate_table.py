@@ -12,6 +12,7 @@ Audit: Setiap perubahan exchange rate dicatat di event store.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date, datetime
@@ -64,10 +65,10 @@ class ExchangeRateTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         Index("idx_exchange_rate_currency_pair", "from_currency", "to_currency"),
         Index("idx_exchange_rate_legal_entity", "legal_entity_id"),
         Index("idx_exchange_rate_source", "source"),
-        Index("idx_exchange_rate_is_active", "is_active")
+        Index("idx_exchange_rate_is_active", "is_active"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
+    id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 

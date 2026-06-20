@@ -15,6 +15,7 @@ Audit: Data kartu stok bersifat immutable dan dihasilkan dari event store.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date, datetime
@@ -65,16 +66,16 @@ class StockCardTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_stock_card_warehouse", "warehouse_id"),
         Index("idx_stock_card_date", "movement_date"),
         Index("idx_stock_card_reference", "reference_document_type", "reference_document_number"),
-        Index("idx_stock_card_movement_id", "movement_id")
+        Index("idx_stock_card_movement_id", "movement_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Reference to the original movement (for audit)
-    movement_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, unique=True)
+    movement_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, unique=True)
 
     # Item identification
-    item_id: Mapped[uuid.UUID] = mapped_column(
+    item_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), nullable=False, index=True
     )
     item_code: Mapped[str] = mapped_column(String(50), nullable=False)

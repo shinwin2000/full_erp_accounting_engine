@@ -16,6 +16,7 @@ Audit: Dead letter events dicatat untuk observability dan debugging.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import datetime
@@ -42,14 +43,14 @@ class DeadLetterTable(Base, TimestampMixin):
         Index("idx_dle_created_at", "created_at"),
         Index("idx_dle_retry_count", "retry_count"),
         Index("idx_dle_event_id", "event_id"),
-        Index("idx_dle_resolved", "resolved_at")
+        Index("idx_dle_resolved", "resolved_at"),
     )
 
     # Primary key
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
     # Event identification
-    event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    event_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     event_type: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # Payload and error

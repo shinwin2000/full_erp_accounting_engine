@@ -12,6 +12,7 @@ Audit: Perubahan budget dicatat di event store.
 """
 
 from __future__ import annotations
+from uuid import UUID
 
 import uuid
 from datetime import date, datetime
@@ -69,10 +70,10 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
         Index("idx_budget_account_code", "account_code"),
         Index("idx_budget_cost_center", "cost_center"),
         Index("idx_budget_status", "status"),
-        Index("idx_budget_period", "fiscal_year", "period")
+        Index("idx_budget_period", "fiscal_year", "period"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
+    id: Mapped[UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 

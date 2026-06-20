@@ -42,8 +42,12 @@ if TYPE_CHECKING:
 class SalesInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     __tablename__ = "sales_invoice"
     __table_args__ = (
-        UniqueConstraint("invoice_number", "legal_entity_id", name="uq_sales_invoice_number_legal_entity"),
-        CheckConstraint("invoice_number IS NOT NULL AND invoice_number != ''", name="ck_si_number"),
+        UniqueConstraint(
+            "invoice_number", "legal_entity_id", name="uq_sales_invoice_number_legal_entity"
+        ),
+        CheckConstraint(
+            "invoice_number IS NOT NULL AND invoice_number != ''", name="ck_si_number"
+        ),
         CheckConstraint("customer_id IS NOT NULL", name="ck_si_customer"),
         CheckConstraint(
             "status IN ('draft', 'submitted', 'approved', 'partially_paid', 'paid', 'cancelled')",
@@ -56,15 +60,28 @@ class SalesInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         Index("idx_si_date", "invoice_date"),
         Index("idx_si_due_date", "due_date"),
         Index("idx_si_status", "status"),
-        Index("idx_si_so", "sales_order_id")
+        Index("idx_si_so", "sales_order_id"),
+        {"schema": "public", "extend_existing": True},
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     invoice_number: Mapped[str] = mapped_column(String(50), nullable=False)
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
-    customer_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("customer.id"), nullable=False)
-    sales_order_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("sales_order.id"), nullable=True)
+
+    # Foreign keys dengan skema public
+    customer_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("public.customer.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    sales_order_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("public.sales_order.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     total_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
     paid_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)
@@ -82,9 +99,27 @@ class SalesInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
 
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    # Relationships
-    customer: Mapped[CustomerTable] = relationship("CustomerTable", foreign_keys=[customer_id])
-    sales_order: Mapped[SalesOrderTable | None] = relationship("SalesOrderTable", foreign_keys=[sales_order_id])
+    # ========================================================================
+    # RELATIONSHIPS
+    # ========================================================================
+
+    # Relasi ke Customer (backref agar CustomerTable otomatis mendapat 'sales_invoices')
+    customer: Mapped["CustomerTable"] = relationship(
+        "CustomerTable",
+        foreign_keys=[customer_id],
+        backref="sales_invoices",
+    )
+
+    # Relasi ke Sales Order (backref agar SalesOrderTable otomatis mendapat 'sales_invoices')
+    sales_order: Mapped["SalesOrderTable | None"] = relationship(
+        "SalesOrderTable",
+        foreign_keys=[sales_order_id],
+        backref="sales_invoices",
+    )
+
+    # ========================================================================
+    # PROPERTIES
+    # ========================================================================
 
     @property
     def outstanding_amount(self) -> Decimal:
@@ -109,6 +144,10 @@ class SalesInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         if self.total_amount == 0:
             return 0.0
         return float((self.paid_amount / self.total_amount) * 100)
+
+    # ========================================================================
+    # METHODS
+    # ========================================================================
 
     def submit(self) -> None:
         if self.status != "draft":
