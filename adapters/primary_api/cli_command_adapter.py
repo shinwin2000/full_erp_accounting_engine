@@ -11,7 +11,7 @@ Responsibility: Menyediakan antarmuka command-line interface (CLI) untuk adminis
 Dependencies:
 - typer (atau argparse) untuk parsing CLI
 - click (opsional, menggunakan typer)
-- application.commands_cqrs.command_bus_unified
+- application.commands_cqrs (CommandBusUnified, QueryBusUnified)
 - kernel.sealed_gate
 - infrastructure.security.api_key_validator (untuk otentikasi CLI)
 Audit: Setiap perintah CLI dicatat di event store immutable.
@@ -35,9 +35,8 @@ from rich.table import Table
 
 from adapters.primary_api.common.fastapi_request_id_middleware import set_request_id_for_task
 
-# Internal dependencies
-from application.commands_cqrs.command_bus_unified import CommandBusUnified
-from application.commands_cqrs.query_bus_unified import QueryBusUnified
+# Internal dependencies - import dari package yang memiliki alias
+from application.commands_cqrs import CommandBusUnified, QueryBusUnified
 from infrastructure.security.api_key_validator import APIKeyValidator
 from infrastructure.security.jwt_validator import JWTValidator
 

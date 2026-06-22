@@ -23,7 +23,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_budget import BudgetService
 from application.service_layer.service_ledger import LedgerService
 from application.service_layer.service_report import ReportService
@@ -37,7 +37,7 @@ class VarianceDirection(Enum):
     UNFAVORABLE = "UNFAVORABLE"
 
 
-class BudgetVsActualCommand(Command):
+class BudgetVsActualCommand(BaseCommand):
     """Command untuk analisis budget vs actual."""
 
     __slots__ = (
@@ -381,7 +381,7 @@ class BudgetVsActualUseCase:
 
 
 async def budget_vs_actual_handler(
-    command: Command, use_case: BudgetVsActualUseCase
+    command: BaseCommand, use_case: BudgetVsActualUseCase
 ) -> CommandResult:
     if not isinstance(command, BudgetVsActualCommand):
         raise TypeError(f"Expected BudgetVsActualCommand, got {type(command)}")

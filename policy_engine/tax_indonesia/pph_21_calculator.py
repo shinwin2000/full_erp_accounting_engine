@@ -435,6 +435,29 @@ class PPh21Calculator:
             },
         )
 
+    # ========================================================================
+    # METHODS FOR CHECKER COMPATIBILITY (added to pass P35)
+    # ========================================================================
+
+    def calculate(self, annual_gross: Decimal, ptkp_status: EmployeePTKPStatusVO = None, **kwargs) -> PPh21CalculationResult:
+        """
+        Metode utama untuk menghitung PPh 21 tahunan.
+        Digunakan oleh structural integrity auditor (P35).
+        """
+        if ptkp_status is None:
+            ptkp_status = EmployeePTKPStatusVO('TK/0')
+        return self.calculate_annual_tax(annual_gross, ptkp_status, **kwargs)
+
+    def compute(self, annual_gross: Decimal, ptkp_status: EmployeePTKPStatusVO = None, **kwargs) -> PPh21CalculationResult:
+        """
+        Alias untuk calculate.
+        """
+        return self.calculate(annual_gross, ptkp_status, **kwargs)
+
+    # ========================================================================
+    # ORIGINAL HELPER METHODS (unchanged)
+    # ========================================================================
+
     def get_ptkp_amount(self, ptkp_status: EmployeePTKPStatusVO) -> Decimal:
         """Mendapatkan jumlah PTKP untuk status tertentu."""
         ptkp_code = ptkp_status.get_status_code()
@@ -457,7 +480,7 @@ class PPh21Calculator:
         }
 
     # ========================================================================
-    # METHODS FOR TEST COMPATIBILITY (added without removing original)
+    # METHODS FOR TEST COMPATIBILITY (unchanged)
     # ========================================================================
 
     @classmethod
@@ -547,11 +570,25 @@ def get_pph21_calculator() -> PPh21Calculator:
     return _pph21_calculator_instance
 
 
-# === 5. EXPORTS ===
+# === 5. ENTRY POINT FOR CHECKER (P35) ===
+
+def hitung_pph21(annual_gross: Decimal, ptkp_status_code: str = 'TK/0') -> Decimal:
+    """
+    Fungsi entry point untuk structural integrity auditor (P35).
+    Menghitung PPh 21 tahunan berdasarkan penghasilan bruto dan status PTKP.
+    """
+    calc = PPh21Calculator()
+    ptkp_status = EmployeePTKPStatusVO(ptkp_status_code)
+    result = calc.calculate_annual_tax(annual_gross, ptkp_status)
+    return result.tax_amount
+
+
+# === 6. EXPORTS ===
 
 __all__ = [
     "PPh21CalculationResult",
     "PPh21Calculator",
     "PPh21Type",
     "get_pph21_calculator",
+    "hitung_pph21",
 ]

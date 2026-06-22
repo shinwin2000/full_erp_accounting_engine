@@ -24,9 +24,9 @@ from enum import Enum
 from typing import Any, Protocol
 from uuid import UUID
 
+from application.events.global_event_subscribers import register_global_subscribers
 from application.events.handler_registry import event_handler_registry
 from application.events.publisher_application import EventEnvelope
-from application.events.global_event_subscribers import register_global_subscribers
 
 logger = logging.getLogger(__name__)
 

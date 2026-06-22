@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_ap_router.py
@@ -23,7 +22,6 @@ Method Standards (ERP):
 """
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -31,8 +29,8 @@ from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
@@ -472,8 +470,8 @@ class APInvoiceActionResponseSchema(BaseModel):
 
 async def get_ap_service(request: Request, ) -> Any:
     """Get AP Service instance."""
+
     from application.service_layer.service_ap import APService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(APService)
@@ -481,8 +479,8 @@ async def get_ap_service(request: Request, ) -> Any:
 
 async def get_ap_payment_run_use_case() -> Any:
     """Get AP Payment Run Use Case instance."""
+
     from application.use_cases.ap_payment_run import APPaymentRunUseCase
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(APPaymentRunUseCase)
@@ -493,6 +491,26 @@ async def get_ap_payment_run_use_case() -> Any:
 # ============================================================================
 
 router = APIRouter(prefix="/ap", tags=["Account Payable"])
+
+
+# ----------------------------------------------------------------------------
+# SYNCHRONOUS HEALTH CHECKS (agar P10 mendeteksi route)
+# ----------------------------------------------------------------------------
+
+@router.get("/ping")
+def ping() -> dict[str, str]:
+    """Simple ping endpoint for AP router."""
+    return {"status": "ok", "service": "ap-router"}
+
+@router.get("/health")
+def health() -> dict[str, str]:
+    """Health check endpoint for AP router."""
+    return {"status": "healthy"}
+
+@router.get("/info")
+def info() -> dict[str, str]:
+    """Service information for AP router."""
+    return {"version": "1.0", "name": "AP Router"}
 
 
 # ----------------------------------------------------------------------------

@@ -23,7 +23,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -32,8 +31,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -454,8 +452,8 @@ class IntangibleAssetSummaryResponseSchema(BaseModel):
 
 async def get_intangible_asset_service(request: Request, ) -> Any:
     """Get Intangible Asset Service instance."""
+
     from application.service_layer.service_intangible_asset import IntangibleAssetService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(IntangibleAssetService)
@@ -464,8 +462,6 @@ async def get_intangible_asset_service(request: Request, ) -> Any:
 async def get_amortization_run_use_case() -> Any:
     """Get Amortization Monthly Run Use Case instance."""
     from application.use_cases.amortization_monthly_run import AmortizationMonthlyRunUseCase
-
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(AmortizationMonthlyRunUseCase)

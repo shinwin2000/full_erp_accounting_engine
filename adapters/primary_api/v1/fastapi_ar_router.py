@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_ar_router.py
@@ -25,7 +24,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime, timedelta
@@ -34,8 +32,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
@@ -527,8 +524,8 @@ class ARWriteOffResponseSchema(BaseModel):
 
 async def get_ar_service(request: Request, ) -> Any:
     """Get AR Service instance."""
+
     from application.service_layer.service_ar import ARService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(ARService)
@@ -536,8 +533,8 @@ async def get_ar_service(request: Request, ) -> Any:
 
 async def get_ar_collection_workflow() -> Any:
     """Get AR Collection Workflow Use Case instance."""
+
     from application.use_cases.ar_collection_workflow import ARCollectionWorkflowUseCase
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(ARCollectionWorkflowUseCase)
@@ -548,6 +545,26 @@ async def get_ar_collection_workflow() -> Any:
 # ============================================================================
 
 router = APIRouter(prefix="/ar", tags=["Accounts Receivable"])
+
+
+# ----------------------------------------------------------------------------
+# SYNCHRONOUS HEALTH CHECKS (agar P10 mendeteksi route)
+# ----------------------------------------------------------------------------
+
+@router.get("/ping")
+def ping() -> dict[str, str]:
+    """Simple ping endpoint for AR router."""
+    return {"status": "ok", "service": "ar-router"}
+
+@router.get("/health")
+def health() -> dict[str, str]:
+    """Health check endpoint for AR router."""
+    return {"status": "healthy"}
+
+@router.get("/info")
+def info() -> dict[str, str]:
+    """Service information for AR router."""
+    return {"version": "1.0", "name": "AR Router"}
 
 
 # ----------------------------------------------------------------------------
@@ -662,7 +679,7 @@ async def create_ar_invoice(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create AR invoice: {}".format(e))
+        logger.exception(f"Failed to create AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -733,7 +750,7 @@ async def get_ar_invoice(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get AR invoice: {}".format(e))
+        logger.exception(f"Failed to get AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -829,7 +846,7 @@ async def list_ar_invoices(
             total_overdue=result.total_overdue,
         )
     except Exception as e:
-        logger.exception("Failed to list AR invoices: {}".format(e))
+        logger.exception(f"Failed to list AR invoices: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -917,7 +934,7 @@ async def update_ar_invoice(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to update AR invoice: {}".format(e))
+        logger.exception(f"Failed to update AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -957,7 +974,7 @@ async def delete_ar_invoice(
             invoice_number=result.invoice_number,
             action=action,
             status=ARInvoiceStatus(result.status),
-            message="{}ed successfully".format(action),
+            message=f"{action}ed successfully",
             timestamp=datetime.now(),
         )
     except ValueError as e:
@@ -965,7 +982,7 @@ async def delete_ar_invoice(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to delete AR invoice: {}".format(e))
+        logger.exception(f"Failed to delete AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1036,7 +1053,7 @@ async def restore_ar_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to restore AR invoice: {}".format(e))
+        logger.exception(f"Failed to restore AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1076,7 +1093,7 @@ async def submit_ar_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to submit AR invoice: {}".format(e))
+        logger.exception(f"Failed to submit AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1116,7 +1133,7 @@ async def approve_ar_invoice(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to approve AR invoice: {}".format(e))
+        logger.exception(f"Failed to approve AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1148,13 +1165,13 @@ async def reject_ar_invoice(
             invoice_number=result.invoice_number,
             action="reject",
             status=ARInvoiceStatus(result.status),
-            message="Invoice rejected: {}".format(reason),
+            message=f"Invoice rejected: {reason}",
             timestamp=datetime.now(),
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to reject AR invoice: {}".format(e))
+        logger.exception(f"Failed to reject AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1189,7 +1206,7 @@ async def post_ar_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to post AR invoice: {}".format(e))
+        logger.exception(f"Failed to post AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1222,13 +1239,13 @@ async def reverse_ar_invoice(
             invoice_number=result.invoice_number,
             action="reverse",
             status=ARInvoiceStatus(result.status),
-            message="Invoice reversed: {}".format(reason),
+            message=f"Invoice reversed: {reason}",
             timestamp=datetime.now(),
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to reverse AR invoice: {}".format(e))
+        logger.exception(f"Failed to reverse AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1266,7 +1283,7 @@ async def lock_ar_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to lock AR invoice: {}".format(e))
+        logger.exception(f"Failed to lock AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1301,7 +1318,7 @@ async def unlock_ar_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to unlock AR invoice: {}".format(e))
+        logger.exception(f"Failed to unlock AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1377,7 +1394,7 @@ async def record_ar_payment(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to record AR payment: {}".format(e))
+        logger.exception(f"Failed to record AR payment: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1428,7 +1445,7 @@ async def get_ar_payment(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get AR payment: {}".format(e))
+        logger.exception(f"Failed to get AR payment: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1487,7 +1504,7 @@ async def reverse_ar_payment(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to reverse AR payment: {}".format(e))
+        logger.exception(f"Failed to reverse AR payment: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1550,7 +1567,7 @@ async def create_ar_credit_note(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create AR credit note: {}".format(e))
+        logger.exception(f"Failed to create AR credit note: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1600,7 +1617,7 @@ async def approve_ar_credit_note(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to approve AR credit note: {}".format(e))
+        logger.exception(f"Failed to approve AR credit note: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1651,7 +1668,7 @@ async def cancel_ar_credit_note(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to cancel AR credit note: {}".format(e))
+        logger.exception(f"Failed to cancel AR credit note: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1705,7 +1722,7 @@ async def write_off_ar_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to write off AR invoice: {}".format(e))
+        logger.exception(f"Failed to write off AR invoice: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1753,7 +1770,7 @@ async def get_ar_aging_by_customer(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception("Failed to get AR aging report: {}".format(e))
+        logger.exception(f"Failed to get AR aging report: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1798,7 +1815,7 @@ async def get_all_ar_aging(
             for item in report
         ]
     except Exception as e:
-        logger.exception("Failed to get AR aging report: {}".format(e))
+        logger.exception(f"Failed to get AR aging report: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1849,7 +1866,7 @@ async def get_ar_dashboard(
             as_of_date=as_of_date,
         )
     except Exception as e:
-        logger.exception("Failed to get AR dashboard: {}".format(e))
+        logger.exception(f"Failed to get AR dashboard: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1890,7 +1907,7 @@ async def send_collection_reminders(
             errors=result.errors,
         )
     except Exception as e:
-        logger.exception("Failed to send collection reminders: {}".format(e))
+        logger.exception(f"Failed to send collection reminders: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1921,7 +1938,7 @@ async def start_collection_workflow(
             "message": result.message,
         }
     except Exception as e:
-        logger.exception("Failed to start collection workflow: {}".format(e))
+        logger.exception(f"Failed to start collection workflow: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1953,12 +1970,12 @@ async def escalate_collection(
             "invoice_number": result.invoice_number,
             "escalated": True,
             "collection_status": result.collection_status,
-            "message": "Invoice escalated: {}".format(reason),
+            "message": f"Invoice escalated: {reason}",
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to escalate collection: {}".format(e))
+        logger.exception(f"Failed to escalate collection: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2008,7 +2025,7 @@ async def get_ar_invoice_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get invoice status: {}".format(e))
+        logger.exception(f"Failed to get invoice status: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2042,7 +2059,7 @@ async def get_ar_invoice_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception("Failed to get invoice history: {}".format(e))
+        logger.exception(f"Failed to get invoice history: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2071,12 +2088,12 @@ async def generate_ar_invoice_pdf(
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=ar_invoice_{}.pdf".format(invoice_id)},
+            headers={"Content-Disposition": f"attachment; filename=ar_invoice_{invoice_id}.pdf"},
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to generate PDF: {}".format(e))
+        logger.exception(f"Failed to generate PDF: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2116,7 +2133,7 @@ async def bulk_approve_ar_invoices(
             "errors": result.errors,
         }
     except Exception as e:
-        logger.exception("Failed to bulk approve invoices: {}".format(e))
+        logger.exception(f"Failed to bulk approve invoices: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2151,7 +2168,7 @@ async def bulk_send_payment_reminders(
             "errors": result.errors,
         }
     except Exception as e:
-        logger.exception("Failed to bulk send reminders: {}".format(e))
+        logger.exception(f"Failed to bulk send reminders: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

@@ -6,11 +6,11 @@ Responsibility: Model untuk mencatat log submission ke Coretax DJP.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import DateTime, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID

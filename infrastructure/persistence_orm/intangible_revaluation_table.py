@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -50,9 +50,9 @@ class IntangibleRevaluationTable(Base, TimestampMixin, SoftDeleteMixin):
 
     surplus_deficit: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
-    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    journal_id: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
-    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    journal_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # =========================================================================
     # RELATIONSHIP: 'asset' is provided by the backref from IntangibleAssetTable.

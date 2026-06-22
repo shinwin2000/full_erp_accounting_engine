@@ -1,2 +1,32 @@
-# configmap.yaml
-# Auto-generated configuration file
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: erp-config
+  namespace: erp
+  labels:
+    app: erp-accounting-engine
+    tier: backend
+data:
+  APP_ENV: "production"
+  LOG_LEVEL: "INFO"
+  DATABASE_POOL_SIZE: "20"
+  DATABASE_MAX_OVERFLOW: "10"
+  DATABASE_POOL_RECYCLE: "1800"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+  KAFKA_TOPIC_JOURNAL: "erp.journal.posted"
+  KAFKA_TOPIC_AUDIT: "erp.audit.events"
+  KAFKA_TOPIC_CORETAX: "erp.tax.coretax"
+  KAFKA_GROUP_ID: "erp-engine-group"
+  MINIO_ENDPOINT: "minio:9000"
+  MINIO_BUCKET: "erp-evidence"
+  MINIO_SECURE: "false"
+  JAEGER_HOST: "jaeger-agent"
+  JAEGER_OTLP_PORT: "4317"
+  ENABLE_KAFKA: "true"
+  ENABLE_MINIO: "true"
+  ENABLE_JAEGER: "true"
+  ALLOWED_ORIGINS: "https://erp.your-company.com,https://admin.your-company.com"
+  WORKERS: "4"
+  DB_POOL_SIZE: "20"
+  DB_MAX_OVERFLOW: "10"
+  DB_POOL_RECYCLE: "1800"

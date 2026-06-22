@@ -57,7 +57,6 @@ class _FallbackSovereigntyGuardian:
 def _get_sovereignty_guardian():
     try:
         from constitution.sovereignty_declaration import get_sovereignty_guardian
-
         return get_sovereignty_guardian()
     except ImportError:
         logger.warning("Sovereignty guardian not available, using fallback")
@@ -79,14 +78,66 @@ class FreezeReason(Enum):
     CONSTITUTION_VIOLATION = auto()
     INTEGRITY_CHECK_FAILED = auto()
 
+    def display_name(self) -> str:
+        """Return human-readable display name."""
+        names = {
+            FreezeReason.SECURITY_BREACH: "Security Breach",
+            FreezeReason.DATA_CORRUPTION: "Data Corruption",
+            FreezeReason.REGULATORY_MANDATE: "Regulatory Mandate",
+            FreezeReason.SYSTEM_COMPROMISE: "System Compromise",
+            FreezeReason.NATURAL_DISASTER: "Natural Disaster",
+            FreezeReason.MANUAL_OVERRIDE: "Manual Override",
+            FreezeReason.CONSTITUTION_VIOLATION: "Constitution Violation",
+            FreezeReason.INTEGRITY_CHECK_FAILED: "Integrity Check Failed",
+        }
+        return names.get(self, self.name.replace("_", " ").title())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "value": self.name,
+            "display": self.display_name(),
+        }
+
+    @classmethod
+    def from_string(cls, value: str) -> FreezeReason:
+        """Parse from string."""
+        for reason in cls:
+            if reason.name == value:
+                return reason
+        raise ValueError(f"Unknown FreezeReason: {value}")
+
 
 class FreezeScope(Enum):
     """Scope freeze."""
 
-    ALL_WRITES = auto()  # Semua operasi write
-    BULK_ONLY = auto()  # Hanya batch/bulk operations
-    CRITICAL_ONLY = auto()  # Hanya operasi kritis (period close, posting)
-    READ_ONLY = auto()  # Hanya baca (write diblok)
+    ALL_WRITES = auto()
+    BULK_ONLY = auto()
+    CRITICAL_ONLY = auto()
+    READ_ONLY = auto()
+
+    def display_name(self) -> str:
+        """Return human-readable display name."""
+        names = {
+            FreezeScope.ALL_WRITES: "All Writes Blocked",
+            FreezeScope.BULK_ONLY: "Bulk Operations Only",
+            FreezeScope.CRITICAL_ONLY: "Critical Operations Only",
+            FreezeScope.READ_ONLY: "Read Only",
+        }
+        return names.get(self, self.name.replace("_", " ").title())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "value": self.name,
+            "display": self.display_name(),
+        }
+
+    @classmethod
+    def from_string(cls, value: str) -> FreezeScope:
+        """Parse from string."""
+        for scope in cls:
+            if scope.name == value:
+                return scope
+        raise ValueError(f"Unknown FreezeScope: {value}")
 
 
 class FreezeSeverity(Enum):
@@ -96,6 +147,31 @@ class FreezeSeverity(Enum):
     HIGH = 60
     MEDIUM = 40
     LOW = 20
+
+    def display_name(self) -> str:
+        """Return human-readable display name."""
+        names = {
+            FreezeSeverity.CRITICAL: "Critical",
+            FreezeSeverity.HIGH: "High",
+            FreezeSeverity.MEDIUM: "Medium",
+            FreezeSeverity.LOW: "Low",
+        }
+        return names.get(self, self.name.title())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "value": self.name,
+            "level": self.value,
+            "display": self.display_name(),
+        }
+
+    @classmethod
+    def from_string(cls, value: str) -> FreezeSeverity:
+        """Parse from string."""
+        for severity in cls:
+            if severity.name == value:
+                return severity
+        raise ValueError(f"Unknown FreezeSeverity: {value}")
 
 
 @dataclass
@@ -109,7 +185,7 @@ class FreezeRecord:
     frozen_at: datetime
     expires_at: datetime | None
     description: str
-    approved_by: list[str]  # Minimal 2 otoritas
+    approved_by: list[str]
     severity: FreezeSeverity = FreezeSeverity.CRITICAL
     cryptographic_hash: str = ""
 
@@ -133,13 +209,17 @@ class FreezeRecord:
         return {
             "freeze_id": str(self.freeze_id),
             "reason": self.reason.name,
+            "reason_display": self.reason.display_name() if hasattr(self.reason, "display_name") else self.reason.name,
             "scope": self.scope.name,
+            "scope_display": self.scope.display_name() if hasattr(self.scope, "display_name") else self.scope.name,
             "frozen_by": self.frozen_by,
             "frozen_at": self.frozen_at.isoformat(),
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
             "description": self.description,
             "approved_by": self.approved_by,
             "severity": self.severity.name,
+            "severity_level": self.severity.value,
+            "is_expired": self.is_expired(),
         }
 
 

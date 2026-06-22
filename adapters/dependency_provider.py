@@ -19,7 +19,8 @@ Keuntungan:
 - ✅ Router menjadi sangat bersih (hanya deklarasi dependency, tanpa logika container).
 """
 
-from typing import TypeVar, Callable, Any
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from fastapi import Request
 

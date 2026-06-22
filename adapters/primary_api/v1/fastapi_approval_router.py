@@ -22,7 +22,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -31,8 +30,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -400,8 +398,8 @@ class ApprovalStatsResponseSchema(BaseModel):
 
 async def get_approval_service(request: Request, ) -> Any:
     """Get Approval Service instance."""
+
     from application.service_layer.service_approval import ApprovalService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(ApprovalService)
@@ -562,7 +560,7 @@ async def get_approval_request_by_number(
 
         if not result:
             raise HTTPException(
-                status_code=404, detail="Approval request {} not found".format(request_number)
+                status_code=404, detail=f"Approval request {request_number} not found"
             )
 
         return ApprovalResponseSchema(
@@ -1216,7 +1214,7 @@ async def delete_approval_matrix(
             "matrix_id": str(matrix_id),
             "matrix_code": result.matrix_code,
             "action": action,
-            "message": "Approval matrix {}".format(action),
+            "message": f"Approval matrix {action}",
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -1493,14 +1491,12 @@ async def export_approval_requests(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "approval_requests_{}_{}_{}.{}".format(
-            legal_entity_id, start_date, end_date, format
-        )
+        filename = f"approval_requests_{legal_entity_id}_{start_date}_{end_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.exception("Failed to export approval requests: {}", e)

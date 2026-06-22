@@ -10,8 +10,6 @@ Komponen yang gagal diimport (kecuali yang benar-benar opsional) akan menyebabka
 """
 
 from __future__ import annotations
-from fastapi import Request
-
 
 import asyncio
 import logging
@@ -22,6 +20,8 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from fastapi import Request
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -191,10 +191,10 @@ except ImportError as exc:
 
 # Import infrastruktur (wajib)
 try:
+    from bootstrap.dependency_container.ioc_container import build_container
     from infrastructure.caching.redis_manager import close as close_redis
     from infrastructure.caching.redis_manager import get_redis_client
     from infrastructure.database.session_factory_sqlalchemy import create_session_factory, dispose
-    from bootstrap.dependency_container.ioc_container import build_container
     from infrastructure.event_store.append_only_store import get_event_store
     from infrastructure.event_store.hash_chain_builder import get_hash_chain_builder
     from infrastructure.telemetry.opentelemetry_setup import setup_telemetry

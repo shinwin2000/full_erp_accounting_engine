@@ -55,7 +55,7 @@ class StockOpnameLineTable(Base, TimestampMixin):
     # RELATIONSHIP back to header
     # Menggunakan back_populates="lines" dari StockOpnameTable
     # =========================================================================
-    stock_opname: Mapped["StockOpnameTable"] = relationship(
+    stock_opname: Mapped[StockOpnameTable] = relationship(
         "StockOpnameTable",
         back_populates="lines",
         foreign_keys=[stock_opname_id],

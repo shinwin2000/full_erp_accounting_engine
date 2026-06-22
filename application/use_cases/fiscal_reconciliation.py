@@ -19,7 +19,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_ledger import LedgerService
 from application.service_layer.service_report import ReportService
 from application.service_layer.service_tax import TaxService
@@ -28,7 +28,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class FiscalReconciliationCommand(Command):
+class FiscalReconciliationCommand(BaseCommand):
     """Command untuk rekonsiliasi fiskal."""
 
     __slots__ = (
@@ -356,7 +356,7 @@ class FiscalReconciliationUseCase:
 
 
 async def fiscal_reconciliation_handler(
-    command: Command, use_case: FiscalReconciliationUseCase
+    command: BaseCommand, use_case: FiscalReconciliationUseCase
 ) -> CommandResult:
     if not isinstance(command, FiscalReconciliationCommand):
         raise TypeError(f"Expected FiscalReconciliationCommand, got {type(command)}")

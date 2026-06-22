@@ -13,12 +13,12 @@ Audit: Setiap impairment test dicatat dan tidak dapat dihapus (immutable).
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,

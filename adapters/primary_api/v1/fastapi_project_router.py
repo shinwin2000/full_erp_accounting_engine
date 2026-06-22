@@ -24,7 +24,6 @@ Method Standards (ERP):
 """
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -33,8 +32,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -472,8 +470,8 @@ class UtilizationReportSchema(BaseModel):
 
 async def get_project_service(request: Request, ) -> Any:
     """Get Project Service instance."""
+
     from application.service_layer.service_project import ProjectService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(ProjectService)
@@ -646,7 +644,7 @@ async def get_project_by_code(
         if not project:
             raise HTTPException(
                 status_code=404,
-                detail="Project {} not found".format(project_code),  # nosec
+                detail=f"Project {project_code} not found",  # nosec
             )
 
         return ProjectResponseSchema(
@@ -799,7 +797,7 @@ async def close_project(
             "project_code": result.project_code,
             "action": action,
             "status": result.status,
-            "message": "Project {} successfully".format(action),  # nosec
+            "message": f"Project {action} successfully",  # nosec
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -1754,12 +1752,12 @@ async def export_projects(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "projects_{}.{}".format(legal_entity_id, format)
+        filename = f"projects_{legal_entity_id}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.exception("Failed to export projects: %s", e)

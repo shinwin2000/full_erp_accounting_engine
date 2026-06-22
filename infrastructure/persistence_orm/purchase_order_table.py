@@ -97,24 +97,24 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     # =========================================================================
     # RELATIONSHIPS
     # =========================================================================
-    supplier: Mapped["SupplierTable"] = relationship(
+    supplier: Mapped[SupplierTable] = relationship(
         "SupplierTable",
         back_populates="purchase_orders",
         foreign_keys=[supplier_id],
     )
-    goods_receipt_notes: Mapped[list["GoodsReceiptNoteTable"]] = relationship(
+    goods_receipt_notes: Mapped[list[GoodsReceiptNoteTable]] = relationship(
         "GoodsReceiptNoteTable",
         back_populates="purchase_order",
         foreign_keys="[GoodsReceiptNoteTable.purchase_order_id]",
         cascade="all, delete-orphan",
     )
-    invoices: Mapped[list["APInvoiceTable"]] = relationship(
+    invoices: Mapped[list[APInvoiceTable]] = relationship(
         "APInvoiceTable",
         back_populates="purchase_order",
         foreign_keys="[APInvoiceTable.purchase_order_id]",
         cascade="all, delete-orphan",
     )
-    lines: Mapped[list["PurchaseOrderLineTable"]] = relationship(
+    lines: Mapped[list[PurchaseOrderLineTable]] = relationship(
         "PurchaseOrderLineTable",
         back_populates="purchase_order",
         cascade="all, delete-orphan",
@@ -305,7 +305,7 @@ class PurchaseOrderLineTable(Base, TimestampMixin):
     # =========================================================================
     # RELATIONSHIPS
     # =========================================================================
-    purchase_order: Mapped["PurchaseOrderTable"] = relationship(
+    purchase_order: Mapped[PurchaseOrderTable] = relationship(
         "PurchaseOrderTable",
         back_populates="lines",
         foreign_keys=[po_id],

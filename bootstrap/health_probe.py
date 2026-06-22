@@ -687,26 +687,29 @@ class HealthProbe:
     def get_uptime(self) -> float:
         return (datetime.now(UTC) - self._start_time).total_seconds()
 
-    def is_ready(self) -> bool:
+    async def is_ready(self) -> bool:
+        """Async version of readiness check."""
+        report = await self.check_readiness()
+        return report.overall_status == HealthStatus.HEALTHY
+
+    def is_ready_sync(self) -> bool:
+        """
+        Sync version of readiness check.
+        Uses asyncio.run() only when no event loop is running.
+        """
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                if self._last_readiness_check:
-                    return all(
-                        c.status == HealthStatus.HEALTHY
-                        for c in self._last_readiness_check.values()
-                        if c.name in ["database", "kernel"]
-                    )
-                return False
-            else:
-                # Menangkap potensi error pada saat menjalankan coroutine
-                report = loop.run_until_complete(self.check_readiness())
-                return report.overall_status == HealthStatus.HEALTHY
-        except (asyncio.CancelledError, RuntimeError, Exception) as e:
-            # Log error agar kita tahu mengapa health probe gagal
-            # Kita tetap mengembalikan False sebagai default safety
-            logger.error("Health probe readiness check failed: %s", e)
+            asyncio.get_running_loop()
+            # If loop is running, return cached result or False
+            if self._last_readiness_check:
+                return all(
+                    c.status == HealthStatus.HEALTHY
+                    for c in self._last_readiness_check.values()
+                    if c.name in ["database", "kernel"]
+                )
             return False
+        except RuntimeError:
+            # No loop running, use asyncio.run
+            return asyncio.run(self.is_ready())
 
     def reset(self) -> None:
         self._start_time = datetime.now(UTC)

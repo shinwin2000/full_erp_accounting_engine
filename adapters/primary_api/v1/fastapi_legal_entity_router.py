@@ -23,7 +23,6 @@ Method Standards (ERP):
 """
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -32,8 +31,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
@@ -391,8 +389,8 @@ class ConsolidationGroupResponseSchema(BaseModel):
 
 async def get_legal_entity_service(request: Request, ) -> Any:
     """Get Legal Entity Service instance."""
+
     from application.service_layer.service_legal_entity import LegalEntityService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(LegalEntityService)
@@ -655,7 +653,7 @@ async def get_legal_entity_by_npwp(
         if not le:
             raise HTTPException(
                 status_code=404,
-                detail="Legal entity with NPWP {} not found".format(npwp),  # nosec
+                detail=f"Legal entity with NPWP {npwp} not found",  # nosec
             )
 
         return LegalEntityResponseSchema(
@@ -721,7 +719,7 @@ async def get_legal_entity_by_registration(
         if not le:
             raise HTTPException(
                 status_code=404,
-                detail="Legal entity with registration {} not found".format(registration_number),  # nosec
+                detail=f"Legal entity with registration {registration_number} not found",  # nosec
             )
 
         return LegalEntityResponseSchema(

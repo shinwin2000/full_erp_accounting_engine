@@ -17,7 +17,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_consolidation import ConsolidationService
 from application.service_layer.service_journal import JournalService
 from application.service_layer.service_ledger import LedgerService
@@ -26,7 +26,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class IntercompanyEliminationCommand(Command):
+class IntercompanyEliminationCommand(BaseCommand):
     """Command untuk eliminasi intercompany."""
 
     __slots__ = (
@@ -354,7 +354,7 @@ class IntercompanyEliminationUseCase:
 
 
 async def intercompany_elimination_handler(
-    command: Command, use_case: IntercompanyEliminationUseCase
+    command: BaseCommand, use_case: IntercompanyEliminationUseCase
 ) -> CommandResult:
     if not isinstance(command, IntercompanyEliminationCommand):
         raise TypeError(f"Expected IntercompanyEliminationCommand, got {type(command)}")

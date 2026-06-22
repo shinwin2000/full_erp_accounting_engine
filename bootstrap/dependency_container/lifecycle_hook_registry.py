@@ -7,7 +7,6 @@ Responsibility: Registry untuk lifecycle hooks (startup dan shutdown).
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from enum import IntEnum
@@ -152,7 +151,9 @@ class LifecycleHookRegistry:
         self.register_shutdown(stop_kafka_producer, HookPriority.NORMAL)
 
         async def start_outbox_poller():
-            from infrastructure.message_broker.transactional_outbox_poller import start_outbox_poller
+            from infrastructure.message_broker.transactional_outbox_poller import (
+                start_outbox_poller,
+            )
             await start_outbox_poller()
             self._logger.info("Outbox poller started")
 
@@ -185,12 +186,16 @@ class LifecycleHookRegistry:
         self.register_shutdown(stop_cache_warmer, HookPriority.NORMAL)
 
         async def start_metrics_collection():
-            from infrastructure.telemetry.journal_posting_latency_metrics import start_metrics_collection
+            from infrastructure.telemetry.journal_posting_latency_metrics import (
+                start_metrics_collection,
+            )
             await start_metrics_collection()
             self._logger.info("Metrics collection started")
 
         async def stop_metrics_collection():
-            from infrastructure.telemetry.journal_posting_latency_metrics import stop_metrics_collection
+            from infrastructure.telemetry.journal_posting_latency_metrics import (
+                stop_metrics_collection,
+            )
             await stop_metrics_collection()
             self._logger.info("Metrics collection stopped")
 

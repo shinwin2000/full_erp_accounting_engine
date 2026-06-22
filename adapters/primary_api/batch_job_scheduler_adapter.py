@@ -10,7 +10,7 @@ Responsibility: Menjadwalkan dan mengeksekusi job batch periodik seperti period 
 Dependencies:
 - apscheduler
 - redis (for distributed lock)
-- application.commands_cqrs.command_bus_unified
+- application.commands_cqrs (CommandBusUnified)
 - infrastructure.caching.redis_manager
 - kernel.sealed_gate
 Audit: Setiap eksekusi batch job dicatat, termasuk start time, end time, status,
@@ -33,8 +33,8 @@ from apscheduler.triggers.cron import CronTrigger
 
 from adapters.primary_api.common.fastapi_request_id_middleware import set_request_id_for_task
 
-# Internal dependencies
-from application.commands_cqrs.command_bus_unified import CommandBusUnified
+# Internal dependencies - import dari package yang memiliki alias
+from application.commands_cqrs import CommandBusUnified
 from infrastructure.caching.redis_manager import get_redis_client
 
 logger = logging.getLogger(__name__)

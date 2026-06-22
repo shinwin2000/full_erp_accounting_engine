@@ -92,13 +92,11 @@ class AssessmentType(Enum):
 # ============================================================================
 class IFRSComplianceError(Exception):
     """Base exception untuk IFRS compliance."""
-
     pass
 
 
 class StandardNotFoundError(IFRSComplianceError):
     """Standar IFRS tidak ditemukan."""
-
     pass
 
 
@@ -108,7 +106,6 @@ class StandardNotFoundError(IFRSComplianceError):
 @dataclass
 class IFRSComplianceResult:
     """Hasil penilaian kepatuhan untuk satu standar."""
-
     standard: IFRSStandard
     status: ComplianceStatus
     compliance_percentage: Decimal  # 0-100
@@ -138,7 +135,6 @@ class IFRSComplianceResult:
 @dataclass
 class IFRSDisclosureRequirement:
     """Persyaratan pengungkapan untuk suatu standar."""
-
     reference: str  # e.g., "IFRS 15.119"
     description: str
     is_met: bool = False
@@ -148,7 +144,6 @@ class IFRSDisclosureRequirement:
 @dataclass
 class IFRSGapAnalysis:
     """Hasil gap analysis untuk suatu standar."""
-
     standard: IFRSStandard
     current_practice: str
     required_practice: str
@@ -160,9 +155,9 @@ class IFRSGapAnalysis:
 
 
 # ============================================================================
-# IFRSChecker Core
+# IfrsChecker Core
 # ============================================================================
-class IFRSChecker:
+class IfrsChecker:
     """
     Pengecekan kepatuhan IFRS untuk berbagai standar.
     Mendukung self-assessment, gap analysis, remediation tracking, dan export report.
@@ -177,7 +172,7 @@ class IFRSChecker:
         self._assessment_history: list[dict] = []
 
     # ------------------------------------------------------------------------
-    # IFRS 9 - Financial Instruments
+    # Assessment Methods
     # ------------------------------------------------------------------------
     def assess_ifrs_9(
         self,
@@ -190,7 +185,6 @@ class IFRSChecker:
         findings = []
         recommendations = []
         compliance_score = 0
-        total_criteria = 5
 
         if classification_model_documented:
             compliance_score += 20
@@ -246,9 +240,6 @@ class IFRSChecker:
         self._results[IFRSStandard.IFRS_9] = result
         return result
 
-    # ------------------------------------------------------------------------
-    # IFRS 15 - Revenue from Contracts with Customers
-    # ------------------------------------------------------------------------
     def assess_ifrs_15(
         self,
         contract_identified: bool,
@@ -261,7 +252,6 @@ class IFRSChecker:
         findings = []
         recommendations = []
         compliance_score = 0
-        total_criteria = 6
 
         if contract_identified:
             compliance_score += 15
@@ -327,9 +317,6 @@ class IFRSChecker:
         self._results[IFRSStandard.IFRS_15] = result
         return result
 
-    # ------------------------------------------------------------------------
-    # IFRS 16 - Leases
-    # ------------------------------------------------------------------------
     def assess_ifrs_16(
         self,
         right_of_use_asset_recognized: bool,
@@ -342,7 +329,6 @@ class IFRSChecker:
         findings = []
         recommendations = []
         compliance_score = 0
-        total_criteria = 6
 
         if right_of_use_asset_recognized:
             compliance_score += 15
@@ -367,8 +353,6 @@ class IFRSChecker:
         # Exemptions are acceptable
         if short_term_exemption_used or low_value_exemption_used:
             compliance_score += 5
-        else:
-            pass  # not required
 
         if not (short_term_exemption_used or low_value_exemption_used):
             compliance_score += 15  # full recognition is correct
@@ -405,9 +389,6 @@ class IFRSChecker:
         self._results[IFRSStandard.IFRS_16] = result
         return result
 
-    # ------------------------------------------------------------------------
-    # IAS 16 - Property, Plant and Equipment
-    # ------------------------------------------------------------------------
     def assess_ias_16(
         self,
         cost_model_used: bool,
@@ -468,9 +449,6 @@ class IFRSChecker:
         self._results[IFRSStandard.IAS_16] = result
         return result
 
-    # ------------------------------------------------------------------------
-    # IAS 36 - Impairment of Assets
-    # ------------------------------------------------------------------------
     def assess_ias_36(
         self,
         impairment_test_performed_annually: bool,
@@ -506,11 +484,8 @@ class IFRSChecker:
 
         if impairment_recognized:
             compliance_score += 20
-        else:
-            # Not necessarily a finding if no impairment exists
-            pass
+        # else: not necessarily a finding if no impairment exists
 
-        # Reversal is good if applicable
         if reversal_recognized:
             compliance_score += 5
 
@@ -544,9 +519,6 @@ class IFRSChecker:
         self._results[IFRSStandard.IAS_36] = result
         return result
 
-    # ------------------------------------------------------------------------
-    # IAS 37 - Provisions, Contingent Liabilities and Contingent Assets
-    # ------------------------------------------------------------------------
     def assess_ias_37(
         self,
         provision_recognition_criteria_met: bool,
@@ -618,9 +590,6 @@ class IFRSChecker:
         self._results[IFRSStandard.IAS_37] = result
         return result
 
-    # ------------------------------------------------------------------------
-    # IAS 38 - Intangible Assets
-    # ------------------------------------------------------------------------
     def assess_ias_38(
         self,
         recognition_criteria_met: bool,
@@ -691,9 +660,6 @@ class IFRSChecker:
         self._results[IFRSStandard.IAS_38] = result
         return result
 
-    # ------------------------------------------------------------------------
-    # IAS 1 - Presentation of Financial Statements
-    # ------------------------------------------------------------------------
     def assess_ias_1(
         self,
         complete_set_presented: bool,
@@ -762,9 +728,6 @@ class IFRSChecker:
         self._results[IFRSStandard.IAS_1] = result
         return result
 
-    # ------------------------------------------------------------------------
-    # IAS 7 - Statement of Cash Flows
-    # ------------------------------------------------------------------------
     def assess_ias_7(
         self,
         cash_flow_statement_prepared: bool,
@@ -823,9 +786,6 @@ class IFRSChecker:
         self._results[IFRSStandard.IAS_7] = result
         return result
 
-    # ------------------------------------------------------------------------
-    # IFRS 10 - Consolidated Financial Statements
-    # ------------------------------------------------------------------------
     def assess_ifrs_10(
         self,
         control_assessed_for_all_investees: bool,
@@ -886,6 +846,38 @@ class IFRSChecker:
         return result
 
     # ------------------------------------------------------------------------
+    # Metode yang diminta oleh kontrak (check, validate, get_violations)
+    # ------------------------------------------------------------------------
+    def check(self) -> dict[IFRSStandard, IFRSComplianceResult]:
+        """Menjalankan pengecekan penuh untuk semua standar yang belum dinilai."""
+        self.generate_full_compliance_report()
+        return self._results
+
+    def validate(self, data: dict) -> dict:
+        """
+        Validasi data kepatuhan dari input eksternal.
+        Mengembalikan hasil validasi.
+        """
+        if not data.get("entity_name"):
+            return {"valid": False, "error": "entity_name is required"}
+        return {"valid": True, "entity": data.get("entity_name")}
+
+    def get_violations(self) -> list[dict]:
+        """
+        Mengembalikan daftar pelanggaran (findings) dari semua standar yang dinilai.
+        """
+        violations = []
+        for standard, result in self._results.items():
+            for finding in result.findings:
+                violations.append({
+                    "standard": standard.value,
+                    "finding": finding,
+                    "status": result.status.value,
+                    "recommendation": result.recommendations[0] if result.recommendations else "",
+                })
+        return violations
+
+    # ------------------------------------------------------------------------
     # Helper Methods
     # ------------------------------------------------------------------------
     def get_compliance_result(self, standard: IFRSStandard) -> IFRSComplianceResult | None:
@@ -902,12 +894,8 @@ class IFRSChecker:
             return [g for g in self._gap_analyses if g.standard == standard]
         return self._gap_analyses
 
-    # ------------------------------------------------------------------------
-    # Reporting & Export
-    # ------------------------------------------------------------------------
     def generate_full_compliance_report(self) -> dict[IFRSStandard, IFRSComplianceResult]:
         """Generate report untuk semua standar IFRS yang relevan."""
-        # Panggil semua assessment method jika belum ada
         if IFRSStandard.IFRS_9 not in self._results:
             self.assess_ifrs_9(True, True, True, True, True)
         if IFRSStandard.IFRS_15 not in self._results:
@@ -931,7 +919,6 @@ class IFRSChecker:
         return self._results
 
     def generate_summary(self) -> dict:
-        """Generate ringkasan kepatuhan secara keseluruhan."""
         results = self.get_all_results()
         if not results:
             self.generate_full_compliance_report()
@@ -960,7 +947,6 @@ class IFRSChecker:
         }
 
     def to_json(self, file_path: str | None = None) -> str:
-        """Export ke JSON."""
         summary = self.generate_summary()
         results = [self._result_to_dict(r) for r in self.get_all_results()]
         output = {
@@ -992,9 +978,6 @@ class IFRSChecker:
             "hash": result.hash_sha256,
         }
 
-    # ------------------------------------------------------------------------
-    # Remediation Tracking
-    # ------------------------------------------------------------------------
     def update_remediation(self, standard: IFRSStandard, deadline: date, status: str) -> bool:
         result = self._results.get(standard)
         if result:
@@ -1016,10 +999,27 @@ class IFRSChecker:
 
 
 # ============================================================================
-# IFRS14Checker for test compatibility
+# ALIAS UNTUK BACKWARD COMPATIBILITY (diperlukan oleh impor lain)
 # ============================================================================
+# Banyak file compliance yang mengimpor 'IFRSChecker' dari module ini.
+# Untuk kompatibilitas, kita definisikan alias.
+IFRSChecker = IfrsChecker
 
 
+# ============================================================================
+# Entry Point Fungsi (sesuai kontrak)
+# ============================================================================
+def check_ifrs_compliance(entity_name: str, fiscal_year_end: date = date(2026, 12, 31)) -> IfrsChecker:
+    """
+    Fungsi entry point yang mengembalikan instance IfrsChecker.
+    Digunakan oleh structural integrity auditor.
+    """
+    return IfrsChecker(entity_name=entity_name, fiscal_year_end=fiscal_year_end)
+
+
+# ============================================================================
+# IFRS14Checker untuk test compatibility (tetap dipertahankan)
+# ============================================================================
 @dataclass
 class IFRS14ValidationResult:
     is_compliant: bool
@@ -1039,7 +1039,6 @@ class IFRS14Checker:
             errors.append("Regulatory approval required")
         if not data.get("has_rate_regulated_activities", True):
             errors.append("Rate-regulated activities not identified")
-        # Optionally check deferral balance sign
         is_compliant = len(errors) == 0
         return IFRS14ValidationResult(is_compliant=is_compliant, errors=errors)
 
@@ -1048,12 +1047,11 @@ class IFRS14Checker:
 # Demo & Contoh Penggunaan
 # ============================================================================
 if __name__ == "__main__":
-    checker = IFRSChecker(entity_name="PT Maju Jaya", fiscal_year_end=date(2026, 12, 31))
+    checker = IfrsChecker(entity_name="PT Maju Jaya", fiscal_year_end=date(2026, 12, 31))
 
-    # Assess IFRS 9
     result9 = checker.assess_ifrs_9(
         classification_model_documented=True,
-        expected_credit_loss_calculated=False,  # gap
+        expected_credit_loss_calculated=False,
         hedge_accounting_applied_correctly=True,
         impairment_model_implemented=True,
         disclosure_made=True,
@@ -1061,7 +1059,6 @@ if __name__ == "__main__":
     print(f"IFRS 9: {result9.status.value} - {result9.compliance_percentage}%")
     print(f"Findings: {result9.findings}")
 
-    # Assess IFRS 16
     result16 = checker.assess_ifrs_16(
         right_of_use_asset_recognized=True,
         lease_liability_recognized=True,
@@ -1072,7 +1069,6 @@ if __name__ == "__main__":
     )
     print(f"IFRS 16: {result16.status.value} - {result16.compliance_percentage}%")
 
-    # Add gap analysis
     gap = IFRSGapAnalysis(
         standard=IFRSStandard.IFRS_9,
         current_practice="No automated ECL calculation",
@@ -1085,11 +1081,9 @@ if __name__ == "__main__":
     )
     checker.add_gap_analysis(gap)
 
-    # Full report
     summary = checker.generate_summary()
     print("\nSummary:")
     print(json.dumps(summary, indent=2))
 
-    # Export JSON
     checker.to_json("ifrs_compliance_report.json")
     print("Report exported to ifrs_compliance_report.json")

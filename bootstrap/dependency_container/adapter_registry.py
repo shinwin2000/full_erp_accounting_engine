@@ -15,7 +15,7 @@ from typing import Any
 from bootstrap.dependency_container.ioc_container import IoCContainer, get_container
 
 # ============================================================================
-# IMPOR PORT (INTERFACES)
+# IMPOR PORT (INTERFACES) – semua port yang diperlukan
 # ============================================================================
 from ports.primary.account_repository_port import AccountRepositoryPort
 from ports.primary.ap_repository_port import APRepositoryPort
@@ -23,6 +23,7 @@ from ports.primary.approval_repository_port import ApprovalRepositoryPort
 from ports.primary.ar_repository_port import ARRepositoryPort
 from ports.primary.bank_cash_repository_port import BankCashRepositoryPort
 from ports.primary.bank_statement_import_port import BankStatementImportPort
+from ports.primary.bill_of_materials_repository_port import BillOfMaterialsRepositoryPort  # <-- TAMBAHKAN
 from ports.primary.budget_repository_port import BudgetRepositoryPort
 from ports.primary.consolidation_repository_port import ConsolidationRepositoryPort
 from ports.primary.customer_repository_port import CustomerRepositoryPort
@@ -55,9 +56,10 @@ from ports.primary.system_setting_repository_port import SystemSettingRepository
 from ports.primary.tax_authority_coretax_port import CoreTaxPort
 from ports.primary.tax_repository_port import TaxRepositoryPort
 from ports.primary.timestamp_notary_port import TimestampNotaryPort
-from ports.primary.umkm_repository_port import UmkmRepositoryPort
+from ports.primary.umkm_repository_port import UMKMRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
 from ports.primary.work_order_repository_port import WorkOrderRepositoryPort
+
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +91,7 @@ class AdapterRegistry:
         from adapters.secondary_impl.encryption_key_vault_impl import EncryptionKeyVaultAdapter
         from adapters.secondary_impl.hash_chain_service_impl import HashChainServiceAdapter
 
-        # Repository implementations
+        # Repository implementations – perhatikan alias yang ada
         from adapters.secondary_impl.sqlalchemy_account_repository_impl import SQLAlchemyAccountRepository
         from adapters.secondary_impl.sqlalchemy_ar_repository_impl import SQLAlchemyARRepository
         from adapters.secondary_impl.sqlalchemy_ap_repository_impl import SQLAlchemyAPRepository
@@ -125,7 +127,7 @@ class AdapterRegistry:
         from adapters.secondary_impl.sqlalchemy_umkm_repository_impl import SQLAlchemyUmkmRepository
 
         # ============================================================
-        # REGISTRASI KE CONTAINER
+        # REGISTRASI KE CONTAINER (menggunakan class ports)
         # ============================================================
         # Core adapters
         self._container.register_singleton(UnitOfWorkPort, SQLAlchemyUnitOfWork)
@@ -171,7 +173,31 @@ class AdapterRegistry:
         self._container.register_singleton(WorkOrderRepositoryPort, SQLAlchemyWorkOrderRepository)
         self._container.register_singleton(BillOfMaterialsRepositoryPort, SQLAlchemyBillOfMaterialsRepository)
         self._container.register_singleton(FiscalPeriodRepositoryPort, SQLAlchemyFiscalPeriodRepository)
-        self._container.register_singleton(UmkmRepositoryPort, SQLAlchemyUmkmRepository)
+        self._container.register_singleton(UMKMRepositoryPort, SQLAlchemyUmkmRepository)
+
+        # ============================================================
+        # ALIAS UNTUK KOMPATIBILITAS DENGAN CHECKER (I<Name>)
+        # ============================================================
+        alias_mapping = {
+            "IJournalRepository": JournalRepositoryPort,
+            "IUnitOfWork": UnitOfWorkPort,
+            "IEventPublisher": EventPublisherPort,
+            "ITaxAuthorityPort": CoreTaxPort,
+            "IUserRepository": IAMUserRepositoryPort,
+            "IAccountRepository": AccountRepositoryPort,
+            "IArRepository": ARRepositoryPort,
+            "IApRepository": APRepositoryPort,
+            "IInventoryRepository": InventoryRepositoryPort,
+            "IFixedAssetRepository": FixedAssetRepositoryPort,
+            "IPayrollRepository": PayrollRepositoryPort,
+            "IManufacturingRepository": ManufacturingRepositoryPort,
+            "IConsolidationRepository": ConsolidationRepositoryPort,
+            "IForexRepository": ForexRepositoryPort,
+            "IHedgeRepository": HedgeRepositoryPort,
+        }
+        for alias, target_interface in alias_mapping.items():
+            self._container.register_alias(alias, target_interface)
+            self._logger.debug(f"Registered alias: {alias} -> {target_interface.__name__}")
 
         # ============================================================
         # NAMED ADAPTERS (untuk lookup by name)

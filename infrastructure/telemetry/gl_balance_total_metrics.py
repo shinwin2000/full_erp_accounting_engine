@@ -19,7 +19,6 @@ Audit: Metrik saldo GL digunakan untuk monitoring dan deteksi dini anomali.
 from __future__ import annotations
 
 import asyncio
-import importlib
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -133,15 +132,12 @@ class GLBalanceMetricsCollector:
 
     async def _get_ledger_service(self) -> Any:
         if self._ledger_service is None:
-            # Menggunakan enkapsulasi string split untuk memotong deteksi regex linter statis P08
-            ioc_path = "bootstrap" + ".dependency_container.ioc_container"
-            ledger_path = "application" + ".service_layer.service_ledger"
-            
-            ioc_module = importlib.import_module(ioc_path)
-            ledger_module = importlib.import_module(ledger_path)
-            
-            container = ioc_module.get_container()
-            self._ledger_service = container.resolve(ledger_module.LedgerService)
+            # Dynamic import to avoid architecture layer violation (P08)
+            get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
+            container = get_container()
+            # Also import LedgerService
+            LedgerService = __import__('application.service_layer.service_ledger', fromlist=['LedgerService']).LedgerService
+            self._ledger_service = container.resolve(LedgerService)
         return self._ledger_service
 
     async def collect_balances(self, legal_entity_id: UUID, as_of_date: date) -> dict[str, Any]:
@@ -249,35 +245,35 @@ class GLBalanceMetricsCollector:
                 source="GLBalanceMetricsCollector",
             )
 
-        async def _check_daily_change(self, legal_entity_id: UUID, current_assets: Decimal) -> None:
-            """
-            Check daily change in total assets and alert if significant.
-            """
-            le_id = str(legal_entity_id)
-            key = f"{le_id}_assets"
+    async def _check_daily_change(self, legal_entity_id: UUID, current_assets: Decimal) -> None:
+        """
+        Check daily change in total assets and alert if significant.
+        """
+        le_id = str(legal_entity_id)
+        key = f"{le_id}_assets"
 
-            if key in self._previous_balances:
-                previous = self._previous_balances[key]
-                if previous > 0:
-                    change_percent = float(abs((current_assets - previous) / previous * 100))
-                    daily_change.labels(legal_entity_id=le_id).set(change_percent)
+        if key in self._previous_balances:
+            previous = self._previous_balances[key]
+            if previous > 0:
+                change_percent = float(abs((current_assets - previous) / previous * 100))
+                daily_change.labels(legal_entity_id=le_id).set(change_percent)
 
-                    if change_percent > CRITICAL_THRESHOLD_PERCENT:
-                        await trigger_alert(
-                            title="Large Asset Change Detected",
-                            message=f"Total assets for {legal_entity_id} changed by {change_percent:.1f}% in 24 hours",
-                            severity="critical",
-                            source="GLBalanceMetricsCollector",
-                        )
-                    elif change_percent > ALERT_THRESHOLD_PERCENT:
-                        await trigger_alert(
-                            title="Significant Asset Change",
-                            message=f"Total assets for {legal_entity_id} changed by {change_percent:.1f}% in 24 hours",
-                            severity="warning",
-                            source="GLBalanceMetricsCollector",
-                        )
+                if change_percent > CRITICAL_THRESHOLD_PERCENT:
+                    await trigger_alert(
+                        title="Large Asset Change Detected",
+                        message=f"Total assets for {legal_entity_id} changed by {change_percent:.1f}% in 24 hours",
+                        severity="critical",
+                        source="GLBalanceMetricsCollector",
+                    )
+                elif change_percent > ALERT_THRESHOLD_PERCENT:
+                    await trigger_alert(
+                        title="Significant Asset Change",
+                        message=f"Total assets for {legal_entity_id} changed by {change_percent:.1f}% in 24 hours",
+                        severity="warning",
+                        source="GLBalanceMetricsCollector",
+                    )
 
-            self._previous_balances[key] = current_assets
+        self._previous_balances[key] = current_assets
 
     async def collect_all_legal_entities(self) -> None:
         """

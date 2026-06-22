@@ -1,34 +1,23 @@
 #!/usr/bin/env python3
 """
 Module: sqlalchemy_supplier_repository_impl.py
-Layer: Adapters / Secondary / Implementation
-Responsibility: SQLAlchemy implementation of SupplierRepositoryPort.
+SQLAlchemy implementation of SupplierRepositoryPort.
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    Boolean,
-    Column,
-    DateTime,
-    Index,
-    Integer,
-    String,
-    Text,
-    delete,
-    select,
-    update,
+    Boolean, Column, DateTime, Index, Integer, String, Text,
+    select, update, delete,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
-
-from ports.primary.customer_supplier_repository_port import SupplierRepositoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -63,15 +52,19 @@ class SupplierTable(Base):
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=datetime.utcnow)
 
 
-class SQLAlchemySupplierRepository(SupplierRepositoryPort):
-    def __init__(self, session_factory):
-        self._session_factory = session_factory
+class SQLAlchemySupplierRepository:
+    def __init__(self, session: AsyncSession | None = None):
+        self._session = session
 
     async def _get_session(self) -> AsyncSession:
-        return self._session_factory()
+        if self._session is None:
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session
+            self._session = await get_async_session()
+        return self._session
 
-    async def save(self, supplier) -> None:
-        async with await self._get_session() as session, session.begin():
+    async def save(self, supplier: Any) -> None:
+        session = await self._get_session()
+        async with session.begin():
             stmt = select(SupplierTable).where(SupplierTable.id == supplier.id)
             result = await session.execute(stmt)
             existing = result.scalar_one_or_none()
@@ -92,7 +85,7 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
                 existing.updated_at = datetime.utcnow()
             else:
                 new = SupplierTable(
-                    id=supplier.id,
+                    id=supplier.id or uuid4(),
                     legal_entity_id=supplier.legal_entity_id,
                     supplier_code=supplier.supplier_code,
                     supplier_name=supplier.supplier_name,
@@ -111,38 +104,39 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
                 )
                 session.add(new)
 
-    async def get_by_id(self, supplier_id: UUID):
-        async with await self._get_session() as session:
-            stmt = select(SupplierTable).where(SupplierTable.id == supplier_id)
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if not row:
-                return None
-            return self._to_domain(row)
+    async def get_by_id(self, supplier_id: UUID) -> Optional[Any]:
+        session = await self._get_session()
+        stmt = select(SupplierTable).where(SupplierTable.id == supplier_id)
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return self._to_domain(row) if row else None
 
-    async def get_by_code(self, supplier_code: str, legal_entity_id: UUID):
-        async with await self._get_session() as session:
-            stmt = select(SupplierTable).where(
-                SupplierTable.supplier_code == supplier_code,
-                SupplierTable.legal_entity_id == legal_entity_id,
-            )
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            return self._to_domain(row) if row else None
+    async def get_by_code(self, supplier_code: str, legal_entity_id: UUID) -> Optional[Any]:
+        session = await self._get_session()
+        stmt = select(SupplierTable).where(
+            SupplierTable.supplier_code == supplier_code,
+            SupplierTable.legal_entity_id == legal_entity_id,
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return self._to_domain(row) if row else None
 
-    async def list_by_legal_entity(
-        self, legal_entity_id: UUID, is_active: bool | None = None
-    ) -> list:
-        async with await self._get_session() as session:
-            stmt = select(SupplierTable).where(SupplierTable.legal_entity_id == legal_entity_id)
-            if is_active is not None:
-                stmt = stmt.where(SupplierTable.is_active == is_active)
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            return [self._to_domain(row) for row in rows]
+    async def list_by_entity(self, legal_entity_id: UUID, is_active: bool | None = None) -> list[Any]:
+        session = await self._get_session()
+        stmt = select(SupplierTable).where(SupplierTable.legal_entity_id == legal_entity_id)
+        if is_active is not None:
+            stmt = stmt.where(SupplierTable.is_active == is_active)
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_domain(row) for row in rows]
+
+    async def is_active(self, supplier_id: UUID) -> bool:
+        supplier = await self.get_by_id(supplier_id)
+        return supplier is not None and supplier.is_active
 
     async def update_status(self, supplier_id: UUID, is_active: bool) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             stmt = (
                 update(SupplierTable)
                 .where(SupplierTable.id == supplier_id)
@@ -151,19 +145,19 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
             await session.execute(stmt)
 
     async def delete(self, supplier_id: UUID) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             await session.execute(delete(SupplierTable).where(SupplierTable.id == supplier_id))
 
-    async def get_by_npwp(self, npwp: str) -> Optional:
-        async with await self._get_session() as session:
-            stmt = select(SupplierTable).where(SupplierTable.npwp == npwp)
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            return self._to_domain(row) if row else None
+    async def get_by_npwp(self, npwp: str) -> Optional[Any]:
+        session = await self._get_session()
+        stmt = select(SupplierTable).where(SupplierTable.npwp == npwp)
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return self._to_domain(row) if row else None
 
-    def _to_domain(self, row):
+    def _to_domain(self, row: SupplierTable) -> Any:
         from types import SimpleNamespace
-
         return SimpleNamespace(
             id=row.id,
             legal_entity_id=row.legal_entity_id,
@@ -185,4 +179,4 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         )
 
 
-__all__ = ["SQLAlchemySupplierRepository", "SupplierTable"]
+__all__ = ["SupplierTable", "SQLAlchemySupplierRepository"]

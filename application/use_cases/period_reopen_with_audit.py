@@ -16,7 +16,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_fiscal_period import FiscalPeriodService
 from application.service_layer.service_journal import JournalService
 from domain.fiscal_period.aggregate_root import FiscalPeriod, PeriodStatus
@@ -25,7 +25,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class PeriodReopenWithAuditCommand(Command):
+class PeriodReopenWithAuditCommand(BaseCommand):
     """Command untuk membuka kembali periode yang sudah ditutup."""
 
     __slots__ = (
@@ -192,7 +192,7 @@ class PeriodReopenWithAuditUseCase:
 
 
 async def period_reopen_handler(
-    command: Command, use_case: PeriodReopenWithAuditUseCase
+    command: BaseCommand, use_case: PeriodReopenWithAuditUseCase
 ) -> CommandResult:
     if not isinstance(command, PeriodReopenWithAuditCommand):
         raise TypeError(f"Expected PeriodReopenWithAuditCommand, got {type(command)}")

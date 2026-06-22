@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_ar import ARService
 from application.service_layer.service_bank_cash import BankCashService
 from kernel.sealed_gate import SealedGate
@@ -27,7 +27,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class ARCollectionWorkflowCommand(Command):
+class ARCollectionWorkflowCommand(BaseCommand):
     """Command untuk collection piutang."""
 
     __slots__ = (
@@ -352,7 +352,7 @@ class ARCollectionWorkflowUseCase:
 # Handler dengan dependency injection
 # ============================================================================
 async def ar_collection_workflow_handler(
-    command: Command, use_case: ARCollectionWorkflowUseCase
+    command: BaseCommand, use_case: ARCollectionWorkflowUseCase
 ) -> CommandResult:
     if not isinstance(command, ARCollectionWorkflowCommand):
         raise TypeError(f"Expected ARCollectionWorkflowCommand, got {type(command)}")
@@ -361,7 +361,8 @@ async def ar_collection_workflow_handler(
 
 # Buat alias eksplisit agar kompatibel dengan penamaan di lapisan FastAPI Router
 ARCollectionWorkflow = ARCollectionWorkflowUseCase
-ArCollectionWorkflow = ARCollectionWorkflowUseCase  # Added for test (camelCase Ar)
+ArCollectionWorkflow = ARCollectionWorkflowUseCase 
+ArCollectionWorkflowUseCase = ARCollectionWorkflowUseCase
 
 __all__ = [
     "ARCollectionWorkflow",

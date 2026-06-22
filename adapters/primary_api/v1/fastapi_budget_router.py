@@ -24,7 +24,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -33,8 +32,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -353,8 +351,8 @@ class BudgetRollingForecastSchema(BaseModel):
 
 async def get_budget_service(request: Request, ) -> Any:
     """Get Budget Service instance."""
+
     from application.service_layer.service_budget import BudgetService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(BudgetService)
@@ -440,7 +438,7 @@ async def create_budget(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create budget: {}".format(e))
+        logger.exception(f"Failed to create budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -495,7 +493,7 @@ async def get_budget(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get budget: {}".format(e))
+        logger.exception(f"Failed to get budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -519,7 +517,7 @@ async def get_budget_by_code(
         if not budget:
             raise HTTPException(
                 status_code=404,
-                detail="Budget {} not found for fiscal year {}".format(budget_code, fiscal_year)
+                detail=f"Budget {budget_code} not found for fiscal year {fiscal_year}"
             )
 
         return BudgetResponseSchema(
@@ -554,7 +552,7 @@ async def get_budget_by_code(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get budget by code: {}".format(e))
+        logger.exception(f"Failed to get budget by code: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -624,7 +622,7 @@ async def update_budget(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to update budget: {}".format(e))
+        logger.exception(f"Failed to update budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -697,7 +695,7 @@ async def update_budget_lines(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to update budget lines: {}".format(e))
+        logger.exception(f"Failed to update budget lines: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -731,7 +729,7 @@ async def archive_budget(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to archive budget: {}".format(e))
+        logger.exception(f"Failed to archive budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -791,7 +789,7 @@ async def submit_budget(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to submit budget: {}".format(e))
+        logger.exception(f"Failed to submit budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -850,7 +848,7 @@ async def approve_budget(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to approve budget: {}".format(e))
+        logger.exception(f"Failed to approve budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -907,7 +905,7 @@ async def reject_budget(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to reject budget: {}".format(e))
+        logger.exception(f"Failed to reject budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -963,7 +961,7 @@ async def activate_budget(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to activate budget: {}".format(e))
+        logger.exception(f"Failed to activate budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1020,7 +1018,7 @@ async def lock_budget(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to lock budget: {}".format(e))
+        logger.exception(f"Failed to lock budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1076,7 +1074,7 @@ async def unlock_budget(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to unlock budget: {}".format(e))
+        logger.exception(f"Failed to unlock budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1146,7 +1144,7 @@ async def list_budgets(
             for b in result.items
         ]
     except Exception as e:
-        logger.exception("Failed to list budgets: {}".format(e))
+        logger.exception(f"Failed to list budgets: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1185,7 +1183,7 @@ async def get_budget_versions(
             for v in versions
         ]
     except Exception as e:
-        logger.exception("Failed to get budget versions: {}".format(e))
+        logger.exception(f"Failed to get budget versions: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1250,7 +1248,7 @@ async def create_budget_version(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create budget version: {}".format(e))
+        logger.exception(f"Failed to create budget version: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1313,7 +1311,7 @@ async def get_budget_vs_actual(
             generated_at=analysis.generated_at,
         )
     except Exception as e:
-        logger.exception("Failed to get budget vs actual: {}".format(e))
+        logger.exception(f"Failed to get budget vs actual: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1346,7 +1344,7 @@ async def get_budget_vs_actual_ytd(
             budget_name=analysis.budget_name,
             fiscal_year=analysis.fiscal_year,
             period=0,
-            period_name="YTD (month {})".format(as_of_month),
+            period_name=f"YTD (month {as_of_month})",
             total_budget=analysis.total_budget,
             total_actual=analysis.total_actual,
             total_variance=analysis.total_variance,
@@ -1372,7 +1370,7 @@ async def get_budget_vs_actual_ytd(
             generated_at=analysis.generated_at,
         )
     except Exception as e:
-        logger.exception("Failed to get budget vs actual YTD: {}".format(e))
+        logger.exception(f"Failed to get budget vs actual YTD: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1428,7 +1426,7 @@ async def transfer_budget(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to transfer budget: {}".format(e))
+        logger.exception(f"Failed to transfer budget: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1467,7 +1465,7 @@ async def get_budget_dashboard(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception("Failed to get budget dashboard: {}".format(e))
+        logger.exception(f"Failed to get budget dashboard: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1510,7 +1508,7 @@ async def get_budget_alerts(
             for a in alerts
         ]
     except Exception as e:
-        logger.exception("Failed to get budget alerts: {}".format(e))
+        logger.exception(f"Failed to get budget alerts: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1578,7 +1576,7 @@ async def create_rolling_forecast(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create rolling forecast: {}".format(e))
+        logger.exception(f"Failed to create rolling forecast: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1616,7 +1614,7 @@ async def get_budget_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception("Failed to get budget history: {}".format(e))
+        logger.exception(f"Failed to get budget history: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1662,7 +1660,7 @@ async def get_budget_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get budget status: {}".format(e))
+        logger.exception(f"Failed to get budget status: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1693,15 +1691,15 @@ async def export_budgets(
         )
 
         media_type = "text/csv" if format == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        filename = "budgets_{}_{}.{}".format(legal_entity_id, fiscal_year, format)
+        filename = f"budgets_{legal_entity_id}_{fiscal_year}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
-        logger.exception("Failed to export budgets: {}".format(e))
+        logger.exception(f"Failed to export budgets: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

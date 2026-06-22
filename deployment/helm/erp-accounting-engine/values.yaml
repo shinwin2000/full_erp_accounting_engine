@@ -1,2 +1,138 @@
-# values.yaml
-# Auto-generated configuration file
+# Default values for erp-accounting-engine
+# This is a YAML-formatted file.
+
+replicaCount: 2
+
+image:
+  repository: your-registry/erp-accounting-engine
+  pullPolicy: IfNotPresent
+  tag: "1.0.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: erp.your-company.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - erp.your-company.com
+      secretName: erp-tls
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+postgresql:
+  enabled: true
+  auth:
+    database: erp_db
+    username: erp_user
+    password: "change_me_in_production"  # Should be overridden
+  primary:
+    persistence:
+      size: 50Gi
+    resources:
+      limits:
+        memory: 2Gi
+      requests:
+        memory: 1Gi
+
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      size: 10Gi
+    resources:
+      limits:
+        memory: 512Mi
+      requests:
+        memory: 256Mi
+
+kafka:
+  enabled: false
+  bootstrapServers: "kafka:9092"
+
+minio:
+  enabled: false
+  endpoint: "minio:9000"
+  bucket: "erp-evidence"
+
+jaeger:
+  enabled: false
+  host: "jaeger-agent"
+  otlpPort: 4317
+
+env:
+  APP_ENV: "production"
+  LOG_LEVEL: "INFO"
+  SECRET_KEY: "change_me_in_production"  # Should be overridden with secret
+  DATABASE_URL: ""
+  REDIS_URL: ""
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 20Gi
+
+config:
+  app:
+    env: production
+    log_level: INFO
+  database:
+    pool_size: 20
+    max_overflow: 10
+    pool_recycle: 1800
+  logging:
+    level: INFO
+    format: json
+
+monitoring:
+  enabled: true
+  prometheus:
+    path: /metrics
+    port: 8000
+  grafana:
+    dashboard:
+      enabled: true
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

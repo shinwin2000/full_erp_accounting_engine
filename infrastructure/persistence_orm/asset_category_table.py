@@ -6,10 +6,10 @@ Responsibility: SQLAlchemy ORM model for asset categories used in fixed asset ma
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import Boolean, CheckConstraint, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID

@@ -12,7 +12,6 @@ Responsibility:
 
 from __future__ import annotations
 
-import importlib
 import logging
 from typing import Any, Protocol
 
@@ -37,6 +36,100 @@ from application.service_layer.service_project import ProjectService
 from application.service_layer.service_report import ReportService
 from application.service_layer.service_tax import TaxService
 from application.service_layer.service_umkm import UMKMService
+
+# Import semua use cases, commands, handlers
+from application.use_cases import (
+    AMLScreeningCommand,
+    AMLScreeningUseCase,
+    APPaymentRunCommand,
+    APPaymentRunUseCase,
+    ApproveJournalCommand,
+    ApproveJournalUseCase,
+    ARCollectionWorkflowCommand,
+    ARCollectionWorkflowUseCase,
+    BankReconciliationCommand,
+    BankReconciliationUseCase,
+    BudgetVsActualCommand,
+    BudgetVsActualUseCase,
+    COGSCalculationCommand,
+    COGSCalculationUseCase,
+    ConsolidationGroupReportCommand,
+    ConsolidationGroupReportUseCase,
+    CoretaxBulkSubmissionCommand,
+    CoretaxBulkSubmissionUseCase,
+    DepreciationMonthlyRunCommand,
+    DepreciationMonthlyRunUseCase,
+    DisasterRecoveryReplayCommand,
+    DisasterRecoveryReplayUseCase,
+    FinancialStatementGenerationCommand,
+    FinancialStatementGenerationUseCase,
+    FiscalReconciliationCommand,
+    FiscalReconciliationUseCase,
+    ForexRevaluationCommand,
+    ForexRevaluationUseCase,
+    HedgeAccountingCommand,
+    HedgeAccountingUseCase,
+    HPPManufacturingCloseCommand,
+    HPPManufacturingCloseUseCase,
+    ImpairmentTestingCommand,
+    ImpairmentTestingUseCase,
+    IntercompanyEliminationCommand,
+    IntercompanyEliminationUseCase,
+    PayrollMonthlyRunCommand,
+    PayrollMonthlyRunUseCase,
+    PeriodCloseCommand,
+    PeriodCloseUseCase,
+    PeriodReopenWithAuditCommand,
+    PeriodReopenWithAuditUseCase,
+    PostAdjustingJournalCommand,
+    PostAdjustingJournalUseCase,
+    PostClosingJournalCommand,
+    PostClosingJournalUseCase,
+    PostJournalEntryCommand,
+    PostJournalEntryUseCase,
+    ReverseJournalCommand,
+    ReverseJournalUseCase,
+    StockOpnameCycleCommand,
+    StockOpnameCycleUseCase,
+    TaxFilingSubmissionCommand,
+    TaxFilingSubmissionUseCase,
+    YearEndClosingCommand,
+    YearEndClosingUseCase,
+    aml_screening_handler,
+    ap_payment_run_handler,
+    approve_journal_handler,
+    ar_collection_workflow_handler,
+    bank_reconciliation_handler,
+    budget_vs_actual_handler,
+    cogs_calculation_handler,
+    consolidation_group_report_handler,
+    coretax_bulk_submission_handler,
+    depreciation_monthly_run_handler,
+    disaster_recovery_replay_handler,
+    financial_statement_generation_handler,
+    fiscal_reconciliation_handler,
+    forex_revaluation_handler,
+    hedge_accounting_handler,
+    hpp_manufacturing_close_handler,
+    impairment_testing_handler,
+    intercompany_elimination_handler,
+    payroll_monthly_run_handler,
+    period_close_handler,
+    period_reopen_handler,
+    post_adjusting_journal_handler,
+    post_closing_journal_handler,
+    post_journal_entry_handler,
+    reverse_journal_handler,
+    stock_opname_cycle_handler,
+    tax_filing_submission_handler,
+    year_end_closing_handler,
+)
+
+# Import registry functions dari use_cases
+from application.use_cases.registry import (
+    register_command_handler,
+    set_use_case_container,
+)
 from kernel.circuit_breaker import CircuitBreakerRegistry
 from kernel.sealed_gate import SealedGate
 from kernel.transactional_executor import TransactionalExecutor
@@ -47,103 +140,6 @@ from ports.primary.payroll_repository_port import PayrollRepositoryPort
 from ports.primary.project_repository_port import ProjectRepositoryPort
 from ports.primary.report_repository_port import ReportRepositoryPort
 from ports.primary.umkm_repository_port import UMKMRepositoryPort
-
-# Import semua use cases, commands, handlers
-from application.use_cases import (
-    AMLScreeningCommand,
-    AMLScreeningUseCase,
-    aml_screening_handler,
-    APPaymentRunCommand,
-    APPaymentRunUseCase,
-    ap_payment_run_handler,
-    ApproveJournalCommand,
-    ApproveJournalUseCase,
-    approve_journal_handler,
-    ARCollectionWorkflowCommand,
-    ARCollectionWorkflowUseCase,
-    ar_collection_workflow_handler,
-    BankReconciliationCommand,
-    BankReconciliationUseCase,
-    bank_reconciliation_handler,
-    BudgetVsActualCommand,
-    BudgetVsActualUseCase,
-    budget_vs_actual_handler,
-    COGSCalculationCommand,
-    COGSCalculationUseCase,
-    cogs_calculation_handler,
-    ConsolidationGroupReportCommand,
-    ConsolidationGroupReportUseCase,
-    consolidation_group_report_handler,
-    CoretaxBulkSubmissionCommand,
-    CoretaxBulkSubmissionUseCase,
-    coretax_bulk_submission_handler,
-    DepreciationMonthlyRunCommand,
-    DepreciationMonthlyRunUseCase,
-    depreciation_monthly_run_handler,
-    DisasterRecoveryReplayCommand,
-    DisasterRecoveryReplayUseCase,
-    disaster_recovery_replay_handler,
-    FinancialStatementGenerationCommand,
-    FinancialStatementGenerationUseCase,
-    financial_statement_generation_handler,
-    FiscalReconciliationCommand,
-    FiscalReconciliationUseCase,
-    fiscal_reconciliation_handler,
-    ForexRevaluationCommand,
-    ForexRevaluationUseCase,
-    forex_revaluation_handler,
-    HedgeAccountingCommand,
-    HedgeAccountingUseCase,
-    hedge_accounting_handler,
-    HPPManufacturingCloseCommand,
-    HPPManufacturingCloseUseCase,
-    hpp_manufacturing_close_handler,
-    ImpairmentTestingCommand,
-    ImpairmentTestingUseCase,
-    impairment_testing_handler,
-    IntercompanyEliminationCommand,
-    IntercompanyEliminationUseCase,
-    intercompany_elimination_handler,
-    PayrollMonthlyRunCommand,
-    PayrollMonthlyRunUseCase,
-    payroll_monthly_run_handler,
-    PeriodCloseCommand,
-    PeriodCloseUseCase,
-    period_close_handler,
-    PeriodReopenWithAuditCommand,
-    PeriodReopenWithAuditUseCase,
-    period_reopen_handler,
-    PostAdjustingJournalCommand,
-    PostAdjustingJournalUseCase,
-    post_adjusting_journal_handler,
-    PostClosingJournalCommand,
-    PostClosingJournalUseCase,
-    post_closing_journal_handler,
-    PostJournalEntryCommand,
-    PostJournalEntryUseCase,
-    post_journal_entry_handler,
-    ReverseJournalCommand,
-    ReverseJournalUseCase,
-    reverse_journal_handler,
-    StockOpnameCycleCommand,
-    StockOpnameCycleUseCase,
-    stock_opname_cycle_handler,
-    TaxFilingSubmissionCommand,
-    TaxFilingSubmissionUseCase,
-    tax_filing_submission_handler,
-    YearEndClosingCommand,
-    YearEndClosingUseCase,
-    year_end_closing_handler,
-)
-
-# Import registry functions dari use_cases
-from application.use_cases.registry import (
-    get_command_registry,
-    get_query_registry,
-    register_command_handler,
-    register_query_handler,
-    set_use_case_container,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -248,80 +244,69 @@ class ApplicationFactory:
         self._query_bus = None
         self._event_subscriber = None
 
-    def _resolve_adapter(self, module_path: str, class_name: str) -> Any:
-        module = importlib.import_module(module_path)
-        return getattr(module, class_name)
-
     def _resolve_infrastructure_component(self, component_type: str, config_key: str) -> Any:
-        component_map = {
-            "database_pool": (
-                "adapters.secondary_impl.postgres_connection_pool_manager",
-                "AsyncPGConnectionPoolManager",
-            ),
-            "kafka_producer": (
-                "adapters.secondary_impl.kafka_producer_wrapper",
-                "KafkaProducerWrapper",
-            ),
-            "kafka_consumer": (
-                "adapters.secondary_impl.kafka_consumer_wrapper",
-                "KafkaConsumerWrapper",
-            ),
-            "redis": ("adapters.secondary_impl.redis_cache_adapter_impl", "RedisCacheAdapter"),
-            "jwt_issuer": ("infrastructure.security.jwt_issuer", "JWTIssuer"),
-            "encryption": (
-                "infrastructure.security.field_encryption_aes256_gcm",
-                "FieldEncryptionService",
-            ),
-            "event_store": ("infrastructure.event_store.append_only_store", "AppendOnlyStore"),
-        }
-        if component_type not in component_map:
-            return None
-        module_path, class_name = component_map[component_type]
         try:
-            cls = self._resolve_adapter(module_path, class_name)
             if component_type == "database_pool":
+                from adapters.secondary_impl.postgres_connection_pool_manager import (
+                    AsyncPGConnectionPoolManager,
+                )
                 db_cfg = self.config.get("database", {})
-                return cls(
+                return AsyncPGConnectionPoolManager(
                     dsn=db_cfg.get("dsn", "postgresql://user:pass@localhost:5432/erp"),
                     min_size=db_cfg.get("min_pool_size", 10),
                     max_size=db_cfg.get("max_pool_size", 50),
                 )
             elif component_type == "kafka_producer":
+                from adapters.secondary_impl.kafka_producer_wrapper import KafkaProducerWrapper
                 kafka_cfg = self.config.get("kafka", {})
-                return cls(
+                return KafkaProducerWrapper(
                     bootstrap_servers=kafka_cfg.get("bootstrap_servers", "localhost:9092"),
                     client_id="erp_accounting_engine_producer",
                 )
             elif component_type == "kafka_consumer":
+                from adapters.secondary_impl.kafka_consumer_wrapper import KafkaConsumerWrapper
                 kafka_cfg = self.config.get("kafka", {})
-                return cls(
+                return KafkaConsumerWrapper(
                     bootstrap_servers=kafka_cfg.get("bootstrap_servers", "localhost:9092"),
                     group_id="erp_accounting_engine_group",
                     auto_offset_reset="earliest",
                 )
             elif component_type == "redis":
+                from adapters.secondary_impl.redis_cache_adapter_impl import RedisCacheAdapter
                 redis_cfg = self.config.get("redis", {})
                 if not redis_cfg.get("enabled", False):
                     return None
-                return cls(
+                return RedisCacheAdapter(
                     host=redis_cfg.get("host", "localhost"),
                     port=redis_cfg.get("port", 6379),
                     db=redis_cfg.get("db", 0),
                 )
             elif component_type == "jwt_issuer":
+                from infrastructure.security.jwt_issuer import JWTIssuer
                 sec_cfg = self.config.get("security", {})
-                return cls(
+                return JWTIssuer(
                     secret_key=sec_cfg.get("jwt_secret", "default-secret"),
                     algorithm="RS256",
                     expire_minutes=60,
                 )
             elif component_type == "encryption":
+                from infrastructure.security.field_encryption_aes256_gcm import (
+                    FieldEncryptionService,
+                )
                 sec_cfg = self.config.get("security", {})
-                return cls(key=sec_cfg.get("encryption_key", "default-key").encode())
+                return FieldEncryptionService(
+                    key=sec_cfg.get("encryption_key", "default-key").encode()
+                )
             elif component_type == "event_store":
-                return cls(db_pool=self._db_pool, table_name="event_store")
+                from infrastructure.event_store.append_only_store import AppendOnlyStore
+                return AppendOnlyStore(db_pool=self._db_pool, table_name="event_store")
+            else:
+                return None
+        except ImportError as e:
+            logger.warning(f"Failed to load static dependency for {component_type}: {e}")
+            return None
         except Exception as e:
-            logger.warning(f"Failed to load {component_type}: {e}")
+            logger.warning(f"Failed to initialize {component_type}: {e}")
             return None
 
     async def initialize(self) -> Any:
@@ -381,77 +366,73 @@ class ApplicationFactory:
         """Setup OpenTelemetry dan Prometheus."""
         if self.config.get("telemetry", {}).get("opentelemetry_enabled", False):
             try:
-                module = importlib.import_module("infrastructure.telemetry.opentelemetry_setup")
-                setup_opentelemetry = module.setup_opentelemetry
+                from infrastructure.telemetry.opentelemetry_setup import setup_opentelemetry
                 setup_opentelemetry(
                     service_name="erp_accounting_engine",
                     endpoint=self.config["telemetry"].get("otel_endpoint", "localhost:4317"),
                 )
+            except ImportError as e:
+                logger.warning(f"Failed to import OpenTelemetry: {e}")
             except Exception as e:
                 logger.warning(f"Failed to setup OpenTelemetry: {e}")
 
         if self.config.get("telemetry", {}).get("prometheus_enabled", False):
             try:
-                module = importlib.import_module("infrastructure.telemetry.prometheus_registry")
-                setup_prometheus = module.setup_prometheus
+                from infrastructure.telemetry.prometheus_registry import setup_prometheus
                 setup_prometheus(port=self.config["telemetry"].get("prometheus_port", 9090))
+            except ImportError as e:
+                logger.warning(f"Failed to import Prometheus: {e}")
             except Exception as e:
                 logger.warning(f"Failed to setup Prometheus: {e}")
 
     async def _setup_repositories(self) -> None:
-        """Setup repository implementations."""
-        # Load semua repository classes
-        repo_classes = {
-            "account": self._resolve_adapter(
-                "adapters.secondary_impl.sqlalchemy_account_repository_impl",
-                "SQLAlchemyAccountRepository",
-            ),
-            "journal": self._resolve_adapter(
-                "adapters.secondary_impl.sqlalchemy_journal_repository_impl",
-                "SQLAlchemyJournalRepository",
-            ),
-            "ar": self._resolve_adapter(
-                "adapters.secondary_impl.sqlalchemy_ar_repository_impl", "SQLAlchemyARRepository"
-            ),
-            "ap": self._resolve_adapter(
-                "adapters.secondary_impl.sqlalchemy_ap_repository_impl", "SQLAlchemyAPRepository"
-            ),
-            "inventory": self._resolve_adapter(
-                "adapters.secondary_impl.sqlalchemy_inventory_repository_impl",
-                "SQLAlchemyInventoryRepository",
-            ),
-            "fixed_asset": self._resolve_adapter(
-                "adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl",
-                "SQLAlchemyFixedAssetRepository",
-            ),
-            "bank_cash": self._resolve_adapter(
-                "adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl",
-                "SQLAlchemyBankCashRepository",
-            ),
-            "tax": self._resolve_adapter(
-                "adapters.secondary_impl.sqlalchemy_tax_repository_impl", "SQLAlchemyTaxRepository"
-            ),
-            "uow": self._resolve_adapter(
-                "adapters.secondary_impl.sqlalchemy_unit_of_work_impl", "SQLAlchemyUnitOfWork"
-            ),
-            "coretax": self._resolve_adapter(
-                "adapters.coretax_djp.api_oauth2_client", "CoretaxOAuth2Client"
-            ),
-        }
+        """Setup repository implementations using strict static imports."""
+        try:
+            from adapters.coretax_djp.api_oauth2_client import CoretaxOAuth2Client
+            from adapters.secondary_impl.sqlalchemy_account_repository_impl import (
+                SQLAlchemyAccountRepository,
+            )
+            from adapters.secondary_impl.sqlalchemy_ap_repository_impl import (
+                SQLAlchemyAPRepository,
+            )
+            from adapters.secondary_impl.sqlalchemy_ar_repository_impl import (
+                SQLAlchemyARRepository,
+            )
+            from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import (
+                SQLAlchemyBankCashRepository,
+            )
+            from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import (
+                SQLAlchemyFixedAssetRepository,
+            )
+            from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import (
+                SQLAlchemyInventoryRepository,
+            )
+            from adapters.secondary_impl.sqlalchemy_journal_repository_impl import (
+                SQLAlchemyJournalRepository,
+            )
+            from adapters.secondary_impl.sqlalchemy_tax_repository_impl import (
+                SQLAlchemyTaxRepository,
+            )
+            from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import (
+                SQLAlchemyUnitOfWork,
+            )
+        except ImportError as e:
+            logger.critical(f"Failed to import required repository adapters: {e}")
+            raise
 
         # Buat session factory sederhana
         async def async_session_factory():
             return await self._db_pool.acquire()
 
         # Instansiasi repositories
-        self._account_repo = repo_classes["account"](session_factory=async_session_factory)
-        self._journal_repo = repo_classes["journal"](session_factory=async_session_factory)
-        self._ar_repo = repo_classes["ar"](session_factory=async_session_factory)
-        self._ap_repo = repo_classes["ap"](session_factory=async_session_factory)
-        self._inventory_repo = repo_classes["inventory"](session_factory=async_session_factory)
-        self._fixed_asset_repo = repo_classes["fixed_asset"](session_factory=async_session_factory)
-        self._bank_cash_repo = repo_classes["bank_cash"](session_factory=async_session_factory)
-        self._tax_repo = repo_classes["tax"](session_factory=async_session_factory)
+        self._account_repo = SQLAlchemyAccountRepository(session_factory=async_session_factory)
+        self._journal_repo = SQLAlchemyJournalRepository(session_factory=async_session_factory)
+        self._ar_repo = SQLAlchemyARRepository(session_factory=async_session_factory)
+        self._ap_repo = SQLAlchemyAPRepository(session_factory=async_session_factory)
+        self._inventory_repo = SQLAlchemyInventoryRepository(session_factory=async_session_factory)
+        self._fixed_asset_repo = SQLAlchemyFixedAssetRepository(session_factory=async_session_factory)
+        self._bank_cash_repo = SQLAlchemyBankCashRepository(session_factory=async_session_factory)
+        self._tax_repo = SQLAlchemyTaxRepository(session_factory=async_session_factory)
 
         # Report, consolidation, audit, payroll, manufacturing, project, umkm (placeholder)
         self._report_repo = ReportRepositoryPort()
@@ -464,14 +445,14 @@ class ApplicationFactory:
 
         # Coretax client
         coretax_cfg = self.config.get("coretax", {})
-        self._coretax_client = repo_classes["coretax"](
+        self._coretax_client = CoretaxOAuth2Client(
             base_url=coretax_cfg.get("base_url", "https://api.coretax.djp.go.id"),
             client_id=coretax_cfg.get("client_id", ""),
             client_secret=coretax_cfg.get("client_secret", ""),
         )
 
         # Unit of Work
-        self._uow = repo_classes["uow"](
+        self._uow = SQLAlchemyUnitOfWork(
             session_factory=async_session_factory,
             event_publisher=self._event_publisher,
         )

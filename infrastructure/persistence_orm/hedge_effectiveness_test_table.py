@@ -10,12 +10,12 @@ Audit: Setiap uji efektivitas dicatat.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import date
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import Date, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID

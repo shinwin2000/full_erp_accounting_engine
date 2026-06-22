@@ -157,7 +157,7 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     # ========================================================================
 
     # AP Invoices – kolom di APInvoiceTable adalah 'vendor_id'
-    ap_invoices: Mapped[list["APInvoiceTable"]] = relationship(
+    ap_invoices: Mapped[list[APInvoiceTable]] = relationship(
         "APInvoiceTable",
         back_populates="supplier",
         cascade="all, delete-orphan",
@@ -165,7 +165,7 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     )
 
     # AP Payments – kolom di APPaymentTable adalah 'supplier_id'
-    ap_payments: Mapped[list["APPaymentTable"]] = relationship(
+    ap_payments: Mapped[list[APPaymentTable]] = relationship(
         "APPaymentTable",
         back_populates="supplier",
         cascade="all, delete-orphan",
@@ -173,7 +173,7 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     )
 
     # Purchase Orders – kolom di PurchaseOrderTable adalah 'supplier_id'
-    purchase_orders: Mapped[list["PurchaseOrderTable"]] = relationship(
+    purchase_orders: Mapped[list[PurchaseOrderTable]] = relationship(
         "PurchaseOrderTable",
         back_populates="supplier",
         cascade="all, delete-orphan",
@@ -181,7 +181,7 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     )
 
     # Goods Receipt Notes – kolom di GoodsReceiptNoteTable adalah 'supplier_id'
-    goods_receipt_notes: Mapped[list["GoodsReceiptNoteTable"]] = relationship(
+    goods_receipt_notes: Mapped[list[GoodsReceiptNoteTable]] = relationship(
         "GoodsReceiptNoteTable",
         back_populates="supplier",
         cascade="all, delete-orphan",

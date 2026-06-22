@@ -22,7 +22,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -31,8 +30,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -322,8 +320,8 @@ class TransactionSummarySchema(BaseModel):
 
 async def get_umkm_service(request: Request, ) -> Any:
     """Get UMKM Simplified Service instance."""
+
     from application.service_layer.service_umkm import UMKMSimplifiedService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(UMKMSimplifiedService)
@@ -1205,12 +1203,12 @@ async def export_transactions(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "umkm_transactions_{}_{}_{}.{}".format(legal_entity_id, start_date, end_date, format)
+        filename = f"umkm_transactions_{legal_entity_id}_{start_date}_{end_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.exception("Failed to export transactions: %s", e)

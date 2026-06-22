@@ -82,14 +82,12 @@ class Base(DeclarativeBase):
             if column.name in exclude:
                 continue
             value = getattr(self, column.name)
-            
+
             if value is None:
                 result[column.name] = None
             elif isinstance(value, datetime):
                 result[column.name] = value.isoformat()
-            elif isinstance(value, UUID):
-                result[column.name] = str(value)
-            elif isinstance(value, Decimal):
+            elif isinstance(value, UUID) or isinstance(value, Decimal):
                 result[column.name] = str(value)
             else:
                 result[column.name] = value
@@ -108,7 +106,7 @@ class Base(DeclarativeBase):
         """
         clean_data = {}
         mapper_columns = cls.__mapper__.columns
-        
+
         for key, value in data.items():
             if key in mapper_columns:
                 col_type = mapper_columns[key].type
@@ -123,7 +121,7 @@ class Base(DeclarativeBase):
                         if isinstance(value, (str, float, int)):
                             value = Decimal(str(value))
                 clean_data[key] = value
-                
+
         return cls(**clean_data)
 
 

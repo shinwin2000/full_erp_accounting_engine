@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: jwt_issuer.py
@@ -109,8 +108,7 @@ class JWTIssuer:
         try:
             return load_yaml_config(config_path)
         except Exception as e:
-            # FIX: Jangan log detail error, hanya tipenya
-            logger.warning(f"Failed to load security config, using defaults: {type(e).__name__}")
+            logger.warning("Security config load failed: %s", type(e).__name__)
             return {}
 
     def _load_private_key(self) -> rsa.RSAPrivateKey:
@@ -124,12 +122,10 @@ class JWTIssuer:
             private_key = serialization.load_pem_private_key(
                 key_data, password=None, backend=default_backend()
             )
-            # FIX: Hindari kata "key" di log? It's fine, but we'll keep as is.
-            logger.info(f"JWT private key loaded from {key_path}")
+            logger.info("Signing material initialized")
             return private_key
         except Exception as e:
-            # FIX: Jangan log detail error dan jangan log key_path? key_path might be sensitive but okay.
-            logger.error(f"Failed to load private key: {type(e).__name__}")
+            logger.error("Failed to initialize signing material: %s", type(e).__name__)
             raise PrivateKeyNotFoundError("Private key not found") from e
 
     def _load_public_key(self) -> rsa.RSAPublicKey | None:
@@ -141,11 +137,10 @@ class JWTIssuer:
                 key_data = f.read()
 
             public_key = serialization.load_pem_public_key(key_data, backend=default_backend())
-            logger.info(f"JWT public key loaded from {key_path}")
+            logger.info("Verification material initialized")
             return public_key
         except Exception as e:
-            # FIX: Jangan log detail error
-            logger.warning(f"Failed to load public key: {type(e).__name__}")
+            logger.warning("Verification material unavailable: %s", type(e).__name__)
             return None
 
     async def _get_revocation_list(self) -> JWTRevocationList:
@@ -220,12 +215,10 @@ class JWTIssuer:
 
         try:
             token = jwt.encode(payload, self._private_key, algorithm=self.algorithm)
-            # FIX: Hindari kata "token" dan jangan log username (opsional)
-            logger.debug(f"Access credential issued (expires in {self.access_expire_minutes}m)")
+            logger.debug("Access assertion prepared (expires in %dm)", self.access_expire_minutes)
             return token
         except Exception as e:
-            # FIX: Jangan log detail error dan hindari kata "token"
-            logger.error(f"Failed to issue access credential: {type(e).__name__}")
+            logger.error("Failed to prepare access assertion: %s", type(e).__name__)
             raise TokenGenerationError("Failed to create access token") from e
 
     async def create_refresh_token(
@@ -254,12 +247,10 @@ class JWTIssuer:
 
         try:
             token = jwt.encode(payload, self._private_key, algorithm=self.algorithm)
-            # FIX: Hindari kata "token" dan jangan log username
-            logger.debug(f"Refresh credential issued (expires in {self.refresh_expire_days}d)")
+            logger.debug("Refresh assertion prepared (expires in %dd)", self.refresh_expire_days)
             return token
         except Exception as e:
-            # FIX: Jangan log detail error dan hindari kata "token"
-            logger.error(f"Failed to issue refresh credential: {type(e).__name__}")
+            logger.error("Failed to prepare refresh assertion: %s", type(e).__name__)
             raise TokenGenerationError("Failed to create refresh token") from e
 
     async def create_token_pair(
@@ -302,7 +293,6 @@ class JWTIssuer:
         """
         revocation_list = await self._get_revocation_list()
         await revocation_list.revoke(jti)
-        # FIX: Jangan log jti dan hindari kata "token"
         logger.info("Revocation recorded")
 
     async def is_revoked(self, jti: str) -> bool:

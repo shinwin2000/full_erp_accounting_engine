@@ -19,13 +19,12 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
     """
     def __init__(self, vault: KeyManagementVault | None = None):
         self._vault = vault or KeyManagementVault()
-        # Salin semua atribut dari vault ke adapter jika perlu
-        # Untuk memudahkan, kita gunakan delegasi ke _vault
-        self._keys = self._vault._keys
-        self._metadata = self._vault._metadata
-        self._key_aliases = self._vault._key_aliases
-        self._audit_log = self._vault._audit_log
-        self._lock = self._vault._lock
+        # Inisialisasi atribut yang diperlukan dengan nilai default
+        self._keys = {}
+        self._metadata = {}
+        self._key_aliases = {}
+        self._audit_log = []
+        self._lock = None
 
     async def create_key(self, key_id: str, algorithm: str, key_size: int = 256, created_by=None, rotation_days=None, tags=None):
         return await self._vault.create_key(key_id, algorithm, key_size, created_by, rotation_days, tags)

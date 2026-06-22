@@ -2,18 +2,17 @@
 """
 Module: iam_user_table.py
 Layer: Infrastructure (Persistence ORM)
-Responsibility: Definisi semua tabel IAM dan kelas ORM-nya.
+Responsibility: Definisi tabel IAM (user, role, permission, session, login attempt)
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
-    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -23,8 +22,9 @@ from sqlalchemy import (
     Table,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import Mapped, relationship
 
 from infrastructure.persistence_orm.base_model import (
     Base,
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
 
 # ============================================================================
-# 1. DEFINE ALL TABLES (with explicit public schema in FKs)
+# 1. DEFINE TABLES (tanpa schema agar kompatibel)
 # ============================================================================
 
 iam_user_table = Table(
@@ -71,14 +71,11 @@ iam_user_table = Table(
     Column("version", Integer, nullable=False, default=1),
     UniqueConstraint("username", name="uq_iam_user_username"),
     UniqueConstraint("email", name="uq_iam_user_email"),
-    CheckConstraint("username IS NOT NULL AND username != ''", name="ck_iam_user_username"),
-    CheckConstraint("LENGTH(username) >= 3", name="ck_iam_user_username_length"),
     Index("idx_iam_user_username", "username"),
     Index("idx_iam_user_email", "email"),
     Index("idx_iam_user_status", "status"),
     Index("idx_iam_user_is_active", "is_active"),
     extend_existing=True,
-    schema="public",
 )
 
 iam_role_table = Table(
@@ -97,7 +94,6 @@ iam_role_table = Table(
     Index("idx_iam_role_name", "name"),
     Index("idx_iam_role_is_active", "is_active"),
     extend_existing=True,
-    schema="public",
 )
 
 iam_permission_table = Table(
@@ -115,7 +111,6 @@ iam_permission_table = Table(
     Index("idx_iam_permission_resource", "resource"),
     Index("idx_iam_permission_action", "action"),
     extend_existing=True,
-    schema="public",
 )
 
 iam_login_attempt_table = Table(
@@ -132,7 +127,6 @@ iam_login_attempt_table = Table(
     Index("idx_login_attempt_attempted_at", "attempted_at"),
     Index("idx_login_attempt_success", "success"),
     extend_existing=True,
-    schema="public",
 )
 
 iam_session_table = Table(
@@ -141,7 +135,7 @@ iam_session_table = Table(
     Column("id", PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
     Column("session_token", String(255), nullable=False),
     Column("refresh_token", String(255), nullable=True),
-    Column("user_id", PGUUID(as_uuid=True), ForeignKey("public.iam_user.id"), nullable=False),
+    Column("user_id", PGUUID(as_uuid=True), ForeignKey("iam_user.id"), nullable=False),
     Column("ip_address", String(45), nullable=True),
     Column("user_agent", String(500), nullable=True),
     Column("device_id", String(255), nullable=True),
@@ -154,49 +148,35 @@ iam_session_table = Table(
     Column("updated_at", DateTime(timezone=True), onupdate="now()"),
     UniqueConstraint("session_token", name="uq_iam_session_token"),
     UniqueConstraint("refresh_token", name="uq_iam_session_refresh_token"),
-    CheckConstraint("session_token IS NOT NULL AND session_token != ''", name="ck_iam_session_token"),
     Index("idx_iam_session_user", "user_id"),
     Index("idx_iam_session_token", "session_token"),
     Index("idx_iam_session_refresh", "refresh_token"),
     Index("idx_iam_session_expires", "expires_at"),
     Index("idx_iam_session_active", "is_active"),
     extend_existing=True,
-    schema="public",
 )
 
-# Association tables – foreign keys now explicitly use "public." schema
-iam_user_legal_entity = Table(
-    "iam_user_legal_entity",
-    Base.metadata,
-    Column("user_id", PGUUID(as_uuid=True), ForeignKey("public.iam_user.id"), primary_key=True),
-    Column("legal_entity_id", PGUUID(as_uuid=True), ForeignKey("public.legal_entity.id"), primary_key=True),
-    Column("assigned_at", DateTime(timezone=True), server_default="now()"),
-    Column("assigned_by", PGUUID(as_uuid=True), nullable=True),
-    extend_existing=True,
-    schema="public",
-)
-
+# Junction tables (tanpa iam_user_legal_entity)
 iam_user_role = Table(
     "iam_user_role",
     Base.metadata,
-    Column("user_id", PGUUID(as_uuid=True), ForeignKey("public.iam_user.id"), primary_key=True),
-    Column("role_id", PGUUID(as_uuid=True), ForeignKey("public.iam_role.id"), primary_key=True),
+    Column("user_id", PGUUID(as_uuid=True), ForeignKey("iam_user.id"), primary_key=True),
+    Column("role_id", PGUUID(as_uuid=True), ForeignKey("iam_role.id"), primary_key=True),
     Column("assigned_at", DateTime(timezone=True), server_default="now()"),
     Column("assigned_by", PGUUID(as_uuid=True), nullable=True),
     extend_existing=True,
-    schema="public",
 )
 
 iam_role_permission = Table(
     "iam_role_permission",
     Base.metadata,
-    Column("role_id", PGUUID(as_uuid=True), ForeignKey("public.iam_role.id"), primary_key=True),
-    Column("permission_id", PGUUID(as_uuid=True), ForeignKey("public.iam_permission.id"), primary_key=True),
+    Column("role_id", PGUUID(as_uuid=True), ForeignKey("iam_role.id"), primary_key=True),
+    Column("permission_id", PGUUID(as_uuid=True), ForeignKey("iam_permission.id"), primary_key=True),
     Column("assigned_at", DateTime(timezone=True), server_default="now()"),
     extend_existing=True,
-    schema="public",
 )
 
+# Alias untuk kompatibilitas
 iam_user_role_table = iam_user_role
 iam_role_permission_table = iam_role_permission
 
@@ -208,29 +188,29 @@ iam_role_permission_table = iam_role_permission
 class IAMUserTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     __table__ = iam_user_table
 
-    roles: Mapped[list["IAMRoleTable"]] = relationship(
+    roles: Mapped[list[IAMRoleTable]] = relationship(
         "IAMRoleTable",
         secondary=iam_user_role,
         back_populates="users",
         lazy="selectin",
     )
 
-    legal_entities: Mapped[list["LegalEntityTable"]] = relationship(
+    # PERBAIKAN: Menggunakan string untuk secondary
+    legal_entities: Mapped[list[LegalEntityTable]] = relationship(
         "LegalEntityTable",
-        secondary=iam_user_legal_entity,
+        secondary="iam_user_legal_entity",
         viewonly=True,
         lazy="selectin",
     )
 
-    sessions: Mapped[list["IAMSessionTable"]] = relationship(
+    sessions: Mapped[list[IAMSessionTable]] = relationship(
         "IAMSessionTable",
         back_populates="user",
         cascade="all, delete-orphan",
         lazy="selectin",
     )
 
-    # One-way relationship to LoginAttemptTable via username (no FK)
-    login_attempts: Mapped[list["LoginAttemptTable"]] = relationship(
+    login_attempts: Mapped[list[LoginAttemptTable]] = relationship(
         "LoginAttemptTable",
         primaryjoin=lambda: LoginAttemptTable.username == IAMUserTable.username,
         foreign_keys=lambda: LoginAttemptTable.username,
@@ -266,13 +246,13 @@ class IAMUserTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
 class IAMRoleTable(Base, TimestampMixin, SoftDeleteMixin):
     __table__ = iam_role_table
 
-    permissions: Mapped[list["IAMPermissionTable"]] = relationship(
+    permissions: Mapped[list[IAMPermissionTable]] = relationship(
         "IAMPermissionTable",
         secondary=iam_role_permission,
         back_populates="roles",
         lazy="selectin",
     )
-    users: Mapped[list["IAMUserTable"]] = relationship(
+    users: Mapped[list[IAMUserTable]] = relationship(
         "IAMUserTable",
         secondary=iam_user_role,
         back_populates="roles",
@@ -295,7 +275,7 @@ class IAMRoleTable(Base, TimestampMixin, SoftDeleteMixin):
 class IAMPermissionTable(Base, TimestampMixin):
     __table__ = iam_permission_table
 
-    roles: Mapped[list["IAMRoleTable"]] = relationship(
+    roles: Mapped[list[IAMRoleTable]] = relationship(
         "IAMRoleTable",
         secondary=iam_role_permission,
         back_populates="permissions",
@@ -317,7 +297,7 @@ class IAMPermissionTable(Base, TimestampMixin):
 class IAMSessionTable(Base, TimestampMixin):
     __table__ = iam_session_table
 
-    user: Mapped["IAMUserTable"] = relationship(
+    user: Mapped[IAMUserTable] = relationship(
         "IAMUserTable",
         back_populates="sessions",
     )
@@ -372,14 +352,13 @@ class LoginAttemptTable(Base, TimestampMixin):
 
 
 __all__ = [
-    "IAMUserTable",
-    "IAMRoleTable",
     "IAMPermissionTable",
+    "IAMRoleTable",
     "IAMSessionTable",
+    "IAMUserTable",
     "LoginAttemptTable",
-    "iam_user_legal_entity",
-    "iam_user_role",
     "iam_role_permission",
-    "iam_user_role_table",
     "iam_role_permission_table",
+    "iam_user_role",
+    "iam_user_role_table",
 ]

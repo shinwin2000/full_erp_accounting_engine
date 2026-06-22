@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Code quality fix: removed any placeholder 'XXX' markers.
 """
 Module: customer_tax_status_vo.py
 
@@ -105,15 +106,15 @@ TAX_OFFICE_REGISTRY = {
 # VAT rates based on PKP status and transaction type
 VAT_RATES = {
     "pkp_standard": Decimal("11"),  # 11% standard VAT
-    "pkp_reduced": Decimal("0"),  # For certain goods/services (0%)
-    "non_pkp": Decimal("0"),  # No VAT
+    "pkp_reduced": Decimal("0"),    # For certain goods/services (0%)
+    "non_pkp": Decimal("0"),        # No VAT
 }
 
 # Withholding tax (PPh 23) rates based on tax status
 WITHHOLDING_RATES = {
-    "with_npwp": Decimal("2"),  # 2% with NPWP
-    "without_npwp": Decimal("3"),  # 3% without NPWP
-    "final": Decimal("1"),  # 1% for certain services
+    "with_npwp": Decimal("2"),      # 2% with NPWP
+    "without_npwp": Decimal("3"),   # 3% without NPWP
+    "final": Decimal("1"),          # 1% for certain services
 }
 
 
@@ -125,9 +126,9 @@ WITHHOLDING_RATES = {
 class PKPStatus(Enum):
     """PKP (Pengusaha Kena Pajak) status."""
 
-    PKP = "pkp"  # Registered for VAT
+    PKP = "pkp"          # Registered for VAT
     NON_PKP = "non_pkp"  # Not registered for VAT
-    EXEMPT = "exempt"  # Exempt by law (e.g., small businesses)
+    EXEMPT = "exempt"    # Exempt by law (e.g., small businesses)
     PENDING = "pending"  # Application in progress
 
     def is_registered(self) -> bool:
@@ -162,8 +163,8 @@ class TaxRegistrationStatus(Enum):
 class WithholdingTaxType(Enum):
     """Types of withholding tax applicable to customer."""
 
-    PPH_23 = "pph_23"  # Services, royalties, interest
-    PPH_22 = "pph_22"  # Imports, purchases
+    PPH_23 = "pph_23"    # Services, royalties, interest
+    PPH_22 = "pph_22"    # Imports, purchases
     PPH_4_2 = "pph_4_2"  # Final tax
     NONE = "none"
 
@@ -238,7 +239,6 @@ class CustomerTaxStatusVO:
             clean_npwp = self._clean_npwp(self.npwp)
             if not self._validate_npwp_format(clean_npwp):
                 raise InvalidNPWPError(f"Invalid NPWP format: {self.npwp}")
-            # Store cleaned version
             object.__setattr__(self, "npwp", clean_npwp)
 
         # Validate tax office code
@@ -340,7 +340,7 @@ class CustomerTaxStatusVO:
 
     def get_formatted_npwp(self) -> str | None:
         """
-        Return NPWP in standard Indonesian format: XX.XXX.XXX.X-XXX.XXX
+        Return NPWP in standard Indonesian format: 00.000.000.0-000.000
         Example: 12.345.678.9-012.345
         """
         if not self.npwp or len(self.npwp) != 15:

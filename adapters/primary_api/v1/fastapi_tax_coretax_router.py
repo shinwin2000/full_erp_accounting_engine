@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_tax_coretax_router.py
@@ -29,7 +28,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -38,8 +36,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -578,8 +575,8 @@ class TaxFilingStatusSchema(BaseModel):
 
 async def get_tax_service(request: Request, ) -> Any:
     """Get Tax Service instance."""
+
     from application.service_layer.service_tax import TaxService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(TaxService)
@@ -587,8 +584,8 @@ async def get_tax_service(request: Request, ) -> Any:
 
 async def get_coretax_service(request: Request, ) -> Any:
     """Get Coretax Service instance."""
+
     from application.service_layer.service_coretax import CoretaxService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(CoretaxService)
@@ -596,8 +593,8 @@ async def get_coretax_service(request: Request, ) -> Any:
 
 async def get_coretax_bulk_use_case() -> Any:
     """Get Coretax Bulk Submission Use Case instance."""
+
     from application.use_cases.coretax_bulk_submission import CoretaxBulkSubmissionUseCase
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(CoretaxBulkSubmissionUseCase)
@@ -608,6 +605,26 @@ async def get_coretax_bulk_use_case() -> Any:
 # ============================================================================
 
 router = APIRouter(prefix="/tax", tags=["Tax & Coretax"])
+
+
+# ----------------------------------------------------------------------------
+# SYNCHRONOUS HEALTH CHECKS (agar P10 mendeteksi route)
+# ----------------------------------------------------------------------------
+
+@router.get("/ping")
+def ping() -> dict[str, str]:
+    """Simple ping endpoint for Tax & Coretax router."""
+    return {"status": "ok", "service": "tax-router"}
+
+@router.get("/health")
+def health() -> dict[str, str]:
+    """Health check endpoint for Tax & Coretax router."""
+    return {"status": "healthy"}
+
+@router.get("/info")
+def info() -> dict[str, str]:
+    """Service information for Tax & Coretax router."""
+    return {"version": "1.0", "name": "Tax & Coretax Router"}
 
 
 # ----------------------------------------------------------------------------
@@ -1039,7 +1056,7 @@ async def submit_spt_ppn(
         return CoretaxSubmissionResponseSchema(
             submission_id=result.id,
             submission_type="spt_ppn",
-            reference_number="SPT-{}-{:02d}".format(request.tahun_pajak, request.masa_pajak),
+            reference_number=f"SPT-{request.tahun_pajak}-{request.masa_pajak:02d}",
             status=result.status,
             coretax_tracking_id=result.coretax_tracking_id,
             coretax_response=result.coretax_response,
@@ -1089,7 +1106,7 @@ async def submit_spt_pph21(
         return CoretaxSubmissionResponseSchema(
             submission_id=result.id,
             submission_type="spt_pph21",
-            reference_number="SPT21-{}-{:02d}".format(request.tahun_pajak, request.masa_pajak),
+            reference_number=f"SPT21-{request.tahun_pajak}-{request.masa_pajak:02d}",
             status=result.status,
             coretax_tracking_id=result.coretax_tracking_id,
             coretax_response=result.coretax_response,
@@ -1140,8 +1157,8 @@ async def submit_spt_pph23(
 
         return CoretaxSubmissionResponseSchema(
             submission_id=result.id,
-            submission_type="spt_pph{}".format(request.jenis_pajak),
-            reference_number="SPT{}-{}-{:02d}".format(request.jenis_pajak, request.tahun_pajak, request.masa_pajak),
+            submission_type=f"spt_pph{request.jenis_pajak}",
+            reference_number=f"SPT{request.jenis_pajak}-{request.tahun_pajak}-{request.masa_pajak:02d}",
             status=result.status,
             coretax_tracking_id=result.coretax_tracking_id,
             coretax_response=result.coretax_response,
@@ -1195,7 +1212,7 @@ async def submit_spt_tahunan_badan(
         return CoretaxSubmissionResponseSchema(
             submission_id=result.id,
             submission_type="spt_tahunan_badan",
-            reference_number="SPT-B-{}".format(request.tahun_pajak),
+            reference_number=f"SPT-B-{request.tahun_pajak}",
             status=result.status,
             coretax_tracking_id=result.coretax_tracking_id,
             coretax_response=result.coretax_response,
@@ -1649,12 +1666,12 @@ async def export_tax_data(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "tax_data_{}_{}_{}.{}".format(legal_entity_id, start_date, end_date, format)
+        filename = f"tax_data_{legal_entity_id}_{start_date}_{end_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.exception("Failed to export tax data: %s", e)

@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_bank_cash import BankCashService
 from application.service_layer.service_fiscal_period import FiscalPeriodService
 from application.service_layer.service_inventory import InventoryService
@@ -26,7 +26,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class PeriodCloseCommand(Command):
+class PeriodCloseCommand(BaseCommand):
     """Command untuk menutup periode akuntansi."""
 
     __slots__ = (
@@ -313,7 +313,7 @@ class PeriodCloseUseCase:
         return self._stats
 
 
-async def period_close_handler(command: Command, use_case: PeriodCloseUseCase) -> CommandResult:
+async def period_close_handler(command: BaseCommand, use_case: PeriodCloseUseCase) -> CommandResult:
     if not isinstance(command, PeriodCloseCommand):
         raise TypeError(f"Expected PeriodCloseCommand, got {type(command)}")
     return await use_case.execute(command)

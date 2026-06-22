@@ -72,7 +72,7 @@ class PayrollRunTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     # ========================================================================
 
     # Salary components
-    salary_components: Mapped[list["SalaryComponentTable"]] = relationship(
+    salary_components: Mapped[list[SalaryComponentTable]] = relationship(
         "SalaryComponentTable",
         back_populates="payroll_run",
         foreign_keys="[SalaryComponentTable.payroll_run_id]",
@@ -80,7 +80,7 @@ class PayrollRunTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     )
 
     # Payslips (added for back_populates in PayslipTable)
-    payslips: Mapped[list["PayslipTable"]] = relationship(
+    payslips: Mapped[list[PayslipTable]] = relationship(
         "PayslipTable",
         back_populates="payroll_run",
         foreign_keys="[PayslipTable.payroll_run_id]",

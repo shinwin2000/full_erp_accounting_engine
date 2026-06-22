@@ -1,2 +1,32 @@
-# pvc.yaml
-# Auto-generated configuration file
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: erp-logs-pvc
+      namespace: default
+      labels:
+        app: erp-accounting-engine
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 5Gi
+      storageClassName: standard
+
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: erp-data-pvc
+      namespace: default
+      labels:
+        app: erp-accounting-engine
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+      storageClassName: standard

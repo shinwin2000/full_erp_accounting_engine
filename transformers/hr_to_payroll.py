@@ -21,9 +21,9 @@ from uuid import UUID, uuid4
 from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
 from application.service_layer.service_payroll import PayrollService
 from application.service_layer.service_tax import TaxService
+from bootstrap.dependency_container.ioc_container import get_container
 from domain.payroll.aggregate_root import PayrollAggregate as PayrollRun
 from domain.payroll.tax_withholding_engine import TaxWithholdingEngine
-from bootstrap.dependency_container.ioc_container import get_container
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 from ports.primary.employee_repository_port import EmployeeRepositoryPort

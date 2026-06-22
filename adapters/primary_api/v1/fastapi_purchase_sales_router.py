@@ -26,7 +26,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -35,8 +34,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -534,8 +532,8 @@ class DeliveryOrderResponseSchema(BaseModel):
 
 async def get_purchase_sales_service(request: Request, ) -> Any:
     """Get Purchase Sales Service instance."""
+
     from application.service_layer.service_purchase_sales import PurchaseSalesService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(PurchaseSalesService)
@@ -713,7 +711,7 @@ async def get_purchase_order_by_number(
         if not po:
             raise HTTPException(
                 status_code=404,
-                detail="Purchase order {} not found".format(po_number),  # nosec
+                detail=f"Purchase order {po_number} not found",  # nosec
             )
 
         return PurchaseOrderResponseSchema(
@@ -1397,7 +1395,7 @@ async def get_sales_order_by_number(
         if not so:
             raise HTTPException(
                 status_code=404,
-                detail="Sales order {} not found".format(so_number),  # nosec
+                detail=f"Sales order {so_number} not found",  # nosec
             )
 
         return SalesOrderResponseSchema(
@@ -2438,12 +2436,12 @@ async def export_purchase_orders(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "purchase_orders_{}_{}_{}.{}".format(legal_entity_id, start_date, end_date, format)
+        filename = f"purchase_orders_{legal_entity_id}_{start_date}_{end_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.exception("Failed to export purchase orders: %s", e)
@@ -2479,12 +2477,12 @@ async def export_sales_orders(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "sales_orders_{}_{}_{}.{}".format(legal_entity_id, start_date, end_date, format)
+        filename = f"sales_orders_{legal_entity_id}_{start_date}_{end_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.exception("Failed to export sales orders: %s", e)

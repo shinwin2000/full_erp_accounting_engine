@@ -6,11 +6,11 @@ Responsibility: Tabel untuk SPT (Surat Pemberitahuan) yang disubmit ke Coretax D
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import date, datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import Date, DateTime, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID

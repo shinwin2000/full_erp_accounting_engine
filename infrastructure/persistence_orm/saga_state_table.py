@@ -9,10 +9,10 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel saga_state.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import datetime
+from uuid import UUID
 
 from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID

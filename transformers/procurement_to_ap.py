@@ -21,8 +21,8 @@ from uuid import UUID, uuid4
 from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
 from application.dto_objects.ap_invoice_request import APInvoiceCreateRequest
 from application.service_layer.service_ap import APService
-from domain.subledger_ap.three_way_match_engine import ThreeWayMatchEngine, ThreeWayMatchResult
 from bootstrap.dependency_container.ioc_container import get_container
+from domain.subledger_ap.three_way_match_engine import ThreeWayMatchEngine, ThreeWayMatchResult
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 from ports.primary.customer_supplier_repository_port import SupplierRepositoryPort

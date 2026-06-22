@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -114,12 +114,12 @@ class InventoryMovementTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
     # RELATIONSHIPS (hanya untuk warehouse, karena item dan fifo_layers via backref)
     # ========================================================================
 
-    from_warehouse: Mapped["WarehouseTable"] = relationship(
+    from_warehouse: Mapped[WarehouseTable] = relationship(
         "WarehouseTable",
         back_populates="movements_from",
         foreign_keys=[warehouse_id],
     )
-    to_warehouse: Mapped[Optional["WarehouseTable"]] = relationship(
+    to_warehouse: Mapped[WarehouseTable | None] = relationship(
         "WarehouseTable",
         back_populates="movements_to",
         foreign_keys=[to_warehouse_id],

@@ -31,7 +31,7 @@ class APIKeyValidator:
         keys_str = os.environ.get("ERP_API_KEYS", "")
         if not keys_str:
             # Default key untuk development (jangan digunakan di production!)
-            logger.warning("No ERP_API_KEYS env var, using default dev key")
+            logger.warning("No API credentials configured, using development fallback")
             self._valid_keys["erp-dev-key-12345"] = UUID("00000000-0000-0000-0000-000000000001")
             return
         for pair in keys_str.split(","):
@@ -42,7 +42,7 @@ class APIKeyValidator:
                 user_id = UUID(user_id_str)
                 self._valid_keys[key] = user_id
             except ValueError:
-                logger.error(f"Invalid UUID for API key {key}: {user_id_str}")
+                logger.error("Invalid user identifier for credential: %s", key[:8])
 
     async def validate_and_get_user(self, api_key: str) -> UUID:
         """
@@ -50,8 +50,8 @@ class APIKeyValidator:
         Raises: ValueError jika key tidak valid.
         """
         if api_key in self._valid_keys:
-            logger.info(f"API key validated for user {self._valid_keys[api_key]}")
+            logger.info("API validation successful")
             return self._valid_keys[api_key]
         else:
-            logger.warning(f"Invalid API key: {api_key[:10]}...")
+            logger.warning("Invalid API credential")
             raise ValueError("Invalid API key")

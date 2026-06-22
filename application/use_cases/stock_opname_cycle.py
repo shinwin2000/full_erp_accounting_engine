@@ -18,7 +18,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_inventory import InventoryService
 from application.service_layer.service_journal import JournalService
 from kernel.sealed_gate import SealedGate
@@ -42,7 +42,7 @@ class OpnameStatus(Enum):
     CANCELLED = "cancelled"
 
 
-class StockOpnameCycleCommand(Command):
+class StockOpnameCycleCommand(BaseCommand):
     """Command untuk siklus stock opname."""
 
     __slots__ = (
@@ -344,7 +344,7 @@ class StockOpnameCycleUseCase:
 
 
 async def stock_opname_cycle_handler(
-    command: Command, use_case: StockOpnameCycleUseCase
+    command: BaseCommand, use_case: StockOpnameCycleUseCase
 ) -> CommandResult:
     if not isinstance(command, StockOpnameCycleCommand):
         raise TypeError(f"Expected StockOpnameCycleCommand, got {type(command)}")

@@ -17,7 +17,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_inventory import InventoryService
 from application.service_layer.service_journal import JournalService
 from application.service_layer.service_manufacturing import ManufacturingService
@@ -26,7 +26,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class HPPManufacturingCloseCommand(Command):
+class HPPManufacturingCloseCommand(BaseCommand):
     """Command untuk close HPP manufaktur."""
 
     __slots__ = ("dry_run", "legal_entity_id", "period_end", "period_start", "post_to_gl")
@@ -272,7 +272,7 @@ class HPPManufacturingCloseUseCase:
 
 
 async def hpp_manufacturing_close_handler(
-    command: Command, use_case: HPPManufacturingCloseUseCase
+    command: BaseCommand, use_case: HPPManufacturingCloseUseCase
 ) -> CommandResult:
     if not isinstance(command, HPPManufacturingCloseCommand):
         raise TypeError(f"Expected HPPManufacturingCloseCommand, got {type(command)}")

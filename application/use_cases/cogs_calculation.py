@@ -20,7 +20,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_inventory import InventoryService
 from application.service_layer.service_journal import JournalService
 from application.service_layer.service_manufacturing import ManufacturingService
@@ -35,7 +35,7 @@ class COGSMethod(Enum):
     STANDARD_COST = "STANDARD_COST"
 
 
-class COGSCalculationCommand(Command):
+class COGSCalculationCommand(BaseCommand):
     """Command untuk menghitung COGS."""
 
     __slots__ = (
@@ -270,7 +270,7 @@ class COGSCalculationUseCase:
 
 
 async def cogs_calculation_handler(
-    command: Command, use_case: COGSCalculationUseCase
+    command: BaseCommand, use_case: COGSCalculationUseCase
 ) -> CommandResult:
     if not isinstance(command, COGSCalculationCommand):
         raise TypeError(f"Expected COGSCalculationCommand, got {type(command)}")

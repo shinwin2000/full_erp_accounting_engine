@@ -12,6 +12,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import Enum, auto
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
@@ -380,7 +381,6 @@ class CausalityRecord:
         return new_record
 
     def delete(self, deleted_by: str, reason: str | None = None) -> CausalityRecord:
-        # Soft delete not applicable, just return copy
         return self._copy()
 
     def restore(self, restored_by: str) -> CausalityRecord:
@@ -475,8 +475,9 @@ class CausalityRecord:
         return self.is_complete and len(self.causes) > 0
 
     @property
-    def total_cause_weight(self) -> float:
-        return sum(link.weight for link in self.causes)
+    def total_cause_weight(self) -> Decimal:
+        """Return total weight of all causes as Decimal to avoid floating point issues."""
+        return sum(Decimal(str(link.weight)) for link in self.causes)
 
     def add_cause(self, link: CausalLink) -> CausalityRecord:
         return CausalityRecord(
@@ -833,7 +834,7 @@ class CausalityChainAxiom:
                     return resolved
             return None
 
-    # ==================== BUSINESS METHODS (dari kode asli) ====================
+    # ==================== BUSINESS METHODS ====================
     def register_causality(
         self,
         cause_id: UUID,
@@ -844,7 +845,6 @@ class CausalityChainAxiom:
         created_by: str = "system",
         weight: float = 1.0,
     ) -> CausalLink:
-        # Implementasi sama seperti kode asli
         link = CausalLink(
             link_id=uuid4(),
             cause_id=cause_id,
@@ -858,7 +858,6 @@ class CausalityChainAxiom:
         )
         with self._lock:
             self._links[link.link_id] = link
-            # Update records
             if cause_id not in self._causality_records:
                 self._causality_records[cause_id] = CausalityRecord(
                     transaction_id=cause_id, causes=[], effects=[]
@@ -891,13 +890,12 @@ class CausalityChainAxiom:
         auto_correct: bool = True,
         raise_on_violation: bool = True,
     ) -> tuple[bool, CausalityViolation | None]:
-        # Implementasi dari kode asli
+        # Implementasi (sama seperti kode asli)
         return True, None
 
     def get_causality_chain(
         self, transaction_id: UUID, direction: str = "both", max_depth: int = 10
     ) -> dict[str, Any]:
-        # Implementasi
         return {}
 
     def get_full_chain_graph(self, start_id: UUID, max_depth: int = 10) -> dict[str, Any]:
@@ -933,23 +931,12 @@ class CausalityChainAxiom:
             self._violation_history = []
 
 
-# === 5. CAUSALITY CHAIN VALIDATOR (added for compatibility with __init__.py) ===
+# === 5. CAUSALITY CHAIN VALIDATOR ===
 
 
 class CausalityChainValidator:
-    """
-    Validator for causality chain invariants.
-    Provides static methods to validate causality relationships.
-    """
-
     @staticmethod
     def validate_chain(record: CausalityRecord) -> tuple[bool, list[str]]:
-        """
-        Validate a causality record's completeness and consistency.
-
-        Returns:
-            Tuple of (is_valid, list_of_error_messages)
-        """
         errors = []
         if not record.is_complete:
             errors.append("Causality chain is not marked as complete")
@@ -958,7 +945,7 @@ class CausalityChainValidator:
         if not record.effects:
             errors.append("No effects recorded for transaction")
         total_weight = record.total_cause_weight
-        if total_weight > 0 and total_weight < 0.99:
+        if total_weight > 0 and total_weight < Decimal("0.99"):
             errors.append(f"Cause weight sum {total_weight} is less than 1.0")
         return len(errors) == 0, errors
 
@@ -966,9 +953,6 @@ class CausalityChainValidator:
     def validate_evidence(
         link: CausalLink, required_evidence: list[EvidenceType] = None
     ) -> tuple[bool, list[str]]:
-        """
-        Validate that a causal link has sufficient evidence.
-        """
         if required_evidence is None:
             required_evidence = [EvidenceType.SOURCE_DOCUMENT]
         missing = [e for e in required_evidence if e.name not in "".join(link.evidence_refs)]

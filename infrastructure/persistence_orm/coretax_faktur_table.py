@@ -13,7 +13,6 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Any
 
 from sqlalchemy import (
     CheckConstraint,
@@ -98,7 +97,7 @@ class CoretaxFakturTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     # RELATIONSHIPS
     # ========================================================================
 
-    lines: Mapped[list["CoretaxFakturLineTable"]] = relationship(
+    lines: Mapped[list[CoretaxFakturLineTable]] = relationship(
         "CoretaxFakturLineTable",
         back_populates="faktur",
         cascade="all, delete-orphan",

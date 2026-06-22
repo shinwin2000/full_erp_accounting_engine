@@ -18,7 +18,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_hedge import HedgeService
 from application.service_layer.service_journal import JournalService
 from application.service_layer.service_ledger import LedgerService
@@ -40,7 +40,7 @@ class HedgeStatus(Enum):
     DISCONTINUED = "discontinued"
 
 
-class HedgeAccountingCommand(Command):
+class HedgeAccountingCommand(BaseCommand):
     """Command untuk akuntansi lindung nilai."""
 
     __slots__ = (
@@ -471,7 +471,7 @@ class HedgeAccountingUseCase:
 
 
 async def hedge_accounting_handler(
-    command: Command, use_case: HedgeAccountingUseCase
+    command: BaseCommand, use_case: HedgeAccountingUseCase
 ) -> CommandResult:
     if not isinstance(command, HedgeAccountingCommand):
         raise TypeError(f"Expected HedgeAccountingCommand, got {type(command)}")

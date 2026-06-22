@@ -6,11 +6,11 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel petty_cash_fund.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID

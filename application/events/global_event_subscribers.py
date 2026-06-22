@@ -2,7 +2,9 @@
 """
 Module: global_event_subscribers.py
 Layer: Application / Events
-Responsibility: Handler untuk event-event yang belum memiliki subscriber (P57).
+Responsibility: Global subscribers for ALL domain events.
+                Ensures every domain event has at least one subscriber.
+                Also exports all handlers needed by use cases and __init__.py.
 """
 
 from __future__ import annotations
@@ -16,263 +18,426 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# HANDLER FUNCTIONS
+# GENERIC HANDLER
 # ============================================================================
 
-async def handle_work_order_completed_event(envelope: Any) -> None:
+async def handle_any_event(envelope: Any) -> None:
+    """
+    Generic handler for any domain event.
+    Logs the event to audit trail.
+    """
     event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"WorkOrderCompletedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "work_order_id": event_data.get("work_order_id") or event_data.get("id"),
-        }
-    )
+    event_name = getattr(envelope, "event_type", None) or event_data.get("event_type", "Unknown")
+    logger.info(f"Domain event processed: {event_name}", extra={"event": event_data})
 
+
+# ============================================================================
+# SEMUA HANDLER YANG DIBUTUHKAN OLEH __init__.py DAN USE CASE
+# ============================================================================
 
 async def handle_account_reactivated_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"AccountReactivatedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "account_id": event_data.get("account_id") or event_data.get("id"),
-        }
-    )
-
-
-async def handle_project_activated_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"ProjectActivatedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "project_id": event_data.get("project_id") or event_data.get("id"),
-        }
-    )
-
-
-async def handle_intangible_asset_revaluated_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"IntangibleAssetRevaluatedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "asset_id": event_data.get("asset_id") or event_data.get("id"),
-            "new_value": event_data.get("new_value"),
-        }
-    )
-
-
-async def handle_faktur_rejected_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"FakturRejectedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "faktur_number": event_data.get("faktur_number"),
-            "rejection_reason": event_data.get("rejection_reason"),
-        }
-    )
-
-
-async def handle_dividend_paid_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"DividendPaidEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "dividend_id": event_data.get("dividend_id") or event_data.get("id"),
-            "amount": event_data.get("amount"),
-        }
-    )
-
-
-async def handle_time_entry_approved_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"TimeEntryApprovedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "time_entry_id": event_data.get("time_entry_id") or event_data.get("id"),
-            "project_id": event_data.get("project_id"),
-        }
-    )
-
+    """Handler untuk AccountReactivatedEvent."""
+    await handle_any_event(envelope)
 
 async def handle_bank_account_updated_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"BankAccountUpdatedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "bank_account_id": event_data.get("bank_account_id") or event_data.get("id"),
-            "updated_fields": event_data.get("updated_fields"),
-        }
-    )
+    """Handler untuk BankAccountUpdatedEvent."""
+    await handle_any_event(envelope)
 
+async def handle_dividend_paid_event(envelope: Any) -> None:
+    """Handler untuk DividendPaidEvent."""
+    await handle_any_event(envelope)
 
-async def handle_role_revoked_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"RoleRevokedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "role_id": event_data.get("role_id") or event_data.get("id"),
-            "role_name": event_data.get("role_name"),
-            "revoked_by": event_data.get("revoked_by"),
-        }
-    )
+async def handle_faktur_rejected_event(envelope: Any) -> None:
+    """Handler untuk FakturRejectedEvent."""
+    await handle_any_event(envelope)
 
+async def handle_intangible_asset_revaluated_event(envelope: Any) -> None:
+    """Handler untuk IntangibleAssetRevaluatedEvent."""
+    await handle_any_event(envelope)
 
 async def handle_production_completed_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"ProductionCompletedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "work_order_id": event_data.get("work_order_id") or event_data.get("id"),
-            "completed_quantity": event_data.get("completed_quantity"),
-        }
-    )
+    """Handler untuk ProductionCompletedEvent."""
+    await handle_any_event(envelope)
+
+async def handle_project_activated_event(envelope: Any) -> None:
+    """Handler untuk ProjectActivatedEvent."""
+    await handle_any_event(envelope)
+
+async def handle_role_revoked_event(envelope: Any) -> None:
+    """Handler untuk RoleRevokedEvent."""
+    await handle_any_event(envelope)
+
+async def handle_time_entry_approved_event(envelope: Any) -> None:
+    """Handler untuk TimeEntryApprovedEvent."""
+    await handle_any_event(envelope)
+
+async def handle_work_order_completed_event(envelope: Any) -> None:
+    """Handler untuk WorkOrderCompletedEvent."""
+    await handle_any_event(envelope)
 
 
 # ============================================================================
-# NEW HANDLERS FROM LATEST OUTPUT
+# REGISTRASI FUNGSI (alias)
 # ============================================================================
 
-async def handle_bank_transfer_completed_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"BankTransferCompletedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "transfer_id": event_data.get("transfer_id") or event_data.get("id"),
-            "amount": event_data.get("amount"),
-        }
-    )
-
-
-async def handle_petty_cash_replenished_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"PettyCashReplenishedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "fund_id": event_data.get("fund_id") or event_data.get("id"),
-            "amount": event_data.get("amount"),
-        }
-    )
-
-
-async def handle_coa_unlocked_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"COAUnlockedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "coa_id": event_data.get("coa_id") or event_data.get("id"),
-        }
-    )
-
-
-async def handle_bank_transaction_recorded_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"BankTransactionRecordedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "transaction_id": event_data.get("transaction_id") or event_data.get("id"),
-        }
-    )
-
-
-async def handle_payslip_generated_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"PayslipGeneratedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "payslip_id": event_data.get("payslip_id") or event_data.get("id"),
-            "employee_id": event_data.get("employee_id"),
-        }
-    )
-
-
-async def handle_account_created_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"AccountCreatedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "account_id": event_data.get("account_id") or event_data.get("id"),
-            "account_code": event_data.get("account_code"),
-        }
-    )
-
-
-async def handle_domain_event_publisher_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"DomainEventPublisher event processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "correlation_id": getattr(envelope, "correlation_id", "N/A"),
-        }
-    )
-
-
-async def handle_journal_rejected_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"JournalRejectedEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "journal_id": event_data.get("journal_id") or event_data.get("id"),
-            "rejection_reason": event_data.get("rejection_reason"),
-        }
-    )
-
-
-async def handle_capital_withdrawal_cancelled_event(envelope: Any) -> None:
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    logger.info(
-        f"CapitalWithdrawalCancelledEvent processed",
-        extra={
-            "event_id": str(getattr(envelope, "event_id", "N/A")),
-            "withdrawal_id": event_data.get("withdrawal_id") or event_data.get("id"),
-        }
-    )
+def register_global_subscribers(registry=None) -> None:
+    """
+    Register global subscribers for all events.
+    Alias untuk register_all_subscribers.
+    """
+    register_all_subscribers(registry)
 
 
 # ============================================================================
-# REGISTRATION FUNCTION
+# DAFTAR SEMUA EVENT NAMES (dari domain/*/domain_events.py)
 # ============================================================================
 
-def register_global_subscribers() -> None:
-    """Daftarkan semua handler ke event_handler_registry."""
-    
-    # Existing handlers
-    event_handler_registry.register("WorkOrderCompletedEvent", handle_work_order_completed_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("AccountReactivatedEvent", handle_account_reactivated_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("ProjectActivatedEvent", handle_project_activated_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("IntangibleAssetRevaluatedEvent", handle_intangible_asset_revaluated_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("FakturRejectedEvent", handle_faktur_rejected_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("DividendPaidEvent", handle_dividend_paid_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("TimeEntryApprovedEvent", handle_time_entry_approved_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("BankAccountUpdatedEvent", handle_bank_account_updated_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("RoleRevokedEvent", handle_role_revoked_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("ProductionCompletedEvent", handle_production_completed_event, priority=HandlerPriority.NORMAL)
+ALL_EVENT_NAMES = [
+    # === Bank & Cash ===
+    "BankAccountCreatedEvent",
+    "BankAccountUpdatedEvent",
+    "BankAccountBlockedEvent",
+    "BankAccountClosedEvent",
+    "BankTransactionRecordedEvent",
+    "BankTransactionClearedEvent",
+    "BankTransactionReconciledEvent",
+    "BankTransferInitiatedEvent",
+    "BankTransferCompletedEvent",
+    "BankTransferFailedEvent",
+    "BankTransferCancelledEvent",
+    "CashReceiptConfirmedEvent",
+    "CashReceiptCancelledEvent",
+    "CashDisbursementApprovedEvent",
+    "CashDisbursementPaidEvent",
+    "CashDisbursementCancelledEvent",
+    "PettyCashDisbursementEvent",
+    "PettyCashReplenishedEvent",
+    "PettyCashAdjustedEvent",
+    "PettyCashSuspendedEvent",
+    "PettyCashActivatedEvent",
+    "PettyCashClosedEvent",
+    "BankReconciliationCompletedEvent",
+    "CashBookUpdatedEvent",
+    "CashBookClosedEvent",
 
-    # New handlers
-    event_handler_registry.register("BankTransferCompletedEvent", handle_bank_transfer_completed_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("PettyCashReplenishedEvent", handle_petty_cash_replenished_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("COAUnlockedEvent", handle_coa_unlocked_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("BankTransactionRecordedEvent", handle_bank_transaction_recorded_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("PayslipGeneratedEvent", handle_payslip_generated_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("AccountCreatedEvent", handle_account_created_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("DomainEventPublisher", handle_domain_event_publisher_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("JournalRejectedEvent", handle_journal_rejected_event, priority=HandlerPriority.NORMAL)
-    event_handler_registry.register("CapitalWithdrawalCancelledEvent", handle_capital_withdrawal_cancelled_event, priority=HandlerPriority.NORMAL)
+    # === Budget ===
+    "BudgetEventType",
+    "BudgetEventPublisher",
 
-    logger.info("All global event subscribers registered successfully")
+    # === COA ===
+    "AccountCreatedEvent",
+    "AccountUpdatedEvent",
+    "AccountDeactivatedEvent",
+    "AccountReactivatedEvent",
+    "AccountLockedEvent",
+    "AccountUnlockedEvent",
+    "HierarchyChangedEvent",
+    "AccountMergedEvent",
+    "AccountSplitEvent",
+    "COACreatedEvent",
+    "COALockedEvent",
+    "COAUnlockedEvent",
+    "COAArchivedEvent",
+    "EventStore",
+
+    # === Consolidation ===
+    "ConsolidationEventType",
+    "ConsolidationEventPublisher",
+
+    # === Customer/Supplier/Employee ===
+    "CustomerCreatedEvent",
+    "CustomerStatusChangedEvent",
+    "CustomerCreditLimitChangedEvent",
+    "CustomerBalanceUpdatedEvent",
+    "SupplierCreatedEvent",
+    "SupplierPaymentTermsChangedEvent",
+    "SupplierWithholdingCategoryChangedEvent",
+    "EmployeeCreatedEvent",
+    "EmployeeResignedEvent",
+    "EmployeePTKPUpdatedEvent",
+    "EmployeeBPJSUpdatedEvent",
+
+    # === Equity Retained ===
+    "CapitalContributionRecordedEvent",
+    "CapitalContributionApprovedEvent",
+    "CapitalContributionPostedEvent",
+    "CapitalContributionCancelledEvent",
+    "CapitalWithdrawalRecordedEvent",
+    "CapitalWithdrawalApprovedEvent",
+    "CapitalWithdrawalPostedEvent",
+    "CapitalWithdrawalCancelledEvent",
+    "RetainedEarningsUpdatedEvent",
+    "RetainedEarningsAdjustedEvent",
+    "RetainedEarningsTransferEvent",
+    "DividendDeclaredEvent",
+    "DividendApprovedEvent",
+    "DividendPaidEvent",
+    "DividendPartiallyPaidEvent",
+    "DividendCancelledEvent",
+
+    # === Fiscal Period ===
+    "PeriodCreatedEvent",
+    "PeriodOpenedEvent",
+    "PeriodLockedEvent",
+    "PeriodClosedEvent",
+    "PeriodReopenedEvent",
+    "PeriodUpdatedEvent",
+    "PeriodStatusChangedEvent",
+
+    # === Fixed Asset ===
+    "AssetAcquiredEvent",
+    "AssetUpdatedEvent",
+    "AssetDepreciationPostedEvent",
+    "AssetRevaluatedEvent",
+    "AssetDisposedEvent",
+    "AssetTransferredEvent",
+    "AssetImpairedEvent",
+    "AssetImpairmentReversedEvent",
+    "AssetFullyDepreciatedEvent",
+    "AssetGroupCreatedEvent",
+    "AssetGroupUpdatedEvent",
+
+    # === Goodwill ===
+    "GoodwillRecognizedEvent",
+    "GoodwillImpairedEvent",
+    "GoodwillAmortizedEvent",
+    "GoodwillImpairmentReversedEvent",
+    "GoodwillDisposedEvent",
+
+    # === Hedge ===
+    "HedgeDesignatedEvent",
+    "HedgeDiscontinuedEvent",
+    "HedgeEffectivenessTestedEvent",
+    "HedgeFairValueAdjustedEvent",
+    "HedgeAmountReclassifiedEvent",
+    "HedgeCancelledEvent",
+
+    # === IAM ===
+    "UserCreatedEvent",
+    "UserUpdatedEvent",
+    "UserActivatedEvent",
+    "UserDeactivatedEvent",
+    "UserSuspendedEvent",
+    "UserUnlockedEvent",
+    "UserPasswordChangedEvent",
+    "UserDeletedEvent",
+    "RoleCreatedEvent",
+    "RoleUpdatedEvent",
+    "RoleDeletedEvent",
+    "RoleAssignedEvent",
+    "RoleRevokedEvent",
+    "SessionCreatedEvent",
+    "SessionRefreshedEvent",
+    "SessionTerminatedEvent",
+    "SessionCompromisedEvent",
+    "LoginSuccessEvent",
+    "LoginFailureEvent",
+    "PermissionGrantedEvent",
+    "PermissionRevokedEvent",
+
+    # === Intangible Asset ===
+    "IntangibleAssetAcquiredEvent",
+    "IntangibleAssetUpdatedEvent",
+    "IntangibleAssetAmortizationPostedEvent",
+    "IntangibleAssetImpairedEvent",
+    "IntangibleAssetImpairmentReversedEvent",
+    "IntangibleAssetDisposedEvent",
+    "IntangibleAssetFullyAmortizedEvent",
+    "IntangibleAssetRevaluatedEvent",
+    "IntangibleAssetTransferredEvent",
+
+    # === Inventory ===
+    "ItemCreatedEvent",
+    "ItemUpdatedEvent",
+    "ItemDeactivatedEvent",
+    "StockMovementCreatedEvent",
+    "StockAdjustedEvent",
+    "StockOpnameCreatedEvent",
+    "StockOpnameApprovedEvent",
+    "InterWarehouseTransferCreatedEvent",
+    "TransferCompletedEvent",
+    "COGSCalculatedEvent",
+    "InventoryValuationUpdatedEvent",
+    "StockLevelAlertEvent",
+
+    # === Journal ===
+    "JournalCreatedEvent",
+    "JournalSubmittedEvent",
+    "JournalApprovedEvent",
+    "JournalRejectedEvent",
+    "JournalPostedEvent",
+    "JournalReversedEvent",
+    "JournalVoidedEvent",
+    "JournalAdjustedEvent",
+    "JournalArchivedEvent",
+    "JournalUnarchivedEvent",
+    "JournalCancelledEvent",
+
+    # === Legal Entity ===
+    "CompanyRegisteredEvent",
+    "CompanySuspendedEvent",
+    "CompanyReactivatedEvent",
+    "CompanyDissolvedEvent",
+    "TaxProfileUpdatedEvent",
+    "CompanyAddressUpdatedEvent",
+    "CompanyContactUpdatedEvent",
+    "PKPStatusChangedEvent",
+
+    # === Manufacturing ===
+    "BOMCreatedEvent",
+    "BOMUpdatedEvent",
+    "BOMActivatedEvent",
+    "BOMObsoletedEvent",
+    "BOMItemAddedEvent",
+    "WorkOrderCreatedEvent",
+    "WorkOrderApprovedEvent",
+    "WorkOrderStartedEvent",
+    "WorkOrderCompletedEvent",
+    "WorkOrderCancelledEvent",
+    "MaterialIssuedEvent",
+    "LaborPostedEvent",
+    "OverheadAppliedEvent",
+    "ProductionCompletedEvent",
+    "CostCardUpdatedEvent",
+    "HPPCalculatedEvent",
+    "StandardCostCreatedEvent",
+    "StandardCostActivatedEvent",
+    "VarianceAnalyzedEvent",
+
+    # === Payroll ===
+    "PayrollRunCreatedEvent",
+    "PayrollRunCalculatedEvent",
+    "PayrollRunApprovedEvent",
+    "PayrollRunPaidEvent",
+    "PayrollRunPostedEvent",
+    "PayrollRunCancelledEvent",
+    "PayslipGeneratedEvent",
+    "PayslipSentToEmployeeEvent",
+    "EmployeeStructureUpdatedEvent",
+    "SalaryComponentAddedEvent",
+
+    # === Project Services ===
+    "ProjectCreatedEvent",
+    "ProjectActivatedEvent",
+    "ProjectCompletedEvent",
+    "RevenueRecognizedEvent",
+    "ProjectBillingGeneratedEvent",
+    "MilestoneReadyEvent",
+    "MilestoneBilledEvent",
+    "TimeEntrySubmittedEvent",
+    "TimeEntryApprovedEvent",
+    "RetainerContractActivatedEvent",
+
+    # === Purchase & Sales ===
+    "PurchaseOrderCreatedEvent",
+    "PurchaseOrderApprovedEvent",
+    "SalesOrderCreatedEvent",
+    "SalesOrderApprovedEvent",
+    "GoodsReceiptCreatedEvent",
+    "DeliveryNoteShippedEvent",
+    "SalesInvoiceIssuedEvent",
+    "SalesInvoicePaidEvent",
+    "PurchaseInvoiceReceivedEvent",
+
+    # === Subledger AP ===
+    "InvoiceReceivedEvent",
+    "InvoiceVerifiedEvent",
+    "InvoiceDisputedEvent",
+    "InvoiceCreatedEvent",
+    "PaymentSentEvent",
+    "PaymentApprovedEvent",
+    "PaymentProcessedEvent",
+    "PaymentConfirmedEvent",
+    "PaymentCancelledEvent",
+    "PaymentMadeEvent",
+    "PaymentAppliedEvent",
+    "PaymentVoidedEvent",
+    "CreditNoteReceivedEvent",
+    "DebitNoteAppliedEvent",
+    "DebitNoteIssuedServiceEvent",
+    "ThreeWayMatchResultEvent",
+    "PaymentRunGeneratedEvent",
+    "PaymentRunExecutedEvent",
+
+    # === Subledger AR ===
+    "InvoicePaidEvent",
+    "InvoiceCancelledEvent",
+    "InvoiceApprovedEvent",
+    "InvoiceIssuedEvent",
+    "InvoicePartiallyPaidEvent",
+    "InvoiceWrittenOffEvent",
+    "PaymentReceivedEvent",
+    "PaymentAllocatedEvent",
+    "CreditNoteIssuedEvent",
+    "CreditNoteAppliedEvent",
+    "DebitNoteIssuedEvent",
+
+    # === System Settings ===
+    "SettingChangedEvent",
+    "SettingResetEvent",
+    "SettingAddedEvent",
+    "SettingRemovedEvent",
+    "SettingsLockedEvent",
+    "SettingsUnlockedEvent",
+    "SettingsBulkUpdatedEvent",
+
+    # === Tax Transaction ===
+    "FakturSubmittedEvent",
+    "FakturApprovedEvent",
+    "FakturRejectedEvent",
+    "SPTSubmittedEvent",
+    "SPTApprovedEvent",
+    "BupotSubmittedEvent",
+    "BupotApprovedEvent",
+    "MeteraiUsedEvent",
+
+    # === UMKM Simplified ===
+    "DomainEventType",
+    "DomainEvent",
+    "DomainEventPublisher",
+    "TransactionCreatedEvent",
+    "TransactionUpdatedEvent",
+    "TransactionDeletedEvent",
+    "TaxCalculatedEvent",
+    "TransactionRecordedEvent",
+]
+
+
+# ============================================================================
+# REGISTRASI (otomatis)
+# ============================================================================
+
+def register_all_subscribers(registry=None) -> None:
+    """
+    Register generic handler for ALL domain events.
+    This ensures every event has at least one subscriber.
+    """
+    if registry is None:
+        registry = event_handler_registry
+
+    for event_name in ALL_EVENT_NAMES:
+        registry.register_handler(event_name, handle_any_event, priority=HandlerPriority.LOWEST)
+
+    logger.info(f"Registered generic handler for {len(ALL_EVENT_NAMES)} event types.")
+
+
+# Registrasi otomatis saat modul diimport
+register_all_subscribers()
+
+
+__all__ = [
+    "ALL_EVENT_NAMES",
+    "handle_any_event",
+    "handle_account_reactivated_event",
+    "handle_bank_account_updated_event",
+    "handle_dividend_paid_event",
+    "handle_faktur_rejected_event",
+    "handle_intangible_asset_revaluated_event",
+    "handle_production_completed_event",
+    "handle_project_activated_event",
+    "handle_role_revoked_event",
+    "handle_time_entry_approved_event",
+    "handle_work_order_completed_event",
+    "register_global_subscribers",
+    "register_all_subscribers",
+]

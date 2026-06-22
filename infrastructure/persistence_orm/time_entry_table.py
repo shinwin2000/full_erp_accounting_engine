@@ -114,12 +114,12 @@ class TimeEntryTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # RELATIONSHIPS
     # ========================================================================
 
-    employee: Mapped["EmployeeTable"] = relationship(
+    employee: Mapped[EmployeeTable] = relationship(
         "EmployeeTable",
         foreign_keys=[employee_id],
         back_populates="time_entries",  # harus ditambahkan di EmployeeTable
     )
-    project: Mapped["ProjectTable | None"] = relationship(
+    project: Mapped[ProjectTable | None] = relationship(
         "ProjectTable",
         foreign_keys=[project_id],
         back_populates="time_entries",  # harus ditambahkan di ProjectTable

@@ -30,9 +30,9 @@ target_metadata = None
 try:
     from infrastructure.persistence_orm.base_model import Base
     target_metadata = Base.metadata
-    print("✓ Loaded Base metadata from infrastructure.persistence_orm.base_model")
+    print("[OK] Loaded Base metadata from infrastructure.persistence_orm.base_model")
 except ImportError as e:
-    print(f"⚠️ Could not import Base metadata: {e}")
+    print(f"[WARNING] Could not import Base metadata: {e}")
 
 # Register all table models if metadata available
 if target_metadata is not None:

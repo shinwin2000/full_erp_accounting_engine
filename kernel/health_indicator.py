@@ -710,16 +710,29 @@ class HealthIndicator:
         results = {}
         all_healthy = True
 
-        # Run sync checks
-        for name, check in self._checks.items():
-            try:
-                res = check()
-                results[name] = res
-                if not res:
+        # Run sync checks (in thread pool to avoid blocking)
+        try:
+            loop = asyncio.get_running_loop()
+            for name, check in self._checks.items():
+                try:
+                    res = await loop.run_in_executor(None, check)
+                    results[name] = res
+                    if not res:
+                        all_healthy = False
+                except Exception:
+                    results[name] = False
                     all_healthy = False
-            except Exception:
-                results[name] = False
-                all_healthy = False
+        except RuntimeError:
+            # No running loop, run sync directly
+            for name, check in self._checks.items():
+                try:
+                    res = check()
+                    results[name] = res
+                    if not res:
+                        all_healthy = False
+                except Exception:
+                    results[name] = False
+                    all_healthy = False
 
         # Run async checks concurrently
         async def _run_async_check(name: str, check: Callable[[], Awaitable[bool]]):
@@ -741,20 +754,23 @@ class HealthIndicator:
     def check_health_sync(self) -> HealthStatusResult:
         """
         Synchronous health check.
-        Raises RuntimeError if called from within an async event loop.
+        Only runs sync checks (no async).
         """
-        try:
-            asyncio.get_running_loop()
-            raise RuntimeError(
-                "Cannot call check_health_sync from within an async event loop. "
-                "Use check_health_async() instead."
-            )
-        except RuntimeError as e:
-            if "no running event loop" in str(e):
-                return asyncio.run(self.check_health_async())
-            raise
+        results = {}
+        all_healthy = True
+        for name, check in self._checks.items():
+            try:
+                res = check()
+                results[name] = res
+                if not res:
+                    all_healthy = False
+            except Exception:
+                results[name] = False
+                all_healthy = False
+        status = HealthStatus.HEALTHY if all_healthy else HealthStatus.DEGRADED
+        return HealthStatusResult(status, results)
 
-    # Legacy sync method (kept for compatibility, but may raise error)
+    # Legacy sync method (kept for compatibility)
     def check_health(self) -> HealthStatusResult:
         """Legacy synchronous method. Prefer check_health_sync() or check_health_async()."""
         return self.check_health_sync()
@@ -781,18 +797,26 @@ class HealthCheckRegistry:
         """Asynchronously run all checks."""
         results = {}
 
-        # Run sync checks
-        for name, check in self._checks.items():
-            try:
-                results[name] = check()
-            except Exception:
-                results[name] = False
+        # Run sync checks in thread pool if possible
+        try:
+            loop = asyncio.get_running_loop()
+            for name, check in self._checks.items():
+                try:
+                    results[name] = await loop.run_in_executor(None, check)
+                except Exception:
+                    results[name] = False
+        except RuntimeError:
+            for name, check in self._checks.items():
+                try:
+                    results[name] = check()
+                except Exception:
+                    results[name] = False
 
         # Run async checks with timeout
         async def _run_async_check(name: str, check: Callable[[], Awaitable[bool]]):
             try:
                 return name, await asyncio.wait_for(check(), timeout=self.timeout)
-            except TimeoutError:
+            except (TimeoutError, asyncio.TimeoutError):
                 return name, False
             except Exception:
                 return name, False
@@ -807,18 +831,15 @@ class HealthCheckRegistry:
     def run_all_sync(self) -> dict:
         """
         Synchronous run of all checks.
-        Raises RuntimeError if called from within an async event loop.
+        Only runs sync checks (no async).
         """
-        try:
-            asyncio.get_running_loop()
-            raise RuntimeError(
-                "Cannot call run_all_sync from within an async event loop. "
-                "Use run_all_async() instead."
-            )
-        except RuntimeError as e:
-            if "no running event loop" in str(e):
-                return asyncio.run(self.run_all_async())
-            raise
+        results = {}
+        for name, check in self._checks.items():
+            try:
+                results[name] = check()
+            except Exception:
+                results[name] = False
+        return results
 
     # Legacy sync method
     def run_all(self) -> dict:

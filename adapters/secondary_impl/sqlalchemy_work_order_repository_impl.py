@@ -66,14 +66,18 @@ class WorkOrderTable(Base):
 
 
 class SQLAlchemyWorkOrderRepository(WorkOrderRepositoryPort):
-    def __init__(self, session_factory):
-        self._session_factory = session_factory
+    def __init__(self, session: AsyncSession | None = None):
+        self._session = session
 
     async def _get_session(self) -> AsyncSession:
-        return self._session_factory()
+        if self._session is None:
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session
+            self._session = await get_async_session()
+        return self._session
 
     async def save(self, work_order: WorkOrderEntity) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             stmt = select(WorkOrderTable).where(WorkOrderTable.id == work_order.id)
             result = await session.execute(stmt)
             existing = result.scalar_one_or_none()
@@ -119,78 +123,80 @@ class SQLAlchemyWorkOrderRepository(WorkOrderRepositoryPort):
         await self.save(work_order)
 
     async def get_by_id(self, wo_id: UUID) -> WorkOrderEntity | None:
-        async with await self._get_session() as session:
-            stmt = select(WorkOrderTable).where(WorkOrderTable.id == wo_id)
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            return self._to_entity(row) if row else None
+        session = await self._get_session()
+        stmt = select(WorkOrderTable).where(WorkOrderTable.id == wo_id)
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return self._to_entity(row) if row else None
 
     async def get_by_number(self, wo_number: str) -> WorkOrderEntity | None:
-        async with await self._get_session() as session:
-            stmt = select(WorkOrderTable).where(WorkOrderTable.wo_number == wo_number)
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            return self._to_entity(row) if row else None
+        session = await self._get_session()
+        stmt = select(WorkOrderTable).where(WorkOrderTable.wo_number == wo_number)
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return self._to_entity(row) if row else None
 
     async def list_by_legal_entity(
         self, legal_entity_id: UUID, status: str | None = None, limit: int = 100, offset: int = 0
     ) -> list[WorkOrderEntity]:
-        async with await self._get_session() as session:
-            stmt = select(WorkOrderTable).where(WorkOrderTable.legal_entity_id == legal_entity_id)
-            if status:
-                stmt = stmt.where(WorkOrderTable.status == status)
-            stmt = stmt.offset(offset).limit(limit)
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            return [self._to_entity(row) for row in rows]
+        session = await self._get_session()
+        stmt = select(WorkOrderTable).where(WorkOrderTable.legal_entity_id == legal_entity_id)
+        if status:
+            stmt = stmt.where(WorkOrderTable.status == status)
+        stmt = stmt.offset(offset).limit(limit)
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_entity(row) for row in rows]
 
     async def list_by_product(
         self, product_id: UUID, legal_entity_id: UUID, status: str | None = None
     ) -> list[WorkOrderEntity]:
-        async with await self._get_session() as session:
-            stmt = select(WorkOrderTable).where(
-                WorkOrderTable.product_id == product_id,
-                WorkOrderTable.legal_entity_id == legal_entity_id,
-            )
-            if status:
-                stmt = stmt.where(WorkOrderTable.status == status)
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            return [self._to_entity(row) for row in rows]
+        session = await self._get_session()
+        stmt = select(WorkOrderTable).where(
+            WorkOrderTable.product_id == product_id,
+            WorkOrderTable.legal_entity_id == legal_entity_id,
+        )
+        if status:
+            stmt = stmt.where(WorkOrderTable.status == status)
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_entity(row) for row in rows]
 
     async def list_by_date_range(
         self, legal_entity_id: UUID, from_date: date, to_date: date
     ) -> list[WorkOrderEntity]:
-        async with await self._get_session() as session:
-            stmt = select(WorkOrderTable).where(
-                WorkOrderTable.legal_entity_id == legal_entity_id,
-                WorkOrderTable.planned_start_date >= from_date,
-                WorkOrderTable.planned_end_date <= to_date,
-            )
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            return [self._to_entity(row) for row in rows]
+        session = await self._get_session()
+        stmt = select(WorkOrderTable).where(
+            WorkOrderTable.legal_entity_id == legal_entity_id,
+            WorkOrderTable.planned_start_date >= from_date,
+            WorkOrderTable.planned_end_date <= to_date,
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_entity(row) for row in rows]
 
     async def get_last_wo_number(self, legal_entity_id: UUID) -> str | None:
-        async with await self._get_session() as session:
-            stmt = (
-                select(WorkOrderTable.wo_number)
-                .where(WorkOrderTable.legal_entity_id == legal_entity_id)
-                .order_by(WorkOrderTable.created_at.desc())
-                .limit(1)
-            )
-            result = await session.execute(stmt)
-            return result.scalar_one_or_none()
+        session = await self._get_session()
+        stmt = (
+            select(WorkOrderTable.wo_number)
+            .where(WorkOrderTable.legal_entity_id == legal_entity_id)
+            .order_by(WorkOrderTable.created_at.desc())
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def update_status(self, wo_id: UUID, new_status: str, updated_by: UUID) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             stmt = (
                 update(WorkOrderTable).where(WorkOrderTable.id == wo_id).values(status=new_status)
             )
             await session.execute(stmt)
 
     async def delete(self, wo_id: UUID) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             await session.execute(delete(WorkOrderTable).where(WorkOrderTable.id == wo_id))
 
     def _to_entity(self, row):

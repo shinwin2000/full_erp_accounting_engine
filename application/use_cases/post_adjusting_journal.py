@@ -17,7 +17,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.dto_objects.journal_request import JournalEntryRequestDTO, JournalLineRequestDTO
 from application.service_layer.service_fiscal_period import FiscalPeriodService
 from application.service_layer.service_journal import JournalService
@@ -27,7 +27,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class PostAdjustingJournalCommand(Command):
+class PostAdjustingJournalCommand(BaseCommand):
     """Command untuk posting jurnal penyesuaian."""
 
     __slots__ = (
@@ -183,7 +183,7 @@ class PostAdjustingJournalUseCase:
 
 
 async def post_adjusting_journal_handler(
-    command: Command, use_case: PostAdjustingJournalUseCase
+    command: BaseCommand, use_case: PostAdjustingJournalUseCase
 ) -> CommandResult:
     if not isinstance(command, PostAdjustingJournalCommand):
         raise TypeError(f"Expected PostAdjustingJournalCommand, got {type(command)}")

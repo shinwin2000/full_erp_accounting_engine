@@ -21,6 +21,8 @@ Semua komponen telah dilengkapi dengan metode entity dasar:
 
 # Event Envelope
 # Dead Letter Queue
+from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
+from application.commands_cqrs.query_bus_unified import UnifiedQueryBus
 from event_gateway.event_dead_letter_queue_manager import (
     DeadLetterQueueManager,
     DLQItem,
@@ -133,6 +135,10 @@ from event_gateway.gateway_exceptions import (
 from event_gateway.gateway_exceptions import (
     TransformerNotFoundError as GatewayTransformerNotFoundError,
 )
+
+CommandBusUnified = UnifiedCommandBus
+QueryBusUnified = UnifiedQueryBus
+
 
 __all__ = [
     # Event Envelope

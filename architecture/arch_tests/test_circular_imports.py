@@ -14,6 +14,7 @@ Metode yang ditambahkan:
 from __future__ import annotations
 
 import ast
+import datetime  # <-- STATIC import untuk datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -199,9 +200,7 @@ class TestCircularImports:
             {
                 "version": self._version,
                 "test_id": self._test_id,
-                "timestamp": __import__("datetime")
-                .datetime.now(__import__("datetime").UTC)
-                .isoformat(),
+                "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),  # <-- perbaiki
             }
         )
         if len(self._snapshots) > 10:
@@ -212,9 +211,7 @@ class TestCircularImports:
             {
                 "action": action,
                 "performed_by": performed_by,
-                "timestamp": __import__("datetime")
-                .datetime.now(__import__("datetime").UTC)
-                .isoformat(),
+                "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),  # <-- perbaiki
                 "version": self._version,
                 "test_id": self._test_id,
                 "details": details,
@@ -316,9 +313,7 @@ class TestCircularImports:
         return {
             "version": self._version,
             "test_id": self._test_id,
-            "timestamp": __import__("datetime")
-            .datetime.now(__import__("datetime").UTC)
-            .isoformat(),
+            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),  # <-- perbaiki
         }
 
     def version(self) -> int:

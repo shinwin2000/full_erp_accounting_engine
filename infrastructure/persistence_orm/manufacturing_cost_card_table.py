@@ -6,11 +6,11 @@ Responsibility: Read model untuk kartu biaya produksi (cost card).
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID

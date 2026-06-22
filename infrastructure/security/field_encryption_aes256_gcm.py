@@ -3,8 +3,6 @@
 Module: field_encryption_aes256_gcm.py
 Layer: Infrastructure (Security)
 Responsibility: AES-256-GCM encryption/decryption with key management (non-Vault).
-               Supports multiple keys, key rotation hooks, deterministic encryption.
-               Does NOT import Vault module to avoid circular dependency.
 """
 
 from __future__ import annotations
@@ -25,12 +23,10 @@ from config.loader_yaml import load_yaml_config
 
 logger = logging.getLogger(__name__)
 
-# Constants
 AES_KEY_SIZE = 32
 NONCE_SIZE = 12
 ENCRYPTION_VERSION = "v1"
 DEFAULT_KEY_ID = "default"
-KEY_CACHE_TTL = 300  # seconds
 
 
 class FieldEncryptionError(Exception):
@@ -46,11 +42,6 @@ class KeyNotFoundError(FieldEncryptionError):
 
 
 class FieldEncryptionService:
-    """
-    AES-256-GCM encryption service.
-    Can be used standalone or as a fallback for Vault.
-    """
-
     def __init__(self, config_path: str = "config_files/security_config.yaml"):
         self.config = self._load_config(config_path)
         self._keys: dict[str, bytes] = {}
@@ -63,7 +54,11 @@ class FieldEncryptionService:
         try:
             return load_yaml_config(config_path)
         except Exception as e:
-            logger.warning(f"Failed to load security config: {e}")
+            # ConfigNotFoundError is normal - no need to log
+            if "ConfigNotFoundError" in str(type(e).__name__) or "ConfigNotFound" in str(e):
+                pass
+            else:
+                logger.debug(f"Security config load error: {type(e).__name__}: {str(e)}")
             return {}
 
     def _load_keys(self):
@@ -77,7 +72,6 @@ class FieldEncryptionService:
                     "created_at": key_cfg.get("created_at", datetime.utcnow().isoformat()),
                     "version": key_cfg.get("version", 1),
                 }
-        # Environment variable fallback
         env_key = os.environ.get("ENCRYPTION_KEY")
         if env_key and DEFAULT_KEY_ID not in self._keys:
             self._keys[DEFAULT_KEY_ID] = base64.b64decode(env_key)
@@ -85,15 +79,13 @@ class FieldEncryptionService:
                 "created_at": datetime.utcnow().isoformat(),
                 "version": 1,
             }
-        # Ephemeral key for dev
         if not self._keys:
-            logger.warning("No encryption keys found, generating ephemeral key (development only)")
+            logger.info("No encryption keys found - generating ephemeral key for development")
             self._keys[DEFAULT_KEY_ID] = secrets.token_bytes(AES_KEY_SIZE)
             self._key_meta[DEFAULT_KEY_ID] = {
                 "created_at": datetime.utcnow().isoformat(),
                 "version": 1,
             }
-
         self._current_key_id = enc_cfg.get("current_key_id", DEFAULT_KEY_ID)
         if self._current_key_id not in self._keys:
             self._current_key_id = next(iter(self._keys.keys()))
@@ -142,14 +134,12 @@ class FieldEncryptionService:
         except DecryptionError:
             raise
         except Exception as e:
-            logger.error(f"Decryption failed: {e}")
-            raise DecryptionError(f"Decryption error: {e}") from e
+            raise DecryptionError(f"Decryption error: {str(e)}") from e
 
     def encrypt_deterministic(self, plaintext: str, key_id: str | None = None) -> str:
         if not plaintext:
             return ""
         key, used_id = self._get_key(key_id)
-        # Deterministic nonce from HMAC
         h = hmac.new(key, plaintext.encode(), hashlib.sha256)
         nonce = h.digest()[:NONCE_SIZE]
         aesgcm = AESGCM(key)
@@ -167,17 +157,12 @@ class FieldEncryptionService:
         return self.decrypt(ciphertext, aad)
 
     def encrypt_json(self, data: dict, key_id: str | None = None) -> str:
-        json_str = json.dumps(data, default=str)
-        return self.encrypt(json_str, key_id)
+        return self.encrypt(json.dumps(data, default=str), key_id)
 
     def decrypt_to_json(self, ciphertext: str) -> dict:
-        json_str = self.decrypt(ciphertext)
-        return json.loads(json_str)
+        return json.loads(self.decrypt(ciphertext))
 
-    def add_key(
-        self, key_id: str, key_bytes: bytes, version: int = 1, created_at: str | None = None
-    ):
-        """Add a new key manually (useful for key rotation)."""
+    def add_key(self, key_id: str, key_bytes: bytes, version: int = 1, created_at: str | None = None):
         self._keys[key_id] = key_bytes
         self._key_meta[key_id] = {
             "created_at": created_at or datetime.utcnow().isoformat(),
@@ -186,10 +171,6 @@ class FieldEncryptionService:
         logger.info(f"Added key {key_id} (version {version})")
 
     def rotate_key(self, new_key_id: str | None = None) -> str:
-        """
-        Create a new key and set it as current.
-        Returns the new key ID.
-        """
         new_id = new_key_id or f"key_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
         new_key = secrets.token_bytes(AES_KEY_SIZE)
         self._keys[new_id] = new_key
@@ -205,7 +186,6 @@ class FieldEncryptionService:
         return new_id
 
     def set_rotation_callback(self, callback: Callable[[str, str], None]):
-        """Set callback for key rotation events (e.g., notify Vault or external systems)."""
         self._rotation_callback = callback
 
     def get_current_key_id(self) -> str:
@@ -218,11 +198,9 @@ class FieldEncryptionService:
         return self._key_meta.get(key_id, {})
 
 
-# Alias for backward compatibility with sqlalchemy_iam_user_repository_impl
+# Alias for backward compatibility
 FieldEncryption = FieldEncryptionService
 
-
-# Singleton
 _field_encryption: FieldEncryptionService | None = None
 
 
@@ -235,7 +213,7 @@ def get_field_encryption() -> FieldEncryptionService:
 
 __all__ = [
     "DecryptionError",
-    "FieldEncryption",  # alias for compatibility
+    "FieldEncryption",
     "FieldEncryptionError",
     "FieldEncryptionService",
     "KeyNotFoundError",

@@ -1,2 +1,131 @@
-# deployment.yaml
-# Auto-generated configuration file
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erp-accounting-engine
+  namespace: erp
+  labels:
+    app: erp-accounting-engine
+    version: v1
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: erp-accounting-engine
+  template:
+    metadata:
+      labels:
+        app: erp-accounting-engine
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: erp-app
+          image: your-registry/erp-accounting-engine:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: erp-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: erp-secrets
+                  key: REDIS_URL
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: erp-secrets
+                  key: SECRET_KEY
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: erp-config
+                  key: APP_ENV
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: erp-config
+                  key: LOG_LEVEL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: erp-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: ENABLE_KAFKA
+              valueFrom:
+                configMapKeyRef:
+                  name: erp-config
+                  key: ENABLE_KAFKA
+            - name: ENABLE_MINIO
+              valueFrom:
+                configMapKeyRef:
+                  name: erp-config
+                  key: ENABLE_MINIO
+            - name: ENABLE_JAEGER
+              valueFrom:
+                configMapKeyRef:
+                  name: erp-config
+                  key: ENABLE_JAEGER
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: erp-secrets
+                  key: MINIO_ACCESS_KEY
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: erp-secrets
+                  key: MINIO_SECRET_KEY
+          envFrom:
+            - configMapRef:
+                name: erp-config
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+            requests:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: erp-logs
+              mountPath: /var/log/erp
+            - name: erp-data
+              mountPath: /data/erp
+      volumes:
+        - name: erp-logs
+          persistentVolumeClaim:
+            claimName: erp-logs-pvc
+        - name: erp-data
+          persistentVolumeClaim:
+            claimName: erp-data-pvc
+      imagePullSecrets:
+        - name: regcred
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000

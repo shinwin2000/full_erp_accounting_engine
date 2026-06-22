@@ -191,12 +191,12 @@ class Money:
     # ------------------------------------------------------------------------
 
     @classmethod
-    def of(cls, amount: Decimal | float | int | str, currency: Currency | str) -> Money:
+    def of(cls, amount: Decimal | int | str, currency: Currency | str) -> Money:
         """
         Create Money from various numeric types.
 
         Args:
-            amount: Decimal, float, int, or string representation
+            amount: Decimal, int, or string representation
             currency: ISO 4217 currency code or Currency enum member
         """
         if isinstance(amount, float):

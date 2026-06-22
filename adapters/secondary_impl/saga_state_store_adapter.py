@@ -23,11 +23,15 @@ class SagaStateStoreAdapter(SagaStateStorePort):
     def __init__(self):
         self._store = SagaStateStore()
 
-    async def save(self, saga_type: str, saga_id: UUID, state: dict[str, Any]) -> None:
+    async def save(self, saga_id: UUID, state: dict[str, Any]) -> None:
+        # Asumsikan saga_type default atau ambil dari state
+        saga_type = state.get("saga_type", "default")
         await self._store.save(saga_type, saga_id, state)
 
-    async def get(self, saga_type: str, saga_id: UUID) -> dict[str, Any] | None:
-        return await self._store.get(saga_type, saga_id)
+    async def get(self, saga_id: UUID) -> dict[str, Any] | None:
+        # Kita butuh saga_type, kita simpan di state atau gunakan default
+        # Kita bisa gunakan metode get dengan saga_type default
+        return await self._store.get("default", saga_id)
 
     async def health_check(self) -> dict:
         return {"status": "healthy", "store_type": "saga_state_store"}

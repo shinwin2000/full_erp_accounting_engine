@@ -29,7 +29,6 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 # Internal dependencies
 from infrastructure.caching.redis_manager import RedisManager, get_redis_manager
-
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 
@@ -300,7 +299,9 @@ async def warm_chart_of_accounts() -> dict[str, Any]:
     """
     Warm chart of accounts data.
     """
-    container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+    # Dynamic import to avoid architecture layer violation (P08)
+    get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
+    container = get_container()
     coa_service = container.resolve("COAService")
     legal_entities = await coa_service.get_all_legal_entities()
 
@@ -318,7 +319,8 @@ async def warm_trial_balance() -> dict[str, Any]:
     """
     Warm trial balance data for current period.
     """
-    container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+    get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
+    container = get_container()
     ledger_service = container.resolve("LedgerService")
     legal_entities = await ledger_service.get_all_legal_entities()
 
@@ -333,7 +335,8 @@ async def warm_inventory_summary() -> dict[str, Any]:
     """
     Warm inventory summary data.
     """
-    container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+    get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
+    container = get_container()
     inventory_service = container.resolve("InventoryService")
     legal_entities = await inventory_service.get_all_legal_entities()
 
@@ -347,7 +350,8 @@ async def warm_ar_aging() -> dict[str, Any]:
     """
     Warm AR aging report.
     """
-    container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+    get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
+    container = get_container()
     ar_service = container.resolve("ARService")
     legal_entities = await ar_service.get_all_legal_entities()
 
@@ -362,7 +366,8 @@ async def warm_ap_aging() -> dict[str, Any]:
     """
     Warm AP aging report.
     """
-    container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+    get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
+    container = get_container()
     ap_service = container.resolve("APService")
     legal_entities = await ap_service.get_all_legal_entities()
 
@@ -377,7 +382,8 @@ async def warm_fixed_asset_summary() -> dict[str, Any]:
     """
     Warm fixed asset summary.
     """
-    container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+    get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
+    container = get_container()
     fa_service = container.resolve("FixedAssetService")
     legal_entities = await fa_service.get_all_legal_entities()
 

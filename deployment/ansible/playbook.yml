@@ -1,2 +1,143 @@
-# playbook.yml
-# Auto-generated configuration file
+---
+- name: Deploy ERP Accounting Engine to Production
+  hosts: all
+  become: yes
+  vars:
+    app_name: erp-accounting-engine
+    app_version: "1.0.0"
+    app_user: erp
+    app_group: erp
+    app_dir: /opt/erp-accounting-engine
+    venv_dir: "{{ app_dir }}/venv"
+    log_dir: /var/log/erp
+    data_dir: /data/erp
+    # Environment variables (should be overridden by vault)
+    database_url: "{{ lookup('env', 'DATABASE_URL') }}"
+    redis_url: "{{ lookup('env', 'REDIS_URL') }}"
+    secret_key: "{{ lookup('env', 'SECRET_KEY') }}"
+    app_env: "production"
+    log_level: "INFO"
+
+  tasks:
+    - name: Ensure required packages are installed
+      apt:
+        name:
+          - python3
+          - python3-pip
+          - python3-venv
+          - postgresql-client
+          - redis-tools
+          - nginx
+          - supervisor
+          - git
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Create application user
+      user:
+        name: "{{ app_user }}"
+        group: "{{ app_group }}"
+        system: yes
+        create_home: no
+        shell: /usr/sbin/nologin
+
+    - name: Create application directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: 0755
+      loop:
+        - "{{ app_dir }}"
+        - "{{ log_dir }}"
+        - "{{ data_dir }}"
+
+    - name: Copy application code
+      synchronize:
+        src: "{{ playbook_dir }}/../../../"
+        dest: "{{ app_dir }}"
+        rsync_opts:
+          - "--exclude=.git"
+          - "--exclude=__pycache__"
+          - "--exclude=.env"
+          - "--exclude=*.pyc"
+          - "--exclude=.pytest_cache"
+          - "--exclude=.mypy_cache"
+          - "--exclude=tests"
+          - "--exclude=architecture"
+          - "--exclude=deployment"
+      delegate_to: "{{ inventory_hostname }}"
+
+    - name: Create Python virtual environment
+      command:
+        cmd: python3 -m venv "{{ venv_dir }}"
+        creates: "{{ venv_dir }}/bin/activate"
+
+    - name: Install Python dependencies
+      pip:
+        requirements: "{{ app_dir }}/requirements.txt"
+        virtualenv: "{{ venv_dir }}"
+        virtualenv_python: python3
+
+    - name: Create .env file
+      copy:
+        dest: "{{ app_dir }}/.env"
+        content: |
+          DATABASE_URL={{ database_url }}
+          REDIS_URL={{ redis_url }}
+          SECRET_KEY={{ secret_key }}
+          APP_ENV={{ app_env }}
+          LOG_LEVEL={{ log_level }}
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: 0600
+      no_log: true
+
+    - name: Configure Supervisor
+      template:
+        src: supervisor.conf.j2
+        dest: /etc/supervisor/conf.d/{{ app_name }}.conf
+        owner: root
+        group: root
+        mode: 0644
+      notify: restart supervisor
+
+    - name: Configure Nginx reverse proxy
+      template:
+        src: nginx.conf.j2
+        dest: /etc/nginx/sites-available/{{ app_name }}
+        owner: root
+        group: root
+        mode: 0644
+      notify: reload nginx
+
+    - name: Enable Nginx site
+      file:
+        src: /etc/nginx/sites-available/{{ app_name }}
+        dest: /etc/nginx/sites-enabled/{{ app_name }}
+        state: link
+      notify: reload nginx
+
+    - name: Ensure services are started
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - postgresql
+        - redis-server
+        - supervisor
+        - nginx
+
+  handlers:
+    - name: restart supervisor
+      service:
+        name: supervisor
+        state: restarted
+
+    - name: reload nginx
+      service:
+        name: nginx
+        state: reloaded

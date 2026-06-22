@@ -1,5 +1,3 @@
-# handler_registry.py - Hardened version with complete implementation
-
 #!/usr/bin/env python3
 
 """
@@ -39,37 +37,33 @@ SyncEventHandler = Callable[..., None]
 class HandlerPriority(IntEnum):
     """Priority untuk eksekusi handler. Nilai lebih kecil = lebih dulu."""
 
-    CRITICAL = 0  # Harus jalan pertama (misal audit, security)
-    HIGH = 10  # High priority (misal update read model penting)
-    NORMAL = 50  # Default priority
-    LOW = 90  # Low priority (misal logging, analytics)
+    CRITICAL = 0   # Harus jalan pertama (misal audit, security)
+    HIGH = 10      # High priority (misal update read model penting)
+    NORMAL = 50    # Default priority
+    LOW = 90       # Low priority (misal logging, analytics)
     MONITORING = 100  # Terakhir (metrics, tracing)
-
+    LOWEST = 110 
 
 # === 2. EXCEPTIONS ===
 
 
 class HandlerRegistryError(Exception):
     """Base exception untuk registry errors."""
-
     pass
 
 
 class HandlerAlreadyRegisteredError(HandlerRegistryError):
     """Handler dengan event type dan priority yang sama sudah terdaftar."""
-
     pass
 
 
 class HandlerNotFoundError(HandlerRegistryError):
     """Tidak ada handler terdaftar untuk event type tertentu."""
-
     pass
 
 
 class InvalidHandlerSignatureError(HandlerRegistryError):
     """Handler memiliki signature yang tidak valid."""
-
     pass
 
 
@@ -152,6 +146,25 @@ class EventHandlerRegistry:
                 self._handler_metrics: dict[str, dict[str, Any]] = {}
                 self._initialized = True
                 logger.info("EventHandlerRegistry initialized (singleton)")
+
+                # =============================================================
+                # 🔥 REGISTRASI SEMUA EVENT HANDLER DARI all_event_handlers.py
+                # =============================================================
+                try:
+                    from application.events.all_event_handlers import register_all_handlers
+                    register_all_handlers(self)
+                    logger.info(
+                        "Successfully registered all event handlers from all_event_handlers.py"
+                    )
+                except ImportError as e:
+                    logger.warning(
+                        f"all_event_handlers.py not found or not importable: {e}. "
+                        "Run generate_all_handlers.py to create it."
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to register all event handlers: {e}")
+
+    # ===== REGISTER METHODS (existing) =====
 
     def register(
         self,

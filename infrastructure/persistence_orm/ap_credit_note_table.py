@@ -91,7 +91,7 @@ class APCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     # RELATIONSHIPS
     # =========================================================================
 
-    invoice: Mapped["APInvoiceTable"] = relationship(
+    invoice: Mapped[APInvoiceTable] = relationship(
         "APInvoiceTable",
         back_populates="credit_notes",
         foreign_keys=[invoice_id],

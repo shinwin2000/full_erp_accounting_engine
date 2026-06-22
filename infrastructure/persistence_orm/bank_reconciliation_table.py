@@ -41,14 +41,14 @@ class BankReconciliationTable(Base, TimestampMixin, LegalEntityMixin):
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     legal_entity_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
-    
+
     # [FIX]: Penambahan ForeignKey eksplisit ke tabel bank_account
     bank_account_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), 
-        ForeignKey("bank_account.id"), 
+        PGUUID(as_uuid=True),
+        ForeignKey("bank_account.id"),
         nullable=False
     )
-    
+
     statement_date: Mapped[date] = mapped_column(Date, nullable=False)
     period_start: Mapped[date] = mapped_column(Date, nullable=False)
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
@@ -62,13 +62,13 @@ class BankReconciliationTable(Base, TimestampMixin, LegalEntityMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # [FIX]: Relationships menggunakan String Literal dan Fully Qualified Path
-    items: Mapped[list["BankReconciliationItemTable"]] = relationship(
-        "BankReconciliationItemTable", 
-        back_populates="reconciliation", 
+    items: Mapped[list[BankReconciliationItemTable]] = relationship(
+        "BankReconciliationItemTable",
+        back_populates="reconciliation",
         cascade="all, delete-orphan"
     )
-    bank_account: Mapped["BankAccountTable"] = relationship(
-        "infrastructure.persistence_orm.bank_account_table.BankAccountTable", 
+    bank_account: Mapped[BankAccountTable] = relationship(
+        "infrastructure.persistence_orm.bank_account_table.BankAccountTable",
         back_populates="reconciliations"
     )
 
@@ -148,8 +148,8 @@ class BankReconciliationItemTable(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     # [FIX]: Relationships menggunakan String Literal
-    reconciliation: Mapped["BankReconciliationTable"] = relationship(
-        "BankReconciliationTable", 
+    reconciliation: Mapped[BankReconciliationTable] = relationship(
+        "BankReconciliationTable",
         back_populates="items"
     )
 

@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.events.publisher_application import EventEnvelope
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ class EventPublisherPort(Protocol):
 # ============================================================================
 
 
-class DisasterRecoveryReplayCommand(Command):
+class DisasterRecoveryReplayCommand(BaseCommand):
     __slots__ = (
         "dry_run",
         "from_date",

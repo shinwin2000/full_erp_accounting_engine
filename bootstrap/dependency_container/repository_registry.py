@@ -44,29 +44,65 @@ class RepositoryRegistry:
 
     def register_all(self) -> None:
         """Register all repositories to the container using lazy imports."""
-        
+
         # Lazy imports for SQLAlchemy implementations
-        from adapters.secondary_impl.sqlalchemy_account_repository_impl import SQLAlchemyAccountRepository
+        from adapters.secondary_impl.sqlalchemy_account_repository_impl import (
+            SQLAlchemyAccountRepository,
+        )
         from adapters.secondary_impl.sqlalchemy_ap_repository_impl import SQLAlchemyAPRepository
         from adapters.secondary_impl.sqlalchemy_ar_repository_impl import SQLAlchemyARRepository
-        from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import SQLAlchemyBankCashRepository
-        from adapters.secondary_impl.sqlalchemy_bill_of_materials_repository_impl import SQLAlchemyBillOfMaterialsRepository
-        from adapters.secondary_impl.sqlalchemy_customer_repository_impl import SQLAlchemyCustomerRepository
-        from adapters.secondary_impl.sqlalchemy_employee_repository_impl import SQLAlchemyEmployeeRepository
-        from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import SQLAlchemyFixedAssetRepository
-        from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import SQLAlchemyIAMUserRepository
-        from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import SQLAlchemyInventoryRepository
-        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import SQLAlchemyJournalRepository
-        from adapters.secondary_impl.sqlalchemy_ledger_repository_impl import SQLAlchemyLedgerRepository
-        from adapters.secondary_impl.sqlalchemy_legal_entity_repository_impl import SQLAlchemyLegalEntityRepository
-        from adapters.secondary_impl.sqlalchemy_outbox_repository_impl import SQLAlchemyOutboxRepository
-        from adapters.secondary_impl.sqlalchemy_project_repository_impl import SQLAlchemyProjectRepository
-        from adapters.secondary_impl.sqlalchemy_purchase_order_repository_impl import SQLAlchemyPurchaseOrderRepository
-        from adapters.secondary_impl.sqlalchemy_sales_order_repository_impl import SQLAlchemySalesOrderRepository
-        from adapters.secondary_impl.sqlalchemy_supplier_repository_impl import SQLAlchemySupplierRepository
-        from adapters.secondary_impl.sqlalchemy_system_setting_repository_impl import SQLAlchemySystemSettingRepository
+        from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import (
+            SQLAlchemyBankCashRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_bill_of_materials_repository_impl import (
+            SQLAlchemyBillOfMaterialsRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_customer_repository_impl import (
+            SQLAlchemyCustomerRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_employee_repository_impl import (
+            SQLAlchemyEmployeeRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import (
+            SQLAlchemyFixedAssetRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import (
+            SQLAlchemyIAMUserRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import (
+            SQLAlchemyInventoryRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import (
+            SQLAlchemyJournalRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_ledger_repository_impl import (
+            SQLAlchemyLedgerRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_legal_entity_repository_impl import (
+            SQLAlchemyLegalEntityRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_outbox_repository_impl import (
+            SQLAlchemyOutboxRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_project_repository_impl import (
+            SQLAlchemyProjectRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_purchase_order_repository_impl import (
+            SQLAlchemyPurchaseOrderRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_sales_order_repository_impl import (
+            SQLAlchemySalesOrderRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_supplier_repository_impl import (
+            SQLAlchemySupplierRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_system_setting_repository_impl import (
+            SQLAlchemySystemSettingRepository,
+        )
         from adapters.secondary_impl.sqlalchemy_tax_repository_impl import SQLAlchemyTaxRepository
-        from adapters.secondary_impl.sqlalchemy_work_order_repository_impl import SQLAlchemyWorkOrderRepository
+        from adapters.secondary_impl.sqlalchemy_work_order_repository_impl import (
+            SQLAlchemyWorkOrderRepository,
+        )
 
         self._container.register_singleton(JournalRepositoryPort, SQLAlchemyJournalRepository)
         self._container.register_singleton(LedgerRepositoryPort, SQLAlchemyLedgerRepository)

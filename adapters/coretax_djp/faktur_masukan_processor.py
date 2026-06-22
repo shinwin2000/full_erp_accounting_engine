@@ -1159,7 +1159,9 @@ class FakturMasukanProcessor:
         if self._tax_service is None:
             from application.service_layer.service_tax import TaxService
             try:
-                from adapters.secondary_impl.sqlalchemy_tax_repository_impl import SQLAlchemyTaxRepository
+                from adapters.secondary_impl.sqlalchemy_tax_repository_impl import (
+                    SQLAlchemyTaxRepository,
+                )
                 repo = SQLAlchemyTaxRepository()
             except ImportError:
                 logger.warning("SQLAlchemyTaxRepository not available, using fallback")

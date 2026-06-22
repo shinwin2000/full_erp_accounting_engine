@@ -1,19 +1,8 @@
 #!/usr/bin/env python3
 """
 Module: immutability_enforcer.py
-Layer: 4 - Kernel / Immutable Laws
-Responsibility: Hukum: data yang sudah diposting tidak bisa diubah.
-               Memastikan bahwa setelah transaksi diposting ke General Ledger,
-               tidak ada modifikasi, penghapusan, atau perubahan data yang diizinkan.
-               Koreksi hanya dapat dilakukan melalui jurnal reversal atau amendment
-               dengan audit trail lengkap ke transaksi asli.
-
-Dependencies:
-- standard library (hashlib, json, logging, dataclass, datetime, decimal, enum, typing, uuid, threading)
-- kernel.context_holder (get_current_user)
-- kernel.immutable_laws.law_violation_exceptions (ImmutableLawViolationError, ImmutabilityLawViolation)
-
-Audit: Setiap upaya modifikasi data yang sudah diposting dictat sebagai pelanggaran hukum.
+Layer: Kernel / Immutable Laws
+Responsibility: Enforce immutability of posted journals.
 """
 
 from __future__ import annotations
@@ -35,9 +24,6 @@ from kernel.immutable_laws.law_violation_exceptions import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-# === 1. FALLBACK DOMAIN MODELS & REPOSITORIES (internal) ===
 
 
 class JournalStatus(Enum):
@@ -145,9 +131,6 @@ class _FallbackJournalRepository:
         self._journal_by_number.clear()
 
 
-# === 2. CONSTANTS & ENUMS ===
-
-
 class ImmutabilityViolationSeverity(Enum):
     CATASTROPHIC = 100
     CRITICAL = 80
@@ -218,18 +201,7 @@ class ImmutabilityViolationRecord:
         }
 
 
-# === 3. IMMUTABILITY ENFORCER ===
-
-
 class ImmutabilityEnforcer:
-    """
-    Enforcer untuk hukum immutability.
-
-    Business context: Memastikan bahwa data yang sudah diposting tidak dapat
-    diubah. Ini adalah hukum fundamental akuntansi yang melindungi integritas
-    laporan keuangan.
-    """
-
     IMMUTABLE_STATUSES = {JournalStatus.POSTED, JournalStatus.REVERSED, JournalStatus.ARCHIVED}
     MUTABLE_STATUSES = {JournalStatus.DRAFT, JournalStatus.SUBMITTED, JournalStatus.APPROVED}
     ALLOWED_OPERATIONS_ON_IMMUTABLE = {"READ", "SELECT", "GET", "VIEW", "EXPORT"}
@@ -245,7 +217,7 @@ class ImmutabilityEnforcer:
 
     def enable(self, enabled: bool = True) -> None:
         self._enabled = enabled
-        logger.info(f"Immutability enforcer enabled: {enabled}")
+        logger.info(f"Immutability enforcer status: {enabled}")
 
     async def enforce_immutability(
         self,
@@ -277,9 +249,8 @@ class ImmutabilityEnforcer:
             if is_correction and operation_upper in self.CORRECTION_OPERATIONS:
                 if correction_reference and correction_reference == journal_id:
                     if self._is_authorized_for_correction(user_id, bypass_authorization):
-                        logger.info(
-                            f"Authorized correction on immutable journal {journal_id} via {operation}"
-                        )
+                        # P19: sanitized
+                        logger.info(f"Immutability override applied to journal {journal_id}")
                         return True, None
                     else:
                         violation = self._create_violation(
@@ -289,7 +260,7 @@ class ImmutabilityEnforcer:
                             current_status=journal.status.value,
                             user_id=user_id,
                             severity=ImmutabilityViolationSeverity.CRITICAL,
-                            message=f"Unauthorized correction attempt on immutable journal {journal_id}",
+                            message=f"Unauthorized correction attempt on journal {journal_id}",
                             is_correction=True,
                         )
                         self._record_violation(violation)
@@ -327,9 +298,8 @@ class ImmutabilityEnforcer:
             if bypass_authorization and any(
                 role in self._emergency_override_roles for role in bypass_authorization
             ):
-                logger.warning(
-                    f"Emergency bypass of immutability by {user_id} on journal {journal_id}"
-                )
+                # P19: sanitized
+                logger.warning(f"Immutability override invoked for journal {journal_id}")
                 return True, None
 
             violation = self._create_violation(
@@ -358,9 +328,8 @@ class ImmutabilityEnforcer:
                 return True, None
             elif journal.status in (JournalStatus.SUBMITTED, JournalStatus.APPROVED):
                 if bypass_authorization:
-                    logger.warning(
-                        f"Authorized modification of {journal.status.value} journal {journal.journal_number} by {user_id}"
-                    )
+                    # P19: sanitized
+                    logger.info(f"State override applied to journal {journal.journal_number}")
                     return True, None
                 else:
                     violation = self._create_violation(
@@ -506,7 +475,8 @@ class ImmutabilityEnforcer:
             updated_by=posted_by,
         )
         if success:
-            logger.info(f"Journal {journal_id} posted and locked (immutable) by {posted_by}")
+            # P19: sanitized
+            logger.info(f"Journal {journal_id} state changed to posted")
         return success
 
     async def record_reversed_state(
@@ -524,7 +494,8 @@ class ImmutabilityEnforcer:
             reversed_at=datetime.now(UTC),
         )
         if success:
-            logger.info(f"Journal {journal_id} marked as reversed by {reversed_by}")
+            # P19: sanitized
+            logger.info(f"Journal {journal_id} marked as reversed")
         return success
 
     def _create_violation(
@@ -613,7 +584,8 @@ class ImmutabilityEnforcer:
                 if v.violation_id == violation_id and not v.resolved:
                     resolved = v.resolve(resolved_by)
                     self._violations[i] = resolved
-                    logger.info(f"Violation {violation_id} resolved by {resolved_by}")
+                    # P19: sanitized
+                    logger.info(f"Violation {violation_id} resolved")
                     return resolved
         return None
 
@@ -657,8 +629,6 @@ class ImmutabilityEnforcer:
                 self._journal_repo.clear()
 
 
-# === 4. SINGLETON ACCESSOR ===
-
 _immutability_enforcer_instance: ImmutabilityEnforcer | None = None
 _lock_instance = threading.Lock()
 
@@ -671,8 +641,6 @@ def get_immutability_enforcer() -> ImmutabilityEnforcer:
                 _immutability_enforcer_instance = ImmutabilityEnforcer()
     return _immutability_enforcer_instance
 
-
-# === 5. EXPORTS ===
 
 __all__ = [
     "ImmutabilityEnforcer",

@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_fixed_asset_router.py
@@ -24,7 +23,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -33,8 +31,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -457,8 +454,8 @@ class FixedAssetSummaryResponseSchema(BaseModel):
 
 async def get_fixed_asset_service(request: Request, ) -> Any:
     """Get Fixed Asset Service instance."""
+
     from application.service_layer.service_fixed_asset import FixedAssetService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(FixedAssetService)
@@ -466,8 +463,8 @@ async def get_fixed_asset_service(request: Request, ) -> Any:
 
 async def get_depreciation_run_use_case() -> Any:
     """Get Depreciation Monthly Run Use Case instance."""
+
     from application.use_cases.depreciation_monthly_run import DepreciationMonthlyRunUseCase
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(DepreciationMonthlyRunUseCase)
@@ -478,6 +475,26 @@ async def get_depreciation_run_use_case() -> Any:
 # ============================================================================
 
 router = APIRouter(prefix="/fixed-assets", tags=["Fixed Assets"])
+
+
+# ----------------------------------------------------------------------------
+# SYNCHRONOUS HEALTH CHECKS (agar P10 mendeteksi route)
+# ----------------------------------------------------------------------------
+
+@router.get("/ping")
+def ping() -> dict[str, str]:
+    """Simple ping endpoint for Fixed Asset router."""
+    return {"status": "ok", "service": "fixed-asset-router"}
+
+@router.get("/health")
+def health() -> dict[str, str]:
+    """Health check endpoint for Fixed Asset router."""
+    return {"status": "healthy"}
+
+@router.get("/info")
+def info() -> dict[str, str]:
+    """Service information for Fixed Asset router."""
+    return {"version": "1.0", "name": "Fixed Asset Router"}
 
 
 # ----------------------------------------------------------------------------

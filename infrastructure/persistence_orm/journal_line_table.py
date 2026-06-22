@@ -6,11 +6,11 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel journal_line.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,
@@ -21,7 +21,8 @@ from sqlalchemy import (
     Numeric,
     String,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -72,12 +73,12 @@ class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
     audit_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Relasi
-    journal: Mapped["JournalHeaderTable"] = relationship(
+    journal: Mapped[JournalHeaderTable] = relationship(
         "JournalHeaderTable",
         back_populates="lines",
         foreign_keys=[journal_id],
     )
-    account: Mapped["AccountTable"] = relationship(
+    account: Mapped[AccountTable] = relationship(
         "AccountTable",
         back_populates="journal_lines",
         primaryjoin="and_(JournalLineTable.account_code == AccountTable.account_code, "

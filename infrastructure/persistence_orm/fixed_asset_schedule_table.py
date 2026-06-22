@@ -45,7 +45,7 @@ class FixedAssetScheduleTable(Base, TimestampMixin):
     journal_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
-    asset: Mapped["FixedAssetTable"] = relationship(
+    asset: Mapped[FixedAssetTable] = relationship(
         "FixedAssetTable",
         back_populates="depreciation_schedule",
     )
@@ -89,8 +89,8 @@ DepreciationScheduleReadModel = FixedAssetScheduleTable
 FixedAssetScheduleReadModel = FixedAssetScheduleTable
 
 __all__ = [
-    "FixedAssetScheduleTable",
-    "DepreciationScheduleTable",
     "DepreciationScheduleReadModel",
+    "DepreciationScheduleTable",
     "FixedAssetScheduleReadModel",
+    "FixedAssetScheduleTable",
 ]

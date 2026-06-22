@@ -16,7 +16,7 @@ from datetime import date
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.dto_objects.journal_request import JournalEntryRequestDTO, JournalLineRequestDTO
 from application.service_layer.service_fiscal_period import FiscalPeriodService
 from application.service_layer.service_journal import JournalService
@@ -26,7 +26,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class ReverseJournalCommand(Command):
+class ReverseJournalCommand(BaseCommand):
     """Command untuk reversal jurnal."""
 
     __slots__ = (
@@ -195,7 +195,7 @@ class ReverseJournalUseCase:
 
 
 async def reverse_journal_handler(
-    command: Command, use_case: ReverseJournalUseCase
+    command: BaseCommand, use_case: ReverseJournalUseCase
 ) -> CommandResult:
     if not isinstance(command, ReverseJournalCommand):
         raise TypeError(f"Expected ReverseJournalCommand, got {type(command)}")

@@ -15,11 +15,11 @@ Audit: Data kartu stok bersifat immutable dan dihasilkan dari event store.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,

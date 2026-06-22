@@ -94,19 +94,19 @@ class APPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # RELATIONSHIPS
     # ========================================================================
 
-    supplier: Mapped["SupplierTable"] = relationship(
+    supplier: Mapped[SupplierTable] = relationship(
         "SupplierTable",
         back_populates="ap_payments",
         foreign_keys=[supplier_id],
     )
-    invoice: Mapped["APInvoiceTable"] = relationship(
+    invoice: Mapped[APInvoiceTable] = relationship(
         "APInvoiceTable",
         back_populates="payments",
         foreign_keys=[invoice_id],
     )
 
     # Relasi ke CoretaxBupotTable - menggunakan kolom payment_id
-    bupots: Mapped[list["CoretaxBupotTable"]] = relationship(
+    bupots: Mapped[list[CoretaxBupotTable]] = relationship(
         "CoretaxBupotTable",
         back_populates="payment",
         foreign_keys="[CoretaxBupotTable.payment_id]",

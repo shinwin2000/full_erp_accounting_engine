@@ -107,7 +107,10 @@ class KafkaEventPublisher:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.stop()
 
-
+    async def publish_batch(self, events: list[Any]) -> None:
+        for event in events:
+            await self.publish(event)
+            
 # Untuk kompatibilitas dengan nama lama
 KafkaEventPublisherImpl = KafkaEventPublisher
 

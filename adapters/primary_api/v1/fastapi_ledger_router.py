@@ -1,27 +1,11 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_ledger_router.py
 Layer: Adapters (Primary API - v1)
-Responsibility: Menyediakan REST API endpoint untuk membaca data General Ledger (Ledger)
-               seperti neraca saldo (trial balance), laporan laba rugi (income statement),
-               neraca (balance sheet), arus kas (cash flow), dan saldo akun.
-               Semua endpoint bersifat read-only (CQRS query side).
-
-Method Standards (ERP):
-- get_trial_balance() / get_balance_sheet() / get_income_statement()
-- get_cash_flow() / get_equity_statement()
-- get_account_balance() / get_account_balance_history()
-- get_ledger_entries() / get_ledger_entries_by_account()
-- get_journal_ledger_entries()
-- export_ledger() / export_trial_balance()
-- get_financial_ratios() / get_trend_analysis()
-- get_comparative_reports()
-- get_ledger_summary() / get_account_activity()
+Responsibility: REST API endpoint untuk membaca data General Ledger (Ledger).
 """
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -30,8 +14,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -48,8 +31,6 @@ logger = logging.getLogger(__name__)
 
 
 class ReportPeriod(str, Enum):
-    """Periode laporan."""
-
     CURRENT_MONTH = "current_month"
     PREVIOUS_MONTH = "previous_month"
     CURRENT_QUARTER = "current_quarter"
@@ -60,8 +41,6 @@ class ReportPeriod(str, Enum):
 
 
 class ComparisonType(str, Enum):
-    """Jenis perbandingan."""
-
     NONE = "none"
     PREVIOUS_PERIOD = "previous_period"
     PREVIOUS_YEAR = "previous_year"
@@ -70,22 +49,13 @@ class ComparisonType(str, Enum):
 
 
 class LedgerEntryType(str, Enum):
-    """Jenis entri ledger."""
-
     JOURNAL = "journal"
     ADJUSTMENT = "adjustment"
     CLOSING = "closing"
     REVERSAL = "reversal"
 
 
-# ============================================================================
-# PYDANTIC SCHEMAS
-# ============================================================================
-
-
 class TrialBalanceLineSchema(BaseModel):
-    """Line dalam trial balance."""
-
     model_config = ConfigDict(from_attributes=True)
 
     account_id: UUID
@@ -101,8 +71,6 @@ class TrialBalanceLineSchema(BaseModel):
 
 
 class TrialBalanceResponseSchema(BaseModel):
-    """Response trial balance."""
-
     model_config = ConfigDict(from_attributes=True)
 
     legal_entity_id: UUID
@@ -118,8 +86,6 @@ class TrialBalanceResponseSchema(BaseModel):
 
 
 class BalanceSheetSectionSchema(BaseModel):
-    """Section dalam balance sheet (Asset, Liability, Equity)."""
-
     model_config = ConfigDict(from_attributes=True)
 
     lines: list[dict[str, Any]]
@@ -127,8 +93,6 @@ class BalanceSheetSectionSchema(BaseModel):
 
 
 class BalanceSheetResponseSchema(BaseModel):
-    """Response balance sheet (neraca)."""
-
     model_config = ConfigDict(from_attributes=True)
 
     legal_entity_id: UUID
@@ -149,8 +113,6 @@ class BalanceSheetResponseSchema(BaseModel):
 
 
 class IncomeStatementLineSchema(BaseModel):
-    """Line dalam income statement."""
-
     model_config = ConfigDict(from_attributes=True)
 
     account_id: UUID
@@ -165,8 +127,6 @@ class IncomeStatementLineSchema(BaseModel):
 
 
 class IncomeStatementResponseSchema(BaseModel):
-    """Response income statement (laba rugi)."""
-
     model_config = ConfigDict(from_attributes=True)
 
     legal_entity_id: UUID
@@ -192,8 +152,6 @@ class IncomeStatementResponseSchema(BaseModel):
 
 
 class CashFlowLineSchema(BaseModel):
-    """Line dalam cash flow statement."""
-
     model_config = ConfigDict(from_attributes=True)
 
     category: str
@@ -202,8 +160,6 @@ class CashFlowLineSchema(BaseModel):
 
 
 class CashFlowResponseSchema(BaseModel):
-    """Response cash flow statement."""
-
     model_config = ConfigDict(from_attributes=True)
 
     legal_entity_id: UUID
@@ -224,8 +180,6 @@ class CashFlowResponseSchema(BaseModel):
 
 
 class EquityStatementLineSchema(BaseModel):
-    """Line dalam equity statement."""
-
     model_config = ConfigDict(from_attributes=True)
 
     component: str
@@ -237,8 +191,6 @@ class EquityStatementLineSchema(BaseModel):
 
 
 class EquityStatementResponseSchema(BaseModel):
-    """Response statement of changes in equity."""
-
     model_config = ConfigDict(from_attributes=True)
 
     legal_entity_id: UUID
@@ -256,8 +208,6 @@ class EquityStatementResponseSchema(BaseModel):
 
 
 class AccountBalanceResponseSchema(BaseModel):
-    """Response saldo akun."""
-
     model_config = ConfigDict(from_attributes=True)
 
     account_id: UUID
@@ -273,8 +223,6 @@ class AccountBalanceResponseSchema(BaseModel):
 
 
 class AccountBalanceHistorySchema(BaseModel):
-    """Riwayat saldo akun."""
-
     model_config = ConfigDict(from_attributes=True)
 
     as_of_date: date
@@ -285,8 +233,6 @@ class AccountBalanceHistorySchema(BaseModel):
 
 
 class LedgerEntryResponseSchema(BaseModel):
-    """Response entri ledger."""
-
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -310,38 +256,29 @@ class LedgerEntryResponseSchema(BaseModel):
 
 
 class FinancialRatiosResponseSchema(BaseModel):
-    """Response financial ratios."""
-
     model_config = ConfigDict(from_attributes=True)
 
     as_of_date: date
-    # Liquidity ratios
     current_ratio: float | None = None
     quick_ratio: float | None = None
     cash_ratio: float | None = None
-    # Solvency ratios
     debt_to_equity: float | None = None
     debt_to_assets: float | None = None
     interest_coverage: float | None = None
-    # Profitability ratios
     gross_margin: float | None = None
     operating_margin: float | None = None
     net_margin: float | None = None
     return_on_assets: float | None = None
     return_on_equity: float | None = None
-    # Efficiency ratios
     asset_turnover: float | None = None
     inventory_turnover: float | None = None
     receivable_turnover: float | None = None
     payable_turnover: float | None = None
-    # Industry benchmarks (optional)
     industry_comparison: dict[str, Any] | None = None
     generated_at: datetime
 
 
 class AccountActivitySchema(BaseModel):
-    """Aktivitas akun per periode."""
-
     model_config = ConfigDict(from_attributes=True)
 
     period: str
@@ -351,37 +288,41 @@ class AccountActivitySchema(BaseModel):
     closing_balance: Decimal
 
 
-# ============================================================================
-# DEPENDENCY INJECTION
-# ============================================================================
-
-
-async def get_ledger_service(request: Request, ) -> Any:
-    """Get Ledger Service instance."""
+async def get_ledger_service(request: Request) -> Any:
     from application.service_layer.service_ledger import LedgerService
-    from fastapi import Request
-
     container = request.app.state.container
     return container.resolve(LedgerService)
 
-
-# ============================================================================
-# ROUTER
-# ============================================================================
 
 router = APIRouter(prefix="/ledger", tags=["General Ledger"])
 
 
 # ----------------------------------------------------------------------------
-# TRIAL BALANCE (NERACA SALDO)
+# SYNCHRONOUS HEALTH CHECKS
 # ----------------------------------------------------------------------------
 
+@router.get("/ping")
+def ping() -> dict[str, str]:
+    return {"status": "ok", "service": "ledger-router"}
+
+@router.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "healthy"}
+
+@router.get("/info")
+def info() -> dict[str, str]:
+    return {"version": "1.0", "name": "Ledger Router"}
+
+
+# ----------------------------------------------------------------------------
+# TRIAL BALANCE
+# ----------------------------------------------------------------------------
 
 @router.get(
     "/trial-balance",
     response_model=TrialBalanceResponseSchema,
     summary="Get trial balance",
-    operation_id="get_trial_balance",
+    operation_id="ledger_get_trial_balance",
 )
 async def get_trial_balance(
     as_of_date: date = Query(..., description="Tanggal neraca saldo"),
@@ -390,13 +331,6 @@ async def get_trial_balance(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> TrialBalanceResponseSchema:
-    """
-    Get trial balance (neraca saldo) as of a specific date.
-
-    - Shows opening balance, movements, and closing balance for each account
-    - Total debit must equal total credit
-    - Can exclude accounts with zero balance
-    """
     try:
         result = await ledger_service.get_trial_balance(
             legal_entity_id=legal_entity_id,
@@ -438,15 +372,14 @@ async def get_trial_balance(
 
 
 # ----------------------------------------------------------------------------
-# BALANCE SHEET (NERACA)
+# BALANCE SHEET
 # ----------------------------------------------------------------------------
-
 
 @router.get(
     "/balance-sheet",
     response_model=BalanceSheetResponseSchema,
     summary="Get balance sheet",
-    operation_id="get_balance_sheet",
+    operation_id="ledger_get_balance_sheet",
 )
 async def get_balance_sheet(
     as_of_date: date = Query(..., description="Tanggal neraca"),
@@ -455,13 +388,6 @@ async def get_balance_sheet(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> BalanceSheetResponseSchema:
-    """
-    Get balance sheet (neraca) as of a specific date.
-
-    - Shows Assets, Liabilities, and Equity
-    - Total Assets must equal Total Liabilities + Equity
-    - Includes financial ratios (current ratio, quick ratio, debt to equity)
-    """
     try:
         result = await ledger_service.get_balance_sheet(
             legal_entity_id=legal_entity_id,
@@ -502,15 +428,14 @@ async def get_balance_sheet(
 
 
 # ----------------------------------------------------------------------------
-# INCOME STATEMENT (LABA RUGI)
+# INCOME STATEMENT
 # ----------------------------------------------------------------------------
-
 
 @router.get(
     "/income-statement",
     response_model=IncomeStatementResponseSchema,
     summary="Get income statement (P&L)",
-    operation_id="get_income_statement",
+    operation_id="ledger_get_income_statement",
 )
 async def get_income_statement(
     start_date: date = Query(..., description="Tanggal awal periode"),
@@ -521,13 +446,6 @@ async def get_income_statement(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> IncomeStatementResponseSchema:
-    """
-    Get income statement (laporan laba rugi) for a period.
-
-    - Shows Revenue, COGS, Expenses, and Net Income
-    - Can compare with previous period or budget
-    - Includes profitability ratios (gross margin, operating margin, net margin)
-    """
     try:
         result = await ledger_service.get_income_statement(
             legal_entity_id=legal_entity_id,
@@ -567,15 +485,14 @@ async def get_income_statement(
 
 
 # ----------------------------------------------------------------------------
-# CASH FLOW STATEMENT (ARUS KAS)
+# CASH FLOW STATEMENT
 # ----------------------------------------------------------------------------
-
 
 @router.get(
     "/cash-flow",
     response_model=CashFlowResponseSchema,
     summary="Get cash flow statement",
-    operation_id="get_cash_flow",
+    operation_id="ledger_get_cash_flow",
 )
 async def get_cash_flow(
     start_date: date = Query(..., description="Tanggal awal periode"),
@@ -587,13 +504,6 @@ async def get_cash_flow(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> CashFlowResponseSchema:
-    """
-    Get cash flow statement (laporan arus kas) for a period.
-
-    - Shows cash flows from operating, investing, and financing activities
-    - Supports both direct and indirect methods
-    - Includes free cash flow calculation
-    """
     try:
         result = await ledger_service.get_cash_flow_statement(
             legal_entity_id=legal_entity_id,
@@ -631,15 +541,14 @@ async def get_cash_flow(
 
 
 # ----------------------------------------------------------------------------
-# STATEMENT OF CHANGES IN EQUITY (LAPORAN PERUBAHAN EKUITAS)
+# EQUITY STATEMENT
 # ----------------------------------------------------------------------------
-
 
 @router.get(
     "/equity-statement",
     response_model=EquityStatementResponseSchema,
     summary="Get statement of changes in equity",
-    operation_id="get_equity_statement",
+    operation_id="ledger_get_equity_statement",
 )
 async def get_equity_statement(
     start_date: date = Query(..., description="Tanggal awal periode"),
@@ -648,12 +557,6 @@ async def get_equity_statement(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> EquityStatementResponseSchema:
-    """
-    Get statement of changes in equity (laporan perubahan ekuitas).
-
-    - Shows changes in each equity component
-    - Includes net income, dividends, and capital changes
-    """
     try:
         result = await ledger_service.get_equity_statement(
             legal_entity_id=legal_entity_id,
@@ -694,12 +597,11 @@ async def get_equity_statement(
 # ACCOUNT BALANCE
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/accounts/{account_id}/balance",
     response_model=AccountBalanceResponseSchema,
     summary="Get account balance",
-    operation_id="get_account_balance",
+    operation_id="ledger_get_account_balance",  # <-- UNIK
 )
 async def get_account_balance(
     account_id: UUID,
@@ -708,7 +610,6 @@ async def get_account_balance(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> AccountBalanceResponseSchema:
-    """Get account balance as of a specific date."""
     try:
         result = await ledger_service.get_account_balance(
             account_id=account_id,
@@ -742,7 +643,7 @@ async def get_account_balance(
     "/accounts/by-code/{account_code}/balance",
     response_model=AccountBalanceResponseSchema,
     summary="Get account balance by account code",
-    operation_id="get_account_balance_by_code",
+    operation_id="ledger_get_account_balance_by_code",
 )
 async def get_account_balance_by_code(
     account_code: str,
@@ -751,7 +652,6 @@ async def get_account_balance_by_code(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> AccountBalanceResponseSchema:
-    """Get account balance by account code."""
     try:
         result = await ledger_service.get_account_balance_by_code(
             account_code=account_code,
@@ -785,12 +685,11 @@ async def get_account_balance_by_code(
 # ACCOUNT BALANCE HISTORY
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/accounts/{account_id}/balance-history",
     response_model=list[AccountBalanceHistorySchema],
     summary="Get account balance history",
-    operation_id="get_account_balance_history",
+    operation_id="ledger_get_account_balance_history",
 )
 async def get_account_balance_history(
     account_id: UUID,
@@ -801,7 +700,6 @@ async def get_account_balance_history(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> list[AccountBalanceHistorySchema]:
-    """Get account balance history over a period of time."""
     try:
         history = await ledger_service.get_account_balance_history(
             account_id=account_id,
@@ -830,12 +728,11 @@ async def get_account_balance_history(
 # LEDGER ENTRIES
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/entries",
     response_model=list[LedgerEntryResponseSchema],
     summary="Get ledger entries",
-    operation_id="get_ledger_entries",
+    operation_id="ledger_get_entries",
 )
 async def get_ledger_entries(
     account_id: UUID | None = Query(None, description="Filter by account"),
@@ -848,7 +745,6 @@ async def get_ledger_entries(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> list[LedgerEntryResponseSchema]:
-    """Get ledger entries for a period."""
     try:
         entries = await ledger_service.get_ledger_entries(
             legal_entity_id=legal_entity_id,
@@ -892,7 +788,7 @@ async def get_ledger_entries(
     "/entries/account/{account_id}",
     response_model=list[LedgerEntryResponseSchema],
     summary="Get ledger entries for an account",
-    operation_id="get_account_ledger_entries",
+    operation_id="ledger_get_account_entries",
 )
 async def get_account_ledger_entries(
     account_id: UUID,
@@ -904,7 +800,6 @@ async def get_account_ledger_entries(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> list[LedgerEntryResponseSchema]:
-    """Get all ledger entries for a specific account."""
     try:
         entries = await ledger_service.get_account_ledger_entries(
             account_id=account_id,
@@ -944,15 +839,14 @@ async def get_account_ledger_entries(
 
 
 # ----------------------------------------------------------------------------
-# JOURNAL LEDGER ENTRIES
+# JOURNAL LEDGER ENTRIES (FIXED OPERATION ID)
 # ----------------------------------------------------------------------------
-
 
 @router.get(
     "/journals/{journal_id}/entries",
     response_model=list[LedgerEntryResponseSchema],
     summary="Get ledger entries for a journal",
-    operation_id="get_journal_ledger_entries",
+    operation_id="ledger_get_journal_entries",  # <-- UNIK
 )
 async def get_journal_ledger_entries(
     journal_id: UUID,
@@ -960,7 +854,6 @@ async def get_journal_ledger_entries(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> list[LedgerEntryResponseSchema]:
-    """Get ledger entries created from a specific journal."""
     try:
         entries = await ledger_service.get_ledger_entries_for_journal(journal_id, legal_entity_id)
 
@@ -996,12 +889,11 @@ async def get_journal_ledger_entries(
 # ACCOUNT ACTIVITY
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/accounts/{account_id}/activity",
     response_model=list[AccountActivitySchema],
     summary="Get account activity by period",
-    operation_id="get_account_activity",
+    operation_id="ledger_get_account_activity",
 )
 async def get_account_activity(
     account_id: UUID,
@@ -1010,7 +902,6 @@ async def get_account_activity(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> list[AccountActivitySchema]:
-    """Get account activity summarized by month for a fiscal year."""
     try:
         activity = await ledger_service.get_account_activity(
             account_id=account_id,
@@ -1037,12 +928,11 @@ async def get_account_activity(
 # FINANCIAL RATIOS
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/financial-ratios",
     response_model=FinancialRatiosResponseSchema,
     summary="Get financial ratios",
-    operation_id="get_financial_ratios",
+    operation_id="ledger_get_financial_ratios",
 )
 async def get_financial_ratios(
     as_of_date: date = Query(..., description="Date for ratios calculation"),
@@ -1052,14 +942,6 @@ async def get_financial_ratios(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> FinancialRatiosResponseSchema:
-    """
-    Get key financial ratios.
-
-    - Liquidity ratios (current, quick, cash)
-    - Solvency ratios (debt to equity, debt to assets, interest coverage)
-    - Profitability ratios (margins, ROA, ROE)
-    - Efficiency ratios (turnover ratios)
-    """
     try:
         result = await ledger_service.get_financial_ratios(
             legal_entity_id=legal_entity_id,
@@ -1097,11 +979,10 @@ async def get_financial_ratios(
 # EXPORT REPORTS
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/export/trial-balance",
     summary="Export trial balance",
-    operation_id="export_trial_balance",
+    operation_id="ledger_export_trial_balance",
 )
 async def export_trial_balance(
     as_of_date: date = Query(..., description="Trial balance date"),
@@ -1110,7 +991,6 @@ async def export_trial_balance(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> Response:
-    """Export trial balance to CSV or Excel."""
     try:
         data = await ledger_service.export_trial_balance(
             legal_entity_id=legal_entity_id,
@@ -1138,7 +1018,7 @@ async def export_trial_balance(
 @router.get(
     "/export/general-ledger",
     summary="Export general ledger",
-    operation_id="export_general_ledger",
+    operation_id="ledger_export_general_ledger",
 )
 async def export_general_ledger(
     start_date: date = Query(..., description="Start date"),
@@ -1149,7 +1029,6 @@ async def export_general_ledger(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> Response:
-    """Export general ledger entries to CSV or Excel."""
     try:
         data = await ledger_service.export_general_ledger(
             legal_entity_id=legal_entity_id,
@@ -1180,12 +1059,11 @@ async def export_general_ledger(
 # LEDGER SUMMARY
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/summary",
     response_model=dict[str, Any],
     summary="Get ledger summary",
-    operation_id="get_ledger_summary",
+    operation_id="ledger_get_summary",
 )
 async def get_ledger_summary(
     as_of_date: date = Query(..., description="Date for summary"),
@@ -1193,7 +1071,6 @@ async def get_ledger_summary(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ledger_service: Any = Depends(get_ledger_service),
 ) -> dict[str, Any]:
-    """Get summary ledger information."""
     try:
         summary = await ledger_service.get_ledger_summary(
             legal_entity_id=legal_entity_id,
@@ -1219,9 +1096,5 @@ async def get_ledger_summary(
         logger.exception(f"Failed to get ledger summary: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-
-# ----------------------------------------------------------------------------
-# EXPORTS
-# ----------------------------------------------------------------------------
 
 __all__ = ["router"]

@@ -5,29 +5,7 @@ Layer: Application / Outbox
 Responsibility: Service untuk memproses dan mengirim pesan outbox ke message broker.
 """
 
-from __future__ import annotations
-
-import asyncio
-import contextlib
-import json
-import logging
-import time
-from dataclasses import dataclass, field
-from datetime import datetime
-from enum import Enum
-from typing import Any, Protocol
-from uuid import UUID
-
-from application.outbox.outbox_exceptions import (
-    OutboxConfigurationError,
-    OutboxPublishError,
-    OutboxPublishFatalError,
-    OutboxPublishRetryableError,
-    OutboxRelayError,
-    OutboxRelayStoppedError,
-)
-
-logger = logging.getLogger(__name__)
+from __future__ import annotationsimport asyncioimport contextlibimport loggingimport timefrom dataclasses import dataclassfrom datetime import datetimefrom enum import Enumfrom typing import Any, Protocolfrom application.outbox.outbox_exceptions import (    OutboxConfigurationError,    OutboxPublishFatalError,    OutboxPublishRetryableError,    OutboxRelayStoppedError,)logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -49,31 +27,31 @@ class OutboxRecordStatus(str, Enum):
 
 class OutboxRepositoryPort(Protocol):
     """Port untuk outbox repository."""
-    
+
     async def get_pending_events(
         self, limit: int, lock_timeout_seconds: int
     ) -> list[dict[str, Any]]:
         """Get pending events with row lock."""
         ...
-    
+
     async def mark_as_processing(self, record_id: int) -> bool:
         """Mark record as processing."""
         ...
-    
+
     async def mark_as_published(self, record_id: int, kafka_offset: int | None = None) -> None:
         """Mark record as published."""
         ...
-    
+
     async def mark_as_failed(
         self, record_id: int, error_message: str, retry_count: int
     ) -> None:
         """Mark record as failed, increment retry count."""
         ...
-    
+
     async def mark_as_dead_letter(self, record_id: int, error_message: str) -> None:
         """Move record to dead letter queue."""
         ...
-    
+
     async def delete_processed_records(self, older_than_hours: int = 168) -> int:
         """Delete records that were successfully published."""
         ...
@@ -81,21 +59,21 @@ class OutboxRepositoryPort(Protocol):
 
 class MessageBrokerPort(Protocol):
     """Port untuk message broker (Kafka)."""
-    
+
     async def send(
         self, topic: str, key: str, value: str, headers: dict[str, str] | None = None
     ) -> None:
         """Send message to broker."""
         ...
-    
+
     async def start(self) -> None:
         """Start broker connection."""
         ...
-    
+
     async def stop(self) -> None:
         """Stop broker connection."""
         ...
-    
+
     async def health_check(self) -> bool:
         """Check broker health."""
         ...
@@ -118,7 +96,7 @@ class OutboxRelayConfig:
     enable_circuit_breaker: bool = True
     dead_letter_topic: str = "erp.dead_letter_events"
     default_topic: str = "erp.accounting.general"
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "batch_size": self.batch_size,
@@ -140,7 +118,7 @@ class OutboxRelayConfig:
 
 class CircuitBreaker:
     """Simple circuit breaker untuk outbox publisher."""
-    
+
     def __init__(
         self,
         name: str,
@@ -153,18 +131,18 @@ class CircuitBreaker:
         self._failures = 0
         self._last_failure_time: float | None = None
         self._state: str = "closed"  # closed, open, half-open
-    
+
     @property
     def state(self) -> str:
         self._check_recovery()
         return self._state
-    
+
     def _check_recovery(self) -> None:
         if self._state == "open" and self._last_failure_time:
             if time.time() - self._last_failure_time >= self.recovery_timeout:
                 self._state = "half-open"
                 logger.info(f"Circuit breaker '{self.name}' transitioned to half-open")
-    
+
     def record_success(self) -> None:
         if self._state == "half-open":
             self._state = "closed"
@@ -172,20 +150,20 @@ class CircuitBreaker:
             logger.info(f"Circuit breaker '{self.name}' closed after success")
         else:
             self._failures = max(0, self._failures - 1)
-    
+
     def record_failure(self) -> None:
         self._failures += 1
         self._last_failure_time = time.time()
-        
+
         if self._failures >= self.failure_threshold and self._state != "open":
             self._state = "open"
             logger.warning(
                 f"Circuit breaker '{self.name}' opened after {self._failures} failures"
             )
-    
+
     def can_execute(self) -> bool:
         return self.state != "open"
-    
+
     def get_stats(self) -> dict[str, Any]:
         return {
             "state": self.state,
@@ -206,17 +184,17 @@ def exponential_backoff(attempt: int, base_delay: float = 0.5, max_delay: float 
 
 class RetryPolicy:
     """Retry policy untuk outbox publishing."""
-    
+
     def __init__(self, max_attempts: int = 3, base_delay: float = 0.5, max_delay: float = 10.0):
         self.max_attempts = max_attempts
         self.base_delay = base_delay
         self.max_delay = max_delay
         self._attempts = 0
-    
+
     @property
     def attempts(self) -> int:
         return self._attempts
-    
+
     async def execute(self, func, *args, **kwargs):
         """Execute function with retry."""
         last_error = None
@@ -243,7 +221,7 @@ class OutboxRelayService:
     """
     Service untuk mengambil pesan outbox dari database dan mengirimkannya ke Kafka.
     """
-    
+
     def __init__(
         self,
         outbox_repository: OutboxRepositoryPort,
@@ -260,27 +238,27 @@ class OutboxRelayService:
             raise OutboxConfigurationError("outbox_repository is required")
         if message_broker is None:
             raise OutboxConfigurationError("message_broker is required")
-        
+
         self._repository = outbox_repository
         self._broker = message_broker
         self._config = config or OutboxRelayConfig()
         self._running = False
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
-        
+
         # Circuit breaker
         self._circuit_breaker = CircuitBreaker(
             name="outbox_publisher",
             failure_threshold=self._config.circuit_breaker_threshold,
             recovery_timeout=self._config.circuit_breaker_recovery_timeout,
         ) if self._config.enable_circuit_breaker else None
-        
+
         # Retry policy
         self._retry_policy = RetryPolicy(
             max_attempts=self._config.max_retries,
             base_delay=self._config.retry_delay_seconds,
         )
-        
+
         # Statistics
         self._stats = {
             "processed": 0,
@@ -292,34 +270,34 @@ class OutboxRelayService:
             "started_at": None,
             "circuit_breaker_stats": None,
         }
-        
+
         logger.info(f"OutboxRelayService initialized: batch_size={self._config.batch_size}")
-    
+
     async def start(self) -> None:
         """Start the relay service."""
         if self._running:
             logger.warning("OutboxRelayService already running")
             return
-        
+
         self._running = True
         self._stop_event.clear()
         self._stats["started_at"] = datetime.now().isoformat()
-        
+
         # Start message broker
         await self._broker.start()
-        
+
         # Start relay loop
         self._task = asyncio.create_task(self._relay_loop())
         logger.info("OutboxRelayService started")
-    
+
     async def stop(self, timeout: float = 30.0) -> None:
         """Stop the relay service."""
         if not self._running:
             return
-        
+
         self._running = False
         self._stop_event.set()
-        
+
         if self._task:
             try:
                 await asyncio.wait_for(self._task, timeout=timeout)
@@ -328,10 +306,10 @@ class OutboxRelayService:
                 self._task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._task
-        
+
         await self._broker.stop()
         logger.info("OutboxRelayService stopped")
-    
+
     async def _relay_loop(self) -> None:
         """Main relay loop."""
         while self._running:
@@ -344,15 +322,15 @@ class OutboxRelayService:
                     break
                 except TimeoutError:
                     pass
-                
+
                 # Process batch
                 if self._circuit_breaker and not self._circuit_breaker.can_execute():
                     logger.warning("Circuit breaker open, skipping batch processing")
                     await asyncio.sleep(5)
                     continue
-                
+
                 await self._process_batch()
-                
+
             except OutboxRelayStoppedError:
                 break
             except asyncio.CancelledError:
@@ -360,11 +338,11 @@ class OutboxRelayService:
             except Exception as e:
                 logger.exception(f"Unexpected error in relay loop: {e}")
                 await asyncio.sleep(1)
-    
+
     async def _process_batch(self) -> None:
         """Internal wrapper to call process_batch with default batch size."""
         await self.process_batch(self._config.batch_size)
-    
+
     async def process_batch(self, batch_size: int | None = None) -> int:
         """
         Process a single batch of outbox records.
@@ -377,47 +355,47 @@ class OutboxRelayService:
         """
         if not self._running:
             raise OutboxRelayStoppedError("Relay service is stopped")
-        
+
         size = batch_size or self._config.batch_size
-        
+
         try:
             # Get pending events � menggunakan positional arguments, bukan keyword
             records = await self._repository.get_pending_events(
                 size, self._config.lock_timeout_seconds
             )
-            
+
             if not records:
                 return 0
-            
+
             processed = 0
-            
+
             for record in records:
                 try:
                     # Mark as processing
                     await self._repository.mark_as_processing(record["id"])
-                    
+
                     # Publish to broker with retry
                     await self._retry_policy.execute(
                         self._publish_record, record
                     )
-                    
+
                     # Mark as published
                     await self._repository.mark_as_published(record["id"])
-                    
+
                     self._stats["published"] += 1
                     processed += 1
-                    
+
                     if self._circuit_breaker:
                         self._circuit_breaker.record_success()
-                    
+
                 except OutboxPublishRetryableError as e:
                     # Retryable error - will be retried in next batch
                     logger.warning(f"Retryable error for record {record['id']}: {e}")
                     self._stats["failed"] += 1
-                    
+
                     if self._circuit_breaker:
                         self._circuit_breaker.record_failure()
-                    
+
                     # Increment retry count
                     retry_count = record.get("retry_count", 0) + 1
                     if retry_count >= self._config.max_retries:
@@ -431,39 +409,39 @@ class OutboxRelayService:
                         await self._repository.mark_as_failed(
                             record["id"], str(e), retry_count
                         )
-                    
+
                 except Exception as e:
                     # Fatal error
                     logger.error(f"Fatal error for record {record['id']}: {e}")
                     await self._repository.mark_as_dead_letter(record["id"], str(e))
                     self._stats["failed"] += 1
                     self._stats["dead_letter"] += 1
-                    
+
                     if self._circuit_breaker:
                         self._circuit_breaker.record_failure()
-            
+
             self._stats["processed"] += processed
-            
+
             # Clean up old records periodically
             if self._stats["processed"] % 100 == 0:
                 deleted = await self._repository.delete_processed_records()
                 if deleted > 0:
                     logger.info(f"Deleted {deleted} old processed records")
-            
+
             return processed
-            
+
         except Exception as e:
             self._stats["last_error"] = str(e)
             self._stats["last_error_time"] = datetime.now().isoformat()
             logger.exception(f"Error processing batch: {e}")
             raise
-    
+
     async def _publish_record(self, record: dict[str, Any]) -> None:
         """Publish a single record to message broker."""
         try:
             # Determine topic
             topic = record.get("topic", self._config.default_topic)
-            
+
             # Parse headers
             headers = {
                 "event_type": record["event_type"],
@@ -472,7 +450,7 @@ class OutboxRelayService:
             }
             if record.get("idempotency_key"):
                 headers["idempotency_key"] = record["idempotency_key"]
-            
+
             # Send to broker
             await self._broker.send(
                 topic=topic,
@@ -480,15 +458,15 @@ class OutboxRelayService:
                 value=record["payload"],
                 headers=headers,
             )
-            
+
             logger.debug(f"Published record {record['id']} to topic {topic}")
-            
+
         except Exception as e:
             if self._is_retryable_error(e):
                 raise OutboxPublishRetryableError(str(e)) from e
             else:
                 raise OutboxPublishFatalError(str(e)) from e
-    
+
     def _is_retryable_error(self, error: Exception) -> bool:
         """Check if error is retryable."""
         retryable_exceptions = (
@@ -498,12 +476,12 @@ class OutboxRelayService:
             ConnectionResetError,
         )
         return isinstance(error, retryable_exceptions) or "timeout" in str(error).lower()
-    
+
     async def health_check(self) -> dict[str, Any]:
         """Perform health check."""
         try:
             broker_healthy = await self._broker.health_check()
-            
+
             return {
                 "healthy": broker_healthy and self._running,
                 "running": self._running,
@@ -516,14 +494,14 @@ class OutboxRelayService:
                 "running": self._running,
                 "error": str(e),
             }
-    
+
     def get_stats(self) -> dict[str, Any]:
         """Get relay service statistics."""
         if self._circuit_breaker:
             self._stats["circuit_breaker_stats"] = self._circuit_breaker.get_stats()
-        
+
         return {**self._stats, "config": self._config.to_dict()}
-    
+
     async def trigger_immediate_batch(self) -> int:
         """Trigger an immediate batch processing (for testing)."""
         return await self.process_batch()
@@ -604,13 +582,5 @@ async def stop_relay() -> None:
 # ============================================================================
 
 __all__ = [
-    "OutboxRecordStatus",
-    "OutboxRelayConfig",
-    "OutboxRelayService",
-    "OutboxRepositoryPort",
-    "MessageBrokerPort",
-    "get_relay_service",
-    "create_relay_service",
-    "start_relay",
-    "stop_relay",
-]
+    "MessageBrokerPort",    "OutboxRecordStatus",    "OutboxRelayConfig",    "OutboxRelayService",    "OutboxRepositoryPort",    "create_relay_service",    "get_relay_service",    "start_relay",    "stop_relay",
+]

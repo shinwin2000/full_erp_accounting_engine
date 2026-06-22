@@ -14,9 +14,8 @@ from grpc import StatusCode, aio
 # Import generated proto modules (hasil compile)
 from adapters.primary_api.proto import accounting_pb2, accounting_pb2_grpc
 
-# Internal dependencies
-from application.commands_cqrs.command_bus_unified import CommandBusUnified
-from application.commands_cqrs.query_bus_unified import QueryBusUnified
+# Internal dependencies - import dari package yang memiliki alias
+from application.commands_cqrs import CommandBusUnified, QueryBusUnified
 from infrastructure.security.jwt_validator import JWTValidator
 from kernel.guards.authority_matrix import AuthorityMatrix
 from kernel.sealed_gate import get_sealed_gate

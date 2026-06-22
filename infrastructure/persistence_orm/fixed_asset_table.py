@@ -36,8 +36,8 @@ from infrastructure.persistence_orm.base_model import (
 )
 
 if TYPE_CHECKING:
-    from infrastructure.persistence_orm.fixed_asset_schedule_table import FixedAssetScheduleTable
     from infrastructure.persistence_orm.depreciation_schedule_table import DepreciationScheduleTable
+    from infrastructure.persistence_orm.fixed_asset_schedule_table import FixedAssetScheduleTable
     from infrastructure.persistence_orm.impairment_test_table import ImpairmentTestTable
     # from .revaluation_table import RevaluationTable
     # from .disposal_table import DisposalTable
@@ -130,7 +130,7 @@ class FixedAssetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     # ========================================================================
 
     # Jadwal depresiasi versi sederhana (FixedAssetScheduleTable)
-    depreciation_schedule: Mapped[list["FixedAssetScheduleTable"]] = relationship(
+    depreciation_schedule: Mapped[list[FixedAssetScheduleTable]] = relationship(
         "FixedAssetScheduleTable",
         back_populates="asset",
         cascade="all, delete-orphan",
@@ -138,7 +138,7 @@ class FixedAssetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     )
 
     # Jadwal depresiasi versi komprehensif (DepreciationScheduleTable)
-    detailed_schedules: Mapped[list["DepreciationScheduleTable"]] = relationship(
+    detailed_schedules: Mapped[list[DepreciationScheduleTable]] = relationship(
         "DepreciationScheduleTable",
         back_populates="asset",
         cascade="all, delete-orphan",
@@ -146,7 +146,7 @@ class FixedAssetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     )
 
     # Uji penurunan nilai (impairment)
-    impairment_tests: Mapped[list["ImpairmentTestTable"]] = relationship(
+    impairment_tests: Mapped[list[ImpairmentTestTable]] = relationship(
         "ImpairmentTestTable",
         back_populates="asset",
         cascade="all, delete-orphan",

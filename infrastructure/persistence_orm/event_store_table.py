@@ -17,10 +17,10 @@ Audit: Tabel ini bersifat immutable. Trigger PostgreSQL mencegah UPDATE/DELETE.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import UTC, datetime
+from uuid import UUID
 
 from sqlalchemy import (
     BigInteger,

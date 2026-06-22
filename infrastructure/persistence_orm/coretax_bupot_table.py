@@ -126,21 +126,21 @@ class CoretaxBupotTable(Base, UUIDMixin, TimestampMixin):
     # =========================================================================
 
     # Relasi ke AR Invoice (back_populates="bupots" sudah ditambahkan di ARInvoiceTable)
-    invoice: Mapped["ARInvoiceTable | None"] = relationship(
+    invoice: Mapped[ARInvoiceTable | None] = relationship(
         "ARInvoiceTable",
         foreign_keys=[invoice_id],
         back_populates="bupots",
     )
 
     # Relasi ke AP Invoice (back_populates="bupots" sudah ditambahkan di APInvoiceTable)
-    purchase_invoice: Mapped["APInvoiceTable | None"] = relationship(
+    purchase_invoice: Mapped[APInvoiceTable | None] = relationship(
         "APInvoiceTable",
         foreign_keys=[purchase_invoice_id],
         back_populates="bupots",
     )
 
     # Relasi ke AP Payment (back_populates="bupots" sudah ditambahkan di APPaymentTable)
-    payment: Mapped["APPaymentTable | None"] = relationship(
+    payment: Mapped[APPaymentTable | None] = relationship(
         "APPaymentTable",
         foreign_keys=[payment_id],
         back_populates="bupots",

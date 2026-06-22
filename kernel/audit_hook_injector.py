@@ -115,7 +115,7 @@ class AuditContext:
 
 
 # ============================================================================
-# AUDIT HOOK INJECTOR
+# AUDIT HOOK INJECTOR — LAZY WORKER
 # ============================================================================
 
 
@@ -139,15 +139,28 @@ class AuditHookInjector:
         self._async_queue: asyncio.Queue = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
         self._custom_logger = custom_logger
-        self._start_worker()
+        self._shutting_down = False
         self._audit_trail: list[dict[str, Any]] = []
         self._snapshots: list[dict[str, Any]] = []
         self._version = 1
-        logger.info("AuditHookInjector initialized with in-memory fallback")
+        logger.info("AuditHookInjector initialized (worker lazy)")
 
-    def _start_worker(self) -> None:
+    def _ensure_worker(self) -> None:
+        """Start background worker only if there is a running event loop and worker not already running."""
+        if self._worker_task is not None and not self._worker_task.done():
+            return
+        if self._shutting_down:
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running event loop, skip worker creation
+            logger.debug("No running event loop, audit worker not started")
+            return
+
         async def worker():
-            while True:
+            while not self._shutting_down:
                 try:
                     context = await self._async_queue.get()
                     await self._flush_context(context)
@@ -157,8 +170,8 @@ class AuditHookInjector:
                 except Exception as e:
                     logger.error(f"Audit worker error: {e}")
 
-        loop = asyncio.get_event_loop()
         self._worker_task = loop.create_task(worker())
+        logger.debug("Audit worker started")
 
     async def _flush_context(self, context: AuditContext) -> None:
         for event in context.events:
@@ -184,6 +197,7 @@ class AuditHookInjector:
             await self._event_store.append(audit_event)
 
     def start_context(self, envelope: CommandEnvelope) -> AuditContext:
+        self._ensure_worker()
         context = AuditContext(
             command_id=envelope.command_id,
             command_type=envelope.command_type,
@@ -210,6 +224,7 @@ class AuditHookInjector:
         return context
 
     def before_execution(self, envelope: CommandEnvelope) -> None:
+        self._ensure_worker()
         context = self._active_contexts.get(envelope.command_id)
         if not context:
             context = self.start_context(envelope)
@@ -224,6 +239,7 @@ class AuditHookInjector:
         )
 
     def after_execution(self, envelope: CommandEnvelope, result: Any) -> None:
+        self._ensure_worker()
         context = self._active_contexts.get(envelope.command_id)
         if not context:
             return
@@ -252,10 +268,14 @@ class AuditHookInjector:
                 },
             }
         )
-        asyncio.create_task(self._async_queue.put(context))
+        try:
+            self._async_queue.put_nowait(context)
+        except asyncio.QueueFull:
+            logger.warning("Audit queue full, dropping context")
         self._active_contexts.pop(envelope.command_id, None)
 
     def on_error(self, envelope: CommandEnvelope, error: Exception) -> None:
+        self._ensure_worker()
         context = self._active_contexts.get(envelope.command_id)
         if not context:
             return
@@ -272,12 +292,16 @@ class AuditHookInjector:
                 },
             }
         )
-        asyncio.create_task(self._async_queue.put(context))
+        try:
+            self._async_queue.put_nowait(context)
+        except asyncio.QueueFull:
+            logger.warning("Audit queue full, dropping error context")
         self._active_contexts.pop(envelope.command_id, None)
 
     def record_state_before(
         self, command_id: UUID, aggregate_id: UUID, aggregate_type: str, state: dict[str, Any]
     ) -> None:
+        self._ensure_worker()
         context = self._active_contexts.get(command_id)
         if not context:
             return
@@ -303,6 +327,7 @@ class AuditHookInjector:
         state: dict[str, Any],
         changes: dict[str, Any],
     ) -> None:
+        self._ensure_worker()
         context = self._active_contexts.get(command_id)
         if not context:
             return
@@ -324,6 +349,7 @@ class AuditHookInjector:
     def record_data_access(
         self, command_id: UUID, query_type: str, query_params: dict[str, Any], result_count: int
     ) -> None:
+        self._ensure_worker()
         context = self._active_contexts.get(command_id)
         if context:
             context.events.append(
@@ -347,6 +373,7 @@ class AuditHookInjector:
         details: dict[str, Any],
         severity: AuditSeverity = AuditSeverity.WARNING,
     ) -> None:
+        self._ensure_worker()
         context = self._active_contexts.get(command_id)
         if context:
             context.events.append(
@@ -382,7 +409,10 @@ class AuditHookInjector:
                     },
                 }
             )
-            asyncio.create_task(self._async_queue.put(temp_context))
+            try:
+                self._async_queue.put_nowait(temp_context)
+            except asyncio.QueueFull:
+                logger.warning("Audit queue full, dropping security event")
 
     def _summarize_result(self, result: Any) -> str:
         if result is None:
@@ -429,15 +459,36 @@ class AuditHookInjector:
         await self._async_queue.join()
 
     async def shutdown(self) -> None:
+        """Gracefully shutdown the audit worker and flush remaining events."""
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+
         if self._worker_task:
             self._worker_task.cancel()
             try:
                 await self._worker_task
             except asyncio.CancelledError:
                 pass
-        for context in self._active_contexts.values():
+            self._worker_task = None
+
+        # Process remaining items in queue
+        while not self._async_queue.empty():
+            try:
+                context = self._async_queue.get_nowait()
+                await self._flush_context(context)
+                self._async_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+            except Exception as e:
+                logger.error(f"Error flushing queue item during shutdown: {e}")
+
+        # Flush active contexts that were never queued
+        for context in list(self._active_contexts.values()):
             await self._flush_context(context)
         self._active_contexts.clear()
+
+        logger.info("AuditHookInjector shutdown complete")
 
     # ==================== METODA ENTITY DASAR ====================
     def validate(self) -> dict[str, Any]:
@@ -457,7 +508,6 @@ class AuditHookInjector:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AuditHookInjector:
         instance = cls()
-        # Restore any state if needed
         return instance
 
     def clone(self) -> AuditHookInjector:
@@ -513,6 +563,7 @@ class AuditHookInjector:
 
     # ==================== INJECTOR SPECIFIC ====================
     def inject(self, obj: Any) -> None:
+        self._ensure_worker()
         for attr_name in dir(obj):
             attr = getattr(obj, attr_name)
             if callable(attr) and hasattr(attr, "_audit_action"):

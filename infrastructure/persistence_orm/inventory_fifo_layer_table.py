@@ -75,7 +75,7 @@ class InventoryFIFOLayerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixi
 
     # Relasi ke movement menggunakan backref agar InventoryMovementTable
     # otomatis mendapat properti 'fifo_layers' tanpa perlu didefinisikan di sana.
-    inbound_movement: Mapped["InventoryMovementTable | None"] = relationship(
+    inbound_movement: Mapped[InventoryMovementTable | None] = relationship(
         "InventoryMovementTable",
         foreign_keys=[movement_id],
         backref="fifo_layers",

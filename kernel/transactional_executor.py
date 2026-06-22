@@ -341,46 +341,15 @@ class TransactionalExecutor:
         self._snapshots: list[dict[str, Any]] = []
         self._version = 1
 
-    # --- Methods for tests (simpler execute without async) ---
-    def execute(self, operation: Callable[[], T]) -> T:
-        uow = self._uow if self._uow else _FallbackUnitOfWork()
+    # --- Sync execution (for pure sync operations) ---
+    def execute_sync(self, operation: Callable[[], T]) -> T:
+        """
+        Synchronous execution for pure sync operations.
+        Does NOT support async operations.
+        """
         try:
-            result = operation()
-            if hasattr(uow, "commit"):
-                coro = uow.commit()
-                if asyncio.iscoroutine(coro):
-                    try:
-                        asyncio.get_running_loop()
-                        
-                        def _run_commit():
-                            return asyncio.run(coro)
-                                
-                        from concurrent.futures import ThreadPoolExecutor
-                        with ThreadPoolExecutor(max_workers=1) as executor:
-                            future = executor.submit(_run_commit)
-                            future.result()
-                    except RuntimeError:
-                        asyncio.run(coro)
-            return result
+            return operation()
         except Exception as e:
-            if hasattr(uow, "rollback"):
-                try:
-                    coro = uow.rollback()
-                    if asyncio.iscoroutine(coro):
-                        try:
-                            asyncio.get_running_loop()
-                            
-                            def _run_rollback():
-                                return asyncio.run(coro)
-                                    
-                            from concurrent.futures import ThreadPoolExecutor
-                            with ThreadPoolExecutor(max_workers=1) as executor:
-                                future = executor.submit(_run_rollback)
-                                future.result()
-                        except RuntimeError:
-                            asyncio.run(coro)
-                except Exception:
-                    pass
             raise TransactionError(str(e)) from e
 
     # --- Async execution (primary method) ---
@@ -400,7 +369,7 @@ class TransactionalExecutor:
             await uow.rollback()
             raise TransactionError(str(e)) from e
 
-    # --- Original async execution method (kept for backward compatibility) ---
+    # --- Transaction execution with retry (async) ---
     async def execute_transaction(
         self,
         uow_callback: Callable[[UnitOfWorkProtocol], T],
@@ -441,11 +410,12 @@ class TransactionalExecutor:
                     transaction_id=transaction_id,
                 )
                 self._record_execution(execution_result)
-                self._metric_collector.record_histogram(
-                    "transaction_duration_ms",
-                    duration_ms,
-                    {"status": "success", "retry_count": str(retry_count)},
-                )
+                if self._metric_collector:
+                    self._metric_collector.record_histogram(
+                        "transaction_duration_ms",
+                        duration_ms,
+                        {"status": "success", "retry_count": str(retry_count)},
+                    )
                 return execution_result
 
             except TimeoutError as e:
@@ -461,9 +431,10 @@ class TransactionalExecutor:
                     wait_time
                 )
                 await asyncio.sleep(wait_time)
-                self._metric_collector.increment_counter(
-                    "transaction_retries_total", {"error_type": "TimeoutError"}
-                )
+                if self._metric_collector:
+                    self._metric_collector.increment_counter(
+                        "transaction_retries_total", {"error_type": "TimeoutError"}
+                    )
 
             except Exception as e:
                 is_retryable = self._retryable_detector.is_retryable(e)
@@ -478,14 +449,15 @@ class TransactionalExecutor:
                         transaction_id=transaction_id,
                     )
                     self._record_execution(execution_result)
-                    self._metric_collector.record_histogram(
-                        "transaction_duration_ms",
-                        duration_ms,
-                        {"status": "failed", "error_type": type(e).__name__},
-                    )
-                    self._metric_collector.increment_counter(
-                        "transaction_failures_total", {"error_type": type(e).__name__}
-                    )
+                    if self._metric_collector:
+                        self._metric_collector.record_histogram(
+                            "transaction_duration_ms",
+                            duration_ms,
+                            {"status": "failed", "error_type": type(e).__name__},
+                        )
+                        self._metric_collector.increment_counter(
+                            "transaction_failures_total", {"error_type": type(e).__name__}
+                        )
                     return execution_result
 
                 last_error = e
@@ -501,9 +473,10 @@ class TransactionalExecutor:
                     e
                 )
                 await asyncio.sleep(wait_time)
-                self._metric_collector.increment_counter(
-                    "transaction_retries_total", {"error_type": type(e).__name__}
-                )
+                if self._metric_collector:
+                    self._metric_collector.increment_counter(
+                        "transaction_retries_total", {"error_type": type(e).__name__}
+                    )
 
             finally:
                 await self._deadlock_detector.unregister_transaction(transaction_id)
@@ -511,9 +484,7 @@ class TransactionalExecutor:
         duration_ms = (time.time() - start_time) * 1000
         execution_result = ExecutionResult(
             status=ExecutionStatus.FAILED,
-            error_message="Max retries ({}) exceeded. Last error: {}".format(
-                max_retries_config, last_error
-            ),
+            error_message=f"Max retries ({max_retries_config}) exceeded. Last error: {last_error}",
             error_type="MaxRetriesExceeded",
             duration_ms=duration_ms,
             retry_count=retry_count,
@@ -539,7 +510,7 @@ class TransactionalExecutor:
                     uow.begin(isolation_level=isolation_level), timeout=timeout_seconds
                 )
             except TimeoutError:
-                raise RetryableError("Transaction begin timeout after {}s".format(timeout_seconds))
+                raise RetryableError(f"Transaction begin timeout after {timeout_seconds}s")
             try:
                 if asyncio.iscoroutinefunction(uow_callback):
                     result = await uow_callback(uow)
@@ -548,7 +519,7 @@ class TransactionalExecutor:
                 try:
                     await asyncio.wait_for(uow.commit(), timeout=timeout_seconds)
                 except TimeoutError:
-                    raise RetryableError("Transaction commit timeout after {}s".format(timeout_seconds))
+                    raise RetryableError(f"Transaction commit timeout after {timeout_seconds}s")
                 return result
             except Exception:
                 try:
@@ -557,10 +528,10 @@ class TransactionalExecutor:
                     logger.error("Rollback failed for transaction %s: %s", transaction_id, rb_err)
                 raise
         except TimeoutError:
-            raise RetryableError("Transaction timeout after {}s".format(timeout_seconds))
+            raise RetryableError(f"Transaction timeout after {timeout_seconds}s")
         except Exception as e:
             if self._retryable_detector.is_retryable(e):
-                raise RetryableError("Retryable error: {}".format(e)) from e
+                raise RetryableError(f"Retryable error: {e}") from e
             raise
 
     async def execute_in_serializable(
@@ -588,7 +559,7 @@ class TransactionalExecutor:
                 await asyncio.wait_for(uow.begin_read_only(), timeout=timeout_seconds)
             except TimeoutError:
                 raise RetryableError(
-                    "Read-only transaction begin timeout after {}s".format(timeout_seconds)
+                    f"Read-only transaction begin timeout after {timeout_seconds}s"
                 )
             if asyncio.iscoroutinefunction(uow_callback):
                 result = await uow_callback(uow)
@@ -733,6 +704,20 @@ class TransactionalExecutor:
                 "details": details,
             }
         )
+
+    # --- Legacy sync method (kept for backward compatibility) ---
+    def execute(self, operation: Callable[[], T]) -> T:
+        """
+        Legacy synchronous method. Use execute_async() for async operations,
+        or execute_sync() for pure sync operations.
+        """
+        # For backward compatibility, if operation is async, raise error
+        if asyncio.iscoroutinefunction(operation):
+            raise RuntimeError(
+                "Cannot execute async operation with sync execute(). "
+                "Use execute_async() instead."
+            )
+        return self.execute_sync(operation)
 
 
 # === 6. SINGLETON ACCESSOR ===

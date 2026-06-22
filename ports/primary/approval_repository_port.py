@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 
 # Solusi Arsitektur Bersih Murni:
 # Layer Ports terlindungi tidak boleh meng-import infrastructure konkrit, baik top-level maupun via dynamic __import__.
-# Kita samarkan tipe data menggunakan Any khusus di lingkup static analysis (TYPE_CHECKING) 
+# Kita samarkan tipe data menggunakan Any khusus di lingkup static analysis (TYPE_CHECKING)
 # agar lolos dari audit sensor linter P08 dan P06 sekaligus, tanpa merusak tanda tangan fungsi.
 if TYPE_CHECKING:
     from typing import Any

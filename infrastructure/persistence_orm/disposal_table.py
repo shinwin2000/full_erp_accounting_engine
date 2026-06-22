@@ -56,7 +56,7 @@ class DisposalTable(Base, TimestampMixin, SoftDeleteMixin):
     # =========================================================================
     # RELATIONSHIP - menggunakan backref agar FixedAssetTable otomatis mendapat 'disposals'
     # =========================================================================
-    asset: Mapped["FixedAssetTable"] = relationship(
+    asset: Mapped[FixedAssetTable] = relationship(
         "FixedAssetTable",
         backref="disposals",
         foreign_keys=[asset_id],

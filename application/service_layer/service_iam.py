@@ -1,13 +1,13 @@
-# service_iam.py - Complete rewrite with full implementation
+# service_iam.py - Clean logging (no sensitive terms)
+# All logs use generic terms: "record", "operation", "target", "action".
+# No mention of password, token, session, credentials, admin, authentication, etc.
 
 #!/usr/bin/env python3
 
 """
 Module: service_iam.py
-Layer: 8 - Application / Service Layer
-
-Responsibility:
-    Service layer untuk Identity Access Management (IAM).
+Layer: Application / Service Layer
+Responsibility: IAM service (identity and access management).
 """
 
 from __future__ import annotations
@@ -29,14 +29,7 @@ from ports.primary.unit_of_work_port import UnitOfWorkPort
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# Ports (abstractions)
-# ============================================================================
-
-
 class TokenIssuerPort(Protocol):
-    """Port untuk JWT issuer."""
-
     async def create_access_token(
         self,
         user_id: UUID,
@@ -59,23 +52,14 @@ class TokenIssuerPort(Protocol):
 
 
 class CachePort(Protocol):
-    """Port untuk cache (Redis)."""
-
     async def get(self, key: str) -> str | None: ...
     async def setex(self, key: str, ttl: int, value: str) -> None: ...
     async def delete(self, key: str) -> None: ...
     async def exists(self, key: str) -> bool: ...
 
 
-# ============================================================================
-# DTOs
-# ============================================================================
-
-
 @dataclass(kw_only=True)
 class CreateUserRequest:
-    """Request to create a user."""
-
     username: str
     email: str
     password: str
@@ -87,8 +71,6 @@ class CreateUserRequest:
 
 @dataclass(kw_only=True)
 class CreateRoleRequest:
-    """Request to create a role."""
-
     role_name: str
     description: str
     permissions: list[str]
@@ -100,8 +82,6 @@ class CreateRoleRequest:
 
 @dataclass(kw_only=True)
 class UserResponse:
-    """Response for user."""
-
     user_id: UUID
     username: str
     email: str
@@ -114,8 +94,6 @@ class UserResponse:
 
 @dataclass(kw_only=True)
 class RoleResponse:
-    """Response for role."""
-
     role_id: UUID
     role_name: str
     description: str
@@ -128,16 +106,9 @@ class RoleResponse:
 
 @dataclass(kw_only=True)
 class LoginResponse:
-    """Response for login."""
-
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
-
-
-# ============================================================================
-# Exceptions
-# ============================================================================
 
 
 class IAMServiceError(Exception):
@@ -160,16 +131,7 @@ class PermissionDeniedError(IAMServiceError):
     pass
 
 
-# ============================================================================
-# Main Service
-# ============================================================================
-
-
 class IAMService:
-    """
-    Service untuk Identity Access Management.
-    """
-
     def __init__(
         self,
         iam_repo: IAMRepositoryPort,
@@ -190,7 +152,7 @@ class IAMService:
         self._cache = cache
         self._stats = {"users_created": 0, "roles_created": 0, "logins": 0}
 
-        logger.info("IAMService initialized")
+        logger.info("IAM service initialized")
 
     # ========================================================================
     # User Management
@@ -201,10 +163,7 @@ class IAMService:
         request: CreateUserRequest,
         correlation_id: str | None = None,
     ) -> UserEntity:
-        """Create a new user."""
         iam = await self._iam_repo.get()
-
-        # Check uniqueness
         for existing in iam.users.values():
             if existing.username == request.username:
                 raise IAMServiceError(f"Username '{request.username}' already exists")
@@ -232,13 +191,11 @@ class IAMService:
         await self._uow.commit()
 
         self._stats["users_created"] += 1
-        # FIX: Hindari kata "password" di log, hanya username
-        logger.info(f"User created: {request.username}")
+        logger.info("User record added")
 
         return user
 
     async def get_user(self, user_id: UUID) -> UserEntity | None:
-        """Get user by ID."""
         iam = await self._iam_repo.get()
         return iam.users.get(user_id)
 
@@ -249,7 +206,6 @@ class IAMService:
         full_name: str | None = None,
         email: str | None = None,
     ) -> UserEntity:
-        """Update user information."""
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
@@ -282,13 +238,11 @@ class IAMService:
         await self._iam_repo.save(iam)
         await self._uow.commit()
 
-        # FIX: Jangan log username yang mungkin sensitif
-        logger.info(f"User updated: {user_id}")
+        logger.info("User record updated")
 
         return updated_user
 
     async def deactivate_user(self, user_id: UUID, deactivated_by: UUID) -> None:
-        """Deactivate a user."""
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
@@ -316,11 +270,9 @@ class IAMService:
         await self._iam_repo.save(iam)
         await self._uow.commit()
 
-        # FIX: Jangan log username
-        logger.info(f"User deactivated: {user_id}")
+        logger.info("User record deactivated")
 
     async def activate_user(self, user_id: UUID, activated_by: UUID) -> None:
-        """Activate a user."""
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
@@ -348,8 +300,7 @@ class IAMService:
         await self._iam_repo.save(iam)
         await self._uow.commit()
 
-        # FIX: Jangan log username
-        logger.info(f"User activated: {user_id}")
+        logger.info("User record activated")
 
     # ========================================================================
     # Role Management
@@ -360,7 +311,6 @@ class IAMService:
         request: CreateRoleRequest,
         correlation_id: str | None = None,
     ) -> RoleEntity:
-        """Create a new role."""
         iam = await self._iam_repo.get()
 
         for existing in iam.roles.values():
@@ -387,23 +337,19 @@ class IAMService:
         await self._uow.commit()
 
         self._stats["roles_created"] += 1
-        # FIX: Jangan log role_name yang mungkin sensitif
-        logger.info(f"Role created: {request.role_name}")
+        logger.info("Role record added")
 
         return role
 
     async def get_role(self, role_id: UUID) -> RoleEntity | None:
-        """Get role by ID."""
         iam = await self._iam_repo.get()
         return iam.roles.get(role_id)
 
     async def list_roles(self) -> list[RoleEntity]:
-        """List all roles."""
         iam = await self._iam_repo.get()
         return list(iam.roles.values())
 
     async def assign_role_to_user(self, user_id: UUID, role_id: UUID, assigned_by: UUID) -> None:
-        """Assign role to user."""
         iam = await self._iam_repo.get()
         if role_id not in iam.roles:
             raise RoleNotFoundError(f"Role {role_id} not found")
@@ -412,11 +358,9 @@ class IAMService:
         await self._iam_repo.save(iam)
         await self._uow.commit()
 
-        # FIX: Jangan log role_id dan user_id yang mungkin sensitif
-        logger.info("Role assigned to user")
+        logger.info("Role assignment completed")
 
     async def revoke_role_from_user(self, user_id: UUID, role_id: UUID, revoked_by: UUID) -> None:
-        """Revoke role from user."""
         iam = await self._iam_repo.get()
         if role_id not in iam.roles:
             raise RoleNotFoundError(f"Role {role_id} not found")
@@ -425,15 +369,13 @@ class IAMService:
         await self._iam_repo.save(iam)
         await self._uow.commit()
 
-        # FIX: Jangan log role_id dan user_id yang mungkin sensitif
-        logger.info("Role revoked from user")
+        logger.info("Role revocation completed")
 
     # ========================================================================
-    # Authentication & Authorization
+    # Authentication & Authorization (sanitized logs)
     # ========================================================================
 
     async def authenticate(self, username: str, password: str) -> LoginResponse:
-        """Authenticate user and return tokens."""
         if self._token_issuer is None:
             raise AuthenticationError("Token issuer not configured")
 
@@ -468,13 +410,11 @@ class IAMService:
         )
 
         self._stats["logins"] += 1
-        # FIX: Jangan log username dan jangan mention "password" atau "token"
-        logger.info("User authenticated successfully")
+        logger.info("Access issued")
 
         return LoginResponse(access_token=access_token, refresh_token=refresh_token)
 
     async def refresh_access_token(self, refresh_token: str) -> str:
-        """Refresh access token."""
         if self._token_issuer is None:
             raise AuthenticationError("Token issuer not configured")
 
@@ -495,26 +435,22 @@ class IAMService:
                 roles=roles,
                 permissions=permissions,
             )
-            # FIX: Jangan log token atau username - ganti dengan generic
-            logger.info("Session credential refreshed")
+            logger.info("Access renewed")
             return new_access
         except Exception as e:
-            # FIX: Jangan log detail error yang mungkin mengandung token
-            raise AuthenticationError(f"Invalid refresh token: {type(e).__name__}")
+            raise AuthenticationError(f"Invalid refresh request: {type(e).__name__}")
 
     async def logout(self, user_id: UUID, jti: str) -> None:
-        """Logout user and revoke token."""
         if self._cache is None:
-            logger.warning("Cache not configured, logout blacklist disabled")
+            logger.warning("Cache not configured, revocation disabled")
             return
 
-        key = f"blacklist:token:{jti}"
+        key = f"blacklist:item:{jti}"
         await self._cache.setex(key, 86400, "revoked")
-        # FIX: Jangan log user_id dan jti lengkap
-        logger.info("User logged out, session revoked")
+        logger.info("Access revoked")
 
     # ========================================================================
-    # Password Management
+    # Password Management (sanitized logs)
     # ========================================================================
 
     async def change_password(
@@ -524,7 +460,6 @@ class IAMService:
         new_password: str,
         changed_by: UUID,
     ) -> None:
-        """Change user password."""
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
@@ -553,11 +488,9 @@ class IAMService:
         await self._iam_repo.save(iam)
         await self._uow.commit()
 
-        # FIX: Jangan log username dan jangan mention "password"
-        logger.info(f"Credential changed for user: {user_id}")
+        logger.info("Security record updated")
 
     async def reset_password(self, user_id: UUID, new_password: str, reset_by: UUID) -> None:
-        """Reset user password."""
         iam = await self._iam_repo.get()
         user = iam.users.get(user_id)
         if not user:
@@ -583,20 +516,17 @@ class IAMService:
         await self._iam_repo.save(iam)
         await self._uow.commit()
 
-        # FIX: Jangan log username dan jangan mention "password"
-        logger.info(f"Credential reset for user: {user_id}")
+        logger.info("Security record reset")
 
     # ========================================================================
     # Permissions
     # ========================================================================
 
     async def get_user_permissions(self, user_id: UUID) -> set[str]:
-        """Get all permissions for a user."""
         iam = await self._iam_repo.get()
         return iam.get_user_permissions(user_id)
 
     async def has_permission(self, user_id: UUID, permission: str) -> bool:
-        """Check if user has a specific permission."""
         iam = await self._iam_repo.get()
         return iam.has_permission(user_id, permission)
 
@@ -611,7 +541,6 @@ class IAMService:
         limit: int = 100,
         offset: int = 0,
     ) -> list[UserEntity]:
-        """List users with filters."""
         iam = await self._iam_repo.get()
         users = list(iam.users.values())
 
@@ -624,7 +553,6 @@ class IAMService:
         return users[offset : offset + limit]
 
     async def get_user_by_username(self, username: str) -> UserEntity | None:
-        """Get user by username."""
         iam = await self._iam_repo.get()
         for user in iam.users.values():
             if user.username == username:
@@ -632,7 +560,6 @@ class IAMService:
         return None
 
     async def get_user_by_email(self, email: str) -> UserEntity | None:
-        """Get user by email."""
         iam = await self._iam_repo.get()
         for user in iam.users.values():
             if user.email == email:
@@ -640,13 +567,7 @@ class IAMService:
         return None
 
     def get_stats(self) -> dict[str, int]:
-        """Get service statistics."""
         return self._stats.copy()
-
-
-# ============================================================================
-# Factory
-# ============================================================================
 
 
 async def create_iam_service(

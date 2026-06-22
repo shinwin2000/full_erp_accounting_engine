@@ -25,7 +25,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -33,8 +32,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -340,8 +338,8 @@ class ReportDistributionResponseSchema(BaseModel):
 
 async def get_report_service(request: Request, ) -> Any:
     """Get Report Service instance."""
+
     from application.service_layer.service_report import ReportService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(ReportService)
@@ -349,7 +347,6 @@ async def get_report_service(request: Request, ) -> Any:
 
 async def get_report_scheduler() -> Any:
     """Get Report Scheduler instance."""
-    from fastapi import Request
     from reports.scheduler_cron import ReportScheduler
 
     container = request.app.state.container
@@ -358,7 +355,6 @@ async def get_report_scheduler() -> Any:
 
 async def get_report_distributor() -> Any:
     """Get Report Distributor instance."""
-    from fastapi import Request
     from reports.distributor_email_whatsapp import ReportDistributor
 
     container = request.app.state.container
@@ -392,7 +388,7 @@ def _get_filename(report_number: str, report_format: ReportFormat) -> str:
         ReportFormat.JSON: "json",
         ReportFormat.XML: "xml",
     }.get(report_format, "pdf")
-    return "{}.{}".format(report_number, extension)
+    return f"{report_number}.{extension}"
 
 
 # ============================================================================
@@ -441,7 +437,7 @@ async def generate_balance_sheet(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url="/api/v1/reports/{}/download".format(result.id),
+            download_url=f"/api/v1/reports/{result.id}/download",
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -490,7 +486,7 @@ async def generate_income_statement(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url="/api/v1/reports/{}/download".format(result.id),
+            download_url=f"/api/v1/reports/{result.id}/download",
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -537,7 +533,7 @@ async def generate_cash_flow(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url="/api/v1/reports/{}/download".format(result.id),
+            download_url=f"/api/v1/reports/{result.id}/download",
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -583,7 +579,7 @@ async def generate_equity_statement(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url="/api/v1/reports/{}/download".format(result.id),
+            download_url=f"/api/v1/reports/{result.id}/download",
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -634,7 +630,7 @@ async def generate_trial_balance(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url="/api/v1/reports/{}/download".format(result.id),
+            download_url=f"/api/v1/reports/{result.id}/download",
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -683,7 +679,7 @@ async def generate_general_ledger(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url="/api/v1/reports/{}/download".format(result.id),
+            download_url=f"/api/v1/reports/{result.id}/download",
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -734,7 +730,7 @@ async def generate_ar_aging(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url="/api/v1/reports/{}/download".format(result.id),
+            download_url=f"/api/v1/reports/{result.id}/download",
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -780,7 +776,7 @@ async def generate_ap_aging(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url="/api/v1/reports/{}/download".format(result.id),
+            download_url=f"/api/v1/reports/{result.id}/download",
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -833,7 +829,7 @@ async def generate_stock_card(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url="/api/v1/reports/{}/download".format(result.id),
+            download_url=f"/api/v1/reports/{result.id}/download",
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -885,7 +881,7 @@ async def generate_tax_summary(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url="/api/v1/reports/{}/download".format(result.id),
+            download_url=f"/api/v1/reports/{result.id}/download",
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -936,7 +932,7 @@ async def generate_financial_ratios(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url="/api/v1/reports/{}/download".format(result.id),
+            download_url=f"/api/v1/reports/{result.id}/download",
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -988,7 +984,7 @@ async def generate_budget_vs_actual(
             status=ReportStatus(result.status),
             file_size_bytes=result.file_size_bytes,
             file_path=result.file_path,
-            download_url="/api/v1/reports/{}/download".format(result.id),
+            download_url=f"/api/v1/reports/{result.id}/download",
             parameters=request.dict(),
             generated_at=result.generated_at,
             generated_by=result.generated_by,
@@ -1045,7 +1041,7 @@ async def list_reports(
                 status=ReportStatus(r.status),
                 file_size_bytes=r.file_size_bytes,
                 file_path=r.file_path,
-                download_url="/api/v1/reports/{}/download".format(r.id),
+                download_url=f"/api/v1/reports/{r.id}/download",
                 parameters=r.parameters,
                 generated_at=r.generated_at,
                 generated_by=r.generated_by,
@@ -1094,7 +1090,7 @@ async def get_report(
             status=ReportStatus(report.status),
             file_size_bytes=report.file_size_bytes,
             file_path=report.file_path,
-            download_url="/api/v1/reports/{}/download".format(report.id),
+            download_url=f"/api/v1/reports/{report.id}/download",
             parameters=report.parameters,
             generated_at=report.generated_at,
             generated_by=report.generated_by,
@@ -1130,7 +1126,7 @@ async def download_report(
         if report.status != ReportStatus.GENERATED.value:
             raise HTTPException(
                 status_code=400,
-                detail="Report not ready (status: {})".format(report.status),  # nosec
+                detail=f"Report not ready (status: {report.status})",  # nosec
             )
 
         if report.is_deleted:

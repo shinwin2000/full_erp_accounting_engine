@@ -89,22 +89,22 @@ class GoodsReceiptNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin,
     # RELATIONSHIPS
     # =========================================================================
 
-    supplier: Mapped["SupplierTable"] = relationship(
+    supplier: Mapped[SupplierTable] = relationship(
         "SupplierTable",
         back_populates="goods_receipt_notes",
         foreign_keys=[supplier_id],
     )
-    purchase_order: Mapped["PurchaseOrderTable"] = relationship(
+    purchase_order: Mapped[PurchaseOrderTable] = relationship(
         "PurchaseOrderTable",
         back_populates="goods_receipt_notes",
         foreign_keys=[purchase_order_id],
     )
-    ap_invoices: Mapped[list["APInvoiceTable"]] = relationship(
+    ap_invoices: Mapped[list[APInvoiceTable]] = relationship(
         "APInvoiceTable",
         back_populates="goods_receipt_note",
         foreign_keys="[APInvoiceTable.goods_receipt_note_id]",
     )
-    lines: Mapped[list["GoodsReceiptNoteLineTable"]] = relationship(
+    lines: Mapped[list[GoodsReceiptNoteLineTable]] = relationship(
         "GoodsReceiptNoteLineTable",
         back_populates="grn",
         cascade="all, delete-orphan",
@@ -207,7 +207,7 @@ class GoodsReceiptNoteLineTable(Base, TimestampMixin):
     # =========================================================================
     # RELATIONSHIPS
     # =========================================================================
-    grn: Mapped["GoodsReceiptNoteTable"] = relationship(
+    grn: Mapped[GoodsReceiptNoteTable] = relationship(
         "GoodsReceiptNoteTable",
         back_populates="lines",
         foreign_keys=[grn_id],

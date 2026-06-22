@@ -475,7 +475,9 @@ class CoretaxHealthChecker:
 
     async def _get_pending_faktur_count(self) -> int:
         try:
-            from adapters.secondary_impl.sqlalchemy_tax_repository_impl import SQLAlchemyTaxRepository
+            from adapters.secondary_impl.sqlalchemy_tax_repository_impl import (
+                SQLAlchemyTaxRepository,
+            )
             repo = SQLAlchemyTaxRepository()
             return 0
         except ImportError:

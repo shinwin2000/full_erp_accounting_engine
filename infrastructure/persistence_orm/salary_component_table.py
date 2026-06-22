@@ -79,13 +79,13 @@ class SalaryComponentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
     # Menggunakan back_populates yang cocok dengan relasi di EmployeeTable
     # (salary_components) dan PayrollRunTable (salary_components).
     # =========================================================================
-    employee: Mapped["EmployeeTable"] = relationship(
+    employee: Mapped[EmployeeTable] = relationship(
         "EmployeeTable",
         back_populates="salary_components",
         foreign_keys=[employee_id],
     )
 
-    payroll_run: Mapped["PayrollRunTable"] = relationship(
+    payroll_run: Mapped[PayrollRunTable] = relationship(
         "PayrollRunTable",
         back_populates="salary_components",
         foreign_keys=[payroll_run_id],

@@ -47,7 +47,7 @@ class ImpairmentTestTable(Base, TimestampMixin, SoftDeleteMixin):
     journal_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    asset: Mapped["FixedAssetTable"] = relationship(
+    asset: Mapped[FixedAssetTable] = relationship(
         "FixedAssetTable",
         back_populates="impairment_tests",
     )

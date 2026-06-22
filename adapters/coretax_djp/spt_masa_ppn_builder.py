@@ -217,7 +217,7 @@ class SPTMasaPPN:
 
     @property
     def masa_pajak(self) -> str:
-        return "{}-{:02d}".format(self._tahun, self._bulan)
+        return f"{self._tahun}-{self._bulan:02d}"
 
     @property
     def spt_type(self) -> SPTType:
@@ -270,7 +270,7 @@ class SPTMasaPPN:
     @property
     def ntpn_masked(self) -> str | None:
         if self._ntpn and len(self._ntpn) > 8:
-            return "{}...{}".format(self._ntpn[:8], self._ntpn[-4:])
+            return f"{self._ntpn[:8]}...{self._ntpn[-4:]}"
         return self._ntpn
 
     @property
@@ -420,9 +420,9 @@ class SPTMasaPPN:
 
     def update(self, data: dict[str, Any], updated_by: UUID) -> SPTMasaPPN:
         if self.is_locked:
-            raise SPTLockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPTLockedError(f"SPT {self.masa_pajak} is locked")
         if self._status not in [SPTStatus.DRAFT, SPTStatus.PENDING, SPTStatus.REJECTED]:
-            raise SPTInvalidStateError("Cannot update SPT in status {}".format(self._status.value))
+            raise SPTInvalidStateError(f"Cannot update SPT in status {self._status.value}")
         old_data = self.to_dict()
         if "total_penyerahan_dpp" in data:
             self._total_penyerahan_dpp = Decimal(str(data["total_penyerahan_dpp"]))
@@ -454,7 +454,7 @@ class SPTMasaPPN:
 
     def delete(self, deleted_by: UUID, permanent: bool = False) -> SPTMasaPPN:
         if self.is_locked:
-            raise SPTLockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPTLockedError(f"SPT {self.masa_pajak} is locked")
         if permanent:
             self._status = SPTStatus.VOID
             self._cancelled_at = datetime.now()
@@ -474,7 +474,7 @@ class SPTMasaPPN:
 
     def restore(self, restored_by: UUID) -> SPTMasaPPN:
         if self._status not in [SPTStatus.ARCHIVED, SPTStatus.VOID]:
-            raise SPTInvalidStateError("Cannot restore SPT in status {}".format(self._status.value))
+            raise SPTInvalidStateError(f"Cannot restore SPT in status {self._status.value}")
         self._status = SPTStatus.DRAFT
         self._cancelled_at = None
         self._updated_at = datetime.now()
@@ -490,7 +490,7 @@ class SPTMasaPPN:
 
     def activate(self, activated_by: UUID) -> SPTMasaPPN:
         if self._status != SPTStatus.DRAFT:
-            raise SPTInvalidStateError("Cannot activate SPT in status {}".format(self._status.value))
+            raise SPTInvalidStateError(f"Cannot activate SPT in status {self._status.value}")
         self._status = SPTStatus.PENDING
         self._updated_at = datetime.now()
         self._version += 1
@@ -505,7 +505,7 @@ class SPTMasaPPN:
 
     def deactivate(self, deactivated_by: UUID) -> SPTMasaPPN:
         if self._status != SPTStatus.PENDING:
-            raise SPTInvalidStateError("Cannot deactivate SPT in status {}".format(self._status.value))
+            raise SPTInvalidStateError(f"Cannot deactivate SPT in status {self._status.value}")
         self._status = SPTStatus.DRAFT
         self._updated_at = datetime.now()
         self._version += 1
@@ -520,7 +520,7 @@ class SPTMasaPPN:
 
     def lock(self, locked_by: UUID, reason: str = "") -> SPTMasaPPN:
         if self.is_locked:
-            raise SPTLockedError("SPT {} already locked".format(self.masa_pajak))
+            raise SPTLockedError(f"SPT {self.masa_pajak} already locked")
         self._locked_at = datetime.now()
         self._locked_by = locked_by
         self._status = SPTStatus.LOCKED
@@ -538,7 +538,7 @@ class SPTMasaPPN:
 
     def unlock(self, unlocked_by: UUID) -> SPTMasaPPN:
         if not self.is_locked:
-            raise SPTLockedError("SPT {} is not locked".format(self.masa_pajak))
+            raise SPTLockedError(f"SPT {self.masa_pajak} is not locked")
         self._locked_at = None
         self._locked_by = None
         self._status = SPTStatus.PENDING
@@ -555,9 +555,9 @@ class SPTMasaPPN:
 
     def validate(self, validator_id: UUID) -> SPTMasaPPN:
         if self.is_locked:
-            raise SPTLockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPTLockedError(f"SPT {self.masa_pajak} is locked")
         if self._status not in [SPTStatus.DRAFT, SPTStatus.PENDING, SPTStatus.CALCULATED]:
-            raise SPTInvalidStateError("Cannot validate SPT in status {}".format(self._status.value))
+            raise SPTInvalidStateError(f"Cannot validate SPT in status {self._status.value}")
         errors = []
         if self._total_ppn_keluaran < 0:
             errors.append("PPN Keluaran tidak boleh negatif")
@@ -579,13 +579,9 @@ class SPTMasaPPN:
         expected_kurang_bayar = max(expected_kurang_bayar, Decimal(0))
         expected_lebih_bayar = max(-expected_kurang_bayar, Decimal(0))
         if abs(self._ppn_kurang_bayar - expected_kurang_bayar) > Decimal("0.01"):
-            errors.append("PPN Kurang Bayar tidak sesuai: expected {}, got {}".format(
-                expected_kurang_bayar, self._ppn_kurang_bayar
-            ))
+            errors.append(f"PPN Kurang Bayar tidak sesuai: expected {expected_kurang_bayar}, got {self._ppn_kurang_bayar}")
         if abs(self._ppn_lebih_bayar - expected_lebih_bayar) > Decimal("0.01"):
-            errors.append("PPN Lebih Bayar tidak sesuai: expected {}, got {}".format(
-                expected_lebih_bayar, self._ppn_lebih_bayar
-            ))
+            errors.append(f"PPN Lebih Bayar tidak sesuai: expected {expected_lebih_bayar}, got {self._ppn_lebih_bayar}")
         if self._ppn_kurang_bayar > 0:
             if not self._ntpn:
                 errors.append("Ada kurang bayar tetapi tidak ada NTPN")
@@ -608,9 +604,9 @@ class SPTMasaPPN:
 
     def approve(self, approver_id: UUID, notes: str = "") -> SPTMasaPPN:
         if self.is_locked:
-            raise SPTLockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPTLockedError(f"SPT {self.masa_pajak} is locked")
         if self._status != SPTStatus.SUBMITTED:
-            raise SPTInvalidStateError("Cannot approve SPT in status {}".format(self._status.value))
+            raise SPTInvalidStateError(f"Cannot approve SPT in status {self._status.value}")
         self._status = SPTStatus.APPROVED
         self._approved_at = datetime.now()
         self._updated_at = datetime.now()
@@ -627,9 +623,9 @@ class SPTMasaPPN:
 
     def reject(self, rejector_id: UUID, reason: str) -> SPTMasaPPN:
         if self.is_locked:
-            raise SPTLockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPTLockedError(f"SPT {self.masa_pajak} is locked")
         if self._status not in [SPTStatus.PENDING, SPTStatus.SUBMITTED, SPTStatus.VALIDATED]:
-            raise SPTInvalidStateError("Cannot reject SPT in status {}".format(self._status.value))
+            raise SPTInvalidStateError(f"Cannot reject SPT in status {self._status.value}")
         self._status = SPTStatus.REJECTED
         self._rejected_at = datetime.now()
         self._rejection_reason = reason
@@ -647,7 +643,7 @@ class SPTMasaPPN:
 
     def calculate(self, calculator_id: UUID) -> SPTMasaPPN:
         if self.is_locked:
-            raise SPTLockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPTLockedError(f"SPT {self.masa_pajak} is locked")
         self._ppn_kurang_bayar = max(
             Decimal(0),
             (
@@ -682,9 +678,9 @@ class SPTMasaPPN:
 
     def submit(self, submitted_by: UUID) -> SPTMasaPPN:
         if self.is_locked:
-            raise SPTLockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPTLockedError(f"SPT {self.masa_pajak} is locked")
         if self._status not in [SPTStatus.PENDING, SPTStatus.VALIDATED, SPTStatus.CALCULATED]:
-            raise SPTInvalidStateError("Cannot submit SPT in status {}".format(self._status.value))
+            raise SPTInvalidStateError(f"Cannot submit SPT in status {self._status.value}")
         self.validate(submitted_by)
         self._generate_xml()
         self._status = SPTStatus.SUBMITTED
@@ -702,9 +698,9 @@ class SPTMasaPPN:
 
     def cancel(self, cancelled_by: UUID, reason: str) -> SPTMasaPPN:
         if self.is_locked:
-            raise SPTLockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPTLockedError(f"SPT {self.masa_pajak} is locked")
         if self._status in [SPTStatus.CANCELLED, SPTStatus.VOID, SPTStatus.CLOSED]:
-            raise SPTInvalidStateError("Cannot cancel SPT in status {}".format(self._status.value))
+            raise SPTInvalidStateError(f"Cannot cancel SPT in status {self._status.value}")
         self._status = SPTStatus.CANCELLED
         self._cancelled_at = datetime.now()
         self._cancellation_reason = reason
@@ -722,7 +718,7 @@ class SPTMasaPPN:
 
     def void(self, voided_by: UUID, reason: str) -> SPTMasaPPN:
         if self.is_locked:
-            raise SPTLockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPTLockedError(f"SPT {self.masa_pajak} is locked")
         self._status = SPTStatus.VOID
         self._cancelled_at = datetime.now()
         self._cancellation_reason = reason
@@ -899,7 +895,7 @@ class SPTMasaPPN:
     def transition(self, new_status: SPTStatus, actor_id: UUID, reason: str = "") -> SPTMasaPPN:
         if not self.can_transition(new_status):
             raise SPTInvalidStateError(
-                "Cannot transition from {} to {}".format(self._status.value, new_status.value)
+                f"Cannot transition from {self._status.value} to {new_status.value}"
             )
         old_status = self._status
         self._status = new_status
@@ -1007,7 +1003,7 @@ class SPTMasaPPN:
 
     def set_ntpn(self, ntpn: str) -> SPTMasaPPN:
         if not self._validate_ntpn_format(ntpn):
-            raise SPTValidationError("Invalid NTPN format: {}".format(ntpn))
+            raise SPTValidationError(f"Invalid NTPN format: {ntpn}")
         self._ntpn = ntpn
         self._updated_at = datetime.now()
         self._version += 1
@@ -1042,15 +1038,7 @@ class SPTMasaPPN:
         return correction_spt
 
     def _calculate_hash(self) -> None:
-        data = "{}{}{}{}{}{}{}".format(
-            self._spt_id,
-            self._npwp,
-            self._tahun,
-            self._bulan,
-            self._total_ppn_keluaran,
-            self._total_ppn_masukan,
-            self._status.value
-        )
+        data = f"{self._spt_id}{self._npwp}{self._tahun}{self._bulan}{self._total_ppn_keluaran}{self._total_ppn_masukan}{self._status.value}"
         self._hash = hashlib.sha256(data.encode()).hexdigest()
 
     def _generate_xml(self) -> str:
@@ -1062,13 +1050,13 @@ class SPTMasaPPN:
             if self._spt_type == SPTType.CORRECTION:
                 ET.SubElement(kepala, "NomorPembetulan").text = str(self._correction_number)
             ET.SubElement(kepala, "TahunPajak").text = str(self._tahun)
-            ET.SubElement(kepala, "BulanPajak").text = "{:02d}".format(self._bulan)
+            ET.SubElement(kepala, "BulanPajak").text = f"{self._bulan:02d}"
             ET.SubElement(kepala, "NPWP").text = self._npwp
             ET.SubElement(kepala, "Tanggal").text = date.today().isoformat()
             detail = ET.SubElement(root, "Detail")
             penyerahan = ET.SubElement(detail, "Penyerahan")
-            ET.SubElement(penyerahan, "DPP").text = "{:.2f}".format(self._total_penyerahan_dpp)
-            ET.SubElement(penyerahan, "PPN").text = "{:.2f}".format(self._total_ppn_keluaran)
+            ET.SubElement(penyerahan, "DPP").text = f"{self._total_penyerahan_dpp:.2f}"
+            ET.SubElement(penyerahan, "PPN").text = f"{self._total_ppn_keluaran:.2f}"
             if self._detail_pk:
                 lampiran_pk = ET.SubElement(detail, "DaftarFakturKeluaran")
                 for pk in self._detail_pk[:100]:
@@ -1080,32 +1068,32 @@ class SPTMasaPPN:
                     ET.SubElement(pk_elem, "PPN").text = "{:.2f}".format(pk['ppn'])
                     ET.SubElement(pk_elem, "Tanggal").text = pk.get("tanggal_faktur", "")
             masukan = ET.SubElement(detail, "Masukan")
-            ET.SubElement(masukan, "PPNMasukan").text = "{:.2f}".format(self._total_ppn_masukan)
+            ET.SubElement(masukan, "PPNMasukan").text = f"{self._total_ppn_masukan:.2f}"
             if self._pemungut_ppn:
                 pemungut = ET.SubElement(masukan, "PemungutPPN")
                 ET.SubElement(pemungut, "DPP").text = "{:.2f}".format(self._pemungut_ppn.get('dpp', 0))
                 ET.SubElement(pemungut, "PPN").text = "{:.2f}".format(self._pemungut_ppn.get('ppn', 0))
             retur = ET.SubElement(detail, "Retur")
-            ET.SubElement(retur, "ReturKeluaran").text = "{:.2f}".format(self._total_retur_keluaran)
-            ET.SubElement(retur, "ReturMasukan").text = "{:.2f}".format(self._total_retur_masukan)
-            ET.SubElement(detail, "Kompensasi").text = "{:.2f}".format(self._kompensasi)
+            ET.SubElement(retur, "ReturKeluaran").text = f"{self._total_retur_keluaran:.2f}"
+            ET.SubElement(retur, "ReturMasukan").text = f"{self._total_retur_masukan:.2f}"
+            ET.SubElement(detail, "Kompensasi").text = f"{self._kompensasi:.2f}"
             if self._ppn_kurang_bayar > 0:
-                ET.SubElement(detail, "KurangBayar").text = "{:.2f}".format(self._ppn_kurang_bayar)
+                ET.SubElement(detail, "KurangBayar").text = f"{self._ppn_kurang_bayar:.2f}"
                 ET.SubElement(detail, "StatusKurangBayar").text = "1"
             else:
-                ET.SubElement(detail, "LebihBayar").text = "{:.2f}".format(self._ppn_lebih_bayar)
+                ET.SubElement(detail, "LebihBayar").text = f"{self._ppn_lebih_bayar:.2f}"
                 if self._status_restitusi:
                     ET.SubElement(detail, "StatusLebihBayar").text = self._status_restitusi
             if self._ntpn and self._ppn_kurang_bayar > 0:
                 bayar_elem = ET.SubElement(detail, "Pembayaran")
                 ET.SubElement(bayar_elem, "NTPN").text = self._ntpn
-                ET.SubElement(bayar_elem, "JumlahBayar").text = "{:.2f}".format(self._total_bayar)
+                ET.SubElement(bayar_elem, "JumlahBayar").text = f"{self._total_bayar:.2f}"
             xml_str = ET.tostring(root, encoding="utf-8")
             dom = minidom.parseString(xml_str)
             self._xml_content = dom.toprettyxml(indent="  ")
             return self._xml_content
         except Exception as e:
-            raise SPTXMLGenerationError("Failed to create XML SPT: {}".format(e))
+            raise SPTXMLGenerationError(f"Failed to create XML SPT: {e}")
 
     def _validate_ntpn_format(self, ntpn: str) -> bool:
         import re
@@ -1146,7 +1134,7 @@ class _FallbackSPTRepository(SPTRepositoryPort):
 
     async def add(self, spt: SPTMasaPPN) -> None:
         self._store[spt.spt_id] = spt
-        key = "{}:{}:{}:{}".format(spt.npwp, spt.tahun, spt.bulan, spt.correction_number)
+        key = f"{spt.npwp}:{spt.tahun}:{spt.bulan}:{spt.correction_number}"
         self._by_npwp_period[key] = spt.spt_id
         if spt.tracking_id:
             self._by_tracking_id[spt.tracking_id] = spt.spt_id
@@ -1221,7 +1209,7 @@ class SPTMasaPPNBuilder:
             bucket = self._load_config().get("coretax_djp", {}).get("spt_ppn", {}).get("file_storage_bucket", "coretax-spt-ppn")
             self._file_storage = S3FileStorageAdapter(bucket_name=bucket)
         except Exception as e:
-            logger.warning("File storage not available for SPT PPN: {}".format(e))
+            logger.warning(f"File storage not available for SPT PPN: {e}")
 
     async def _get_coretax_client(self):
         if self._coretax_client is None:
@@ -1235,7 +1223,7 @@ class SPTMasaPPNBuilder:
         return self._tax_service
 
     def _get_cache_key(self, npwp: str, tahun: int, bulan: int) -> str:
-        return "spt_ppn:{}:{}:{:02d}".format(npwp, tahun, bulan)
+        return f"spt_ppn:{npwp}:{tahun}:{bulan:02d}"
 
     async def _get_cached(self, cache_key: str) -> dict[str, Any] | None:
         ttl = self._load_config().get("coretax_djp", {}).get("spt_ppn", {}).get("cache_ttl_seconds", CACHE_TTL_SECONDS)
@@ -1310,7 +1298,7 @@ class SPTMasaPPNBuilder:
                 "detail_retur": retur_data,
             }
         except Exception as e:
-            logger.error("Failed to collect data for SPT PPN: {}".format(e))
+            logger.error(f"Failed to collect data for SPT PPN: {e}")
             return {
                 "npwp": npwp,
                 "tahun": tahun,
@@ -1417,7 +1405,7 @@ class SPTMasaPPNBuilder:
                     spt.set_coretax_response(response)
                     await self._repository.update(spt)
                     if self._file_storage:
-                        file_name = "spt_ppn_{}_{}_{:02d}.xml".format(spt.npwp, spt.tahun, spt.bulan)
+                        file_name = f"spt_ppn_{spt.npwp}_{spt.tahun}_{spt.bulan:02d}.xml"
                         await self._file_storage.upload(
                             xml_content.encode("utf-8"),
                             file_name,
@@ -1435,7 +1423,7 @@ class SPTMasaPPNBuilder:
                         from infrastructure.telemetry.alert_manager_router import trigger_alert
                         await trigger_alert(
                             title="SPT PPN Submitted",
-                            message="SPT PPN for {} period {} submitted successfully".format(spt.npwp, spt.masa_pajak),
+                            message=f"SPT PPN for {spt.npwp} period {spt.masa_pajak} submitted successfully",
                             severity="info",
                             source="SPTMasaPPNBuilder",
                         )
@@ -1453,17 +1441,17 @@ class SPTMasaPPNBuilder:
                 except CoretaxAuthError as e:
                     if attempt == MAX_RETRY_ATTEMPTS - 1:
                         raise
-                    logger.warning("Retry {} for SPT PPN submission: {}".format(attempt + 1, e))
+                    logger.warning(f"Retry {attempt + 1} for SPT PPN submission: {e}")
                 except Exception as e:
                     if attempt == MAX_RETRY_ATTEMPTS - 1:
                         raise
-                    logger.warning("Retry {} for SPT PPN submission: {}".format(attempt + 1, e))
+                    logger.warning(f"Retry {attempt + 1} for SPT PPN submission: {e}")
         except (SPTValidationError, SPTLockedError, SPTInvalidStateError, SPTCalculationError) as e:
             return {"success": False, "error": str(e)}
         except CoretaxAuthError as e:
             spt.transition(SPTStatus.ERROR, submitted_by, str(e))
             await self._repository.update(spt)
-            return {"success": False, "error": "Coretax authentication failed: {}".format(e)}
+            return {"success": False, "error": f"Coretax authentication failed: {e}"}
         except Exception as e:
             logger.exception("Failed to submit SPT PPN")
             spt.transition(SPTStatus.ERROR, submitted_by, str(e))
@@ -1472,7 +1460,7 @@ class SPTMasaPPNBuilder:
                 from infrastructure.telemetry.alert_manager_router import trigger_alert
                 await trigger_alert(
                     title="SPT PPN Submission Failed",
-                    message="Failed to submit SPT PPN: {}".format(e),
+                    message=f"Failed to submit SPT PPN: {e}",
                     severity="critical",
                     source="SPTMasaPPNBuilder",
                 )
@@ -1492,7 +1480,7 @@ class SPTMasaPPNBuilder:
                 "message": "Not yet submitted to Coretax",
             }
         client = await self._get_coretax_client()
-        endpoint = "{}/{}".format(CORETAX_SPT_STATUS_ENDPOINT, spt.tracking_id)
+        endpoint = f"{CORETAX_SPT_STATUS_ENDPOINT}/{spt.tracking_id}"
         try:
             response = await client.get(endpoint)
             new_status = response.get("status")
@@ -1510,7 +1498,7 @@ class SPTMasaPPNBuilder:
                 "rejection_reason": response.get("rejection_reason"),
             }
         except Exception as e:
-            logger.error("Failed to check SPT status: {}".format(e))
+            logger.error(f"Failed to check SPT status: {e}")
             return {"success": False, "error": str(e)}
 
     async def cancel_spt(self, spt_id: UUID, cancelled_by: UUID, reason: str) -> dict[str, Any]:
@@ -1526,7 +1514,7 @@ class SPTMasaPPNBuilder:
                 try:
                     await client.post(CORETAX_SPT_CANCEL_ENDPOINT, payload)
                 except Exception as e:
-                    logger.warning("Failed to cancel SPT in Coretax: {}".format(e))
+                    logger.warning(f"Failed to cancel SPT in Coretax: {e}")
             cache_key = self._get_cache_key(spt.npwp, spt.tahun, spt.bulan)
             if cache_key in self._cache:
                 del self._cache[cache_key]
@@ -1617,7 +1605,7 @@ class SPTMasaPpn:
         return PaymentReference(ntpn=ntpn, amount=amount, bank_code=bank_code)
 
     def submit(self, ntpn: str) -> SubmissionResult:
-        receipt_number = "SPT-{}{:02d}-{}".format(self.tahun, self.masa, ntpn[:8])
+        receipt_number = f"SPT-{self.tahun}{self.masa:02d}-{ntpn[:8]}"
         return SubmissionResult(is_submitted=True, receipt_number=receipt_number)
 
 

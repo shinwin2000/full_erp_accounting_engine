@@ -127,12 +127,12 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     )
 
     # Ledger entries
-    ledger_entries: Mapped[list["LedgerEntryTable"]] = relationship(
+    ledger_entries: Mapped[list[LedgerEntryTable]] = relationship(
         "LedgerEntryTable", back_populates="account"
     )
 
     # Journal lines – menggunakan string reference dan foreign_keys eksplisit
-    journal_lines: Mapped[list["JournalLineTable"]] = relationship(
+    journal_lines: Mapped[list[JournalLineTable]] = relationship(
         "JournalLineTable",
         back_populates="account",
         primaryjoin="and_(AccountTable.account_code == JournalLineTable.account_code, "
@@ -145,7 +145,7 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     # Relasi ke LegalEntityTable – karena LegalEntityMixin tidak memberikan relasi
     # setelah kita override legal_entity_id, kita tambahkan secara eksplisit.
     # ========================================================================
-    legal_entity: Mapped["LegalEntityTable"] = relationship(
+    legal_entity: Mapped[LegalEntityTable] = relationship(
         "LegalEntityTable",
         back_populates="accounts",
         foreign_keys=[legal_entity_id],

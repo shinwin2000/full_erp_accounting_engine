@@ -89,7 +89,7 @@ class DepreciationScheduleTable(
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    asset: Mapped["FixedAssetTable"] = relationship(
+    asset: Mapped[FixedAssetTable] = relationship(
         "FixedAssetTable",
         back_populates="detailed_schedules",
     )

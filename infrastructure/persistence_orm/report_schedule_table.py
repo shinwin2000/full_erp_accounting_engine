@@ -6,11 +6,11 @@ Responsibility: Model untuk penjadwalan laporan (cron, next run, last run, recip
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import UUID

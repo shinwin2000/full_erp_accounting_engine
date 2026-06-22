@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_ap import APService
 from application.service_layer.service_bank_cash import BankCashService
 from application.service_layer.service_journal import JournalService
@@ -30,7 +30,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class APPaymentRunCommand(Command):
+class APPaymentRunCommand(BaseCommand):
     """Command untuk payment run AP."""
 
     __slots__ = (
@@ -339,7 +339,7 @@ class APPaymentRunUseCase:
         return self._stats
 
 
-async def ap_payment_run_handler(command: Command, use_case: APPaymentRunUseCase) -> CommandResult:
+async def ap_payment_run_handler(command: BaseCommand, use_case: APPaymentRunUseCase) -> CommandResult:
     if not isinstance(command, APPaymentRunCommand):
         raise TypeError(f"Expected APPaymentRunCommand, got {type(command)}")
     return await use_case.execute(command)

@@ -1,2 +1,24 @@
-# Chart.yaml
-# Auto-generated configuration file
+apiVersion: v2
+name: erp-accounting-engine
+description: Sovereign ERP Accounting Engine - High-integrity immutable ledger
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - erp
+  - accounting
+  - ledger
+  - immutable
+  - psak
+  - ifrs
+home: https://github.com/your-org/erp-accounting-engine
+sources:
+  - https://github.com/your-org/erp-accounting-engine
+maintainers:
+  - name: ERP Engineering Team
+    email: engineering@your-company.com
+icon: https://example.com/erp-icon.png
+annotations:
+  artifacthub.io/operator: "false"
+  artifacthub.io/containsSecurityUpdates: "true"
+  artifacthub.io/prerelease: "false"

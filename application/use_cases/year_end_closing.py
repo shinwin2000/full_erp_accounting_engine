@@ -17,7 +17,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_fiscal_period import FiscalPeriodService
 from application.service_layer.service_fixed_asset import FixedAssetService
 from application.service_layer.service_journal import JournalService
@@ -32,7 +32,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class YearEndClosingCommand(Command):
+class YearEndClosingCommand(BaseCommand):
     """Command untuk year-end closing."""
 
     __slots__ = (
@@ -75,21 +75,24 @@ class YearEndClosingCommand(Command):
         self.dry_run = dry_run
 
     def to_dict(self) -> dict[str, Any]:
-        data = super().to_dict()
-        data.update(
-            {
-                "legal_entity_id": str(self.legal_entity_id),
-                "closing_year": self.closing_year,
-                "closing_date": self.closing_date.isoformat(),
-                "reverse_opening_balances": self.reverse_opening_balances,
-                "adjust_tax": self.adjust_tax,
-                "impairment_test": self.impairment_test,
-                "revaluation_assets": self.revaluation_assets,
-                "generate_financial_statements": self.generate_financial_statements,
-                "dry_run": self.dry_run,
-            }
-        )
-        return data
+        """Manual dict construction to avoid __slots__ conflict."""
+        return {
+            "command_id": str(self.command_id),
+            "command_type": self.command_type,
+            "user_id": str(self.user_id) if self.user_id else None,
+            "correlation_id": self.correlation_id,
+            "idempotency_key": self.idempotency_key,
+            "created_at": self.created_at.isoformat() if hasattr(self, "created_at") else None,
+            "legal_entity_id": str(self.legal_entity_id),
+            "closing_year": self.closing_year,
+            "closing_date": self.closing_date.isoformat(),
+            "reverse_opening_balances": self.reverse_opening_balances,
+            "adjust_tax": self.adjust_tax,
+            "impairment_test": self.impairment_test,
+            "revaluation_assets": self.revaluation_assets,
+            "generate_financial_statements": self.generate_financial_statements,
+            "dry_run": self.dry_run,
+        }
 
 
 class YearEndClosingResult:
@@ -362,7 +365,7 @@ class YearEndClosingUseCase:
 
 
 async def year_end_closing_handler(
-    command: Command, use_case: YearEndClosingUseCase
+    command: BaseCommand, use_case: YearEndClosingUseCase
 ) -> CommandResult:
     if not isinstance(command, YearEndClosingCommand):
         raise TypeError(f"Expected YearEndClosingCommand, got {type(command)}")

@@ -22,7 +22,6 @@ Method Standards (ERP):
 """
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -31,8 +30,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -490,8 +488,8 @@ class HedgeDashboardResponseSchema(BaseModel):
 
 async def get_hedge_service(request: Request, ) -> Any:
     """Get Hedge Service instance."""
+
     from application.service_layer.service_hedge import HedgeService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(HedgeService)
@@ -1629,12 +1627,12 @@ async def export_derivatives(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "derivatives_{}_{}.{}".format(legal_entity_id, as_of_date, format)
+        filename = f"derivatives_{legal_entity_id}_{as_of_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.exception("Failed to export derivatives: %s", e)
@@ -1666,12 +1664,12 @@ async def export_hedge_relationships(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "hedge_relationships_{}_{}.{}".format(legal_entity_id, as_of_date, format)
+        filename = f"hedge_relationships_{legal_entity_id}_{as_of_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.exception("Failed to export hedge relationships: %s", e)

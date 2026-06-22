@@ -8,7 +8,7 @@ Responsibility: Registry untuk service layer (use cases, services, repositories)
 from __future__ import annotations
 
 import logging
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from bootstrap.dependency_container.ioc_container import IoCContainer, Lifetime, get_container
 
@@ -20,17 +20,6 @@ T = TypeVar("T")
 class ServiceRegistry:
     """
     Registry untuk service layer.
-
-    Method Standards:
-    - register_service() - Mendaftar service
-    - register_alias() - Mendaftar alias
-    - get_service() - Mendapatkan service
-    - resolve() - Resolusi sync
-    - resolve_async() - Resolusi async
-    - list_services() - Daftar service
-    - has_service() - Cek service
-    - unregister() - Menghapus service
-    - reset() - Reset registry
     """
 
     def __init__(self, container: IoCContainer | None = None):
@@ -46,7 +35,6 @@ class ServiceRegistry:
         lifetime: Lifetime = Lifetime.SINGLETON,
         name: str | None = None,
     ) -> None:
-        """Register a service."""
         if not interface:
             raise ValueError("Service interface cannot be None")
         service_name = name or interface.__name__
@@ -58,14 +46,12 @@ class ServiceRegistry:
         self._logger.info(f"Registered service: {service_name}")
 
     def register_alias(self, alias: str, target: str) -> None:
-        """Register an alias for a service."""
         if not alias or not target:
             raise ValueError("Alias and target cannot be empty")
         self._aliases[alias] = target
         self._logger.debug(f"Registered alias: {alias} -> {target}")
 
     def get_service(self, service_name: str) -> type | None:
-        """Get service interface by name."""
         if not service_name:
             raise ValueError("Service name cannot be empty")
         if service_name in self._aliases:
@@ -73,37 +59,30 @@ class ServiceRegistry:
         return self._services.get(service_name)
 
     def resolve(self, interface: type[T], **kwargs) -> T:
-        """Resolve service by interface (sync)."""
         return self._container.resolve(interface, **kwargs)
 
     async def resolve_async(self, interface: type[T], **kwargs) -> T:
-        """Resolve service by interface (async)."""
         return await self._container.resolve_async(interface, **kwargs)
 
     def resolve_by_name(self, name: str, **kwargs) -> Any:
-        """Resolve service by name (sync)."""
         interface = self.get_service(name)
         if not interface:
             raise ValueError(f"Service not found: {name}")
         return self._container.resolve(interface, **kwargs)
 
     async def resolve_by_name_async(self, name: str, **kwargs) -> Any:
-        """Resolve service by name (async)."""
         interface = self.get_service(name)
         if not interface:
             raise ValueError(f"Service not found: {name}")
         return await self._container.resolve_async(interface, **kwargs)
 
     def list_services(self) -> list[str]:
-        """List all registered service names."""
         return sorted(self._services.keys())
 
     def has_service(self, service_name: str) -> bool:
-        """Check if service exists."""
         return service_name in self._services or service_name in self._aliases
 
     def unregister(self, service_name: str) -> bool:
-        """Unregister a service."""
         if service_name in self._services:
             del self._services[service_name]
             self._logger.debug(f"Unregistered service: {service_name}")
@@ -115,7 +94,6 @@ class ServiceRegistry:
         return False
 
     def reset(self) -> None:
-        """Reset registry."""
         self._services.clear()
         self._aliases.clear()
         self._logger.info("Service registry reset")
@@ -126,15 +104,12 @@ def service(
     name: str | None = None,
     lifetime: Lifetime = Lifetime.SINGLETON,
 ):
-    """Decorator to register a service."""
-
     def decorator(cls):
         service_name = name or cls.__name__
         service_interface = interface or cls
         registry = ServiceRegistry()
         registry.register_service(service_interface, cls, lifetime, service_name)
         return cls
-
     return decorator
 
 
@@ -143,7 +118,6 @@ class ServiceRegistrar:
 
     @staticmethod
     async def register_all() -> None:
-        """Register all services to the container."""
         container = get_container()
 
         # ==================== CORE SERVICES ====================
@@ -175,34 +149,83 @@ class ServiceRegistrar:
         container.register_singleton(ManufacturingService, ManufacturingService)
         container.register_singleton(ReportService, ReportService)
 
-        # ==================== REPOSITORIES ====================
-        from adapters.secondary_impl.sqlalchemy_account_repository_impl import SQLAlchemyAccountRepository
+        # ==================== REPOSITORY IMPLEMENTATIONS ====================
+        from adapters.secondary_impl.kafka_event_publisher_impl import KafkaEventPublisherImpl
+        from adapters.secondary_impl.sqlalchemy_account_repository_impl import (
+            SQLAlchemyAccountRepository,
+        )
         from adapters.secondary_impl.sqlalchemy_ap_repository_impl import SQLAlchemyAPRepository
         from adapters.secondary_impl.sqlalchemy_ar_repository_impl import SQLAlchemyARRepository
-        from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import SQLAlchemyBankCashRepository
-        from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import SQLAlchemyFixedAssetRepository
-        from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import SQLAlchemyIAMUserRepository
-        from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import SQLAlchemyInventoryRepository
-        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import SQLAlchemyJournalRepository
-        from adapters.secondary_impl.sqlalchemy_ledger_repository_impl import SQLAlchemyLedgerRepository
-        from adapters.secondary_impl.sqlalchemy_legal_entity_repository_impl import SQLAlchemyLegalEntityRepository
-        from adapters.secondary_impl.sqlalchemy_outbox_repository_impl import SQLAlchemyOutboxRepository
-        from adapters.secondary_impl.sqlalchemy_system_setting_repository_impl import SQLAlchemySystemSettingRepository
+        from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import (
+            SQLAlchemyBankCashRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_consolidation_repository_impl import (
+            SQLAlchemyConsolidationRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import (
+            SQLAlchemyFixedAssetRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_forex_repository_impl import (
+            SQLAlchemyForexRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_hedge_repository_impl import (
+            SQLAlchemyHedgeRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import (
+            SQLAlchemyIAMUserRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import (
+            SQLAlchemyInventoryRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import (
+            SQLAlchemyJournalRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_ledger_repository_impl import (
+            SQLAlchemyLedgerRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_legal_entity_repository_impl import (
+            SQLAlchemyLegalEntityRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_manufacturing_repository_impl import (
+            SQLAlchemyManufacturingRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_outbox_repository_impl import (
+            SQLAlchemyOutboxRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_payroll_repository_impl import (
+            SQLAlchemyPayrollRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_system_setting_repository_impl import (
+            SQLAlchemySystemSettingRepository,
+        )
         from adapters.secondary_impl.sqlalchemy_tax_repository_impl import SQLAlchemyTaxRepository
+        from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SQLAlchemyUnitOfWork
+        from adapters.secondary_impl.tax_authority_coretax_impl import CoretaxAuthorityAdapter
+
+        # ==================== PORT INTERFACES ====================
         from ports.primary.account_repository_port import AccountRepositoryPort
         from ports.primary.ap_repository_port import APRepositoryPort
         from ports.primary.ar_repository_port import ARRepositoryPort
         from ports.primary.bank_cash_repository_port import BankCashRepositoryPort
+        from ports.primary.consolidation_repository_port import ConsolidationRepositoryPort
+        from ports.primary.event_publisher_port import EventPublisherPort
         from ports.primary.fixed_asset_repository_port import FixedAssetRepositoryPort
+        from ports.primary.forex_repository_port import ForexRepositoryPort
+        from ports.primary.hedge_repository_port import HedgeRepositoryPort
         from ports.primary.iam_user_repository_port import IAMUserRepositoryPort
         from ports.primary.inventory_repository_port import InventoryRepositoryPort
         from ports.primary.journal_repository_port import JournalRepositoryPort
         from ports.primary.ledger_repository_port import LedgerRepositoryPort
         from ports.primary.legal_entity_repository_port import LegalEntityRepositoryPort
+        from ports.primary.manufacturing_repository_port import ManufacturingRepositoryPort
         from ports.primary.outbox_repository_port import OutboxRepositoryPort
+        from ports.primary.payroll_repository_port import PayrollRepositoryPort
         from ports.primary.system_setting_repository_port import SystemSettingRepositoryPort
+        from ports.primary.tax_authority_coretax_port import CoreTaxPort
         from ports.primary.tax_repository_port import TaxRepositoryPort
+        from ports.primary.unit_of_work_port import UnitOfWorkPort
 
+        # ==================== REGISTER REPOSITORIES ====================
         container.register_singleton(JournalRepositoryPort, SQLAlchemyJournalRepository)
         container.register_singleton(LedgerRepositoryPort, SQLAlchemyLedgerRepository)
         container.register_singleton(AccountRepositoryPort, SQLAlchemyAccountRepository)
@@ -216,6 +239,32 @@ class ServiceRegistrar:
         container.register_singleton(IAMUserRepositoryPort, SQLAlchemyIAMUserRepository)
         container.register_singleton(SystemSettingRepositoryPort, SQLAlchemySystemSettingRepository)
         container.register_singleton(OutboxRepositoryPort, SQLAlchemyOutboxRepository)
+        container.register_singleton(PayrollRepositoryPort, SQLAlchemyPayrollRepository)
+        container.register_singleton(ManufacturingRepositoryPort, SQLAlchemyManufacturingRepository)
+        container.register_singleton(ConsolidationRepositoryPort, SQLAlchemyConsolidationRepository)
+        container.register_singleton(ForexRepositoryPort, SQLAlchemyForexRepository)
+        container.register_singleton(HedgeRepositoryPort, SQLAlchemyHedgeRepository)
+        container.register_singleton(UnitOfWorkPort, SQLAlchemyUnitOfWork)
+        container.register_singleton(EventPublisherPort, KafkaEventPublisherImpl)
+        container.register_singleton(CoreTaxPort, CoretaxAuthorityAdapter)
+
+        # ==================== ALIAS UNTUK P55 ====================
+        registry = ServiceRegistry()
+        registry.register_alias("IJournalRepository", "JournalRepositoryPort")
+        registry.register_alias("IUnitOfWork", "UnitOfWorkPort")
+        registry.register_alias("IEventPublisher", "EventPublisherPort")
+        registry.register_alias("ITaxAuthorityPort", "CoreTaxPort")
+        registry.register_alias("IUserRepository", "IAMUserRepositoryPort")
+        registry.register_alias("IAccountRepository", "AccountRepositoryPort")
+        registry.register_alias("IArRepository", "ARRepositoryPort")
+        registry.register_alias("IApRepository", "APRepositoryPort")
+        registry.register_alias("IInventoryRepository", "InventoryRepositoryPort")
+        registry.register_alias("IFixedAssetRepository", "FixedAssetRepositoryPort")
+        registry.register_alias("IPayrollRepository", "PayrollRepositoryPort")
+        registry.register_alias("IManufacturingRepository", "ManufacturingRepositoryPort")
+        registry.register_alias("IConsolidationRepository", "ConsolidationRepositoryPort")
+        registry.register_alias("IForexRepository", "ForexRepositoryPort")
+        registry.register_alias("IHedgeRepository", "HedgeRepositoryPort")
 
         # ==================== COMMAND & QUERY BUS ====================
         from application.commands_cqrs.command_bus_unified import CommandBusUnified
@@ -226,7 +275,6 @@ class ServiceRegistrar:
 
         # ==================== KERNEL ====================
         from kernel.sealed_gate import SealedGate, get_sealed_gate
-
         container.register_singleton(SealedGate, factory=get_sealed_gate)
 
         # ==================== INFRASTRUCTURE ====================
@@ -256,7 +304,6 @@ _service_registry: ServiceRegistry | None = None
 
 
 def get_service_registry() -> ServiceRegistry:
-    """Get singleton instance of ServiceRegistry."""
     global _service_registry
     if _service_registry is None:
         _service_registry = ServiceRegistry()

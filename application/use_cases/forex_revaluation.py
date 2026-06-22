@@ -17,7 +17,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_forex import ForexService
 from application.service_layer.service_journal import JournalService
 from application.service_layer.service_ledger import LedgerService
@@ -26,7 +26,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class ForexRevaluationCommand(Command):
+class ForexRevaluationCommand(BaseCommand):
     """Command untuk revaluasi mata uang asing."""
 
     __slots__ = (
@@ -361,7 +361,7 @@ class ForexRevaluationUseCase:
 
 
 async def forex_revaluation_handler(
-    command: Command, use_case: ForexRevaluationUseCase
+    command: BaseCommand, use_case: ForexRevaluationUseCase
 ) -> CommandResult:
     if not isinstance(command, ForexRevaluationCommand):
         raise TypeError(f"Expected ForexRevaluationCommand, got {type(command)}")

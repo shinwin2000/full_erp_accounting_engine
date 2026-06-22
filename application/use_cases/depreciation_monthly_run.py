@@ -35,7 +35,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_fixed_asset import FixedAssetService
 from application.service_layer.service_journal import JournalService
 from kernel.sealed_gate import SealedGate
@@ -43,7 +43,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class DepreciationMonthlyRunCommand(Command):
+class DepreciationMonthlyRunCommand(BaseCommand):
     """Command untuk menjalankan depresiasi bulanan."""
 
     __slots__ = (

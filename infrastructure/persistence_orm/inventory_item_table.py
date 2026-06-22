@@ -136,19 +136,19 @@ class InventoryItemTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     # RELATIONSHIPS (menggunakan backref agar child tidak perlu referensi)
     # ========================================================================
 
-    movements: Mapped[list["InventoryMovementTable"]] = relationship(
+    movements: Mapped[list[InventoryMovementTable]] = relationship(
         "InventoryMovementTable",
         backref="item",
         cascade="all, delete-orphan",
     )
 
-    fifo_layers: Mapped[list["InventoryFIFOLayerTable"]] = relationship(
+    fifo_layers: Mapped[list[InventoryFIFOLayerTable]] = relationship(
         "InventoryFIFOLayerTable",
         backref="item",
         cascade="all, delete-orphan",
     )
 
-    warehouse: Mapped["WarehouseTable | None"] = relationship(
+    warehouse: Mapped[WarehouseTable | None] = relationship(
         "WarehouseTable",
         back_populates="items",
         foreign_keys=[warehouse_id],

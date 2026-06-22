@@ -18,7 +18,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_audit import AuditService
 from application.service_layer.service_iam import IAMService
 from kernel.sealed_gate import SealedGate
@@ -43,7 +43,7 @@ class SuspicionReason(Enum):
     PEP_RELATED = "pep_related"
 
 
-class AMLScreeningCommand(Command):
+class AMLScreeningCommand(BaseCommand):
     """Command untuk screening AML transaksi."""
 
     __slots__ = (
@@ -337,7 +337,7 @@ class AMLScreeningUseCase:
 # ============================================================================
 
 
-async def aml_screening_handler(command: Command, use_case: AMLScreeningUseCase) -> CommandResult:
+async def aml_screening_handler(command: BaseCommand, use_case: AMLScreeningUseCase) -> CommandResult:
     if not isinstance(command, AMLScreeningCommand):
         raise TypeError(f"Expected AMLScreeningCommand, got {type(command)}")
     return await use_case.execute(command)

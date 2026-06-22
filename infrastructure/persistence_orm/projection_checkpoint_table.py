@@ -6,11 +6,11 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel projection_checkpoin
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Index, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID

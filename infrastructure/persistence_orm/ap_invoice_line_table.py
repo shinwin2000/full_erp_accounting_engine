@@ -55,7 +55,7 @@ class APInvoiceLineTable(Base, TimestampMixin):
     # =========================================================================
     # RELATIONSHIPS
     # =========================================================================
-    invoice: Mapped["APInvoiceTable"] = relationship(
+    invoice: Mapped[APInvoiceTable] = relationship(
         "APInvoiceTable",
         back_populates="lines",
         foreign_keys=[invoice_id],

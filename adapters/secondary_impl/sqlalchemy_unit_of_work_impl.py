@@ -57,7 +57,7 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
     def __init__(
         self, session_factory: async_sessionmaker | None = None, is_period_closing: bool = False
     ):
-        self._session_factory = session_factory or get_async_session_factory()
+        self._session_factory = session_factory
         self._session: AsyncSession | None = None
         self._repositories: dict[str, Any] = {}
         self._event_collector: list = []
@@ -68,18 +68,38 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
 
     def _init_repositories(self):
         """Inisialisasi repository instances menggunakan lazy imports."""
-        from adapters.secondary_impl.sqlalchemy_account_repository_impl import SQLAlchemyAccountRepository
+        from adapters.secondary_impl.sqlalchemy_account_repository_impl import (
+            SQLAlchemyAccountRepository,
+        )
         from adapters.secondary_impl.sqlalchemy_ap_repository_impl import SQLAlchemyAPRepository
         from adapters.secondary_impl.sqlalchemy_ar_repository_impl import SQLAlchemyARRepository
-        from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import SQLAlchemyBankCashRepository
-        from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import SQLAlchemyFixedAssetRepository
-        from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import SQLAlchemyIAMUserRepository
-        from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import SQLAlchemyInventoryRepository
-        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import SQLAlchemyJournalRepository
-        from adapters.secondary_impl.sqlalchemy_ledger_repository_impl import SQLAlchemyLedgerRepository
-        from adapters.secondary_impl.sqlalchemy_legal_entity_repository_impl import SQLAlchemyLegalEntityRepository
-        from adapters.secondary_impl.sqlalchemy_outbox_repository_impl import SQLAlchemyOutboxRepository
-        from adapters.secondary_impl.sqlalchemy_system_setting_repository_impl import SQLAlchemySystemSettingRepository
+        from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import (
+            SQLAlchemyBankCashRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import (
+            SQLAlchemyFixedAssetRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import (
+            SQLAlchemyIAMUserRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import (
+            SQLAlchemyInventoryRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import (
+            SQLAlchemyJournalRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_ledger_repository_impl import (
+            SQLAlchemyLedgerRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_legal_entity_repository_impl import (
+            SQLAlchemyLegalEntityRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_outbox_repository_impl import (
+            SQLAlchemyOutboxRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_system_setting_repository_impl import (
+            SQLAlchemySystemSettingRepository,
+        )
         from adapters.secondary_impl.sqlalchemy_tax_repository_impl import SQLAlchemyTaxRepository
 
         self._repositories["journal"] = SQLAlchemyJournalRepository()
@@ -101,6 +121,9 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
             repo.session = self._session
 
     async def __aenter__(self) -> SQLAlchemyUnitOfWork:
+        if self._session_factory is None:
+            self._session_factory = get_async_session_factory()
+
         self._session = self._session_factory()
 
         if self._is_period_closing:
@@ -129,6 +152,41 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
                 await self._session.close()
                 logger.debug(f"UoW session closed, session id: {id(self._session)}")
             self._session = None
+
+    # ========================================================================
+    # METODE YANG DIBUTUHKAN OLEH UnitOfWorkPort (P55 CONTRACT)
+    # ========================================================================
+
+    async def begin(self, isolation_level: str = "READ_COMMITTED") -> None:
+        """
+        Begin a transaction with optional isolation level.
+        This method is required by UnitOfWorkPort interface.
+        """
+        if self._session is None:
+            if self._session_factory is None:
+                self._session_factory = get_async_session_factory()
+            self._session = self._session_factory()
+        if self._transaction_manager is None:
+            self._transaction_manager = TransactionManager(self._session)
+            await self._transaction_manager.begin(isolation_level=isolation_level)
+            self._attach_session_to_repositories()
+        else:
+            logger.debug("Transaction already begun, ignoring begin() call")
+
+    async def begin_read_only(self) -> None:
+        """
+        Begin a read-only transaction.
+        Required by UnitOfWorkPort interface.
+        """
+        await self.begin(isolation_level="READ COMMITTED")
+        if self._session:
+            # Set session to read-only if supported
+            await self._session.execute("SET TRANSACTION READ ONLY")
+            logger.debug("Read-only transaction begun")
+
+    # ========================================================================
+    # METODE LAINNYA (commit, rollback, flush, dll)
+    # ========================================================================
 
     async def commit(self) -> None:
         if not self._session:
@@ -279,11 +337,19 @@ async def get_uow() -> SQLAlchemyUnitOfWork:
     async with uow:
         yield uow
 
+
+# ============================================================================
+# ALIAS UNTUK KOMPATIBILITAS
+# ============================================================================
+
+SQLAlchemyUnitOfWorkImpl = SQLAlchemyUnitOfWork
 SqlAlchemyUnitOfWork = SQLAlchemyUnitOfWork
+
 
 __all__ = [
     "SQLAlchemyUnitOfWork",
     "SQLAlchemyUnitOfWorkFactory",
+    "SQLAlchemyUnitOfWorkImpl",
     "SqlAlchemyUnitOfWork",
     "UnitOfWorkCommitError",
     "UnitOfWorkError",

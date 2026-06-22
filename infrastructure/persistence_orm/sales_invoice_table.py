@@ -104,14 +104,14 @@ class SalesInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     # ========================================================================
 
     # Relasi ke Customer (backref agar CustomerTable otomatis mendapat 'sales_invoices')
-    customer: Mapped["CustomerTable"] = relationship(
+    customer: Mapped[CustomerTable] = relationship(
         "CustomerTable",
         foreign_keys=[customer_id],
         backref="sales_invoices",
     )
 
     # Relasi ke Sales Order (backref agar SalesOrderTable otomatis mendapat 'sales_invoices')
-    sales_order: Mapped["SalesOrderTable | None"] = relationship(
+    sales_order: Mapped[SalesOrderTable | None] = relationship(
         "SalesOrderTable",
         foreign_keys=[sales_order_id],
         backref="sales_invoices",

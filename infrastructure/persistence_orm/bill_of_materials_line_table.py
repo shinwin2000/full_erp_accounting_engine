@@ -81,7 +81,7 @@ class BillOfMaterialsLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMix
     # RELATIONSHIP back to header (many-to-one)
     # Menggunakan back_populates yang sama dengan di BillOfMaterialsTable.lines
     # =========================================================================
-    bom: Mapped["BillOfMaterialsTable"] = relationship(
+    bom: Mapped[BillOfMaterialsTable] = relationship(
         "BillOfMaterialsTable",
         back_populates="lines",
         foreign_keys=[bom_id],

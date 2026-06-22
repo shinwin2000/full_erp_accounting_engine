@@ -24,8 +24,14 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
 
     __slots__ = ("_session",)
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession | None = None) -> None:
         self._session = session
+
+    async def _get_session(self) -> AsyncSession:
+        if self._session is None:
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session
+            self._session = await get_async_session()
+        return self._session
 
     # ========== Approval Request ==========
 
@@ -39,8 +45,9 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         Returns:
             The persisted request (with generated fields populated).
         """
-        self._session.add(request)
-        await self._session.flush()
+        session = await self._get_session()
+        session.add(request)
+        await session.flush()
         return request
 
     async def get_request_by_id(self, request_id: uuid.UUID) -> ApprovalRequestTable | None:
@@ -53,8 +60,9 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         Returns:
             The request if found, else None.
         """
+        session = await self._get_session()
         stmt = select(ApprovalRequestTable).where(ApprovalRequestTable.id == request_id)
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_requests_by_entity(
@@ -70,6 +78,7 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         Returns:
             List of requests (empty if none).
         """
+        session = await self._get_session()
         stmt = (
             select(ApprovalRequestTable)
             .where(
@@ -78,7 +87,7 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
             )
             .order_by(ApprovalRequestTable.created_at.desc())
         )
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return list(result.scalars().all())
 
     async def get_pending_requests_for_user(self, user_id: uuid.UUID) -> list[ApprovalRequestTable]:
@@ -92,6 +101,7 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         Returns:
             List of pending requests.
         """
+        session = await self._get_session()
         stmt = (
             select(ApprovalRequestTable)
             .where(
@@ -100,7 +110,7 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
             )
             .order_by(ApprovalRequestTable.priority.desc(), ApprovalRequestTable.created_at)
         )
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return list(result.scalars().all())
 
     async def update_request_status(
@@ -126,6 +136,7 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         if status not in allowed_statuses:
             raise ValueError(f"Invalid status: {status}. Allowed: {allowed_statuses}")
 
+        session = await self._get_session()
         stmt = (
             update(ApprovalRequestTable)
             .where(ApprovalRequestTable.id == request_id)
@@ -136,7 +147,7 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
                 comments=comments,
             )
         )
-        await self._session.execute(stmt)
+        await session.execute(stmt)
 
     # ========== Approval Rules ==========
 
@@ -150,8 +161,9 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         Returns:
             The persisted rule.
         """
-        self._session.add(rule)
-        await self._session.flush()
+        session = await self._get_session()
+        session.add(rule)
+        await session.flush()
         return rule
 
     async def get_rule_by_id(self, rule_id: uuid.UUID) -> ApprovalRuleTable | None:
@@ -164,8 +176,9 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         Returns:
             The rule if found, else None.
         """
+        session = await self._get_session()
         stmt = select(ApprovalRuleTable).where(ApprovalRuleTable.id == rule_id)
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_rules_for_entity(
@@ -185,6 +198,7 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         Note:
             The amount is compared as Decimal to avoid floating-point precision issues.
         """
+        session = await self._get_session()
         stmt = select(ApprovalRuleTable).where(ApprovalRuleTable.entity_type == entity_type)
 
         if amount is not None:
@@ -197,7 +211,7 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
                 ApprovalRuleTable.max_amount >= amount,
             )
 
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return list(result.scalars().all())
 
     async def get_active_rules(self) -> list[ApprovalRuleTable]:
@@ -207,8 +221,9 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         Returns:
             List of active rules.
         """
+        session = await self._get_session()
         stmt = select(ApprovalRuleTable).where(ApprovalRuleTable.is_active.is_(True))
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return list(result.scalars().all())
 
 

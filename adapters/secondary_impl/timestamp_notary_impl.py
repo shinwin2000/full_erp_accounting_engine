@@ -12,7 +12,7 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -21,7 +21,6 @@ from ports.primary.timestamp_notary_port import (
     TimestampNotaryPort,
     TimestampRequest,
     TimestampToken,
-    TimestampCertificate,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,7 +50,7 @@ class TimestampNotaryImpl(TimestampNotaryPort):
                 "id": cert_id,
                 "name": "Default Timestamp Certificate",
                 "details": {"type": "self-signed"},
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
                 "is_active": True,
                 "revoked": False,
                 "revoked_at": None,
@@ -68,7 +67,7 @@ class TimestampNotaryImpl(TimestampNotaryPort):
             "action": action,
             "message": message,
             "user_id": user_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         self._audit_log.append(entry)
         logger.debug(f"Audit: {action} - {message}")
@@ -86,15 +85,15 @@ class TimestampNotaryImpl(TimestampNotaryPort):
             id=token_id,
             request_id=request.id,
             data_hash=request.data_hash,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             serial_number=serial,
             token_data=b"timestamp_token_placeholder",
             time_hash=await self._compute_time_hash(
                 request.data_hash,
-                datetime.now(timezone.utc),
+                datetime.now(UTC),
                 serial
             ),
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             revoked=False,
             revoked_at=None,
             revocation_reason=None,
@@ -115,7 +114,7 @@ class TimestampNotaryImpl(TimestampNotaryPort):
             id=request_id,
             data_hash=data_hash,
             metadata=metadata or {},
-            requested_at=datetime.now(timezone.utc),
+            requested_at=datetime.now(UTC),
             status="pending",
         )
         async with self._lock:
@@ -176,7 +175,7 @@ class TimestampNotaryImpl(TimestampNotaryPort):
             for token in self._tokens.values():
                 if token.id == token_id:
                     token.revoked = True
-                    token.revoked_at = datetime.now(timezone.utc)
+                    token.revoked_at = datetime.now(UTC)
                     token.revocation_reason = reason
                     await self._log_audit(
                         "token_revoked",
@@ -193,7 +192,7 @@ class TimestampNotaryImpl(TimestampNotaryPort):
             for token in self._tokens.values():
                 if token.data_hash == data_hash and not token.revoked:
                     token.revoked = True
-                    token.revoked_at = datetime.now(timezone.utc)
+                    token.revoked_at = datetime.now(UTC)
                     token.revocation_reason = reason
                     count += 1
             if count > 0:
@@ -212,7 +211,7 @@ class TimestampNotaryImpl(TimestampNotaryPort):
                 "id": cert_id,
                 "name": name,
                 "details": details,
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
                 "is_active": False,
                 "revoked": False,
                 "revoked_at": None,
@@ -243,7 +242,7 @@ class TimestampNotaryImpl(TimestampNotaryPort):
                 return False
             cert = self._certificates[cert_id]
             cert["revoked"] = True
-            cert["revoked_at"] = datetime.now(timezone.utc)
+            cert["revoked_at"] = datetime.now(UTC)
             cert["revocation_reason"] = reason
             if self._active_cert_id == cert_id:
                 self._active_cert_id = None
@@ -320,3 +319,15 @@ class TimestampNotaryImpl(TimestampNotaryPort):
             return {"status": "degraded", "error": "Could not create timestamp"}
         except Exception as e:
             return {"status": "unhealthy", "error": str(e)}
+
+
+# ============================================================================
+# ALIAS UNTUK KOMPATIBILITAS DENGAN ADAPTER REGISTRY
+# ============================================================================
+
+RFC3161TimestampAdapter = TimestampNotaryImpl
+
+__all__ = [
+    "RFC3161TimestampAdapter",
+    "TimestampNotaryImpl",
+]

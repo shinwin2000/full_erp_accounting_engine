@@ -526,7 +526,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
 def get_audit_store() -> AppendOnlyStore | None:
     """Dependency untuk mendapatkan audit store dari container."""
-    from infrastructure.dependency_container.ioc_container import get_container
+    # PERBAIKAN: ganti infrastructure.dependency_container menjadi bootstrap.dependency_container
+    from bootstrap.dependency_container.ioc_container import get_container
 
     try:
         container = get_container()

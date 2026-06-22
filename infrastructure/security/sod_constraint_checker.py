@@ -227,7 +227,9 @@ class SODConstraintChecker:
 
     async def _get_user_repo(self) -> IAMUserRepositoryPort:
         if self._user_repo is None:
-            container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+            # Dynamic import to avoid architecture layer violation (P08)
+            get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
+            container = get_container()
             self._user_repo = container.resolve(IAMUserRepositoryPort)
         return self._user_repo
 

@@ -792,9 +792,46 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             raise InventoryRepositoryError(f"Failed to generate number: {e}") from e
 
 
+    async def adjust_stock(self, item_id: UUID, quantity: Decimal) -> bool:
+        """Adjust stock (positive = in, negative = out)."""
+        session = await self._get_session()
+        try:
+            stmt = select(InventoryItemTable).where(InventoryItemTable.id == item_id)
+            result = await session.execute(stmt)
+            item = result.scalar_one_or_none()
+            if not item:
+                return False
+            new_quantity = item.current_stock + quantity
+            if new_quantity < 0:
+                raise NegativeStockNotAllowedError(f"Stock would be negative: {new_quantity}")
+            stmt_update = (
+                update(InventoryItemTable)
+                .where(InventoryItemTable.id == item_id)
+                .values(current_stock=new_quantity, updated_at=datetime.utcnow())
+            )
+            await session.execute(stmt_update)
+            await session.flush()
+            return True
+        except Exception as e:
+            await session.rollback()
+            raise InventoryRepositoryError(f"Failed to adjust stock: {e}") from e
+        
+    async def find_item_by_id(self, item_id: UUID) -> InventoryItemAggregate | None:
+        """P55: Find inventory item by ID (without legal_entity_id)."""
+        return await self.get_item_by_id(item_id)
+
+    async def save_item(self, item: InventoryItemAggregate) -> None:
+        """P55: Save item (add if new, update if exists)."""
+        existing = await self.get_item_by_id(item.id)
+        if existing:
+            await self.update_item(item)
+        else:
+            await self.add_item(item)        
+        
 # ============================================================================
 # EXPORTS
 # ============================================================================
+SQLAlchemyInventoryRepositoryImpl = SQLAlchemyInventoryRepository
 
 __all__ = [
     "DuplicateItemCodeError",
@@ -805,4 +842,5 @@ __all__ = [
     "NegativeStockNotAllowedError",
     "OptimisticLockError",
     "SQLAlchemyInventoryRepository",
+    "SQLAlchemyInventoryRepositoryImpl", 
 ]

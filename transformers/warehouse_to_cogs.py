@@ -22,6 +22,7 @@ from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
 from application.dto_objects.journal_request import JournalCreateRequest, JournalLineRequest
 from application.service_layer.service_inventory import InventoryService
 from application.service_layer.service_journal import JournalService
+from bootstrap.dependency_container.ioc_container import get_container
 from domain.inventory.valuation_method import (
     AverageValuation as AverageValuationEngine,
 )
@@ -31,7 +32,6 @@ from domain.inventory.valuation_method import (
 from domain.inventory.valuation_method import (
     ValuationMethodStrategy as ValuationMethod,
 )
-from bootstrap.dependency_container.ioc_container import get_container
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 from ports.primary.inventory_repository_port import InventoryRepositoryPort

@@ -9,7 +9,7 @@ Responsibility: Menerima callback HTTP dari sistem eksternal (payment gateway,
                Endpoint ini biasanya dipanggil oleh pihak ketiga.
 Dependencies:
 - fastapi
-- application.commands_cqrs.command_bus_unified
+- application.commands_cqrs (CommandBusUnified)
 - infrastructure.security.webhook_signature_verifier
 - adapters.primary_api.common.fastapi_request_id_middleware
 Audit: Setiap webhook yang diterima dicatat (source, payload, signature, status).
@@ -29,8 +29,8 @@ from uuid import uuid4
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 
-# Internal dependencies
-from application.commands_cqrs.command_bus_unified import CommandBusUnified
+# Internal dependencies - import dari package yang memiliki alias
+from application.commands_cqrs import CommandBusUnified
 from infrastructure.caching.redis_manager import get_redis_client
 
 logger = logging.getLogger(__name__)

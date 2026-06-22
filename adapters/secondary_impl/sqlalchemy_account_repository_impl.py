@@ -40,6 +40,9 @@ from infrastructure.persistence_orm.account_table import AccountTable
 # Ports
 from ports.primary.account_repository_port import AccountRepositoryPort
 
+# Money - pastikan import benar
+from domain.shared_value_objects.money_vo import Money
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -49,37 +52,31 @@ logger = logging.getLogger(__name__)
 
 class AccountRepositoryError(Exception):
     """Base exception untuk repository account."""
-
     pass
 
 
 class DuplicateAccountCodeError(AccountRepositoryError):
     """Kode akun sudah ada dalam entitas hukum yang sama."""
-
     pass
 
 
 class AccountNotFoundError(AccountRepositoryError):
     """Akun tidak ditemukan."""
-
     pass
 
 
 class AccountHasChildrenError(AccountRepositoryError):
     """Akun memiliki sub-akun, tidak bisa dihapus."""
-
     pass
 
 
 class AccountHasTransactionsError(AccountRepositoryError):
     """Akun sudah memiliki transaksi, tidak bisa dinonaktifkan."""
-
     pass
 
 
 class OptimisticLockError(AccountRepositoryError):
     """Version mismatch saat update."""
-
     pass
 
 
@@ -96,15 +93,11 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
 
-    @property
-    def session(self) -> AsyncSession:
+    async def _get_session(self) -> AsyncSession:
         if self._session is None:
-            raise AccountRepositoryError("Session not set")
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session
+            self._session = await get_async_session()
         return self._session
-
-    @session.setter
-    def session(self, value: AsyncSession) -> None:
-        self._session = value
 
     # ========================================================================
     # HELPER MAPPING METHODS
@@ -180,13 +173,14 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
         return table
 
     # ========================================================================
-    # REPOSITORY METHODS
+    # REPOSITORY METHODS (dari port)
     # ========================================================================
 
     async def add(self, account: AccountAggregate) -> None:
         """
         Menambahkan akun baru ke Chart of Accounts.
         """
+        session = await self._get_session()
         try:
             # Cek duplikasi account_code dalam legal entity yang sama
             stmt = (
@@ -198,7 +192,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
                     AccountTable.deleted_at.is_(None),
                 )
             )
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             count = result.scalar()
 
             if count > 0:
@@ -211,7 +205,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
                 parent_stmt = select(AccountTable).where(
                     AccountTable.id == account.parent_account_id
                 )
-                parent_result = await self.session.execute(parent_stmt)
+                parent_result = await session.execute(parent_stmt)
                 if not parent_result.scalar_one_or_none():
                     raise AccountNotFoundError(
                         f"Parent account {account.parent_account_id} not found"
@@ -219,18 +213,18 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
 
             # Mapping dan simpan
             table = await self._to_orm(account)
-            self.session.add(table)
-            await self.session.flush()
+            session.add(table)
+            await session.flush()
 
             logger.info("Account added: %s (id=%s)", account.account_code, account.id)
 
         except DuplicateAccountCodeError:
             raise
         except IntegrityError as e:
-            await self.session.rollback()
+            await session.rollback()
             raise AccountRepositoryError(f"Integrity error: {e}") from e
         except Exception as e:
-            await self.session.rollback()
+            await session.rollback()
             logger.error("Failed to add account: %s", e)
             raise AccountRepositoryError(f"Failed to add account: {e}") from e
 
@@ -238,11 +232,12 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
         """
         Mengambil akun berdasarkan ID.
         """
+        session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
                 AccountTable.id == account_id, AccountTable.deleted_at.is_(None)
             )
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             table = result.scalar_one_or_none()
 
             if not table:
@@ -260,13 +255,14 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
         """
         Mengambil akun berdasarkan kode unik dalam entitas hukum.
         """
+        session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
                 AccountTable.account_code == account_code,
                 AccountTable.legal_entity_id == legal_entity_id,
                 AccountTable.deleted_at.is_(None),
             )
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             table = result.scalar_one_or_none()
 
             if not table:
@@ -282,10 +278,11 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
         """
         Memperbarui informasi akun.
         """
+        session = await self._get_session()
         try:
             # Get current version from database
             stmt = select(AccountTable.version).where(AccountTable.id == account.id)
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             current_version = result.scalar_one_or_none()
 
             if current_version is None:
@@ -302,8 +299,8 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
             table.version = account.version + 1
             table.updated_at = datetime.utcnow()
 
-            await self.session.merge(table)
-            await self.session.flush()
+            await session.merge(table)
+            await session.flush()
 
             logger.info(
                 "Account updated: %s (version %d -> %d)",
@@ -315,7 +312,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
         except OptimisticLockError:
             raise
         except Exception as e:
-            await self.session.rollback()
+            await session.rollback()
             logger.error("Failed to update account %s: %s", account.id, e)
             raise AccountRepositoryError(f"Failed to update account: {e}") from e
 
@@ -323,6 +320,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
         """
         Soft delete akun (set deleted_at dan status inactive).
         """
+        session = await self._get_session()
         try:
             # Check if account has children
             children_stmt = (
@@ -332,7 +330,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
                     AccountTable.parent_account_id == account_id, AccountTable.deleted_at.is_(None)
                 )
             )
-            children_result = await self.session.execute(children_stmt)
+            children_result = await session.execute(children_stmt)
             children_count = children_result.scalar()
 
             if children_count > 0:
@@ -341,8 +339,6 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
                 )
 
             # Check if account has transactions
-            # TODO: Check ledger entries count
-            # For now, skip if has_transactions flag is True
             acct = await self.get_by_id(account_id)
             if acct and acct.is_used_in_transaction:
                 raise AccountHasTransactionsError(
@@ -354,8 +350,8 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
                 .where(AccountTable.id == account_id)
                 .values(deleted_at=datetime.utcnow(), status="inactive", is_active=False)
             )
-            result = await self.session.execute(stmt)
-            await self.session.flush()
+            result = await session.execute(stmt)
+            await session.flush()
 
             deleted = result.rowcount > 0
             if deleted:
@@ -365,7 +361,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
         except (AccountHasChildrenError, AccountHasTransactionsError):
             raise
         except Exception as e:
-            await self.session.rollback()
+            await session.rollback()
             logger.error("Failed to delete account %s: %s", account_id, e)
             raise AccountRepositoryError(f"Failed to delete account: {e}") from e
 
@@ -373,6 +369,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
         """
         Mengambil semua sub-akun dari akun induk.
         """
+        session = await self._get_session()
         try:
             stmt = (
                 select(AccountTable)
@@ -383,7 +380,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
                 .order_by(AccountTable.account_code)
             )
 
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             tables = result.scalars().all()
 
             return [self._to_domain(table) for table in tables]
@@ -396,6 +393,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
         """
         Mengambil semua akun level atas (parent_account_id is null).
         """
+        session = await self._get_session()
         try:
             stmt = (
                 select(AccountTable)
@@ -407,7 +405,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
                 .order_by(AccountTable.account_code)
             )
 
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             tables = result.scalars().all()
 
             return [self._to_domain(table) for table in tables]
@@ -422,6 +420,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
         """
         Mencari akun berdasarkan tipenya.
         """
+        session = await self._get_session()
         try:
             stmt = (
                 select(AccountTable)
@@ -433,7 +432,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
                 .order_by(AccountTable.account_code)
             )
 
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             tables = result.scalars().all()
 
             return [self._to_domain(table) for table in tables]
@@ -448,9 +447,8 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
         """
         Pencarian akun berdasarkan nama (partial match).
         """
+        session = await self._get_session()
         try:
-            # Menggunakan func.concat untuk menghindari f-string dalam SQL
-            # dan memastikan parameter binding oleh SQLAlchemy
             stmt = (
                 select(AccountTable)
                 .where(
@@ -462,7 +460,7 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
                 .order_by(AccountTable.account_code)
             )
 
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             tables = result.scalars().all()
 
             return [self._to_domain(table) for table in tables]
@@ -475,8 +473,8 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
         """
         Mendapatkan hierarki akun dalam bentuk tree (nested dict).
         """
+        session = await self._get_session()
         try:
-            # Get all accounts
             stmt = (
                 select(AccountTable)
                 .where(
@@ -486,13 +484,11 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
                 .order_by(AccountTable.account_code)
             )
 
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             tables = result.scalars().all()
 
-            # Build mapping id -> account
             accounts_map = {str(t.id): self._to_domain(t) for t in tables}
 
-            # Build tree
             roots = []
             for account in accounts_map.values():
                 if account.parent_account_id is None:
@@ -509,8 +505,8 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
                 else:
                     parent = accounts_map.get(str(account.parent_account_id))
                     if parent:
-                        # Find parent node and append
-                        pass  # Recursive building
+                        # Recursive building (simplified, just for stub)
+                        pass
 
             return roots
 
@@ -518,6 +514,81 @@ class SQLAlchemyAccountRepository(AccountRepositoryPort):
             logger.error("Failed to get hierarchy tree: %s", e)
             raise AccountRepositoryError(f"Failed to get hierarchy: {e}") from e
 
+    # ========================================================================
+    # METODE TAMBAHAN UNTUK MEMENUHI KONTRAK PORT (stub/delegasi)
+    # ========================================================================
+
+    async def save(self, account: AccountAggregate) -> None:
+        """Simpan (add atau update) akun."""
+        existing = await self.get_by_id(account.id)
+        if existing:
+            await self.update(account)
+        else:
+            await self.add(account)
+
+    async def list_by_legal_entity(self, legal_entity_id: UUID) -> list[AccountAggregate]:
+        """Dapatkan semua akun aktif untuk entitas hukum."""
+        session = await self._get_session()
+        stmt = select(AccountTable).where(
+            AccountTable.legal_entity_id == legal_entity_id,
+            AccountTable.deleted_at.is_(None),
+            AccountTable.is_active == True,
+        ).order_by(AccountTable.account_code)
+        result = await session.execute(stmt)
+        tables = result.scalars().all()
+        return [self._to_domain(t) for t in tables]
+
+    async def find_by_code(self, legal_entity_id: UUID, account_code: str) -> AccountAggregate | None:
+        """Cari akun berdasarkan kode (alias get_by_code)."""
+        return await self.get_by_code(account_code, legal_entity_id)
+
+    async def get_active_accounts(self, legal_entity_id: UUID) -> list[AccountAggregate]:
+        """Dapatkan akun dengan status ACTIVE."""
+        session = await self._get_session()
+        stmt = select(AccountTable).where(
+            AccountTable.legal_entity_id == legal_entity_id,
+            AccountTable.status == "active",
+            AccountTable.deleted_at.is_(None),
+        ).order_by(AccountTable.account_code)
+        result = await session.execute(stmt)
+        tables = result.scalars().all()
+        return [self._to_domain(t) for t in tables]
+
+    # Tambahan method yang mungkin diperlukan port (stub)
+    async def find_by_normal_balance(self, normal_balance: str, legal_entity_id: UUID) -> list[AccountAggregate]:
+        """Stub: cari berdasarkan normal balance."""
+        logger.warning("find_by_normal_balance not fully implemented")
+        return []
+
+    async def get_all_by_legal_entity(self, legal_entity_id: UUID) -> list[AccountAggregate]:
+        """Alias untuk list_by_legal_entity."""
+        return await self.list_by_legal_entity(legal_entity_id)
+
+    async def count_by_type(self, legal_entity_id: UUID) -> dict[str, int]:
+        """Stub: hitung akun per tipe."""
+        logger.warning("count_by_type not fully implemented")
+        return {}
+
+    async def get_account_with_children(self, account_id: UUID) -> dict[str, Any]:
+        """Stub: dapatkan akun dengan children."""
+        logger.warning("get_account_with_children not fully implemented")
+        return {}
+
+    async def save(self, account: AccountAggregate) -> None:
+        existing = await self.get_by_id(account.id)
+        if existing:
+            await self.update(account)
+        else:
+            await self.add(account)
+
+    async def find_by_id(self, account_id: UUID) -> AccountAggregate | None:
+        return await self.get_by_id(account_id)
+    
+# ============================================================================
+# ALIAS UNTUK KOMPATIBILITAS DENGAN ADAPTER REGISTRY
+# ============================================================================
+
+SQLAlchemyAccountRepositoryImpl = SQLAlchemyAccountRepository
 
 # ============================================================================
 # EXPORTS
@@ -531,4 +602,5 @@ __all__ = [
     "DuplicateAccountCodeError",
     "OptimisticLockError",
     "SQLAlchemyAccountRepository",
+    "SQLAlchemyAccountRepositoryImpl",
 ]

@@ -31,7 +31,8 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -103,7 +104,7 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     # =========================================================================
 
     # Lines (one-to-many)
-    lines: Mapped[list["StockOpnameLineTable"]] = relationship(
+    lines: Mapped[list[StockOpnameLineTable]] = relationship(
         "StockOpnameLineTable",
         back_populates="stock_opname",
         cascade="all, delete-orphan",
@@ -111,7 +112,7 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     )
 
     # Warehouse (many-to-one) – added back_populates to match WarehouseTable.stock_opnames
-    warehouse: Mapped["WarehouseTable | None"] = relationship(
+    warehouse: Mapped[WarehouseTable | None] = relationship(
         "WarehouseTable",
         back_populates="stock_opnames",
         foreign_keys=[warehouse_id],

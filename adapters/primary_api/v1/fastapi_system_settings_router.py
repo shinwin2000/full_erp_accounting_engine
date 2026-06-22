@@ -8,7 +8,6 @@ Responsibility: REST API endpoint untuk system settings.
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 import re
@@ -17,8 +16,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
@@ -504,8 +502,8 @@ class SettingSchemaSchema(BaseModel):
 
 
 async def get_settings_service(request: Request, ) -> Any:
+
     from application.service_layer.service_system_settings import SystemSettingsService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(SystemSettingsService)
@@ -619,7 +617,7 @@ async def get_setting(
         if not setting:
             raise HTTPException(
                 status_code=404,
-                detail="Setting '{}' not found".format(key),  # nosec
+                detail=f"Setting '{key}' not found",  # nosec
             )
         return SettingResponseSchema(
             id=setting.id,
@@ -754,7 +752,7 @@ async def update_setting(
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail="Setting '{}' not found".format(key),  # nosec
+                detail=f"Setting '{key}' not found",  # nosec
             )
         return SettingResponseSchema(
             id=result.id,
@@ -816,12 +814,12 @@ async def deactivate_setting(
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail="Setting '{}' not found".format(key),  # nosec
+                detail=f"Setting '{key}' not found",  # nosec
             )
         return {
             "key": key,
             "deactivated": True,
-            "message": "Setting '{}' deactivated".format(key),  # nosec
+            "message": f"Setting '{key}' deactivated",  # nosec
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -850,7 +848,7 @@ async def activate_setting(
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail="Setting '{}' not found".format(key),  # nosec
+                detail=f"Setting '{key}' not found",  # nosec
             )
         return SettingResponseSchema(
             id=result.id,
@@ -908,7 +906,7 @@ async def reset_setting(
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail="Setting '{}' not found or no default".format(key),  # nosec
+                detail=f"Setting '{key}' not found or no default",  # nosec
             )
         return SettingResponseSchema(
             id=result.id,
@@ -1272,7 +1270,7 @@ async def lock_setting(
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail="Setting '{}' not found".format(key),  # nosec
+                detail=f"Setting '{key}' not found",  # nosec
             )
         return SettingResponseSchema(
             id=result.id,
@@ -1332,7 +1330,7 @@ async def unlock_setting(
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail="Setting '{}' not found".format(key),  # nosec
+                detail=f"Setting '{key}' not found",  # nosec
             )
         return SettingResponseSchema(
             id=result.id,

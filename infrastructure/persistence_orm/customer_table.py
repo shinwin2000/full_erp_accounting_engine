@@ -136,21 +136,21 @@ class CustomerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     # ========================================================================
 
     # AR Invoices
-    ar_invoices: Mapped[list["ARInvoiceTable"]] = relationship(
+    ar_invoices: Mapped[list[ARInvoiceTable]] = relationship(
         "ARInvoiceTable",
         back_populates="customer",
         cascade="all, delete-orphan",
     )
 
     # Sales Orders
-    sales_orders: Mapped[list["SalesOrderTable"]] = relationship(
+    sales_orders: Mapped[list[SalesOrderTable]] = relationship(
         "SalesOrderTable",
         back_populates="customer",
         cascade="all, delete-orphan",
     )
 
     # Retainer Contracts
-    retainer_contracts: Mapped[list["RetainerContractTable"]] = relationship(
+    retainer_contracts: Mapped[list[RetainerContractTable]] = relationship(
         "RetainerContractTable",
         back_populates="customer",
         cascade="all, delete-orphan",
@@ -177,10 +177,10 @@ class CustomerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         return self.status == "active" and self.is_active
 
     @property
-    def credit_utilization_percent(self) -> float:
+    def credit_utilization_percent(self) -> Decimal:
         if self.credit_limit == 0:
-            return 0.0
-        return float((self.used_credit / self.credit_limit) * 100)
+            return Decimal(0)
+        return (self.used_credit / self.credit_limit) * Decimal(100) 
 
     # ========================================================================
     # METHODS

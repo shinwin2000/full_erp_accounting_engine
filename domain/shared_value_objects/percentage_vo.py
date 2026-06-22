@@ -102,12 +102,12 @@ class PercentageVO:
     # ------------------------------------------------------------------------
 
     @classmethod
-    def of(cls, value: Decimal | float | int | str) -> PercentageVO:
+    def of(cls, value: Decimal | int | str) -> PercentageVO:
         """
         Create PercentageVO from various numeric types.
 
         Args:
-            value: Decimal, float, int, or string (e.g., '12.34')
+            value: Decimal, int, or string (e.g., '12.34')
         """
         if isinstance(value, float):
             value = Decimal(str(value))
@@ -115,7 +115,7 @@ class PercentageVO:
             value = Decimal(value)
         elif not isinstance(value, Decimal):
             raise InvalidPercentageError(f"Unsupported type: {type(value)}")
-        return cls(value)
+        return cls(value)    
 
     @classmethod
     def zero(cls) -> PercentageVO:

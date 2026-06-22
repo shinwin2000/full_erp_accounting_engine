@@ -209,7 +209,7 @@ class SPTMasaPPH23:
 
     @property
     def masa_pajak(self) -> str:
-        return "{}-{:02d}".format(self._tahun, self._bulan)
+        return f"{self._tahun}-{self._bulan:02d}"
 
     @property
     def jenis_pajak(self) -> str:
@@ -258,7 +258,7 @@ class SPTMasaPPH23:
     @property
     def ntpn_masked(self) -> str | None:
         if self._ntpn and len(self._ntpn) > 8:
-            return "{}...{}".format(self._ntpn[:8], self._ntpn[-4:])
+            return f"{self._ntpn[:8]}...{self._ntpn[-4:]}"
         return self._ntpn
 
     @property
@@ -377,9 +377,9 @@ class SPTMasaPPH23:
 
     def update(self, data: dict[str, Any], updated_by: UUID) -> SPTMasaPPH23:
         if self.is_locked:
-            raise SPT23LockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPT23LockedError(f"SPT {self.masa_pajak} is locked")
         if self._status not in [SPTStatus.DRAFT, SPTStatus.PENDING, SPTStatus.REJECTED]:
-            raise SPT23InvalidStateError("Cannot update SPT in status {}".format(self._status.value))
+            raise SPT23InvalidStateError(f"Cannot update SPT in status {self._status.value}")
         old_data = self.to_dict()
         if "total_dpp" in data:
             self._total_dpp = Decimal(str(data["total_dpp"]))
@@ -407,7 +407,7 @@ class SPTMasaPPH23:
 
     def delete(self, deleted_by: UUID, permanent: bool = False) -> SPTMasaPPH23:
         if self.is_locked:
-            raise SPT23LockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPT23LockedError(f"SPT {self.masa_pajak} is locked")
         if permanent:
             self._status = SPTStatus.VOID
             self._cancelled_at = datetime.now()
@@ -427,7 +427,7 @@ class SPTMasaPPH23:
 
     def restore(self, restored_by: UUID) -> SPTMasaPPH23:
         if self._status not in [SPTStatus.ARCHIVED, SPTStatus.VOID]:
-            raise SPT23InvalidStateError("Cannot restore SPT in status {}".format(self._status.value))
+            raise SPT23InvalidStateError(f"Cannot restore SPT in status {self._status.value}")
         self._status = SPTStatus.DRAFT
         self._cancelled_at = None
         self._updated_at = datetime.now()
@@ -443,7 +443,7 @@ class SPTMasaPPH23:
 
     def activate(self, activated_by: UUID) -> SPTMasaPPH23:
         if self._status != SPTStatus.DRAFT:
-            raise SPT23InvalidStateError("Cannot activate SPT in status {}".format(self._status.value))
+            raise SPT23InvalidStateError(f"Cannot activate SPT in status {self._status.value}")
         self._status = SPTStatus.PENDING
         self._updated_at = datetime.now()
         self._version += 1
@@ -458,7 +458,7 @@ class SPTMasaPPH23:
 
     def deactivate(self, deactivated_by: UUID) -> SPTMasaPPH23:
         if self._status != SPTStatus.PENDING:
-            raise SPT23InvalidStateError("Cannot deactivate SPT in status {}".format(self._status.value))
+            raise SPT23InvalidStateError(f"Cannot deactivate SPT in status {self._status.value}")
         self._status = SPTStatus.DRAFT
         self._updated_at = datetime.now()
         self._version += 1
@@ -473,7 +473,7 @@ class SPTMasaPPH23:
 
     def lock(self, locked_by: UUID, reason: str = "") -> SPTMasaPPH23:
         if self.is_locked:
-            raise SPT23LockedError("SPT {} already locked".format(self.masa_pajak))
+            raise SPT23LockedError(f"SPT {self.masa_pajak} already locked")
         self._locked_at = datetime.now()
         self._locked_by = locked_by
         self._status = SPTStatus.LOCKED
@@ -491,7 +491,7 @@ class SPTMasaPPH23:
 
     def unlock(self, unlocked_by: UUID) -> SPTMasaPPH23:
         if not self.is_locked:
-            raise SPT23LockedError("SPT {} is not locked".format(self.masa_pajak))
+            raise SPT23LockedError(f"SPT {self.masa_pajak} is not locked")
         self._locked_at = None
         self._locked_by = None
         self._status = SPTStatus.PENDING
@@ -508,9 +508,9 @@ class SPTMasaPPH23:
 
     def validate(self, validator_id: UUID) -> SPTMasaPPH23:
         if self.is_locked:
-            raise SPT23LockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPT23LockedError(f"SPT {self.masa_pajak} is locked")
         if self._status not in [SPTStatus.DRAFT, SPTStatus.PENDING]:
-            raise SPT23InvalidStateError("Cannot validate SPT in status {}".format(self._status.value))
+            raise SPT23InvalidStateError(f"Cannot validate SPT in status {self._status.value}")
         errors = []
         if self._total_dpp < 0:
             errors.append("Total DPP tidak boleh negatif")
@@ -529,9 +529,9 @@ class SPTMasaPPH23:
         total_dpp_from_bupot = sum(Decimal(str(b.get("dpp", 0))) for b in self._detail_bupot)
         total_pph_from_bupot = sum(Decimal(str(b.get("pph_dipotong", 0))) for b in self._detail_bupot)
         if abs(total_dpp_from_bupot - self._total_dpp) > Decimal("0.01"):
-            errors.append("Total DPP tidak konsisten: {} vs {}".format(total_dpp_from_bupot, self._total_dpp))
+            errors.append(f"Total DPP tidak konsisten: {total_dpp_from_bupot} vs {self._total_dpp}")
         if abs(total_pph_from_bupot - self._total_pph_dipotong) > Decimal("0.01"):
-            errors.append("Total PPh tidak konsisten: {} vs {}".format(total_pph_from_bupot, self._total_pph_dipotong))
+            errors.append(f"Total PPh tidak konsisten: {total_pph_from_bupot} vs {self._total_pph_dipotong}")
         if self.kurang_bayar > 0 and self._ntpn:
             if not self._validate_ntpn_format(self._ntpn):
                 errors.append("Format NTPN tidak valid (harus 16 digit)")
@@ -552,9 +552,9 @@ class SPTMasaPPH23:
 
     def approve(self, approver_id: UUID, notes: str = "") -> SPTMasaPPH23:
         if self.is_locked:
-            raise SPT23LockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPT23LockedError(f"SPT {self.masa_pajak} is locked")
         if self._status != SPTStatus.SUBMITTED:
-            raise SPT23InvalidStateError("Cannot approve SPT in status {}".format(self._status.value))
+            raise SPT23InvalidStateError(f"Cannot approve SPT in status {self._status.value}")
         self._status = SPTStatus.APPROVED
         self._approved_at = datetime.now()
         self._updated_at = datetime.now()
@@ -571,9 +571,9 @@ class SPTMasaPPH23:
 
     def reject(self, rejector_id: UUID, reason: str) -> SPTMasaPPH23:
         if self.is_locked:
-            raise SPT23LockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPT23LockedError(f"SPT {self.masa_pajak} is locked")
         if self._status not in [SPTStatus.PENDING, SPTStatus.SUBMITTED, SPTStatus.VALIDATED]:
-            raise SPT23InvalidStateError("Cannot reject SPT in status {}".format(self._status.value))
+            raise SPT23InvalidStateError(f"Cannot reject SPT in status {self._status.value}")
         self._status = SPTStatus.REJECTED
         self._rejected_at = datetime.now()
         self._rejection_reason = reason
@@ -591,9 +591,9 @@ class SPTMasaPPH23:
 
     def submit(self, submitted_by: UUID) -> SPTMasaPPH23:
         if self.is_locked:
-            raise SPT23LockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPT23LockedError(f"SPT {self.masa_pajak} is locked")
         if self._status not in [SPTStatus.PENDING, SPTStatus.VALIDATED]:
-            raise SPT23InvalidStateError("Cannot submit SPT in status {}".format(self._status.value))
+            raise SPT23InvalidStateError(f"Cannot submit SPT in status {self._status.value}")
         self.validate(submitted_by)
         self._generate_xml()
         self._status = SPTStatus.SUBMITTED
@@ -611,9 +611,9 @@ class SPTMasaPPH23:
 
     def cancel(self, cancelled_by: UUID, reason: str) -> SPTMasaPPH23:
         if self.is_locked:
-            raise SPT23LockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPT23LockedError(f"SPT {self.masa_pajak} is locked")
         if self._status in [SPTStatus.CANCELLED, SPTStatus.VOID, SPTStatus.CLOSED]:
-            raise SPT23InvalidStateError("Cannot cancel SPT in status {}".format(self._status.value))
+            raise SPT23InvalidStateError(f"Cannot cancel SPT in status {self._status.value}")
         self._status = SPTStatus.CANCELLED
         self._cancelled_at = datetime.now()
         self._cancellation_reason = reason
@@ -631,7 +631,7 @@ class SPTMasaPPH23:
 
     def void(self, voided_by: UUID, reason: str) -> SPTMasaPPH23:
         if self.is_locked:
-            raise SPT23LockedError("SPT {} is locked".format(self.masa_pajak))
+            raise SPT23LockedError(f"SPT {self.masa_pajak} is locked")
         self._status = SPTStatus.VOID
         self._cancelled_at = datetime.now()
         self._cancellation_reason = reason
@@ -778,7 +778,7 @@ class SPTMasaPPH23:
 
     def transition(self, new_status: SPTStatus, actor_id: UUID, reason: str = "") -> SPTMasaPPH23:
         if not self.can_transition(new_status):
-            raise SPT23InvalidStateError("Cannot transition from {} to {}".format(self._status.value, new_status.value))
+            raise SPT23InvalidStateError(f"Cannot transition from {self._status.value} to {new_status.value}")
         old_status = self._status
         self._status = new_status
         self._updated_at = datetime.now()
@@ -887,7 +887,7 @@ class SPTMasaPPH23:
 
     def set_ntpn(self, ntpn: str) -> SPTMasaPPH23:
         if not self._validate_ntpn_format(ntpn):
-            raise SPT23ValidationError("Invalid NTPN format: {}".format(ntpn))
+            raise SPT23ValidationError(f"Invalid NTPN format: {ntpn}")
         self._ntpn = ntpn
         self._updated_at = datetime.now()
         self._version += 1
@@ -900,15 +900,7 @@ class SPTMasaPPH23:
         return self
 
     def _calculate_hash(self) -> None:
-        data = "{}{}{}{}{}{}{}".format(
-            self._spt_id,
-            self._npwp_pemotong,
-            self._tahun,
-            self._bulan,
-            self._total_pph_dipotong,
-            self._status.value,
-            self._version
-        )
+        data = f"{self._spt_id}{self._npwp_pemotong}{self._tahun}{self._bulan}{self._total_pph_dipotong}{self._status.value}{self._version}"
         self._hash = hashlib.sha256(data.encode()).hexdigest()
 
     def _generate_xml(self) -> str:
@@ -921,7 +913,7 @@ class SPTMasaPPH23:
             if self._spt_type == SPTType.CORRECTION:
                 ET.SubElement(kepala, "NomorPembetulan").text = str(self._correction_number)
             ET.SubElement(kepala, "TahunPajak").text = str(self._tahun)
-            ET.SubElement(kepala, "BulanPajak").text = "{:02d}".format(self._bulan)
+            ET.SubElement(kepala, "BulanPajak").text = f"{self._bulan:02d}"
             ET.SubElement(kepala, "NPWP").text = self._npwp_pemotong
             ET.SubElement(kepala, "Tanggal").text = date.today().isoformat()
             detail = ET.SubElement(root, "Detail")
@@ -940,24 +932,24 @@ class SPTMasaPPH23:
                     if bupot.get("tanggal_pemotongan"):
                         ET.SubElement(pemotongan, "TanggalPemotongan").text = bupot["tanggal_pemotongan"]
             total_elem = ET.SubElement(detail, "Ringkasan")
-            ET.SubElement(total_elem, "TotalDPP").text = "{:.2f}".format(self._total_dpp)
-            ET.SubElement(total_elem, "TotalPPh").text = "{:.2f}".format(self._total_pph_dipotong)
+            ET.SubElement(total_elem, "TotalDPP").text = f"{self._total_dpp:.2f}"
+            ET.SubElement(total_elem, "TotalPPh").text = f"{self._total_pph_dipotong:.2f}"
             if self._kompensasi > 0:
-                ET.SubElement(total_elem, "Kompensasi").text = "{:.2f}".format(self._kompensasi)
+                ET.SubElement(total_elem, "Kompensasi").text = f"{self._kompensasi:.2f}"
             if self.kurang_bayar > 0:
-                ET.SubElement(total_elem, "KurangBayar").text = "{:.2f}".format(self.kurang_bayar)
+                ET.SubElement(total_elem, "KurangBayar").text = f"{self.kurang_bayar:.2f}"
             if self.lebih_bayar > 0:
-                ET.SubElement(total_elem, "LebihBayar").text = "{:.2f}".format(self.lebih_bayar)
+                ET.SubElement(total_elem, "LebihBayar").text = f"{self.lebih_bayar:.2f}"
             if self._ntpn:
                 bayar_elem = ET.SubElement(detail, "Pembayaran")
                 ET.SubElement(bayar_elem, "NTPN").text = self._ntpn
-                ET.SubElement(bayar_elem, "JumlahBayar").text = "{:.2f}".format(self._total_bayar)
+                ET.SubElement(bayar_elem, "JumlahBayar").text = f"{self._total_bayar:.2f}"
             xml_str = ET.tostring(root, encoding="utf-8")
             dom = minidom.parseString(xml_str)
             self._xml_content = dom.toprettyxml(indent="  ")
             return self._xml_content
         except Exception as e:
-            raise SPT23XMLGenerationError("Failed to create XML SPT: {}".format(e))
+            raise SPT23XMLGenerationError(f"Failed to create XML SPT: {e}")
 
     def _validate_ntpn_format(self, ntpn: str) -> bool:
         import re
@@ -998,7 +990,7 @@ class _FallbackSPT23Repository(SPT23RepositoryPort):
 
     async def add(self, spt: SPTMasaPPH23) -> None:
         self._store[spt.spt_id] = spt
-        key = "{}:{}:{}:{}:{}".format(spt.npwp_pemotong, spt.tahun, spt.bulan, spt.jenis_pajak, spt.correction_number)
+        key = f"{spt.npwp_pemotong}:{spt.tahun}:{spt.bulan}:{spt.jenis_pajak}:{spt.correction_number}"
         self._by_npwp_period[key] = spt.spt_id
         if spt.tracking_id:
             self._by_tracking_id[spt.tracking_id] = spt.spt_id
@@ -1073,7 +1065,7 @@ class SPTMasaPPH23Builder:
             bucket = self._load_config().get("coretax_djp", {}).get("spt_pph23", {}).get("file_storage_bucket", "coretax-spt-pph23")
             self._file_storage = S3FileStorageAdapter(bucket_name=bucket)
         except Exception as e:
-            logger.warning("File storage not available for SPT PPh23: {}".format(e))
+            logger.warning(f"File storage not available for SPT PPh23: {e}")
 
     async def _get_coretax_client(self):
         if self._coretax_client is None:
@@ -1093,7 +1085,7 @@ class SPTMasaPPH23Builder:
         return self._tax_service
 
     def _get_cache_key(self, npwp: str, tahun: int, bulan: int, jenis_pajak: str = "23") -> str:
-        return "spt_pph23:{}:{}:{:02d}:{}".format(npwp, tahun, bulan, jenis_pajak)
+        return f"spt_pph23:{npwp}:{tahun}:{bulan:02d}:{jenis_pajak}"
 
     async def _get_cached(self, cache_key: str) -> dict[str, Any] | None:
         return self._cache.get(cache_key)
@@ -1171,7 +1163,7 @@ class SPTMasaPPH23Builder:
                 "bupot_count": len(bupots),
             }
         except Exception as e:
-            logger.error("Failed to collect data for SPT PPh23: {}".format(e))
+            logger.error(f"Failed to collect data for SPT PPh23: {e}")
             return {
                 "npwp_pemotong": npwp_pemotong,
                 "tahun": tahun,
@@ -1267,7 +1259,7 @@ class SPTMasaPPH23Builder:
                     spt.set_coretax_response(response)
                     await self._repository.update(spt)
                     if self._file_storage:
-                        file_name = "spt_pph23_{}_{}_{:02d}_{}.xml".format(spt.npwp_pemotong, spt.tahun, spt.bulan, spt.jenis_pajak)
+                        file_name = f"spt_pph23_{spt.npwp_pemotong}_{spt.tahun}_{spt.bulan:02d}_{spt.jenis_pajak}.xml"
                         await self._file_storage.upload(
                             xml_content.encode("utf-8"),
                             file_name,
@@ -1284,7 +1276,7 @@ class SPTMasaPPH23Builder:
                         from infrastructure.telemetry.alert_manager_router import trigger_alert
                         await trigger_alert(
                             title="SPT PPh23 Submitted",
-                            message="SPT PPh23 {} for {} period {} submitted successfully".format(spt.jenis_pajak_desc, spt.npwp_pemotong, spt.masa_pajak),
+                            message=f"SPT PPh23 {spt.jenis_pajak_desc} for {spt.npwp_pemotong} period {spt.masa_pajak} submitted successfully",
                             severity="info",
                             source="SPTMasaPPH23Builder",
                         )
@@ -1304,17 +1296,17 @@ class SPTMasaPPH23Builder:
                 except CoretaxAuthError as e:
                     if attempt == MAX_RETRY_ATTEMPTS - 1:
                         raise
-                    logger.warning("Retry {} for SPT PPh23 submission: {}".format(attempt + 1, e))
+                    logger.warning(f"Retry {attempt + 1} for SPT PPh23 submission: {e}")
                 except Exception as e:
                     if attempt == MAX_RETRY_ATTEMPTS - 1:
                         raise
-                    logger.warning("Retry {} for SPT PPh23 submission: {}".format(attempt + 1, e))
+                    logger.warning(f"Retry {attempt + 1} for SPT PPh23 submission: {e}")
         except (SPT23ValidationError, SPT23LockedError, SPT23InvalidStateError) as e:
             return {"success": False, "error": str(e)}
         except CoretaxAuthError as e:
             spt.transition(SPTStatus.ERROR, submitted_by, str(e))
             await self._repository.update(spt)
-            return {"success": False, "error": "Coretax authentication failed: {}".format(e)}
+            return {"success": False, "error": f"Coretax authentication failed: {e}"}
         except Exception as e:
             logger.exception("Failed to submit SPT PPh23")
             spt.transition(SPTStatus.ERROR, submitted_by, str(e))
@@ -1323,7 +1315,7 @@ class SPTMasaPPH23Builder:
                 from infrastructure.telemetry.alert_manager_router import trigger_alert
                 await trigger_alert(
                     title="SPT PPh23 Submission Failed",
-                    message="Failed to submit SPT PPh23: {}".format(e),
+                    message=f"Failed to submit SPT PPh23: {e}",
                     severity="critical",
                     source="SPTMasaPPH23Builder",
                 )
@@ -1356,7 +1348,7 @@ class SPTMasaPPH23Builder:
                     "status": response.get("status"),
                 }
             except Exception as e:
-                logger.error("Failed to submit e-Bupot (attempt {}): {}".format(attempt + 1, e))
+                logger.error(f"Failed to submit e-Bupot (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRY_ATTEMPTS - 1:
                     return {"success": False, "error": str(e)}
         return {"success": False, "error": "Max retries exceeded"}
@@ -1390,7 +1382,7 @@ class SPTMasaPPH23Builder:
                     "results": response.get("results", []),
                 }
             except Exception as e:
-                logger.error("Failed to submit e-Bupot batch (attempt {}): {}".format(attempt + 1, e))
+                logger.error(f"Failed to submit e-Bupot batch (attempt {attempt + 1}): {e}")
                 if attempt == MAX_RETRY_ATTEMPTS - 1:
                     return {"success": False, "error": str(e)}
         return {"success": False, "error": "Max retries exceeded"}
@@ -1407,7 +1399,7 @@ class SPTMasaPPH23Builder:
                 "message": "Not yet submitted to Coretax",
             }
         client = await self._get_coretax_client()
-        endpoint = "{}/{}".format(CORETAX_SPT_STATUS_ENDPOINT, spt.tracking_id)
+        endpoint = f"{CORETAX_SPT_STATUS_ENDPOINT}/{spt.tracking_id}"
         try:
             response = await client.get(endpoint)
             new_status = response.get("status")
@@ -1425,7 +1417,7 @@ class SPTMasaPPH23Builder:
                 "rejection_reason": response.get("rejection_reason"),
             }
         except Exception as e:
-            logger.error("Failed to check SPT status: {}".format(e))
+            logger.error(f"Failed to check SPT status: {e}")
             return {"success": False, "error": str(e)}
 
     async def cancel_spt(self, spt_id: UUID, cancelled_by: UUID, reason: str) -> dict[str, Any]:
@@ -1441,7 +1433,7 @@ class SPTMasaPPH23Builder:
                 try:
                     await client.post(CORETAX_SPT_CANCEL_ENDPOINT, payload)
                 except Exception as e:
-                    logger.warning("Failed to cancel SPT in Coretax: {}".format(e))
+                    logger.warning(f"Failed to cancel SPT in Coretax: {e}")
             cache_key = self._get_cache_key(spt.npwp_pemotong, spt.tahun, spt.bulan, spt.jenis_pajak)
             if cache_key in self._cache:
                 del self._cache[cache_key]

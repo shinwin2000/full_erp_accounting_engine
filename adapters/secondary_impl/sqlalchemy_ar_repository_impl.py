@@ -3,17 +3,8 @@
 Module: sqlalchemy_ar_repository_impl.py
 Layer: Adapters (Secondary Implementation)
 Responsibility: Implementasi repository untuk aggregate Account Receivable Invoice
-               menggunakan SQLAlchemy ORM. Menyediakan operasi CRUD untuk invoice
-               piutang, pembayaran, credit note, aging analysis, dan outstanding
-               balance calculation. Mendukung optimistic locking dan status
-               management (draft, submitted, approved, paid, overdue, cancelled).
-Dependencies:
-- sqlalchemy.ext.asyncio (AsyncSession)
-- sqlalchemy import select, update, func, and_, or_
-- ports.primary.ar_repository_port (ARRepositoryPort)
-- domain.subledger_ar.aggregate_root (ARInvoiceAggregate)
-- infrastructure.persistence_orm.ar_invoice_table, ar_payment_table, ar_credit_note_table
-- domain.shared_value_objects.money_vo (Money)
+               menggunakan SQLAlchemy ORM.
+Dependencies: ...
 Audit: Setiap perubahan pada invoice AR dicatat di event store.
 """
 
@@ -56,37 +47,31 @@ logger = logging.getLogger(__name__)
 
 class ARRepositoryError(Exception):
     """Base exception untuk repository AR."""
-
     pass
 
 
 class DuplicateInvoiceNumberError(ARRepositoryError):
     """Nomor invoice sudah ada."""
-
     pass
 
 
 class ARInvoiceNotFoundError(ARRepositoryError):
     """Invoice tidak ditemukan."""
-
     pass
 
 
 class InvalidStatusTransitionError(ARRepositoryError):
     """Transisi status tidak valid."""
-
     pass
 
 
 class PaymentExceedsOutstandingError(ARRepositoryError):
     """Pembayaran melebihi sisa piutang."""
-
     pass
 
 
 class OptimisticLockError(ARRepositoryError):
     """Version mismatch saat update."""
-
     pass
 
 
@@ -103,15 +88,11 @@ class SQLAlchemyARRepository(ARRepositoryPort):
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
 
-    @property
-    def session(self) -> AsyncSession:
+    async def _get_session(self) -> AsyncSession:
         if self._session is None:
-            raise ARRepositoryError("Session not set")
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session
+            self._session = await get_async_session()
         return self._session
-
-    @session.setter
-    def session(self, value: AsyncSession) -> None:
-        self._session = value
 
     # ========================================================================
     # HELPER MAPPING METHODS
@@ -273,11 +254,9 @@ class SQLAlchemyARRepository(ARRepositoryPort):
     # ========================================================================
 
     async def add(self, invoice: ARInvoiceAggregate) -> None:
-        """
-        Menambahkan invoice AR baru.
-        """
+        """Menambahkan invoice AR baru."""
+        session = await self._get_session()
         try:
-            # Cek duplikasi invoice number
             exists = await self.exists_by_invoice_number(
                 invoice.invoice_number, invoice.legal_entity_id
             )
@@ -289,61 +268,56 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             header = await self._to_orm_header(invoice)
             lines = await self._to_orm_lines(invoice)
 
-            self.session.add(header)
+            session.add(header)
             for line in lines:
-                self.session.add(line)
+                session.add(line)
 
-            await self.session.flush()
+            await session.flush()
             logger.info("AR Invoice added: %s (id=%s)", invoice.invoice_number, invoice.id)
 
         except DuplicateInvoiceNumberError:
             raise
         except IntegrityError as e:
-            await self.session.rollback()
+            await session.rollback()
             raise ARRepositoryError(f"Integrity error: {e}") from e
         except Exception as e:
-            await self.session.rollback()
+            await session.rollback()
             logger.error("Failed to add AR invoice: %s", e)
             raise ARRepositoryError(f"Failed to add invoice: {e}") from e
 
     async def get_by_id(self, invoice_id: UUID) -> ARInvoiceAggregate | None:
-        """
-        Mengambil invoice AR berdasarkan ID.
-        """
+        """Mengambil invoice AR berdasarkan ID."""
+        session = await self._get_session()
         try:
-            # Get header
             stmt = select(ARInvoiceTable).where(
                 ARInvoiceTable.id == invoice_id, ARInvoiceTable.deleted_at.is_(None)
             )
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             header = result.scalar_one_or_none()
 
             if not header:
                 return None
 
-            # Get lines
             lines_stmt = (
                 select(ARInvoiceLineTable)
                 .where(ARInvoiceLineTable.invoice_id == invoice_id)
                 .order_by(ARInvoiceLineTable.line_number)
             )
-            lines_result = await self.session.execute(lines_stmt)
+            lines_result = await session.execute(lines_stmt)
             lines = lines_result.scalars().all()
 
-            # Get payments
             payments_stmt = (
                 select(ARPaymentTable)
                 .where(ARPaymentTable.invoice_id == invoice_id)
                 .order_by(ARPaymentTable.payment_date)
             )
-            payments_result = await self.session.execute(payments_stmt)
+            payments_result = await session.execute(payments_stmt)
             payments = payments_result.scalars().all()
 
-            # Get credit notes
             credit_stmt = select(ARCreditNoteTable).where(
                 ARCreditNoteTable.invoice_id == invoice_id
             )
-            credit_result = await self.session.execute(credit_stmt)
+            credit_result = await session.execute(credit_stmt)
             credit_notes = credit_result.scalars().all()
 
             return self._to_domain(header, lines, payments, credit_notes)
@@ -355,16 +329,15 @@ class SQLAlchemyARRepository(ARRepositoryPort):
     async def get_by_invoice_number(
         self, invoice_number: str, legal_entity_id: UUID
     ) -> ARInvoiceAggregate | None:
-        """
-        Mengambil invoice berdasarkan nomor invoice.
-        """
+        """Mengambil invoice berdasarkan nomor invoice."""
+        session = await self._get_session()
         try:
             stmt = select(ARInvoiceTable).where(
                 ARInvoiceTable.invoice_number == invoice_number,
                 ARInvoiceTable.legal_entity_id == legal_entity_id,
                 ARInvoiceTable.deleted_at.is_(None),
             )
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             header = result.scalar_one_or_none()
 
             if not header:
@@ -377,13 +350,11 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             raise ARRepositoryError(f"Failed to get invoice: {e}") from e
 
     async def update(self, invoice: ARInvoiceAggregate) -> None:
-        """
-        Memperbarui data invoice (status, paid amount, dll).
-        """
+        """Memperbarui data invoice (status, paid amount, dll)."""
+        session = await self._get_session()
         try:
-            # Get current version
             stmt = select(ARInvoiceTable.version).where(ARInvoiceTable.id == invoice.id)
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             current_version = result.scalar_one_or_none()
 
             if current_version is None:
@@ -394,23 +365,21 @@ class SQLAlchemyARRepository(ARRepositoryPort):
                     f"Version mismatch: expected {invoice.version}, got {current_version}"
                 )
 
-            # Update header
             header = await self._to_orm_header(invoice)
             header.version = invoice.version + 1
             header.updated_at = datetime.utcnow()
 
-            await self.session.merge(header)
+            await session.merge(header)
 
-            # Update lines (delete and re-insert if needed)
             if invoice.lines_changed:
-                await self.session.execute(
+                await session.execute(
                     delete(ARInvoiceLineTable).where(ARInvoiceLineTable.invoice_id == invoice.id)
                 )
                 lines = await self._to_orm_lines(invoice)
                 for line in lines:
-                    self.session.add(line)
+                    session.add(line)
 
-            await self.session.flush()
+            await session.flush()
             logger.info(
                 "AR Invoice updated: %s (version %d -> %d)",
                 invoice.invoice_number,
@@ -421,14 +390,13 @@ class SQLAlchemyARRepository(ARRepositoryPort):
         except OptimisticLockError:
             raise
         except Exception as e:
-            await self.session.rollback()
+            await session.rollback()
             logger.error("Failed to update AR invoice %s: %s", invoice.id, e)
             raise ARRepositoryError(f"Failed to update invoice: {e}") from e
 
     async def add_payment(self, payment: ARPayment) -> None:
-        """
-        Menambahkan pembayaran ke invoice.
-        """
+        """Menambahkan pembayaran ke invoice."""
+        session = await self._get_session()
         try:
             payment_table = ARPaymentTable(
                 id=payment.id,
@@ -443,8 +411,8 @@ class SQLAlchemyARRepository(ARRepositoryPort):
                 created_at=datetime.utcnow(),
                 created_by=payment.created_by,
             )
-            self.session.add(payment_table)
-            await self.session.flush()
+            session.add(payment_table)
+            await session.flush()
             logger.info(
                 "Payment %s added for invoice %s",
                 payment.payment_number,
@@ -452,24 +420,23 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             )
 
         except Exception as e:
-            await self.session.rollback()
+            await session.rollback()
             logger.error("Failed to add payment: %s", e)
             raise ARRepositoryError(f"Failed to add payment: {e}") from e
 
     async def update_invoice_status(
         self, invoice_id: UUID, new_status: str, paid_amount: Decimal | None = None
     ) -> None:
-        """
-        Update status invoice (helper method).
-        """
+        """Update status invoice (helper method)."""
+        session = await self._get_session()
         try:
             values = {"status": new_status, "updated_at": datetime.utcnow()}
             if paid_amount is not None:
                 values["paid_amount"] = paid_amount
 
             stmt = update(ARInvoiceTable).where(ARInvoiceTable.id == invoice_id).values(**values)
-            await self.session.execute(stmt)
-            await self.session.flush()
+            await session.execute(stmt)
+            await session.flush()
 
         except Exception as e:
             logger.error("Failed to update invoice status: %s", e)
@@ -478,9 +445,8 @@ class SQLAlchemyARRepository(ARRepositoryPort):
     async def find_overdue_invoices(
         self, as_of_date: date, legal_entity_id: UUID
     ) -> list[ARInvoiceAggregate]:
-        """
-        Mencari invoice yang sudah jatuh tempo.
-        """
+        """Mencari invoice yang sudah jatuh tempo."""
+        session = await self._get_session()
         try:
             stmt = (
                 select(ARInvoiceTable)
@@ -493,7 +459,7 @@ class SQLAlchemyARRepository(ARRepositoryPort):
                 .order_by(ARInvoiceTable.due_date)
             )
 
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             headers = result.scalars().all()
 
             invoices = []
@@ -511,9 +477,8 @@ class SQLAlchemyARRepository(ARRepositoryPort):
     async def find_by_customer(
         self, customer_id: UUID, legal_entity_id: UUID
     ) -> list[ARInvoiceAggregate]:
-        """
-        Mencari semua invoice untuk customer tertentu.
-        """
+        """Mencari semua invoice untuk customer tertentu."""
+        session = await self._get_session()
         try:
             stmt = (
                 select(ARInvoiceTable)
@@ -525,7 +490,7 @@ class SQLAlchemyARRepository(ARRepositoryPort):
                 .order_by(ARInvoiceTable.invoice_date.desc())
             )
 
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             headers = result.scalars().all()
 
             invoices = []
@@ -541,9 +506,8 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             raise ARRepositoryError(f"Failed to find invoices: {e}") from e
 
     async def get_outstanding_balance(self, customer_id: UUID, as_of_date: date) -> Decimal:
-        """
-        Menghitung total piutang yang masih outstanding untuk customer.
-        """
+        """Menghitung total piutang yang masih outstanding untuk customer."""
+        session = await self._get_session()
         try:
             stmt = select(
                 func.coalesce(func.sum(ARInvoiceTable.total_amount - ARInvoiceTable.paid_amount), 0)
@@ -554,7 +518,7 @@ class SQLAlchemyARRepository(ARRepositoryPort):
                 ARInvoiceTable.deleted_at.is_(None),
             )
 
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             outstanding = result.scalar() or 0
             return Decimal(str(outstanding))
 
@@ -563,9 +527,8 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             raise ARRepositoryError(f"Failed to get outstanding balance: {e}") from e
 
     async def exists_by_invoice_number(self, invoice_number: str, legal_entity_id: UUID) -> bool:
-        """
-        Memeriksa apakah nomor invoice sudah ada.
-        """
+        """Memeriksa apakah nomor invoice sudah ada."""
+        session = await self._get_session()
         try:
             stmt = (
                 select(func.count())
@@ -576,7 +539,7 @@ class SQLAlchemyARRepository(ARRepositoryPort):
                     ARInvoiceTable.deleted_at.is_(None),
                 )
             )
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             count = result.scalar()
             return count > 0
 
@@ -587,11 +550,9 @@ class SQLAlchemyARRepository(ARRepositoryPort):
     async def get_aging_buckets(
         self, legal_entity_id: UUID, as_of_date: date
     ) -> list[dict[str, Any]]:
-        """
-        Menghasilkan aging buckets (0-30, 31-60, 61-90, 91-120, 120+).
-        """
+        """Menghasilkan aging buckets (0-30, 31-60, 61-90, 91-120, 120+)."""
+        session = await self._get_session()
         try:
-            # Define bucket conditions
             buckets = [
                 ("0-30 days", as_of_date - timedelta(days=30), as_of_date),
                 ("31-60 days", as_of_date - timedelta(days=60), as_of_date - timedelta(days=31)),
@@ -621,18 +582,17 @@ class SQLAlchemyARRepository(ARRepositoryPort):
                     )
                 ).where(and_(*conditions))
 
-                result = await self.session.execute(stmt)
+                result = await session.execute(stmt)
                 total = result.scalar() or 0
 
                 results.append(
                     {
                         "bucket_name": bucket_name,
                         "total_amount": Decimal(str(total)),
-                        "percentage": 0,  # Will be calculated later
+                        "percentage": 0,
                     }
                 )
 
-            # Calculate percentages
             total_all = sum(r["total_amount"] for r in results)
             for r in results:
                 if total_all > 0:
@@ -647,14 +607,12 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             raise ARRepositoryError(f"Failed to get aging buckets: {e}") from e
 
     async def get_next_invoice_number(self, prefix: str = "INV", year: int = None) -> str:
-        """
-        Menghasilkan nomor invoice berikutnya.
-        """
+        """Menghasilkan nomor invoice berikutnya."""
         if year is None:
             year = date.today().year
 
+        session = await self._get_session()
         try:
-            # Use func.concat to avoid f-string interpolation in SQL
             pattern = func.concat(prefix, '-', year, '-%')
             stmt = (
                 select(ARInvoiceTable.invoice_number)
@@ -666,7 +624,7 @@ class SQLAlchemyARRepository(ARRepositoryPort):
                 .limit(1)
             )
 
-            result = await self.session.execute(stmt)
+            result = await session.execute(stmt)
             last_number = result.scalar_one_or_none()
 
             if last_number:
@@ -680,6 +638,50 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             logger.error("Failed to generate next invoice number: %s", e)
             raise ARRepositoryError(f"Failed to generate invoice number: {e}") from e
 
+    # ========================================================================
+    # METODE TAMBAHAN UNTUK MEMENUHI KONTRAK PORT (stub/delegasi)
+    # ========================================================================
+
+    async def get_all_by_legal_entity(self, legal_entity_id: UUID) -> list[ARInvoiceAggregate]:
+        """Stub: dapatkan semua invoice untuk entitas hukum."""
+        logger.warning("get_all_by_legal_entity not fully implemented")
+        return []
+
+    async def get_payments(self, invoice_id: UUID) -> list[ARPayment]:
+        """Stub: dapatkan pembayaran untuk invoice."""
+        logger.warning("get_payments not fully implemented")
+        return []
+
+    async def get_credit_notes(self, invoice_id: UUID) -> list[ARCreditNote]:
+        """Stub: dapatkan credit notes untuk invoice."""
+        logger.warning("get_credit_notes not fully implemented")
+        return []
+
+    async def save(self, invoice: ARInvoiceAggregate) -> None:
+        """Simpan (add atau update) invoice."""
+        existing = await self.get_by_id(invoice.id)
+        if existing:
+            await self.update(invoice)
+        else:
+            await self.add(invoice)
+
+    async def save_invoice(self, invoice: ARInvoiceAggregate) -> None:
+        """P55: Save invoice (add if new, update if exists)."""
+        existing = await self.get_by_id(invoice.id)
+        if existing:
+            await self.update(invoice)
+        else:
+            await self.add(invoice)
+
+    async def find_invoice_by_id(self, invoice_id: UUID) -> ARInvoiceAggregate | None:
+        """P55: Find invoice by ID (without legal_entity_id)."""
+        return await self.get_by_id(invoice_id)
+    
+# ============================================================================
+# ALIAS UNTUK KOMPATIBILITAS DENGAN ADAPTER REGISTRY
+# ============================================================================
+
+SQLAlchemyARRepositoryImpl = SQLAlchemyARRepository
 
 # ============================================================================
 # EXPORTS
@@ -693,4 +695,5 @@ __all__ = [
     "OptimisticLockError",
     "PaymentExceedsOutstandingError",
     "SQLAlchemyARRepository",
+    "SQLAlchemyARRepositoryImpl",
 ]

@@ -91,18 +91,29 @@ class ApplicationFactory:
         from adapters.coretax_djp.api_oauth2_client import CoretaxOAuth2Client
         from adapters.secondary_impl.kafka_consumer_wrapper import KafkaConsumerWrapper
         from adapters.secondary_impl.kafka_producer_wrapper import KafkaProducerWrapper
-        from adapters.secondary_impl.postgres_connection_pool_manager import AsyncPGConnectionPoolManager
+        from adapters.secondary_impl.postgres_connection_pool_manager import (
+            AsyncPGConnectionPoolManager,
+        )
         from adapters.secondary_impl.redis_cache_adapter_impl import RedisCacheAdapter
-        from adapters.secondary_impl.sqlalchemy_account_repository_impl import SQLAlchemyAccountRepository
+        from adapters.secondary_impl.sqlalchemy_account_repository_impl import (
+            SQLAlchemyAccountRepository,
+        )
         from adapters.secondary_impl.sqlalchemy_ap_repository_impl import SQLAlchemyAPRepository
         from adapters.secondary_impl.sqlalchemy_ar_repository_impl import SQLAlchemyARRepository
-        from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import SQLAlchemyBankCashRepository
-        from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import SQLAlchemyFixedAssetRepository
-        from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import SQLAlchemyInventoryRepository
-        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import SQLAlchemyJournalRepository
+        from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import (
+            SQLAlchemyBankCashRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import (
+            SQLAlchemyFixedAssetRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import (
+            SQLAlchemyInventoryRepository,
+        )
+        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import (
+            SQLAlchemyJournalRepository,
+        )
         from adapters.secondary_impl.sqlalchemy_tax_repository_impl import SQLAlchemyTaxRepository
         from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SQLAlchemyUnitOfWork
-        
         from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
         from application.commands_cqrs.query_bus_unified import UnifiedQueryBus
         from application.events.handler_registry import register_default_logging_handler
@@ -124,7 +135,6 @@ class ApplicationFactory:
         from application.service_layer.service_report import ReportService
         from application.service_layer.service_tax import TaxService
         from application.service_layer.service_umkm import UMKMService
-        
         from infrastructure.event_store.append_only_store import AppendOnlyStore
         from infrastructure.security.field_encryption_aes256_gcm import FieldEncryptionService
         from infrastructure.security.jwt_issuer import JWTIssuer

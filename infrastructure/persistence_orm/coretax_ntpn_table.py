@@ -6,12 +6,12 @@ Responsibility: Coretax NTPN (Nomor Transaksi Penerimaan Negara) table.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import JSON, Date, DateTime, Index, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID

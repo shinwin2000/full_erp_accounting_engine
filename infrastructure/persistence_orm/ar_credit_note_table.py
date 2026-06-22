@@ -110,7 +110,7 @@ class ARCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     # RELATIONSHIPS
     # ========================================================================
 
-    invoice: Mapped["ARInvoiceTable"] = relationship(
+    invoice: Mapped[ARInvoiceTable] = relationship(
         "ARInvoiceTable",
         foreign_keys=[invoice_id],
         back_populates="credit_notes",

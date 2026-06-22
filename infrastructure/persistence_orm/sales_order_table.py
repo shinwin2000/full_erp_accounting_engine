@@ -116,7 +116,7 @@ class SalesOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     # ========================================================================
 
     # Customer
-    customer: Mapped["CustomerTable"] = relationship(
+    customer: Mapped[CustomerTable] = relationship(
         "CustomerTable",
         back_populates="sales_orders",
         foreign_keys=[customer_id],
@@ -124,7 +124,7 @@ class SalesOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
 
     # AR Invoices – foreign key di sisi ARInvoiceTable adalah sales_order_id
     # Kita tambahkan foreign_keys dan primaryjoin untuk kejelasan
-    ar_invoices: Mapped[list["ARInvoiceTable"]] = relationship(
+    ar_invoices: Mapped[list[ARInvoiceTable]] = relationship(
         "ARInvoiceTable",
         back_populates="sales_order",
         foreign_keys="[ARInvoiceTable.sales_order_id]",

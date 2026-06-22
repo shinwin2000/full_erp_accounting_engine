@@ -22,7 +22,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_consolidation import ConsolidationService
 from application.service_layer.service_ledger import LedgerService
 from application.service_layer.service_report import ReportService
@@ -43,7 +43,7 @@ class ConsolidationReportType(Enum):
     ALL = "all"
 
 
-class ConsolidationGroupReportCommand(Command):
+class ConsolidationGroupReportCommand(BaseCommand):
     """Command untuk generate laporan konsolidasi group."""
 
     __slots__ = (
@@ -363,7 +363,7 @@ class ConsolidationGroupReportUseCase:
 
 
 async def consolidation_group_report_handler(
-    command: Command, use_case: ConsolidationGroupReportUseCase
+    command: BaseCommand, use_case: ConsolidationGroupReportUseCase
 ) -> CommandResult:
     if not isinstance(command, ConsolidationGroupReportCommand):
         raise TypeError(f"Expected ConsolidationGroupReportCommand, got {type(command)}")

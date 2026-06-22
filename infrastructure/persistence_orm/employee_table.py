@@ -190,7 +190,7 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     )
 
     # Salary components
-    salary_components: Mapped[list["SalaryComponentTable"]] = relationship(
+    salary_components: Mapped[list[SalaryComponentTable]] = relationship(
         "SalaryComponentTable",
         back_populates="employee",
         foreign_keys="[SalaryComponentTable.employee_id]",
@@ -198,7 +198,7 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     )
 
     # Time entries
-    time_entries: Mapped[list["TimeEntryTable"]] = relationship(
+    time_entries: Mapped[list[TimeEntryTable]] = relationship(
         "TimeEntryTable",
         back_populates="employee",
         foreign_keys="[TimeEntryTable.employee_id]",
@@ -206,7 +206,7 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     )
 
     # Payslips (added for back_populates in PayslipTable)
-    payslips: Mapped[list["PayslipTable"]] = relationship(
+    payslips: Mapped[list[PayslipTable]] = relationship(
         "PayslipTable",
         back_populates="employee",
         foreign_keys="[PayslipTable.employee_id]",

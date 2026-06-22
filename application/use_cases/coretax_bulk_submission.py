@@ -23,7 +23,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.dto_objects.coretax_submission_request import (
     SPTMasaPph21Request,
     SPTMasaPph23Request,
@@ -76,7 +76,7 @@ class BulkSubmissionResult:
     completed_at: datetime
 
 
-class CoretaxBulkSubmissionCommand(Command):
+class CoretaxBulkSubmissionCommand(BaseCommand):
     """Command untuk bulk submission ke Coretax."""
 
     __slots__ = ("dry_run", "idempotency_key", "items", "legal_entity_id", "submission_type")
@@ -103,16 +103,19 @@ class CoretaxBulkSubmissionCommand(Command):
         self.dry_run = dry_run
 
     def to_dict(self) -> dict[str, Any]:
-        data = super().to_dict()
-        data.update(
-            {
-                "legal_entity_id": str(self.legal_entity_id),
-                "submission_type": self.submission_type,
-                "items_count": len(self.items),
-                "dry_run": self.dry_run,
-            }
-        )
-        return data
+        """Manual dict construction to avoid __slots__ conflict."""
+        return {
+            "command_id": str(self.command_id),
+            "command_type": self.command_type,
+            "user_id": str(self.user_id) if self.user_id else None,
+            "correlation_id": self.correlation_id,
+            "idempotency_key": self.idempotency_key,
+            "created_at": self.created_at.isoformat() if hasattr(self, "created_at") else None,
+            "legal_entity_id": str(self.legal_entity_id),
+            "submission_type": self.submission_type,
+            "items_count": len(self.items),
+            "dry_run": self.dry_run,
+        }
 
 
 class CoretaxBulkSubmissionUseCase:
@@ -165,7 +168,6 @@ class CoretaxBulkSubmissionUseCase:
                     submission_id = uuid4()
                     try:
                         if tax_type == BulkSubmissionType.PPN_MASA.value:
-                            # Bangun request PPN Masa
                             request = await self._build_ppn_request(
                                 command.legal_entity_id,
                                 period_year,
@@ -234,7 +236,6 @@ class CoretaxBulkSubmissionUseCase:
                         submitted_at=datetime.utcnow(),
                     )
 
-            # Jalankan semua item secara paralel
             tasks = [process_item(item, i) for i, item in enumerate(command.items)]
             items_results = await asyncio.gather(*tasks)
 
@@ -300,7 +301,6 @@ class CoretaxBulkSubmissionUseCase:
         spt_data: dict[str, Any],
         submission_id: UUID,
     ) -> SPTMasaPpnRequest:
-        # Dapatkan NPWP dari legal entity
         legal_entity = await self._tax_service.get_legal_entity_tax_data(legal_entity_id)
         if not legal_entity:
             raise ValueError(f"Legal entity {legal_entity_id} not found")
@@ -315,7 +315,6 @@ class CoretaxBulkSubmissionUseCase:
         total_ppn_masukan = Decimal(str(spt_data.get("total_ppn_masukan", 0)))
         kompensasi = Decimal(str(spt_data.get("kompensasi", 0)))
 
-        # Hitung kurang/lebih bayar
         ppn_kurang_bayar = total_ppn_keluaran - total_ppn_masukan - kompensasi
         if ppn_kurang_bayar < 0:
             ppn_kurang_bayar = Decimal("0")
@@ -323,7 +322,6 @@ class CoretaxBulkSubmissionUseCase:
         else:
             ppn_lebih_bayar = Decimal("0")
 
-        # Dalam implementasi nyata, lampiran diisi dengan detail faktur pajak
         return SPTMasaPpnRequest(
             id=submission_id,
             npwp_pemilik=npwp,
@@ -440,7 +438,6 @@ class CoretaxBulkSubmissionUseCase:
         )
 
     async def _generate_digital_signature(self) -> str:
-        # Simplifikasi, di production gunakan HSM
         data = f"{datetime.utcnow().isoformat()}_{uuid4()}"
         return hashlib.sha256(data.encode()).hexdigest()
 
@@ -448,13 +445,8 @@ class CoretaxBulkSubmissionUseCase:
         return self._stats
 
 
-# ============================================================================
-# Handler dengan dependency injection
-# ============================================================================
-
-
 async def coretax_bulk_submission_handler(
-    command: Command, use_case: CoretaxBulkSubmissionUseCase
+    command: BaseCommand, use_case: CoretaxBulkSubmissionUseCase
 ) -> CommandResult:
     if not isinstance(command, CoretaxBulkSubmissionCommand):
         raise TypeError(f"Expected CoretaxBulkSubmissionCommand, got {type(command)}")

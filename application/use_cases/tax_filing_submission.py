@@ -19,7 +19,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.dto_objects.coretax_submission_request import (
     NPWP,
     NTPN,
@@ -45,7 +45,7 @@ class TaxType(Enum):
     TAHUNAN_BADAN = "tahunan_badan"
 
 
-class TaxFilingSubmissionCommand(Command):
+class TaxFilingSubmissionCommand(BaseCommand):
     """Command untuk submit SPT Pajak."""
 
     __slots__ = (
@@ -378,7 +378,7 @@ class TaxFilingSubmissionUseCase:
 
 
 async def tax_filing_submission_handler(
-    command: Command, use_case: TaxFilingSubmissionUseCase
+    command: BaseCommand, use_case: TaxFilingSubmissionUseCase
 ) -> CommandResult:
     if not isinstance(command, TaxFilingSubmissionCommand):
         raise TypeError(f"Expected TaxFilingSubmissionCommand, got {type(command)}")

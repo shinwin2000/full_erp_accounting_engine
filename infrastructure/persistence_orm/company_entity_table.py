@@ -12,10 +12,10 @@ Audit: Setiap perubahan data perusahaan dicatat di event store.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import String
 from sqlalchemy.dialects.postgresql import UUID

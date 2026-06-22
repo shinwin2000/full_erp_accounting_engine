@@ -82,15 +82,19 @@ class EmployeeTable(Base):
 class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
     """SQLAlchemy implementation of EmployeeRepositoryPort."""
 
-    def __init__(self, session_factory):
-        self._session_factory = session_factory
+    def __init__(self, session: AsyncSession | None = None):
+        self._session = session
 
     async def _get_session(self) -> AsyncSession:
-        return self._session_factory()
+        if self._session is None:
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session
+            self._session = await get_async_session()
+        return self._session
 
     async def save(self, employee) -> None:
         """Save or update an employee."""
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             stmt = select(EmployeeTable).where(EmployeeTable.id == employee.id)
             result = await session.execute(stmt)
             existing = result.scalar_one_or_none()
@@ -143,42 +147,43 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
 
     async def get_by_id(self, employee_id: UUID):
         """Get employee by ID."""
-        async with await self._get_session() as session:
-            stmt = select(EmployeeTable).where(EmployeeTable.id == employee_id)
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if not row:
-                return None
-            return self._to_domain(row)
+        session = await self._get_session()
+        stmt = select(EmployeeTable).where(EmployeeTable.id == employee_id)
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            return None
+        return self._to_domain(row)
 
     async def get_by_code(self, employee_code: str, legal_entity_id: UUID):
         """Get employee by code within legal entity."""
-        async with await self._get_session() as session:
-            stmt = select(EmployeeTable).where(
-                EmployeeTable.employee_code == employee_code,
-                EmployeeTable.legal_entity_id == legal_entity_id,
-            )
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if not row:
-                return None
-            return self._to_domain(row)
+        session = await self._get_session()
+        stmt = select(EmployeeTable).where(
+            EmployeeTable.employee_code == employee_code,
+            EmployeeTable.legal_entity_id == legal_entity_id,
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            return None
+        return self._to_domain(row)
 
     async def list_by_legal_entity(
         self, legal_entity_id: UUID, is_active: bool | None = None
     ) -> list:
         """List employees for a legal entity."""
-        async with await self._get_session() as session:
-            stmt = select(EmployeeTable).where(EmployeeTable.legal_entity_id == legal_entity_id)
-            if is_active is not None:
-                stmt = stmt.where(EmployeeTable.is_active == is_active)
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            return [self._to_domain(row) for row in rows]
+        session = await self._get_session()
+        stmt = select(EmployeeTable).where(EmployeeTable.legal_entity_id == legal_entity_id)
+        if is_active is not None:
+            stmt = stmt.where(EmployeeTable.is_active == is_active)
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_domain(row) for row in rows]
 
     async def update_status(self, employee_id: UUID, is_active: bool) -> None:
         """Update employee active status."""
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             stmt = (
                 update(EmployeeTable)
                 .where(EmployeeTable.id == employee_id)
@@ -188,18 +193,19 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
 
     async def delete(self, employee_id: UUID) -> None:
         """Delete an employee (hard delete)."""
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             await session.execute(delete(EmployeeTable).where(EmployeeTable.id == employee_id))
 
     async def get_by_email(self, email: str) -> Optional:
         """Get employee by email."""
-        async with await self._get_session() as session:
-            stmt = select(EmployeeTable).where(EmployeeTable.email == email)
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if not row:
-                return None
-            return self._to_domain(row)
+        session = await self._get_session()
+        stmt = select(EmployeeTable).where(EmployeeTable.email == email)
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            return None
+        return self._to_domain(row)
 
     def _to_domain(self, row: EmployeeTable):
         from types import SimpleNamespace

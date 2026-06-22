@@ -18,7 +18,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_coa import COAService
 from application.service_layer.service_consolidation import ConsolidationService
 from application.service_layer.service_report import ReportService
@@ -44,7 +44,7 @@ class ExportFormat(Enum):
     JSON = "json"
 
 
-class FinancialStatementGenerationCommand(Command):
+class FinancialStatementGenerationCommand(BaseCommand):
     """Command untuk generate laporan keuangan."""
 
     __slots__ = (
@@ -338,7 +338,7 @@ class FinancialStatementGenerationUseCase:
 
 
 async def financial_statement_generation_handler(
-    command: Command, use_case: FinancialStatementGenerationUseCase
+    command: BaseCommand, use_case: FinancialStatementGenerationUseCase
 ) -> CommandResult:
     if not isinstance(command, FinancialStatementGenerationCommand):
         raise TypeError(f"Expected FinancialStatementGenerationCommand, got {type(command)}")

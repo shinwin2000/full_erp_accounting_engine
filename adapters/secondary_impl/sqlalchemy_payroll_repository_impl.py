@@ -8,7 +8,8 @@ Responsibility: Implementasi repository Payroll menggunakan SQLAlchemy.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,67 +22,86 @@ from ports.primary.payroll_repository_port import PayrollRepositoryPort
 
 
 class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession | None = None):
         self._session = session
+
+    async def _get_session(self) -> AsyncSession:
+        if self._session is None:
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session
+            self._session = await get_async_session()
+        return self._session
 
     # ========== Payroll Run ==========
     async def save_payroll_run(self, run: PayrollRunTable) -> PayrollRunTable:
-        self._session.add(run)
-        await self._session.flush()
+        session = await self._get_session()
+        session.add(run)
+        await session.flush()
         return run
 
     async def get_payroll_run_by_id(self, run_id: uuid.UUID) -> PayrollRunTable | None:
+        session = await self._get_session()
         stmt = select(PayrollRunTable).where(PayrollRunTable.id == run_id)
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    # ===== alias untuk P09 =====
+    async def get_payroll_run(self, run_id: uuid.UUID) -> PayrollRunTable | None:
+        return await self.get_payroll_run_by_id(run_id)
 
     async def get_payroll_runs_by_period(
         self, period_year: int, period_month: int, legal_entity_id: uuid.UUID
     ) -> list[PayrollRunTable]:
+        session = await self._get_session()
         stmt = select(PayrollRunTable).where(
             PayrollRunTable.period_year == period_year,
             PayrollRunTable.period_month == period_month,
             PayrollRunTable.legal_entity_id == legal_entity_id,
         )
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return list(result.scalars().all())
 
     async def update_payroll_run_status(self, run_id: uuid.UUID, status: str) -> None:
+        session = await self._get_session()
         stmt = update(PayrollRunTable).where(PayrollRunTable.id == run_id).values(status=status)
-        await self._session.execute(stmt)
+        await session.execute(stmt)
 
     # ========== Payslip ==========
     async def save_payslip(self, payslip: PayrollPayslipTable) -> PayrollPayslipTable:
-        self._session.add(payslip)
-        await self._session.flush()
+        session = await self._get_session()
+        session.add(payslip)
+        await session.flush()
         return payslip
 
     async def get_payslip_by_id(self, payslip_id: uuid.UUID) -> PayrollPayslipTable | None:
+        session = await self._get_session()
         stmt = select(PayrollPayslipTable).where(PayrollPayslipTable.id == payslip_id)
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_payslips_by_employee(
         self, employee_id: uuid.UUID, from_date: date, to_date: date
     ) -> list[PayrollPayslipTable]:
+        session = await self._get_session()
         stmt = select(PayrollPayslipTable).where(
             PayrollPayslipTable.employee_id == employee_id,
             PayrollPayslipTable.period_year.between(from_date.year, to_date.year),
         )
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return list(result.scalars().all())
 
     async def get_payslips_by_run(self, payroll_run_id: uuid.UUID) -> list[PayrollPayslipTable]:
+        session = await self._get_session()
         stmt = select(PayrollPayslipTable).where(
             PayrollPayslipTable.payroll_run_id == payroll_run_id
         )
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return list(result.scalars().all())
 
     # ========== Salary Components ==========
     async def get_salary_components_by_employee(
         self, employee_id: uuid.UUID, effective_date: date
     ) -> list[SalaryComponentTable]:
+        session = await self._get_session()
         stmt = select(SalaryComponentTable).where(
             SalaryComponentTable.employee_id == employee_id,
             SalaryComponentTable.effective_date <= effective_date,
@@ -90,22 +110,58 @@ class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
                 | (SalaryComponentTable.end_date >= effective_date)
             ),
         )
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return list(result.scalars().all())
 
     # ========== Employee ==========
     async def get_employee_by_id(self, employee_id: uuid.UUID) -> EmployeeTable | None:
+        session = await self._get_session()
         stmt = select(EmployeeTable).where(EmployeeTable.id == employee_id)
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_employee(self, employee_id: uuid.UUID) -> EmployeeTable | None:
+        return await self.get_employee_by_id(employee_id)
+
     async def get_active_employees(self, legal_entity_id: uuid.UUID) -> list[EmployeeTable]:
+        session = await self._get_session()
         stmt = select(EmployeeTable).where(
             EmployeeTable.legal_entity_id == legal_entity_id,
             EmployeeTable.status == "active",
         )
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_employees(self, legal_entity_id: uuid.UUID) -> list[EmployeeTable]:
+        return await self.get_active_employees(legal_entity_id)
+
+    async def save_payroll(self, payroll: Any) -> None:
+        session = await self._get_session()
+        existing = await session.get(PayrollRunTable, payroll.id)
+        if existing:
+            for key, value in payroll.__dict__.items():
+                if not key.startswith("_") and key != "id":
+                    setattr(existing, key, value)
+            existing.updated_at = datetime.utcnow()
+        else:
+            session.add(payroll)
+        await session.flush()
+
+    async def find_by_employee(self, employee_id: uuid.UUID) -> list[PayrollPayslipTable]:
+        """P55: Find payslips by employee ID (without date filter)."""
+        session = await self._get_session()
+        stmt = select(PayrollPayslipTable).where(
+            PayrollPayslipTable.employee_id == employee_id,
+            PayrollPayslipTable.deleted_at.is_(None)
+        ).order_by(PayrollPayslipTable.period_year.desc(), PayrollPayslipTable.period_month.desc())
+        result = await session.execute(stmt)
         return list(result.scalars().all())
 
 
-__all__ = ["SQLAlchemyPayrollRepository"]
+# ============================================================================
+# ALIAS UNTUK KOMPATIBILITAS DENGAN ADAPTER REGISTRY
+# ============================================================================
+
+SQLAlchemyPayrollRepositoryImpl = SQLAlchemyPayrollRepository
+
+__all__ = ["SQLAlchemyPayrollRepository", "SQLAlchemyPayrollRepositoryImpl"]

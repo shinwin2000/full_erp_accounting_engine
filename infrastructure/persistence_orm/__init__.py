@@ -1,74 +1,188 @@
 # infrastructure/persistence_orm/__init__.py
 from __future__ import annotations
 
-import importlib
 import logging
-import pathlib
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from sqlalchemy import Column, DateTime, ForeignKey, Table
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
 from infrastructure.persistence_orm.base_model import Base, TimestampMixin
 
-# Import OutboxMessageTable dari file alias (yang merujuk ke OutboxTable)
-from infrastructure.persistence_orm.outbox_message_table import OutboxMessageTable
+logger = logging.getLogger(__name__)
 
-# Auto-discovery
-_current_dir = pathlib.Path(__file__).parent
-table_files = [p.stem for p in _current_dir.glob("*.py") if p.name not in ("__init__.py", "base_model.py")]
+# ============================================================================
+# 1. LEGAL ENTITY (harus pertama agar FK ke legal_entity bisa di-resolve)
+# ============================================================================
+from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
 
-loaded_models: dict[str, Any] = {}
+# ============================================================================
+# 2. IAM TABLES (user, role, permission, session, login attempt)
+# ============================================================================
+from infrastructure.persistence_orm.iam_user_table import (
+    IAMPermissionTable,
+    IAMRoleTable,
+    IAMSessionTable,
+    IAMUserTable,
+    LoginAttemptTable,
+    iam_role_permission,
+    iam_user_role,
+)
 
-for file_stem in table_files:
-    module_name = f"infrastructure.persistence_orm.{file_stem}"
-    try:
-        module = importlib.import_module(module_name)
-        for attr_name in dir(module):
-            attr = getattr(module, attr_name)
-            if isinstance(attr, type) and issubclass(attr, Base) and attr is not Base:
-                if getattr(attr, "__abstract__", False):
-                    loaded_models[attr_name] = attr
-                    continue
-                loaded_models[attr_name] = attr
-    except Exception as e:
-        logger.warning(f"Gagal import {module_name}: {e}")
+# ============================================================================
+# 3. JUNCTION TABLE: iam_user_legal_entity
+# (didefinisikan di sini setelah legal_entity dan iam_user siap)
+# ============================================================================
+iam_user_legal_entity = Table(
+    "iam_user_legal_entity",
+    Base.metadata,
+    Column("user_id", PGUUID(as_uuid=True), ForeignKey("iam_user.id"), primary_key=True),
+    Column("legal_entity_id", PGUUID(as_uuid=True), ForeignKey("legal_entity.id"), primary_key=True),
+    Column("assigned_at", DateTime(timezone=True), server_default="now()"),
+    Column("assigned_by", PGUUID(as_uuid=True), nullable=True),
+    extend_existing=True,
+)
 
-# Pastikan OutboxMessageTable ada di loaded_models
-if "OutboxMessageTable" not in loaded_models:
-    loaded_models["OutboxMessageTable"] = OutboxMessageTable
+# ============================================================================
+# 4. PROJECTION / READ MODELS
+# ============================================================================
+from infrastructure.persistence_orm.projection_read_models import (
+    ProjectionARAgingTable,
+    ProjectionAPAgingTable,
+    ProjectionCoretaxDashboardTable,
+    ProjectionFinancialRatiosTable,
+    ProjectionGLTable,
+    ProjectionKpiAlerterTable,
+    ProjectionPPHSummaryTable,
+    ProjectionPPNSettlementTable,
+    ProjectionProfitabilitySegmentTable,
+    ProjectionTrend12MonthTable,
+    ProjectionTrialBalanceTable,
+    ProjectionVarianceAnalysisTable,
+)
 
-loaded_models["Base"] = Base
+# ============================================================================
+# 5. SAGA ORCHESTRATION
+# ============================================================================
+from infrastructure.persistence_orm.saga_orchestration_table import (
+    SagaEventTable,
+    SagaInstanceTable,
+    SagaLockTable,
+    SagaStepLogTable,
+)
 
-# Registry sanitization (opsional)
-try:
-    registry = getattr(Base, "registry", None)
-    if registry and hasattr(registry, "_class_registry"):
-        class_reg = registry._class_registry
-        for model_name, model_cls in loaded_models.items():
-            if model_name != "Base" and not getattr(model_cls, "__abstract__", False):
-                dict.__setitem__(class_reg, model_name, model_cls)
-                if hasattr(class_reg, "_data") and isinstance(class_reg._data, dict):
-                    class_reg._data[model_name] = model_cls
-        for name in list(class_reg.keys()):
-            val = class_reg[name]
-            if not isinstance(val, type):
-                target_cls = loaded_models.get(name)
-                if not target_cls:
-                    def _find_derived(c):
-                        if c.__name__ == name and not getattr(c, "__abstract__", False):
-                            return c
-                        for sub in c.__subclasses__():
-                            res = _find_derived(sub)
-                            if res:
-                                return res
-                        return None
-                    target_cls = _find_derived(Base)
-                if target_cls:
-                    dict.__setitem__(class_reg, name, target_cls)
-                    if hasattr(class_reg, "_data") and isinstance(class_reg._data, dict):
-                        class_reg._data[name] = target_cls
-except Exception:
-    pass
+# ============================================================================
+# 6. CORETAX
+# ============================================================================
+from infrastructure.persistence_orm.coretax_faktur_keluaran_table import CoretaxFakturKeluaranTable
+from infrastructure.persistence_orm.coretax_faktur_masukan_table import CoretaxFakturMasukanTable
 
-globals().update(loaded_models)
-__all__ = list(loaded_models.keys())
+# ============================================================================
+# 7. MANUFACTURING
+# ============================================================================
+from infrastructure.persistence_orm.manufacturing_routing_table import RoutingTable
+from infrastructure.persistence_orm.routing_step_table import RoutingStepTable
+from infrastructure.persistence_orm.manufacturing_wip_table import WorkInProcessTable
+
+# ============================================================================
+# 8. PAYROLL
+# ============================================================================
+from infrastructure.persistence_orm.payroll_detail_table import (
+    PayrollAdjustmentTable,
+    PayrollDetailTable,
+    SalaryStructureTable,
+)
+
+# ============================================================================
+# 9. DELIVERY ORDER
+# ============================================================================
+from infrastructure.persistence_orm.delivery_order_table import DeliveryOrderLineTable, DeliveryOrderTable
+
+# ============================================================================
+# 10. UMKM
+# ============================================================================
+from infrastructure.persistence_orm.umkm_journal_table import UmkmJournalTable
+
+# ============================================================================
+# 11. EQUITY
+# ============================================================================
+from infrastructure.persistence_orm.equity_tables import (
+    CapitalContributionTable,
+    DividendDeclarationTable,
+    RetainedEarningsHistoryTable,
+)
+
+# ============================================================================
+# 12. TAX SETTLEMENT
+# ============================================================================
+from infrastructure.persistence_orm.tax_settlement_table import PphWithholdingSummaryTable, PpnSettlementTable
+
+# ============================================================================
+# 13. GOODS RECEIPT LINE & SALES ORDER LINE
+# ============================================================================
+from infrastructure.persistence_orm.goods_receipt_line_table import GoodsReceiptLineTable
+from infrastructure.persistence_orm.sales_order_line_table import SalesOrderLineTable
+
+
+# ============================================================================
+# DAFTAR SEMUA MODEL UNTUK DIEKSPOR
+# ============================================================================
+__all__ = [
+    # IAM
+    "IAMUserTable",
+    "IAMRoleTable",
+    "IAMPermissionTable",
+    "IAMSessionTable",
+    "LoginAttemptTable",
+    "iam_user_role",
+    "iam_role_permission",
+    "iam_user_legal_entity",  # penting untuk diekspor
+    # Projection
+    "ProjectionGLTable",
+    "ProjectionTrialBalanceTable",
+    "ProjectionARAgingTable",
+    "ProjectionAPAgingTable",
+    "ProjectionPPNSettlementTable",
+    "ProjectionPPHSummaryTable",
+    "ProjectionCoretaxDashboardTable",
+    "ProjectionTrend12MonthTable",
+    "ProjectionVarianceAnalysisTable",
+    "ProjectionProfitabilitySegmentTable",
+    "ProjectionFinancialRatiosTable",
+    "ProjectionKpiAlerterTable",
+    # Saga
+    "SagaInstanceTable",
+    "SagaStepLogTable",
+    "SagaLockTable",
+    "SagaEventTable",
+    # Coretax
+    "CoretaxFakturKeluaranTable",
+    "CoretaxFakturMasukanTable",
+    # Manufacturing
+    "RoutingTable",
+    "RoutingStepTable",
+    "WorkInProcessTable",
+    # Payroll
+    "SalaryStructureTable",
+    "PayrollDetailTable",
+    "PayrollAdjustmentTable",
+    # Delivery Order
+    "DeliveryOrderTable",
+    "DeliveryOrderLineTable",
+    # UMKM
+    "UmkmJournalTable",
+    # Equity
+    "CapitalContributionTable",
+    "DividendDeclarationTable",
+    "RetainedEarningsHistoryTable",
+    # Tax Settlement
+    "PpnSettlementTable",
+    "PphWithholdingSummaryTable",
+    # Goods Receipt Line & Sales Order Line
+    "GoodsReceiptLineTable",
+    "SalesOrderLineTable",
+    # Legal Entity
+    "LegalEntityTable",
+]
+
+logger.info(f"Loaded {len(__all__)} ORM models from persistence_orm package.")

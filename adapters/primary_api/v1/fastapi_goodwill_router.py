@@ -20,7 +20,6 @@ Method Standards (ERP):
 """
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -29,8 +28,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -328,8 +326,8 @@ class GoodwillSummaryResponseSchema(BaseModel):
 
 async def get_goodwill_service(request: Request, ) -> Any:
     """Get Goodwill Service instance."""
+
     from application.service_layer.service_goodwill import GoodwillService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(GoodwillService)

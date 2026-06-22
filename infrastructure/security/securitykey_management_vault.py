@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Module: key_management_vault.py
+Module: securitykey_management_vault.py
 Layer: Infrastructure (Security)
-Responsibility: Manage encryption keys using HashiCorp Vault (KV and Transit).
-               No direct import of FieldEncryptionService; instead, accepts
-               optional fallback encrypt/decrypt callbacks to break circular dependency.
+Responsibility: Manage encryption keys using HashiCorp Vault.
+               No direct import of FieldEncryptionService.
 """
 
 from __future__ import annotations
@@ -17,10 +16,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-# Optional HVAC import
 try:
     import hvac
-
     VAULT_AVAILABLE = True
 except ImportError:
     VAULT_AVAILABLE = False
@@ -30,7 +27,6 @@ from config.loader_yaml import load_yaml_config
 
 logger = logging.getLogger(__name__)
 
-# Constants
 DEFAULT_TRANSIT_PATH = "transit"
 DEFAULT_KV_ENGINE = "secret"
 DEFAULT_KEY_NAME = "aes256-gcm-key"
@@ -60,12 +56,6 @@ class EncryptionKey:
 
 
 class KeyManagementVault:
-    """
-    Vault client for key management. Supports KV v2 and Transit engine.
-    To avoid circular import with FieldEncryptionService, callers can provide
-    fallback_encrypt/decrypt functions (e.g., using get_field_encryption() at runtime).
-    """
-
     def __init__(
         self,
         config_path: str = "config_files/security_config.yaml",
@@ -86,12 +76,15 @@ class KeyManagementVault:
             config = load_yaml_config(config_path)
             return config.get("vault", {})
         except Exception as e:
-            logger.warning(f"Failed to load Vault config: {e}")
+            # ConfigNotFoundError adalah kondisi normal – tidak perlu log
+            if "ConfigNotFoundError" in str(type(e).__name__) or "ConfigNotFound" in str(e):
+                pass
+            else:
+                logger.debug(f"Vault config load error: {type(e).__name__}: {str(e)}")
             return {}
 
     def _get_client(self) -> hvac.Client | None:
         if not VAULT_AVAILABLE:
-            logger.debug("HVAC not installed, Vault disabled")
             return None
         if self._client:
             return self._client
@@ -102,19 +95,16 @@ class KeyManagementVault:
         if token:
             self._client = hvac.Client(url=url, token=token, namespace=namespace)
             if self._client.is_authenticated():
-                # FIX: Hindari kata "token" di log untuk keamanan
-                logger.info("Vault authenticated")
+                logger.info("Vault connected (token)")
                 return self._client
-        # AppRole
         role_id = self.config.get("role_id")
         secret_id = self.config.get("secret_id")
         if role_id and secret_id:
             client = hvac.Client(url=url, namespace=namespace)
             client.auth.approle.login(role_id=role_id, secret_id=secret_id)
             self._client = client
-            logger.info("Vault authenticated via AppRole")
+            logger.info("Vault connected (AppRole)")
             return client
-        logger.warning("No valid Vault credentials")
         return None
 
     async def _get_cached_key(self, key_id: str) -> EncryptionKey | None:
@@ -126,13 +116,9 @@ class KeyManagementVault:
         return None
 
     async def _set_cached_key(self, key: EncryptionKey, ttl: int = KEY_CACHE_TTL):
-        expires = datetime.utcnow() + timedelta(seconds=ttl)
-        self._cache[key.id] = (key, expires)
+        self._cache[key.id] = (key, datetime.utcnow() + timedelta(seconds=ttl))
 
-    async def get_key(
-        self, key_id: str = DEFAULT_KEY_NAME, version: int | None = None
-    ) -> EncryptionKey:
-        """Retrieve key from Vault KV store or fallback."""
+    async def get_key(self, key_id: str = DEFAULT_KEY_NAME, version: int | None = None) -> EncryptionKey:
         cached = await self._get_cached_key(key_id)
         if cached:
             return cached
@@ -140,7 +126,6 @@ class KeyManagementVault:
         client = self._get_client()
         if client is None:
             if self._fallback_encrypt is not None:
-                # We don't have key bytes in fallback mode, raise to indicate need for key
                 raise KeyManagementError("Vault unavailable and no local key store")
             raise VaultUnavailableError("Vault unavailable")
 
@@ -166,11 +151,9 @@ class KeyManagementVault:
             await self._set_cached_key(key)
             return key
         except hvac.exceptions.InvalidPath:
-            # Key doesn't exist, create it
             return await self.create_key(key_id)
 
     async def create_key(self, key_id: str, key_bytes: bytes | None = None) -> EncryptionKey:
-        """Create a new key in Vault KV store."""
         client = self._get_client()
         if client is None:
             raise VaultUnavailableError("Cannot create key: Vault unavailable")
@@ -184,25 +167,22 @@ class KeyManagementVault:
         path = f"{self._kv_engine}/data/{key_id}"
         try:
             client.secrets.kv.v2.create_or_update_secret(path=path, secret=data)
-            logger.info(f"Created key {key_id} in Vault")
+            logger.info(f"Encryption key '{key_id}' stored in Vault")
         except Exception as e:
-            raise KeyManagementError(f"Failed to create key: {e}") from e
+            raise KeyManagementError(f"Failed to create key: {str(e)}") from e
         key = EncryptionKey(id=key_id, version=1, key_bytes=key_bytes, created_at=datetime.utcnow())
         await self._set_cached_key(key)
         return key
 
     async def rotate_key(self, key_id: str = DEFAULT_KEY_NAME) -> EncryptionKey:
-        """Rotate key: create new version."""
         client = self._get_client()
         if client is None:
             raise VaultUnavailableError("Cannot rotate key: Vault unavailable")
         try:
-            # Try Transit rotation first
             client.secrets.transit.rotate_key(name=key_id)
-            logger.info(f"Rotated transit key {key_id}")
+            logger.info(f"Transit key '{key_id}' rotated")
             return await self.get_key(key_id)
         except hvac.exceptions.InvalidPath:
-            # KV rotation: create new version
             current = await self.get_key(key_id)
             new_version = current.version + 1
             new_bytes = os.urandom(32)
@@ -219,10 +199,10 @@ class KeyManagementVault:
                 id=key_id, version=new_version, key_bytes=new_bytes, created_at=datetime.utcnow()
             )
             await self._set_cached_key(new_key)
+            logger.info(f"KV key '{key_id}' rotated to version {new_version}")
             return new_key
 
     async def encrypt_with_transit(self, key_id: str, plaintext: str) -> str:
-        """Encrypt using Vault Transit engine (if available), else fallback."""
         client = self._get_client()
         if client is None:
             if self._fallback_encrypt:
@@ -233,10 +213,9 @@ class KeyManagementVault:
             resp = client.secrets.transit.encrypt_data(name=key_id, plaintext=b64_plain)
             return resp["data"]["ciphertext"]
         except Exception as e:
-            raise KeyManagementError(f"Transit encrypt failed: {e}") from e
+            raise KeyManagementError(f"Transit encrypt failed: {str(e)}") from e
 
     async def decrypt_with_transit(self, key_id: str, ciphertext: str) -> str:
-        """Decrypt using Vault Transit engine (if available), else fallback."""
         client = self._get_client()
         if client is None:
             if self._fallback_decrypt:
@@ -247,7 +226,7 @@ class KeyManagementVault:
             b64_plain = resp["data"]["plaintext"]
             return base64.b64decode(b64_plain).decode()
         except Exception as e:
-            raise KeyManagementError(f"Transit decrypt failed: {e}") from e
+            raise KeyManagementError(f"Transit decrypt failed: {str(e)}") from e
 
     async def health_check(self) -> dict:
         client = self._get_client()
@@ -270,10 +249,9 @@ class KeyManagementVault:
 
     def clear_cache(self):
         self._cache.clear()
-        logger.info("Key cache cleared")
+        logger.debug("Key cache cleared")
 
 
-# Singleton
 _key_management_vault: KeyManagementVault | None = None
 
 

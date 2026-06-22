@@ -59,7 +59,7 @@ class CoretaxFakturLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
     # RELATIONSHIPS
     # ========================================================================
 
-    faktur: Mapped["CoretaxFakturTable"] = relationship(
+    faktur: Mapped[CoretaxFakturTable] = relationship(
         "CoretaxFakturTable",
         back_populates="lines",
         foreign_keys=[faktur_id],

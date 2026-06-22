@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -33,7 +33,6 @@ from infrastructure.persistence_orm.base_model import (
 )
 
 if TYPE_CHECKING:
-    from infrastructure.persistence_orm.fiscal_period_table import FiscalPeriodTable
     from infrastructure.persistence_orm.journal_line_table import JournalLineTable
     from infrastructure.persistence_orm.ledger_entry_table import LedgerEntryTable
     from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
@@ -86,23 +85,23 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
 
     # Approval (4-eyes principle)
-    approved_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
-    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Posting
-    posted_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
-    posted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    posted_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Reversal information
-    reversed_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
-    reversed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    reversed_journal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    reversed_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reversed_journal_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("public.journal_header.id", name="fk_journal_header_reversed_journal"),
         nullable=True,
         index=True,
     )
-    original_journal_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    original_journal_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("public.journal_header.id", name="fk_journal_header_original_journal"),
         nullable=True,
@@ -110,17 +109,17 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     )
 
     # Reference and source
-    reference_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="manual")
-    source_id: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    source_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # Period association (foreign key only – relationship removed to avoid mapper conflict)
-    period_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    period_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("public.fiscal_period.id"), nullable=True
     )
 
     # Audit
-    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # OVERRIDE legal_entity_id dari LegalEntityMixin agar menggunakan schema public
@@ -137,14 +136,14 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     # ========================================================================
 
     # Legal Entity
-    legal_entity: Mapped["LegalEntityTable"] = relationship(
+    legal_entity: Mapped[LegalEntityTable] = relationship(
         "LegalEntityTable",
         back_populates="journals",
         foreign_keys=[legal_entity_id],
     )
 
     # Journal lines (one-to-many)
-    lines: Mapped[list["JournalLineTable"]] = relationship(
+    lines: Mapped[list[JournalLineTable]] = relationship(
         "JournalLineTable",
         back_populates="journal",
         cascade="all, delete-orphan",
@@ -152,18 +151,18 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     )
 
     # Ledger entries (one-to-many, after posting)
-    ledger_entries: Mapped[list["LedgerEntryTable"]] = relationship(
+    ledger_entries: Mapped[list[LedgerEntryTable]] = relationship(
         "LedgerEntryTable", back_populates="journal"
     )
 
     # Self-reference for reversal
-    reversed_journal: Mapped[Optional["JournalHeaderTable"]] = relationship(
+    reversed_journal: Mapped[JournalHeaderTable | None] = relationship(
         "JournalHeaderTable",
         remote_side="JournalHeaderTable.id",
         foreign_keys=[reversed_journal_id],
         uselist=False,
     )
-    original_journal: Mapped[Optional["JournalHeaderTable"]] = relationship(
+    original_journal: Mapped[JournalHeaderTable | None] = relationship(
         "JournalHeaderTable",
         remote_side="JournalHeaderTable.id",
         foreign_keys=[original_journal_id],
@@ -240,7 +239,7 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         self.approved_at = datetime.utcnow()
         self.increment_version()
 
-    def reject(self, rejected_by: uuid.UUID, reason: Optional[str] = None) -> None:
+    def reject(self, rejected_by: uuid.UUID, reason: str | None = None) -> None:
         if self.status != "submitted":
             raise ValueError(f"Cannot reject journal with status {self.status}")
         self.status = "draft"

@@ -7,7 +7,7 @@ Responsibility: Alias untuk OutboxTable (forward compatibility).
 
 from __future__ import annotations
 
+from infrastructure.persistence_orm.outbox_table import OutboxRecord, OutboxStatus
 from infrastructure.persistence_orm.outbox_table import OutboxTable as OutboxMessageTable
-from infrastructure.persistence_orm.outbox_table import OutboxStatus, OutboxRecord
 
-__all__ = ["OutboxMessageTable", "OutboxStatus", "OutboxRecord"]
+__all__ = ["OutboxMessageTable", "OutboxRecord", "OutboxStatus"]

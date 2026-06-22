@@ -34,7 +34,8 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -163,12 +164,12 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     # RELATIONSHIPS
     # ========================================================================
 
-    employee: Mapped["EmployeeTable"] = relationship(
+    employee: Mapped[EmployeeTable] = relationship(
         "EmployeeTable",
         foreign_keys=[employee_id],
         back_populates="payslips",  # harus ditambahkan di EmployeeTable
     )
-    payroll_run: Mapped["PayrollRunTable"] = relationship(
+    payroll_run: Mapped[PayrollRunTable] = relationship(
         "PayrollRunTable",
         foreign_keys=[payroll_run_id],
         back_populates="payslips",  # harus ditambahkan di PayrollRunTable

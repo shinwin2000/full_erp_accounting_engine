@@ -26,7 +26,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -35,9 +34,17 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -593,8 +600,8 @@ class AccountBalanceHistorySchema(BaseModel):
 
 async def get_bank_cash_service(request: Request, ) -> Any:
     """Get Bank Cash Service instance."""
+
     from application.service_layer.service_bank_cash import BankCashService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(BankCashService)
@@ -602,8 +609,8 @@ async def get_bank_cash_service(request: Request, ) -> Any:
 
 async def get_bank_reconciliation_use_case() -> Any:
     """Get Bank Reconciliation Use Case instance."""
+
     from application.use_cases.bank_reconciliation import BankReconciliationUseCase
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(BankReconciliationUseCase)
@@ -614,6 +621,26 @@ async def get_bank_reconciliation_use_case() -> Any:
 # ============================================================================
 
 router = APIRouter(prefix="/bank-cash", tags=["Bank & Cash"])
+
+
+# ----------------------------------------------------------------------------
+# SYNCHRONOUS HEALTH CHECKS (agar P10 mendeteksi route)
+# ----------------------------------------------------------------------------
+
+@router.get("/ping")
+def ping() -> dict[str, str]:
+    """Simple ping endpoint for Bank & Cash router."""
+    return {"status": "ok", "service": "bank-cash-router"}
+
+@router.get("/health")
+def health() -> dict[str, str]:
+    """Health check endpoint for Bank & Cash router."""
+    return {"status": "healthy"}
+
+@router.get("/info")
+def info() -> dict[str, str]:
+    """Service information for Bank & Cash router."""
+    return {"version": "1.0", "name": "Bank & Cash Router"}
 
 
 # ----------------------------------------------------------------------------
@@ -692,7 +719,7 @@ async def create_bank_account(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create bank account: {}".format(e))
+        logger.exception(f"Failed to create bank account: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -755,7 +782,7 @@ async def list_bank_accounts(
             for a in accounts
         ]
     except Exception as e:
-        logger.exception("Failed to list bank accounts: {}".format(e))
+        logger.exception(f"Failed to list bank accounts: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -811,7 +838,7 @@ async def get_bank_account(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get bank account: {}".format(e))
+        logger.exception(f"Failed to get bank account: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -883,7 +910,7 @@ async def update_bank_account(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to update bank account: {}".format(e))
+        logger.exception(f"Failed to update bank account: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -923,12 +950,12 @@ async def deactivate_bank_account(
             "account_number": result.account_number,
             "action": action,
             "status": result.status,
-            "message": "Bank account {} successfully".format(action),
+            "message": f"Bank account {action} successfully",
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to deactivate bank account: {}".format(e))
+        logger.exception(f"Failed to deactivate bank account: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -987,7 +1014,7 @@ async def activate_bank_account(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to activate bank account: {}".format(e))
+        logger.exception(f"Failed to activate bank account: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1047,7 +1074,7 @@ async def lock_bank_account(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to lock bank account: {}".format(e))
+        logger.exception(f"Failed to lock bank account: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1106,7 +1133,7 @@ async def unlock_bank_account(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to unlock bank account: {}".format(e))
+        logger.exception(f"Failed to unlock bank account: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1174,7 +1201,7 @@ async def create_bank_transaction(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create bank transaction: {}".format(e))
+        logger.exception(f"Failed to create bank transaction: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1224,7 +1251,7 @@ async def get_bank_transaction(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get bank transaction: {}".format(e))
+        logger.exception(f"Failed to get bank transaction: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1286,7 +1313,7 @@ async def update_bank_transaction(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to update bank transaction: {}".format(e))
+        logger.exception(f"Failed to update bank transaction: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1346,7 +1373,7 @@ async def reverse_bank_transaction(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to reverse bank transaction: {}".format(e))
+        logger.exception(f"Failed to reverse bank transaction: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1409,7 +1436,7 @@ async def list_bank_transactions(
             for t in transactions
         ]
     except Exception as e:
-        logger.exception("Failed to list bank transactions: {}".format(e))
+        logger.exception(f"Failed to list bank transactions: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1449,7 +1476,7 @@ async def import_bank_statement(
         )
 
         return {
-            "message": "Imported {} transactions".format(result.imported_count),
+            "message": f"Imported {result.imported_count} transactions",
             "imported_count": result.imported_count,
             "skipped_count": result.skipped_count,
             "errors": result.errors,
@@ -1459,7 +1486,7 @@ async def import_bank_statement(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to import bank statement: {}".format(e))
+        logger.exception(f"Failed to import bank statement: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1527,7 +1554,7 @@ async def reconcile_bank(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to reconcile bank: {}".format(e))
+        logger.exception(f"Failed to reconcile bank: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1579,7 +1606,7 @@ async def get_reconciliation_history(
             for r in reconciliations
         ]
     except Exception as e:
-        logger.exception("Failed to get reconciliation history: {}".format(e))
+        logger.exception(f"Failed to get reconciliation history: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1633,7 +1660,7 @@ async def close_reconciliation(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to close reconciliation: {}".format(e))
+        logger.exception(f"Failed to close reconciliation: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1698,7 +1725,7 @@ async def create_cash_book(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create cash book: {}".format(e))
+        logger.exception(f"Failed to create cash book: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1749,7 +1776,7 @@ async def list_cash_books(
             for cb in cash_books
         ]
     except Exception as e:
-        logger.exception("Failed to list cash books: {}".format(e))
+        logger.exception(f"Failed to list cash books: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1805,7 +1832,7 @@ async def record_cash_transaction(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to record cash transaction: {}".format(e))
+        logger.exception(f"Failed to record cash transaction: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1864,7 +1891,7 @@ async def create_petty_cash_fund(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create petty cash fund: {}".format(e))
+        logger.exception(f"Failed to create petty cash fund: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1919,7 +1946,7 @@ async def reimburse_petty_cash(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to reimburse petty cash: {}".format(e))
+        logger.exception(f"Failed to reimburse petty cash: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1982,7 +2009,7 @@ async def create_bank_transfer(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create bank transfer: {}".format(e))
+        logger.exception(f"Failed to create bank transfer: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2040,7 +2067,7 @@ async def approve_bank_transfer(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to approve bank transfer: {}".format(e))
+        logger.exception(f"Failed to approve bank transfer: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2090,7 +2117,7 @@ async def process_bank_transfer(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to process bank transfer: {}".format(e))
+        logger.exception(f"Failed to process bank transfer: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2117,7 +2144,7 @@ async def cancel_bank_transfer(
         if not result:
             raise HTTPException(status_code=404, detail="Transfer not found")
 
-        message = "Transfer cancelled: {}".format(reason) if reason else "Transfer cancelled"
+        message = f"Transfer cancelled: {reason}" if reason else "Transfer cancelled"
         return {
             "transfer_id": str(transfer_id),
             "transfer_number": result.transfer_number,
@@ -2127,7 +2154,7 @@ async def cancel_bank_transfer(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to cancel bank transfer: {}".format(e))
+        logger.exception(f"Failed to cancel bank transfer: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2160,7 +2187,7 @@ async def get_bank_balance(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get bank balance: {}".format(e))
+        logger.exception(f"Failed to get bank balance: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2197,7 +2224,7 @@ async def get_bank_balance_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception("Failed to get balance history: {}".format(e))
+        logger.exception(f"Failed to get balance history: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2237,7 +2264,7 @@ async def get_cash_flow_report(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception("Failed to get cash flow report: {}".format(e))
+        logger.exception(f"Failed to get cash flow report: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2269,7 +2296,7 @@ async def get_daily_cash_position(
             for p in positions
         ]
     except Exception as e:
-        logger.exception("Failed to get daily cash position: {}".format(e))
+        logger.exception(f"Failed to get daily cash position: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2307,15 +2334,15 @@ async def export_bank_transactions(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "bank_transactions_{}_{}_{}.{}".format(bank_account_id, start_date, end_date, format)
+        filename = f"bank_transactions_{bank_account_id}_{start_date}_{end_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
-        logger.exception("Failed to export transactions: {}".format(e))
+        logger.exception(f"Failed to export transactions: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

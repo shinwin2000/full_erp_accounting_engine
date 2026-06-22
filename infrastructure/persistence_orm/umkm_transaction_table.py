@@ -6,12 +6,12 @@ Responsibility: Model untuk transaksi UMKM (simplified accounting).
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Date, DateTime, Index, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID

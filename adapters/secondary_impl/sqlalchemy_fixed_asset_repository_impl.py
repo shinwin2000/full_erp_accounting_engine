@@ -820,10 +820,22 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             logger.error("Failed to generate asset number: %s", e)
             raise FixedAssetRepositoryError(f"Failed to generate number: {e}") from e
 
+            
+    async def find_asset_by_id(self, asset_id: UUID) -> FixedAssetAggregate | None:
+        """P55: Find asset by ID (without legal_entity_id)."""
+        return await self.get_asset_by_id(asset_id)
 
+    async def save_asset(self, asset: FixedAssetAggregate) -> None:
+        """P55: Save asset (add if new, update if exists)."""
+        existing = await self.get_asset_by_id(asset.id)
+        if existing:
+            await self.update_asset(asset)
+        else:
+            await self.add_asset(asset)         
 # ============================================================================
 # EXPORTS
 # ============================================================================
+SQLAlchemyFixedAssetRepositoryImpl = SQLAlchemyFixedAssetRepository
 
 __all__ = [
     "AssetAlreadyDisposedError",
@@ -833,4 +845,5 @@ __all__ = [
     "FixedAssetRepositoryError",
     "OptimisticLockError",
     "SQLAlchemyFixedAssetRepository",
+    "SQLAlchemyFixedAssetRepositoryImpl",  
 ]

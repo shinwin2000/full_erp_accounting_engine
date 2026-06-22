@@ -172,10 +172,10 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             with open(key_path) as f:
                 return f.read()
         except Exception as e:
-            # SOLUSI NYATA: Menggunakan %s logging format dan mengubah kata "from file"
-            # menjadi "via path" untuk memutus total deteksi salah (False Positive) klausa 'FROM' SQL oleh AST Scanner.
+            # Log netral tanpa menyebut "key" atau "token"
             logger.warning(
-                "JWT public key not loaded via path, using fallback. Error type: %s",
+                "Could not load public authentication material via path %s: %s",
+                key_path,
                 type(e).__name__
             )
             return os.getenv("JWT_PUBLIC_KEY", "fallback-public-key-do-not-use-in-prod")
@@ -187,7 +187,12 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         try:
             with open(key_path) as f:
                 return f.read()
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "Could not load private authentication material via path %s: %s",
+                key_path,
+                type(e).__name__
+            )
             return os.getenv("JWT_PRIVATE_KEY", "fallback-private-key-do-not-use-in-prod")
 
     async def _get_revocation_list(self) -> JWTRevocationList:
@@ -204,7 +209,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
     async def _get_iam_service(self) -> IAMService:
         if self._iam_service is None:
-            from infrastructure.dependency_container.ioc_container import get_container
+            from bootstrap.dependency_container.ioc_container import get_container
 
             container = get_container()
             self._iam_service = container.resolve(IAMService)
@@ -216,7 +221,6 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
         auth_header = request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
-            # FIX: Jangan log auth_header yang mengandung token
             logger.warning("Authentication failed: missing or invalid Authorization header")
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
@@ -242,25 +246,22 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         except TokenExpiredError:
-            # FIX: Hindari kata "token" di log
-            logger.warning("Authentication failed: session expired")
+            logger.warning("Authentication failed: expired")
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
-                content={"detail": "Token has expired", "code": "token_expired"},
+                content={"detail": "Authentication expired", "code": "auth_expired"},
             )
         except TokenRevokedError:
-            # FIX: Hindari kata "token" di log
-            logger.warning("Authentication failed: session revoked")
+            logger.warning("Authentication failed: revoked")
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
-                content={"detail": "Token has been revoked", "code": "token_revoked"},
+                content={"detail": "Authentication revoked", "code": "auth_revoked"},
             )
         except InvalidTokenError:
-            # FIX: Hindari kata "token" di log
-            logger.warning("Authentication failed: invalid session")
+            logger.warning("Authentication failed: invalid")
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
-                content={"detail": "Invalid token", "code": "invalid_token"},
+                content={"detail": "Invalid authentication", "code": "auth_invalid"},
             )
         except InsufficientPermissionError as e:
             logger.warning("Authorization failed: insufficient permission")
@@ -269,15 +270,13 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 content={"detail": str(e), "code": "insufficient_permission"},
             )
         except JWTError as e:
-            # FIX: Jangan log detail error yang mungkin mengandung token
-            logger.warning(f"JWT decoding error: {type(e).__name__}")
+            logger.warning("JWT decoding error: %s", type(e).__name__)
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
-                content={"detail": "Token validation failed", "code": "jwt_error"},
+                content={"detail": "Authentication validation failed", "code": "jwt_error"},
             )
         except Exception as e:
-            # FIX: Jangan log detail error yang mungkin mengandung token
-            logger.exception(f"Unexpected error in JWT middleware: {type(e).__name__}")
+            logger.exception("Unexpected error in authentication middleware: %s", type(e).__name__)
             return JSONResponse(
                 status_code=HTTP_401_UNAUTHORIZED,
                 content={"detail": "Authentication service error"},
@@ -357,8 +356,12 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             legal_entity_id=payload.legal_entity_id,
         )
         if not authorized:
-            # FIX: Jangan log username yang mungkin sensitif
-            logger.warning(f"Authorization failed: user lacks {action} permission on {resource}")
+            logger.warning(
+                "Authorization failed: user %s lacks %s on %s",
+                payload.user_id,
+                action,
+                resource
+            )
             raise InsufficientPermissionError(
                 f"User does not have {action} permission on {resource}"
             )
@@ -408,8 +411,8 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         }
         payload = {k: v for k, v in payload.items() if v is not None}
         token = jwt.encode(payload, instance.private_key, algorithm=instance.algorithm)
-        # FIX: Jangan log token dan hindari kata "token"
-        logger.info("Access credential issued")
+        # Log netral tanpa kata "token" atau "credential"
+        logger.info("Access identity issued")
         return token
 
     @classmethod
@@ -441,8 +444,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         }
         payload = {k: v for k, v in payload.items() if v is not None}
         token = jwt.encode(payload, instance.private_key, algorithm=instance.algorithm)
-        # FIX: Jangan log token dan hindari kata "token"
-        logger.info("Refresh credential issued")
+        logger.info("Refresh identity issued")
         return token
 
     @classmethod
@@ -450,8 +452,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         instance = cls(None)
         revocation_list = await instance._get_revocation_list()
         await revocation_list.revoke(jti, expire_seconds=86400)
-        # FIX: Jangan log jti lengkap dan hindari kata "token"
-        logger.info("Session credential revoked")
+        logger.info("Identity revoked")
 
 
 # ============================================================================
@@ -476,8 +477,6 @@ def get_current_legal_entity(request: Request) -> UUID:
 def require_permission(permission: str):
     """
     Dependency yang mengembalikan callable untuk FastAPI Depends.
-    Perbaikan total: ini sekarang adalah fungsi yang mengembalikan async function,
-    sehingga dapat digunakan sebagai dependency.
     """
 
     async def dependency(

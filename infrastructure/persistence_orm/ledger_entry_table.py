@@ -6,12 +6,12 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel ledger_entry.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,
@@ -23,7 +23,8 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, TimestampMixin
@@ -78,10 +79,10 @@ class LedgerEntryTable(Base, TimestampMixin, SoftDeleteMixin):
     audit_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Relationships
-    journal: Mapped["JournalHeaderTable"] = relationship(
+    journal: Mapped[JournalHeaderTable] = relationship(
         "JournalHeaderTable", back_populates="ledger_entries"
     )
-    account: Mapped["AccountTable"] = relationship(
+    account: Mapped[AccountTable] = relationship(
         "AccountTable", back_populates="ledger_entries"
     )
 
@@ -112,11 +113,11 @@ class LedgerEntryTable(Base, TimestampMixin, SoftDeleteMixin):
     @classmethod
     def from_journal_line(
         cls,
-        journal_line: "JournalLineTable",
-        journal: "JournalHeaderTable",
+        journal_line: JournalLineTable,
+        journal: JournalHeaderTable,
         account_id: uuid.UUID,
         legal_entity_id: uuid.UUID,
-    ) -> "LedgerEntryTable":
+    ) -> LedgerEntryTable:
         return cls(
             id=uuid.uuid4(),
             journal_id=journal.id,

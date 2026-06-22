@@ -67,14 +67,18 @@ class PurchaseOrderTable(Base):
 
 
 class SQLAlchemyPurchaseOrderRepository(PurchaseOrderRepositoryPort):
-    def __init__(self, session_factory):
-        self._session_factory = session_factory
+    def __init__(self, session: AsyncSession | None = None):
+        self._session = session
 
     async def _get_session(self) -> AsyncSession:
-        return self._session_factory()
+        if self._session is None:
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session
+            self._session = await get_async_session()
+        return self._session
 
     async def save(self, po: PurchaseOrderEntity) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             stmt = select(PurchaseOrderTable).where(PurchaseOrderTable.id == po.id)
             result = await session.execute(stmt)
             existing = result.scalar_one_or_none()
@@ -119,84 +123,85 @@ class SQLAlchemyPurchaseOrderRepository(PurchaseOrderRepositoryPort):
                 session.add(new)
 
     async def get_by_id(self, po_id: UUID) -> PurchaseOrderEntity | None:
-        async with await self._get_session() as session:
-            stmt = select(PurchaseOrderTable).where(PurchaseOrderTable.id == po_id)
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if not row:
-                return None
-            return self._to_entity(row)
+        session = await self._get_session()
+        stmt = select(PurchaseOrderTable).where(PurchaseOrderTable.id == po_id)
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            return None
+        return self._to_entity(row)
 
     async def get_by_number(self, po_number: str) -> PurchaseOrderEntity | None:
-        async with await self._get_session() as session:
-            stmt = select(PurchaseOrderTable).where(PurchaseOrderTable.po_number == po_number)
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            return self._to_entity(row) if row else None
+        session = await self._get_session()
+        stmt = select(PurchaseOrderTable).where(PurchaseOrderTable.po_number == po_number)
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return self._to_entity(row) if row else None
 
     async def list_by_supplier(
         self, supplier_id: UUID, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[PurchaseOrderEntity]:
-        async with await self._get_session() as session:
-            stmt = (
-                select(PurchaseOrderTable)
-                .where(
-                    PurchaseOrderTable.supplier_id == supplier_id,
-                    PurchaseOrderTable.legal_entity_id == legal_entity_id,
-                )
-                .offset(offset)
-                .limit(limit)
+        session = await self._get_session()
+        stmt = (
+            select(PurchaseOrderTable)
+            .where(
+                PurchaseOrderTable.supplier_id == supplier_id,
+                PurchaseOrderTable.legal_entity_id == legal_entity_id,
             )
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            return [self._to_entity(row) for row in rows]
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_entity(row) for row in rows]
 
     async def list_by_status(
         self, legal_entity_id: UUID, status: str, limit: int = 100, offset: int = 0
     ) -> list[PurchaseOrderEntity]:
-        async with await self._get_session() as session:
-            stmt = (
-                select(PurchaseOrderTable)
-                .where(
-                    PurchaseOrderTable.legal_entity_id == legal_entity_id,
-                    PurchaseOrderTable.status == status,
-                )
-                .offset(offset)
-                .limit(limit)
+        session = await self._get_session()
+        stmt = (
+            select(PurchaseOrderTable)
+            .where(
+                PurchaseOrderTable.legal_entity_id == legal_entity_id,
+                PurchaseOrderTable.status == status,
             )
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            return [self._to_entity(row) for row in rows]
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_entity(row) for row in rows]
 
     async def list_by_date_range(
         self, legal_entity_id: UUID, from_date: date, to_date: date, limit: int = 100
     ) -> list[PurchaseOrderEntity]:
-        async with await self._get_session() as session:
-            stmt = (
-                select(PurchaseOrderTable)
-                .where(
-                    PurchaseOrderTable.legal_entity_id == legal_entity_id,
-                    PurchaseOrderTable.order_date.between(from_date, to_date),
-                )
-                .limit(limit)
+        session = await self._get_session()
+        stmt = (
+            select(PurchaseOrderTable)
+            .where(
+                PurchaseOrderTable.legal_entity_id == legal_entity_id,
+                PurchaseOrderTable.order_date.between(from_date, to_date),
             )
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            return [self._to_entity(row) for row in rows]
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_entity(row) for row in rows]
 
     async def get_last_po_number(self, legal_entity_id: UUID) -> str | None:
-        async with await self._get_session() as session:
-            stmt = (
-                select(PurchaseOrderTable.po_number)
-                .where(PurchaseOrderTable.legal_entity_id == legal_entity_id)
-                .order_by(PurchaseOrderTable.created_at.desc())
-                .limit(1)
-            )
-            result = await session.execute(stmt)
-            return result.scalar_one_or_none()
+        session = await self._get_session()
+        stmt = (
+            select(PurchaseOrderTable.po_number)
+            .where(PurchaseOrderTable.legal_entity_id == legal_entity_id)
+            .order_by(PurchaseOrderTable.created_at.desc())
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def update_status(self, po_id: UUID, new_status: str, updated_by: UUID) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             stmt = (
                 update(PurchaseOrderTable)
                 .where(PurchaseOrderTable.id == po_id)
@@ -205,7 +210,8 @@ class SQLAlchemyPurchaseOrderRepository(PurchaseOrderRepositoryPort):
             await session.execute(stmt)
 
     async def delete(self, po_id: UUID) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             await session.execute(delete(PurchaseOrderTable).where(PurchaseOrderTable.id == po_id))
 
     def _to_entity(self, row):

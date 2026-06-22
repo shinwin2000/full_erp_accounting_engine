@@ -1,30 +1,11 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_coa_router.py
 Layer: Adapters (Primary API - v1)
-Responsibility: Menyediakan REST API endpoint untuk mengelola Chart of Accounts (COA).
-               Meliputi CRUD akun, struktur hierarki, import/export, serta
-               validasi (tidak boleh menghapus akun yang memiliki saldo/transaksi).
-
-Method Standards (ERP):
-- create_account() / update_account() / delete_account() / get_account()
-- activate_account() / deactivate_account() / suspend_account()
-- lock_account() / unlock_account() / archive_account() / restore_account()
-- get_account_tree() / get_account_hierarchy()
-- validate_account() / validate_before_delete()
-- import_accounts() / export_accounts()
-- bulk_update_status() / bulk_update_parent()
-- get_account_balance() / get_account_usage()
-- get_account_history() / get_account_snapshot()
-- audit_trail_account() / can_transition_account()
-- register_account_event() / get_account_events() / clear_account_events()
-- version_account()
+Responsibility: REST API endpoint untuk Chart of Accounts (COA) management.
 """
 
-
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import datetime
@@ -33,8 +14,17 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -58,8 +48,6 @@ logger = logging.getLogger(__name__)
 
 
 class AccountType(str, Enum):
-    """Jenis akun sesuai standar akuntansi."""
-
     ASSET = "Asset"
     LIABILITY = "Liability"
     EQUITY = "Equity"
@@ -68,15 +56,11 @@ class AccountType(str, Enum):
 
 
 class NormalBalance(str, Enum):
-    """Saldo normal akun."""
-
     DEBIT = "debit"
     CREDIT = "credit"
 
 
 class AccountStatus(str, Enum):
-    """Status akun."""
-
     ACTIVE = "active"
     INACTIVE = "inactive"
     SUSPENDED = "suspended"
@@ -84,7 +68,6 @@ class AccountStatus(str, Enum):
     ARCHIVED = "archived"
 
 
-# Account type prefixes (standar COA)
 ACCOUNT_TYPE_PREFIXES = {
     AccountType.ASSET: ["1"],
     AccountType.LIABILITY: ["2"],
@@ -93,7 +76,6 @@ ACCOUNT_TYPE_PREFIXES = {
     AccountType.EXPENSE: ["5", "6"],
 }
 
-# Default COA categories
 DEFAULT_CATEGORIES = {
     "1-1000": "Kas dan Bank",
     "1-2000": "Piutang",
@@ -114,21 +96,13 @@ DEFAULT_CATEGORIES = {
     "6-1000": "Beban Lain-lain",
 }
 
-# ============================================================================
-# PYDANTIC SCHEMAS
-# ============================================================================
-
 
 class AccountCreateSchema(BaseModel):
-    """Schema untuk membuat akun baru."""
-
     model_config = ConfigDict(from_attributes=True)
 
     account_code: str = Field(..., min_length=3, max_length=20, description="Kode akun")
     account_name: str = Field(..., min_length=3, max_length=200, description="Nama akun")
-    account_type: AccountType = Field(
-        ..., description="Jenis akun (Asset, Liability, Equity, Revenue, Expense)"
-    )
+    account_type: AccountType = Field(..., description="Jenis akun")
     normal_balance: NormalBalance = Field(..., description="Saldo normal (debit atau credit)")
     parent_account_code: str | None = Field(None, max_length=20, description="Kode akun induk")
     description: str | None = Field(None, max_length=500, description="Deskripsi akun")
@@ -147,7 +121,6 @@ class AccountCreateSchema(BaseModel):
     def validate_account_code(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("Account code is required")
-        # Validasi format: angka, hyphen, atau titik
         if not v.replace("-", "").replace(".", "").isdigit():
             raise ValueError("Account code must contain digits and optional hyphens/periods")
         return v.upper()
@@ -161,7 +134,6 @@ class AccountCreateSchema(BaseModel):
 
     @model_validator(mode="after")
     def validate_account_type_prefix(self) -> AccountCreateSchema:
-        """Validasi kode akun sesuai dengan tipe akun."""
         first_digit = self.account_code[0] if self.account_code else ""
         expected_prefixes = ACCOUNT_TYPE_PREFIXES.get(self.account_type, [])
         if expected_prefixes and first_digit not in expected_prefixes:
@@ -173,8 +145,6 @@ class AccountCreateSchema(BaseModel):
 
 
 class AccountUpdateSchema(BaseModel):
-    """Schema untuk update akun."""
-
     model_config = ConfigDict(from_attributes=True)
 
     account_name: str | None = Field(None, min_length=3, max_length=200)
@@ -197,8 +167,6 @@ class AccountUpdateSchema(BaseModel):
 
 
 class AccountResponseSchema(BaseModel):
-    """Response akun."""
-
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -230,10 +198,6 @@ class AccountResponseSchema(BaseModel):
 
 
 class AccountBalanceResponseSchema(BaseModel):
-    """Response saldo akun."""
-
-    model_config = ConfigDict(from_attributes=True)
-
     account_id: UUID
     account_code: str
     account_name: str
@@ -247,10 +211,6 @@ class AccountBalanceResponseSchema(BaseModel):
 
 
 class AccountUsageResponseSchema(BaseModel):
-    """Response penggunaan akun dalam transaksi."""
-
-    model_config = ConfigDict(from_attributes=True)
-
     account_id: UUID
     account_code: str
     account_name: str
@@ -264,10 +224,6 @@ class AccountUsageResponseSchema(BaseModel):
 
 
 class AccountListResponseSchema(BaseModel):
-    """Response list akun dengan pagination."""
-
-    model_config = ConfigDict(from_attributes=True)
-
     items: list[AccountResponseSchema]
     total: int
     page: int
@@ -275,10 +231,6 @@ class AccountListResponseSchema(BaseModel):
 
 
 class AccountTreeResponseSchema(BaseModel):
-    """Response tree akun."""
-
-    model_config = ConfigDict(from_attributes=True)
-
     root_accounts: list[AccountResponseSchema]
     flattened: list[AccountResponseSchema]
     total_accounts: int
@@ -286,10 +238,6 @@ class AccountTreeResponseSchema(BaseModel):
 
 
 class AccountValidationResultSchema(BaseModel):
-    """Response validasi akun."""
-
-    model_config = ConfigDict(from_attributes=True)
-
     is_valid: bool
     errors: list[str] = []
     warnings: list[str] = []
@@ -297,31 +245,17 @@ class AccountValidationResultSchema(BaseModel):
 
 
 class BulkStatusUpdateSchema(BaseModel):
-    """Schema untuk bulk update status."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    account_ids: list[UUID] = Field(..., min_length=1, description="List of account IDs")
+    account_ids: list[UUID] = Field(..., min_length=1)
     status: AccountStatus = Field(..., description="New status")
-    reason: str | None = Field(None, max_length=500, description="Reason for status change")
+    reason: str | None = Field(None, max_length=500)
 
 
 class BulkParentUpdateSchema(BaseModel):
-    """Schema untuk bulk update parent."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    account_ids: list[UUID] = Field(..., min_length=1, description="List of account IDs")
-    parent_account_code: str | None = Field(
-        None, max_length=20, description="New parent account code"
-    )
+    account_ids: list[UUID] = Field(..., min_length=1)
+    parent_account_code: str | None = Field(None, max_length=20)
 
 
 class ImportExportResultSchema(BaseModel):
-    """Response import/export COA."""
-
-    model_config = ConfigDict(from_attributes=True)
-
     success: bool
     message: str
     imported_count: int = 0
@@ -330,38 +264,34 @@ class ImportExportResultSchema(BaseModel):
     errors: list[str] = []
 
 
-# ============================================================================
-# DEPENDENCY INJECTION
-# ============================================================================
-
-
-async def get_coa_service(request: Request, ) -> Any:
-    """Get COA Service instance."""
+async def get_coa_service(request: Request) -> Any:
     from application.service_layer.service_coa import COAService
-    from fastapi import Request
-
     container = request.app.state.container
     return container.resolve(COAService)
 
 
-# ============================================================================
-# ROUTER
-# ============================================================================
-
 router = APIRouter(prefix="/chart-of-accounts", tags=["Chart of Accounts"])
+
+
+# ----------------------------------------------------------------------------
+# HEALTH CHECK (UNIQUE PATH)
+# ----------------------------------------------------------------------------
+
+@router.get("/ping-coa")
+def ping_coa() -> dict[str, str]:
+    return {"status": "ok", "service": "coa"}
 
 
 # ----------------------------------------------------------------------------
 # ACCOUNT CRUD OPERATIONS
 # ----------------------------------------------------------------------------
 
-
 @router.post(
     "/accounts",
     response_model=AccountResponseSchema,
     status_code=status.HTTP_201_CREATED,
     summary="Create new account",
-    operation_id="create_account",
+    operation_id="coa_create_account",
 )
 async def create_account(
     request: AccountCreateSchema,
@@ -370,14 +300,6 @@ async def create_account(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountResponseSchema:
-    """
-    Create a new account in Chart of Accounts.
-
-    - Account code must be unique within legal entity
-    - Parent account must exist if provided
-    - Account type determines the valid code prefix
-    - Header accounts cannot be used in transactions
-    """
     try:
         create_dto = AccountCreateRequest(
             account_code=request.account_code,
@@ -399,7 +321,6 @@ async def create_account(
             legal_entity_id=legal_entity_id,
         )
         result = await coa_service.create_account(create_dto)
-
         return AccountResponseSchema(
             id=result.id,
             account_code=result.account_code,
@@ -433,8 +354,6 @@ async def create_account(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk memutus pola deteksi f-string oleh AST Scanner.
-        # Penggunaan logger.exception memastikan full stack trace tetap terekam utuh untuk kebutuhan debugging.
         logger.exception("Failed to create account: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -443,7 +362,7 @@ async def create_account(
     "/accounts/{account_id}",
     response_model=AccountResponseSchema,
     summary="Get account by ID",
-    operation_id="get_account_by_id",
+    operation_id="coa_get_account_by_id",
 )
 async def get_account_by_id(
     account_id: UUID = Path(...),
@@ -451,13 +370,10 @@ async def get_account_by_id(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountResponseSchema:
-    """Get account by ID."""
     try:
         account = await coa_service.get_account_by_id(account_id, legal_entity_id)
-
         if not account:
             raise HTTPException(status_code=404, detail="Account not found")
-
         return AccountResponseSchema(
             id=account.id,
             account_code=account.account_code,
@@ -489,7 +405,7 @@ async def get_account_by_id(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get account: {e}")
+        logger.exception("Failed to get account: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -497,7 +413,7 @@ async def get_account_by_id(
     "/accounts/by-code/{account_code}",
     response_model=AccountResponseSchema,
     summary="Get account by account code",
-    operation_id="get_account_by_code",
+    operation_id="coa_get_account_by_code",
 )
 async def get_account_by_code(
     account_code: str = Path(..., min_length=3, max_length=20),
@@ -505,15 +421,10 @@ async def get_account_by_code(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountResponseSchema:
-    """Get account by account code."""
     try:
         account = await coa_service.get_account_by_code(account_code, legal_entity_id)
-
         if not account:
-            raise HTTPException(
-                status_code=404, detail=f"Account with code {account_code} not found"
-            )
-
+            raise HTTPException(status_code=404, detail=f"Account with code {account_code} not found")
         return AccountResponseSchema(
             id=account.id,
             account_code=account.account_code,
@@ -545,7 +456,7 @@ async def get_account_by_code(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get account by code: {e}")
+        logger.exception("Failed to get account by code: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -553,7 +464,7 @@ async def get_account_by_code(
     "/accounts/{account_id}",
     response_model=AccountResponseSchema,
     summary="Update account",
-    operation_id="update_account",
+    operation_id="coa_update_account",
 )
 async def update_account(
     account_id: UUID,
@@ -563,13 +474,6 @@ async def update_account(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountResponseSchema:
-    """
-    Update account information.
-
-    - Cannot update if account is locked
-    - Cannot change account code
-    - Parent account update must not create circular reference
-    """
     try:
         update_dto = AccountUpdateRequest(
             id=account_id,
@@ -587,10 +491,8 @@ async def update_account(
             legal_entity_id=legal_entity_id,
         )
         result = await coa_service.update_account(update_dto)
-
         if not result:
             raise HTTPException(status_code=404, detail="Account not found or cannot be updated")
-
         return AccountResponseSchema(
             id=result.id,
             account_code=result.account_code,
@@ -624,8 +526,6 @@ async def update_account(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Mengubah ke standard %s logging format untuk memutus deteksi f-string dinamis oleh AST Scanner.
-        # logger.exception tetap mempertahankan keutuhan full traceback log saat debugging.
         logger.exception("Failed to update account: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -634,7 +534,7 @@ async def update_account(
     "/accounts/{account_id}",
     response_model=dict[str, str],
     summary="Deactivate/delete account",
-    operation_id="deactivate_account",
+    operation_id="coa_deactivate_account",
 )
 async def deactivate_account(
     account_id: UUID,
@@ -645,13 +545,6 @@ async def deactivate_account(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> dict[str, str]:
-    """
-    Deactivate or delete an account.
-
-    - Cannot deactivate if account has transactions
-    - Permanent deletion sets account to VOID status
-    - Soft deactivation sets status to INACTIVE or ARCHIVED
-    """
     try:
         if permanent:
             result = await coa_service.void_account(
@@ -663,17 +556,13 @@ async def deactivate_account(
                 account_id, current_user.user_id, legal_entity_id, reason
             )
             action = "deactivated"
-
         if not result:
-            raise HTTPException(
-                status_code=404, detail="Account not found or cannot be deactivated"
-            )
-
+            raise HTTPException(status_code=404, detail="Account not found or cannot be deactivated")
         return {"message": f"Account {result.account_code} {action} successfully"}
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to deactivate account: {e}")
+        logger.exception("Failed to deactivate account: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -681,7 +570,7 @@ async def deactivate_account(
     "/accounts/{account_id}/activate",
     response_model=AccountResponseSchema,
     summary="Activate account",
-    operation_id="activate_account",
+    operation_id="coa_activate_account",
 )
 async def activate_account(
     account_id: UUID,
@@ -690,15 +579,12 @@ async def activate_account(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountResponseSchema:
-    """Activate a deactivated account."""
     try:
         result = await coa_service.activate_account(
             account_id, current_user.user_id, legal_entity_id
         )
-
         if not result:
             raise HTTPException(status_code=404, detail="Account not found or cannot be activated")
-
         return AccountResponseSchema(
             id=result.id,
             account_code=result.account_code,
@@ -730,7 +616,7 @@ async def activate_account(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to activate account: {e}")
+        logger.exception("Failed to activate account: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -738,7 +624,7 @@ async def activate_account(
     "/accounts/{account_id}/lock",
     response_model=AccountResponseSchema,
     summary="Lock account",
-    operation_id="lock_account",
+    operation_id="coa_lock_account",
 )
 async def lock_account(
     account_id: UUID,
@@ -748,15 +634,12 @@ async def lock_account(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountResponseSchema:
-    """Lock account to prevent modifications."""
     try:
         result = await coa_service.lock_account(
             account_id, current_user.user_id, legal_entity_id, reason
         )
-
         if not result:
             raise HTTPException(status_code=404, detail="Account not found")
-
         return AccountResponseSchema(
             id=result.id,
             account_code=result.account_code,
@@ -788,7 +671,7 @@ async def lock_account(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to lock account: {e}")
+        logger.exception("Failed to lock account: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -796,7 +679,7 @@ async def lock_account(
     "/accounts/{account_id}/unlock",
     response_model=AccountResponseSchema,
     summary="Unlock account",
-    operation_id="unlock_account",
+    operation_id="coa_unlock_account",
 )
 async def unlock_account(
     account_id: UUID,
@@ -805,13 +688,10 @@ async def unlock_account(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountResponseSchema:
-    """Unlock a locked account."""
     try:
         result = await coa_service.unlock_account(account_id, current_user.user_id, legal_entity_id)
-
         if not result:
             raise HTTPException(status_code=404, detail="Account not found")
-
         return AccountResponseSchema(
             id=result.id,
             account_code=result.account_code,
@@ -843,7 +723,7 @@ async def unlock_account(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to unlock account: {e}")
+        logger.exception("Failed to unlock account: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -851,12 +731,11 @@ async def unlock_account(
 # LIST ACCOUNTS
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/accounts",
     response_model=AccountListResponseSchema,
     summary="List accounts with filters",
-    operation_id="list_accounts",
+    operation_id="coa_list_accounts",
 )
 async def list_accounts(
     account_type: AccountType | None = Query(None, description="Filter by account type"),
@@ -872,7 +751,6 @@ async def list_accounts(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountListResponseSchema:
-    """List accounts with pagination and filters."""
     try:
         params = AccountQueryParams(
             account_type=account_type.value if account_type else None,
@@ -887,7 +765,6 @@ async def list_accounts(
             page_size=page_size,
         )
         result = await coa_service.list_accounts(params)
-
         items = [
             AccountResponseSchema(
                 id=acc.id,
@@ -919,7 +796,6 @@ async def list_accounts(
             )
             for acc in result.items
         ]
-
         return AccountListResponseSchema(
             items=items,
             total=result.total,
@@ -927,7 +803,7 @@ async def list_accounts(
             page_size=page_size,
         )
     except Exception as e:
-        logger.exception(f"Failed to list accounts: {e}")
+        logger.exception("Failed to list accounts: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -935,12 +811,11 @@ async def list_accounts(
 # ACCOUNT HIERARCHY TREE
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/tree",
     response_model=AccountTreeResponseSchema,
     summary="Get account hierarchy tree",
-    operation_id="get_account_tree",
+    operation_id="coa_get_account_tree",
 )
 async def get_account_tree(
     include_inactive: bool = Query(False, description="Include inactive accounts"),
@@ -948,7 +823,6 @@ async def get_account_tree(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountTreeResponseSchema:
-    """Get account hierarchy as a tree structure."""
     try:
         tree = await coa_service.get_account_hierarchy(legal_entity_id, include_inactive)
 
@@ -979,9 +853,7 @@ async def get_account_tree(
                 created_by=acc.created_by,
                 created_by_name=acc.created_by_name,
                 version=acc.version,
-                children=[build_tree(child) for child in acc.children]
-                if hasattr(acc, "children")
-                else None,
+                children=[build_tree(child) for child in acc.children] if hasattr(acc, "children") else None,
             )
 
         root_accounts = [build_tree(root) for root in tree.root_accounts]
@@ -994,20 +866,19 @@ async def get_account_tree(
             total_levels=tree.total_levels,
         )
     except Exception as e:
-        logger.exception(f"Failed to get account tree: {e}")
+        logger.exception("Failed to get account tree: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ----------------------------------------------------------------------------
-# ACCOUNT BALANCE & USAGE
+# ACCOUNT BALANCE & USAGE (FIXED OPERATION ID)
 # ----------------------------------------------------------------------------
-
 
 @router.get(
     "/accounts/{account_id}/balance",
     response_model=AccountBalanceResponseSchema,
     summary="Get account balance",
-    operation_id="get_account_balance",
+    operation_id="coa_get_account_balance",
 )
 async def get_account_balance(
     account_id: UUID,
@@ -1016,13 +887,10 @@ async def get_account_balance(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountBalanceResponseSchema:
-    """Get account balance as of a specific date."""
     try:
         balance = await coa_service.get_account_balance(account_id, legal_entity_id, as_of_date)
-
         if not balance:
             raise HTTPException(status_code=404, detail="Account not found")
-
         return AccountBalanceResponseSchema(
             account_id=account_id,
             account_code=balance.account_code,
@@ -1038,7 +906,7 @@ async def get_account_balance(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get account balance: {e}")
+        logger.exception("Failed to get account balance: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1046,7 +914,7 @@ async def get_account_balance(
     "/accounts/{account_id}/usage",
     response_model=AccountUsageResponseSchema,
     summary="Get account usage information",
-    operation_id="get_account_usage",
+    operation_id="coa_get_account_usage",
 )
 async def get_account_usage(
     account_id: UUID,
@@ -1054,13 +922,10 @@ async def get_account_usage(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountUsageResponseSchema:
-    """Get account usage statistics (journal entries, budget, tax)."""
     try:
         usage = await coa_service.get_account_usage(account_id, legal_entity_id)
-
         if not usage:
             raise HTTPException(status_code=404, detail="Account not found")
-
         return AccountUsageResponseSchema(
             account_id=account_id,
             account_code=usage.account_code,
@@ -1076,7 +941,7 @@ async def get_account_usage(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get account usage: {e}")
+        logger.exception("Failed to get account usage: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1084,12 +949,11 @@ async def get_account_usage(
 # ACCOUNT VALIDATION
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/accounts/{account_id}/validate",
     response_model=AccountValidationResultSchema,
     summary="Validate account before modification",
-    operation_id="validate_account",
+    operation_id="coa_validate_account",
 )
 async def validate_account(
     account_id: UUID,
@@ -1098,12 +962,10 @@ async def validate_account(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountValidationResultSchema:
-    """Validate if account can be modified/deleted."""
     try:
         result = await coa_service.validate_account_modification(
             account_id, legal_entity_id, action
         )
-
         return AccountValidationResultSchema(
             is_valid=result.is_valid,
             errors=result.errors,
@@ -1111,7 +973,7 @@ async def validate_account(
             suggestions=result.suggestions,
         )
     except Exception as e:
-        logger.exception(f"Failed to validate account: {e}")
+        logger.exception("Failed to validate account: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1119,7 +981,7 @@ async def validate_account(
     "/validate-code/{account_code}",
     response_model=AccountValidationResultSchema,
     summary="Validate account code",
-    operation_id="validate_account_code",
+    operation_id="coa_validate_account_code",
 )
 async def validate_account_code(
     account_code: str = Path(..., min_length=3, max_length=20),
@@ -1127,10 +989,8 @@ async def validate_account_code(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountValidationResultSchema:
-    """Validate if account code is available and valid."""
     try:
         result = await coa_service.validate_account_code(account_code, legal_entity_id)
-
         return AccountValidationResultSchema(
             is_valid=result.is_valid,
             errors=result.errors,
@@ -1138,7 +998,7 @@ async def validate_account_code(
             suggestions=result.suggestions,
         )
     except Exception as e:
-        logger.exception(f"Failed to validate account code: {e}")
+        logger.exception("Failed to validate account code: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1146,12 +1006,11 @@ async def validate_account_code(
 # BULK OPERATIONS
 # ----------------------------------------------------------------------------
 
-
 @router.patch(
     "/accounts/bulk-status",
     response_model=dict[str, Any],
     summary="Bulk update account status",
-    operation_id="bulk_update_status",
+    operation_id="coa_bulk_update_status",
 )
 async def bulk_update_status(
     request: BulkStatusUpdateSchema,
@@ -1160,7 +1019,6 @@ async def bulk_update_status(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> dict[str, Any]:
-    """Bulk update status for multiple accounts."""
     try:
         result = await coa_service.bulk_update_status(
             account_ids=request.account_ids,
@@ -1169,7 +1027,6 @@ async def bulk_update_status(
             updated_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-
         return {
             "total": result.total,
             "success_count": result.success_count,
@@ -1178,8 +1035,6 @@ async def bulk_update_status(
             "errors": result.errors,
         }
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk meruntuhkan deteksi f-string oleh AST Scanner.
-        # logger.exception tetap mempertahankan perekaman full stack trace demi kemudahan proses debugging.
         logger.exception("Failed to bulk update status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -1188,7 +1043,7 @@ async def bulk_update_status(
     "/accounts/bulk-parent",
     response_model=dict[str, Any],
     summary="Bulk update parent account",
-    operation_id="bulk_update_parent",
+    operation_id="coa_bulk_update_parent",
 )
 async def bulk_update_parent(
     request: BulkParentUpdateSchema,
@@ -1197,7 +1052,6 @@ async def bulk_update_parent(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> dict[str, Any]:
-    """Bulk update parent account for multiple accounts."""
     try:
         result = await coa_service.bulk_update_parent(
             account_ids=request.account_ids,
@@ -1205,7 +1059,6 @@ async def bulk_update_parent(
             updated_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-
         return {
             "total": result.total,
             "success_count": result.success_count,
@@ -1214,8 +1067,6 @@ async def bulk_update_parent(
             "errors": result.errors,
         }
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk memutus pola deteksi f-string oleh AST Scanner.
-        # logger.exception memastikan keutuhan full stack trace tetap terekam sempurna demi kemudahan debugging.
         logger.exception("Failed to bulk update parent: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -1224,11 +1075,10 @@ async def bulk_update_parent(
 # IMPORT & EXPORT
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/export",
     summary="Export Chart of Accounts",
-    operation_id="export_coa",
+    operation_id="coa_export",
 )
 async def export_coa(
     format: str = Query("json", pattern="^(json|csv|excel)$", description="Export format"),
@@ -1237,10 +1087,8 @@ async def export_coa(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> Response:
-    """Export Chart of Accounts to JSON, CSV, or Excel."""
     try:
         data = await coa_service.export_coa(legal_entity_id, format, include_inactive)
-
         media_types = {
             "json": "application/json",
             "csv": "text/csv",
@@ -1251,16 +1099,14 @@ async def export_coa(
             "csv": "csv",
             "excel": "xlsx",
         }
-
         filename = f"coa_export_{legal_entity_id}.{extensions[format]}"
-
         return Response(
             content=data,
             media_type=media_types[format],
             headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
-        logger.exception(f"Failed to export COA: {e}")
+        logger.exception("Failed to export COA: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1268,7 +1114,7 @@ async def export_coa(
     "/import",
     response_model=ImportExportResultSchema,
     summary="Import Chart of Accounts",
-    operation_id="import_coa",
+    operation_id="coa_import",
 )
 async def import_coa(
     file: UploadFile = File(..., description="COA file (JSON, CSV, or Excel)"),
@@ -1279,13 +1125,9 @@ async def import_coa(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> ImportExportResultSchema:
-    """Import Chart of Accounts from file."""
     try:
         content = await file.read()
-        file_content = (
-            content.decode("utf-8") if file.filename.endswith((".json", ".csv")) else content
-        )
-
+        file_content = content.decode("utf-8") if file.filename.endswith((".json", ".csv")) else content
         result = await coa_service.import_coa(
             legal_entity_id=legal_entity_id,
             file_content=file_content,
@@ -1294,7 +1136,6 @@ async def import_coa(
             validate_only=validate_only,
             imported_by=current_user.user_id,
         )
-
         return ImportExportResultSchema(
             success=result.success,
             message=result.message,
@@ -1306,7 +1147,7 @@ async def import_coa(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to import COA: {e}")
+        logger.exception("Failed to import COA: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1314,12 +1155,11 @@ async def import_coa(
 # ACCOUNT HISTORY & AUDIT
 # ----------------------------------------------------------------------------
 
-
 @router.get(
     "/accounts/{account_id}/history",
     response_model=list[dict[str, Any]],
     summary="Get account change history",
-    operation_id="get_account_history",
+    operation_id="coa_get_account_history",
 )
 async def get_account_history(
     account_id: UUID,
@@ -1329,12 +1169,8 @@ async def get_account_history(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> list[dict[str, Any]]:
-    """Get account modification history."""
     try:
-        history = await coa_service.get_account_history(
-            account_id, legal_entity_id, start_date, end_date
-        )
-
+        history = await coa_service.get_account_history(account_id, legal_entity_id, start_date, end_date)
         return [
             {
                 "timestamp": h.timestamp.isoformat(),
@@ -1349,7 +1185,7 @@ async def get_account_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get account history: {e}")
+        logger.exception("Failed to get account history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1357,7 +1193,7 @@ async def get_account_history(
     "/accounts/{account_id}/audit-trail",
     response_model=list[dict[str, Any]],
     summary="Get account audit trail",
-    operation_id="get_account_audit_trail",
+    operation_id="coa_get_account_audit_trail",
 )
 async def get_account_audit_trail(
     account_id: UUID,
@@ -1366,10 +1202,8 @@ async def get_account_audit_trail(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> list[dict[str, Any]]:
-    """Get account audit trail (all events)."""
     try:
         audit_trail = await coa_service.get_account_audit_trail(account_id, legal_entity_id, limit)
-
         return [
             {
                 "timestamp": a.timestamp.isoformat(),
@@ -1382,12 +1216,8 @@ async def get_account_audit_trail(
             for a in audit_trail
         ]
     except Exception as e:
-        logger.exception(f"Failed to get account audit trail: {e}")
+        logger.exception("Failed to get account audit trail: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-
-# ----------------------------------------------------------------------------
-# EXPORTS
-# ----------------------------------------------------------------------------
 
 __all__ = ["router"]

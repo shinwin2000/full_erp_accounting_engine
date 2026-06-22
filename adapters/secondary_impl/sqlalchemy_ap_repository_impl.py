@@ -828,10 +828,23 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             logger.error("Failed to generate next invoice number: %s", e)
             raise APRepositoryError(f"Failed to generate invoice number: {e}") from e
 
+   
+    async def find_invoice_by_id(self, invoice_id: UUID) -> APInvoiceAggregate | None:
+        """P55: Find AP invoice by ID (without vendor filter)."""
+        return await self.get_by_id(invoice_id)
 
+    async def save_invoice(self, invoice: APInvoiceAggregate) -> None:
+        """P55: Save invoice (add if new, update if exists)."""
+        existing = await self.get_by_id(invoice.id)
+        if existing:
+            await self.update(invoice)
+        else:
+            await self.add(invoice)
 # ============================================================================
 # EXPORTS
 # ============================================================================
+# ALIAS untuk kompatibilitas dengan adapter registry
+SQLAlchemyAPRepositoryImpl = SQLAlchemyAPRepository
 
 __all__ = [
     "APInvoiceNotFoundError",
@@ -842,4 +855,6 @@ __all__ = [
     "PaymentExceedsOutstandingError",
     "SQLAlchemyAPRepository",
     "ThreeWayMatchFailedError",
+    "SQLAlchemyAPRepository",
+
 ]

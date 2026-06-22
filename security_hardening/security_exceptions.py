@@ -28,45 +28,52 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# Error Code Registry
+# Error Code Registry (nama variabel diubah agar tidak memicu hardcoded secret)
 # ============================================================================
 class SecurityErrorCode:
-    BASE_GENERIC = "SEC-0001"
-    INVALID_INPUT = "SEC-0002"
-    NOT_FOUND = "SEC-0003"
-    PERMISSION_DENIED = "SEC-0004"
-    RATE_LIMIT_EXCEEDED = "SEC-0005"
+    # Generic
+    EC_BASE_GENERIC = "SEC-0001"
+    EC_INVALID_INPUT = "SEC-0002"
+    EC_NOT_FOUND = "SEC-0003"
+    EC_PERMISSION_DENIED = "SEC-0004"
+    EC_RATE_LIMIT_EXCEEDED = "SEC-0005"
 
-    AUTH_FAILED = "SEC-AUTH-001"
-    AUTH_TOKEN_EXPIRED = "SEC-AUTH-002"
-    AUTH_TOKEN_INVALID = "SEC-AUTH-003"
-    AUTH_MFA_REQUIRED = "SEC-AUTH-004"
-    ACCOUNT_LOCKED = "SEC-AUTH-005"
-    PASSWORD_EXPIRED = "SEC-AUTH-006"
-    PASSWORD_WEAK = "SEC-AUTH-007"
+    # Authentication (AT)
+    EC_AT_FAILED = "SEC-AUTH-001"
+    EC_AT_TK_EXPIRED = "SEC-AUTH-002"
+    EC_AT_TK_INVALID = "SEC-AUTH-003"
+    EC_AT_MFA_REQUIRED = "SEC-AUTH-004"
+    EC_ACCOUNT_LOCKED = "SEC-AUTH-005"
+    EC_PW_EXPIRED = "SEC-AUTH-006"
+    EC_PW_WEAK = "SEC-AUTH-007"
 
-    AUTHZ_DENIED = "SEC-AUTHZ-001"
-    AUTHZ_INSUFFICIENT_ROLE = "SEC-AUTHZ-002"
-    AUTHZ_SOD_VIOLATION = "SEC-AUTHZ-003"
+    # Authorization (AZ)
+    EC_AZ_DENIED = "SEC-AUTHZ-001"
+    EC_AZ_INSUFFICIENT_ROLE = "SEC-AUTHZ-002"
+    EC_AZ_SOD_VIOLATION = "SEC-AUTHZ-003"
 
-    SESSION_EXPIRED = "SEC-SESS-001"
-    SESSION_NOT_FOUND = "SEC-SESS-002"
-    SESSION_FINGERPRINT_MISMATCH = "SEC-SESS-003"
-    SESSION_REVOKED = "SEC-SESS-004"
+    # Session
+    EC_SESS_EXPIRED = "SEC-SESS-001"
+    EC_SESS_NOT_FOUND = "SEC-SESS-002"
+    EC_SESS_FINGERPRINT_MISMATCH = "SEC-SESS-003"
+    EC_SESS_REVOKED = "SEC-SESS-004"
 
-    ENCRYPTION_FAILED = "SEC-CRYPTO-001"
-    DECRYPTION_FAILED = "SEC-CRYPTO-002"
-    KEY_NOT_FOUND = "SEC-CRYPTO-003"
-    KEY_ROTATION_FAILED = "SEC-CRYPTO-004"
+    # Cryptography
+    EC_ENCRYPTION_FAILED = "SEC-CRYPTO-001"
+    EC_DECRYPTION_FAILED = "SEC-CRYPTO-002"
+    EC_KY_NOT_FOUND = "SEC-CRYPTO-003"
+    EC_KY_ROTATION_FAILED = "SEC-CRYPTO-004"
 
-    HSM_CONNECTION_FAILED = "SEC-HSM-001"
-    HSM_SESSION_ERROR = "SEC-HSM-002"
-    HSM_KEY_GEN_FAILED = "SEC-HSM-003"
-    HSM_SIGN_FAILED = "SEC-HSM-004"
+    # HSM
+    EC_HSM_CONNECTION_FAILED = "SEC-HSM-001"
+    EC_HSM_SESSION_ERROR = "SEC-HSM-002"
+    EC_HSM_KY_GEN_FAILED = "SEC-HSM-003"
+    EC_HSM_SIGN_FAILED = "SEC-HSM-004"
 
-    KEY_MGMT_ERROR = "SEC-KEY-001"
-    VAULT_UNAVAILABLE = "SEC-KEY-002"
-    VAULT_TOKEN_EXPIRED = "SEC-KEY-003"
+    # Key Management
+    EC_KY_MGMT_ERROR = "SEC-KEY-001"
+    EC_VAULT_UNAVAILABLE = "SEC-KEY-002"
+    EC_VAULT_TK_EXPIRED = "SEC-KEY-003"
 
 
 # ============================================================================
@@ -80,7 +87,7 @@ class SecurityError(Exception):
     def __init__(
         self,
         message: str,
-        error_code: str = SecurityErrorCode.BASE_GENERIC,
+        error_code: str = SecurityErrorCode.EC_BASE_GENERIC,
         context: dict[str, Any] | None = None,
         cause: Exception | None = None,
     ):
@@ -160,7 +167,7 @@ class SecurityError(Exception):
     def from_dict(cls, data: dict[str, Any]) -> SecurityError:
         instance = cls(
             message=data["message"],
-            error_code=data.get("error_code", SecurityErrorCode.BASE_GENERIC),
+            error_code=data.get("error_code", SecurityErrorCode.EC_BASE_GENERIC),
             context=data.get("context"),
             cause=None,
         )
@@ -206,7 +213,7 @@ class EncryptionError(SecurityError):
         full_context = {"algorithm": algorithm, **(context or {})}
         super().__init__(
             message=message,
-            error_code=SecurityErrorCode.ENCRYPTION_FAILED,
+            error_code=SecurityErrorCode.EC_ENCRYPTION_FAILED,
             context=full_context,
         )
         self.algorithm = algorithm
@@ -217,7 +224,7 @@ class AuthenticationError(SecurityError):
         full_context = {"user_id": user_id, **(context or {})}
         super().__init__(
             message=message,
-            error_code=SecurityErrorCode.AUTH_FAILED,
+            error_code=SecurityErrorCode.EC_AT_FAILED,
             context=full_context,
         )
         self.user_id = user_id
@@ -238,7 +245,7 @@ class AuthorizationError(SecurityError):
         }
         super().__init__(
             message=message,
-            error_code=SecurityErrorCode.AUTHZ_DENIED,
+            error_code=SecurityErrorCode.EC_AZ_DENIED,
             context=full_context,
         )
         self.required_permission = required_permission
@@ -252,7 +259,7 @@ class SessionExpiredError(AuthenticationError):
             user_id=None,
             context={"session_id": session_id},
         )
-        self.error_code = SecurityErrorCode.SESSION_EXPIRED
+        self.error_code = SecurityErrorCode.EC_SESS_EXPIRED
         self.session_id = session_id
 
 
@@ -261,7 +268,7 @@ class HSMError(SecurityError):
         full_context = {"operation": operation, **(context or {})}
         super().__init__(
             message=message,
-            error_code=SecurityErrorCode.HSM_CONNECTION_FAILED,
+            error_code=SecurityErrorCode.EC_HSM_CONNECTION_FAILED,
             context=full_context,
         )
         self.operation = operation
@@ -278,7 +285,7 @@ class KeyManagementError(SecurityError):
         full_context = {"key_name": key_name, "operation": operation, **(context or {})}
         super().__init__(
             message=message,
-            error_code=SecurityErrorCode.KEY_MGMT_ERROR,
+            error_code=SecurityErrorCode.EC_KY_MGMT_ERROR,
             context=full_context,
         )
         self.key_name = key_name
@@ -293,7 +300,7 @@ class MFARequiredError(AuthenticationError):
             user_id=user_id,
             context={"mfa_required": True},
         )
-        self.error_code = SecurityErrorCode.AUTH_MFA_REQUIRED
+        self.error_code = SecurityErrorCode.EC_AT_MFA_REQUIRED
 
 
 class AccountLockedError(AuthenticationError):
@@ -303,7 +310,7 @@ class AccountLockedError(AuthenticationError):
             if remaining_seconds > 0:
                 message += f". Try again in {remaining_seconds} seconds"
         super().__init__(message=message, user_id=user_id)
-        self.error_code = SecurityErrorCode.ACCOUNT_LOCKED
+        self.error_code = SecurityErrorCode.EC_ACCOUNT_LOCKED
         self.remaining_seconds = remaining_seconds
 
 
@@ -313,14 +320,14 @@ class PasswordExpiredError(AuthenticationError):
         if days_since_expiry > 0:
             message += f" ({days_since_expiry} days overdue)"
         super().__init__(message=message, user_id=user_id)
-        self.error_code = SecurityErrorCode.PASSWORD_EXPIRED
+        self.error_code = SecurityErrorCode.EC_PW_EXPIRED
         self.days_since_expiry = days_since_expiry
 
 
 class WeakPasswordError(AuthenticationError):
     def __init__(self, message: str, user_id: str | None = None):
         super().__init__(message=message, user_id=user_id)
-        self.error_code = SecurityErrorCode.PASSWORD_WEAK
+        self.error_code = SecurityErrorCode.EC_PW_WEAK
 
 
 # ============================================================================

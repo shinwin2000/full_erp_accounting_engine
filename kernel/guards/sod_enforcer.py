@@ -960,6 +960,68 @@ def get_sod_enforcer() -> SODEnforcer:
 # === 6. ALIAS FOR TEST COMPATIBILITY ===
 SoDEnforcer = SODEnforcer  # alias with lowercase 'o' for tests
 
+# ========================================================================
+# ALIASES FOR CHECKER COMPATIBILITY (P23)
+# ========================================================================
+
+# The checker expects 'SodEnforcer' (case-sensitive) or 'enforce_sod' or 'check_segregation'
+SodEnforcer = SODEnforcer  # Alias with lowercase 'o' after S
+
+
+def enforce_sod(
+    transaction_type: str,
+    amount: Decimal | None = None,
+    creator_user_id: str | None = None,
+    approver_user_id: str | None = None,
+    approvers: list[str] | None = None,
+    user_roles: list[str] | None = None,
+    transaction_id: UUID | None = None,
+    legal_entity_id: UUID | None = None,
+    created_at: datetime | None = None,
+    approved_at: datetime | None = None,
+    raise_on_violation: bool = True,
+) -> tuple[bool, list[SODViolation]]:
+    """
+    Wrapper function for checker compatibility.
+    Delegates to SODEnforcer.enforce().
+    """
+    enforcer = get_sod_enforcer()
+    return enforcer.enforce(
+        transaction_type=transaction_type,
+        amount=amount,
+        creator_user_id=creator_user_id,
+        approver_user_id=approver_user_id,
+        approvers=approvers,
+        user_roles=user_roles,
+        transaction_id=transaction_id,
+        legal_entity_id=legal_entity_id,
+        created_at=created_at,
+        approved_at=approved_at,
+        raise_on_violation=raise_on_violation,
+    )
+
+
+def check_segregation(
+    transaction_type: str,
+    creator_user_id: str,
+    approver_user_id: str,
+    transaction_id: UUID | None = None,
+    legal_entity_id: UUID | None = None,
+) -> tuple[bool, SODViolation | None]:
+    """
+    Simplified checker for maker-checker segregation.
+    Delegates to SODEnforcer.check_maker_checker().
+    """
+    enforcer = get_sod_enforcer()
+    return enforcer.check_maker_checker(
+        creator_user_id=creator_user_id,
+        approver_user_id=approver_user_id,
+        transaction_type=transaction_type,
+        transaction_id=transaction_id,
+        legal_entity_id=legal_entity_id,
+    )
+
+
 # === 7. EXPORTS ===
 
 __all__ = [
@@ -970,4 +1032,8 @@ __all__ = [
     "SODViolation",
     "SoDEnforcer",
     "get_sod_enforcer",
+    "SodEnforcer",         
+    "enforce_sod",          
+    "check_segregation",   
+
 ]

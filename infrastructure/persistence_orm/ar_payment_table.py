@@ -67,7 +67,7 @@ class ARPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # RELATIONSHIPS
     # =========================================================================
     # Link to the invoice – customer is accessible via invoice.customer
-    invoice: Mapped["ARInvoiceTable"] = relationship(
+    invoice: Mapped[ARInvoiceTable] = relationship(
         "ARInvoiceTable",
         back_populates="payments",
         foreign_keys=[invoice_id],

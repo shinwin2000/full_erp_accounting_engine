@@ -124,14 +124,14 @@ class ProjectTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     # ========================================================================
 
     # Retainer Contracts (connected via retainer_contract_table)
-    retainer_contracts: Mapped[list["RetainerContractTable"]] = relationship(
+    retainer_contracts: Mapped[list[RetainerContractTable]] = relationship(
         "RetainerContractTable",
         back_populates="project",
         cascade="all, delete-orphan",
     )
 
     # Time entries (connected via time_entry_table)
-    time_entries: Mapped[list["TimeEntryTable"]] = relationship(
+    time_entries: Mapped[list[TimeEntryTable]] = relationship(
         "TimeEntryTable",
         back_populates="project",
         foreign_keys="[TimeEntryTable.project_id]",

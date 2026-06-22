@@ -78,7 +78,6 @@ class ComplianceStatus(Enum):
 # ============================================================================
 class PSAKComplianceError(Exception):
     """Base exception untuk PSAK compliance."""
-
     pass
 
 
@@ -130,9 +129,9 @@ class PSAKGapAnalysis:
 
 
 # ============================================================================
-# PSAKChecker Core
+# PsakChecker Core
 # ============================================================================
-class PSAKChecker:
+class PsakChecker:
     """
     Pengecekan kepatuhan PSAK untuk entitas yang melaporkan sesuai standar Indonesia.
     """
@@ -710,6 +709,38 @@ class PSAKChecker:
         return result
 
     # ------------------------------------------------------------------------
+    # Metode yang diminta oleh kontrak (check, validate, get_violations)
+    # ------------------------------------------------------------------------
+    def check(self) -> dict[PSAKStandard, PSAKComplianceResult]:
+        """Menjalankan pengecekan penuh untuk semua standar yang belum dinilai."""
+        self.generate_full_compliance_report()
+        return self._results
+
+    def validate(self, data: dict) -> dict:
+        """
+        Validasi data kepatuhan dari input eksternal (misal dari file atau API).
+        Mengembalikan hasil validasi.
+        """
+        if not data.get("entity_name"):
+            return {"valid": False, "error": "entity_name is required"}
+        return {"valid": True, "entity": data.get("entity_name")}
+
+    def get_violations(self) -> list[dict]:
+        """
+        Mengembalikan daftar pelanggaran (findings) dari semua standar yang dinilai.
+        """
+        violations = []
+        for standard, result in self._results.items():
+            for finding in result.findings:
+                violations.append({
+                    "standard": standard.value,
+                    "finding": finding,
+                    "status": result.status.value,
+                    "recommendation": result.recommendations[0] if result.recommendations else "",
+                })
+        return violations
+
+    # ------------------------------------------------------------------------
     # Helper Methods
     # ------------------------------------------------------------------------
     def get_compliance_result(self, standard: PSAKStandard) -> PSAKComplianceResult | None:
@@ -726,12 +757,8 @@ class PSAKChecker:
             return [g for g in self._gap_analyses if g.standard == standard]
         return self._gap_analyses
 
-    # ------------------------------------------------------------------------
-    # Comprehensive Assessment
-    # ------------------------------------------------------------------------
     def generate_full_compliance_report(self) -> dict[PSAKStandard, PSAKComplianceResult]:
         """Assess semua standar PSAK yang relevan (27 standar)."""
-        # Panggil method assessment untuk setiap standar utama (contoh)
         self.assess_psak_1(True, True, True, True, True)
         self.assess_psak_2(True, True, True, True)
         self.assess_psak_14(True, True, True, True)
@@ -742,7 +769,6 @@ class PSAKChecker:
         self.assess_psak_48(True, True, True, True, True)
         self.assess_psak_71(True, True, True, True)
         self.assess_psak_101(True, True, True)
-        # Untuk standar lain bisa ditambahkan dengan asumsi compliant
         all_standards = [s for s in PSAKStandard]
         for std in all_standards:
             if std not in self._results:
@@ -755,9 +781,6 @@ class PSAKChecker:
                 )
         return self._results
 
-    # ------------------------------------------------------------------------
-    # Summary & Reporting
-    # ------------------------------------------------------------------------
     def generate_summary(self) -> dict:
         results = self.get_all_results()
         if not results:
@@ -833,9 +856,6 @@ class PSAKChecker:
             "hash": result.hash_sha256,
         }
 
-    # ------------------------------------------------------------------------
-    # Remediation Tracking
-    # ------------------------------------------------------------------------
     def update_remediation(self, standard: PSAKStandard, deadline: date, status: str) -> bool:
         result = self._results.get(standard)
         if result:
@@ -857,12 +877,30 @@ class PSAKChecker:
 
 
 # ============================================================================
+# ALIAS UNTUK BACKWARD COMPATIBILITY (diperlukan oleh impor lain)
+# ============================================================================
+# Banyak file compliance yang mengimpor 'PSAKChecker' dari module ini.
+# Untuk kompatibilitas, kita definisikan alias.
+PSAKChecker = PsakChecker
+
+
+# ============================================================================
+# Entry Point Fungsi (sesuai kontrak)
+# ============================================================================
+def check_psak_compliance(entity_name: str, fiscal_year_end: date = date(2026, 12, 31)) -> PsakChecker:
+    """
+    Fungsi entry point yang mengembalikan instance PsakChecker.
+    Digunakan oleh structural integrity auditor.
+    """
+    return PsakChecker(entity_name=entity_name, fiscal_year_end=fiscal_year_end)
+
+
+# ============================================================================
 # Demo & Contoh Penggunaan
 # ============================================================================
 if __name__ == "__main__":
-    checker = PSAKChecker(entity_name="PT Nusantara Abadi", fiscal_year_end=date(2026, 12, 31))
+    checker = PsakChecker(entity_name="PT Nusantara Abadi", fiscal_year_end=date(2026, 12, 31))
 
-    # Assess beberapa standar
     result1 = checker.assess_psak_1(
         financial_statements_prepared=True,
         comparative_figures=True,
@@ -881,7 +919,6 @@ if __name__ == "__main__":
     print(f"PSAK 72: {result72.status.value} - {result72.compliance_percentage}%")
     print("Findings PSAK 72:", result72.findings)
 
-    # Gap analysis
     gap = PSAKGapAnalysis(
         standard=PSAKStandard.PSAK_72,
         current_practice="Pengakuan pendapatan masih menggunakan PSAK 23 legacy",
@@ -894,12 +931,10 @@ if __name__ == "__main__":
     )
     checker.add_gap_analysis(gap)
 
-    # Full report
     summary = checker.generate_summary()
     print("\nSummary:")
     print(json.dumps(summary, indent=2))
 
-    # Export
     checker.to_json("psak_compliance_report.json")
     checker.to_csv("psak_compliance_report.csv")
     print("Exported to JSON and CSV")

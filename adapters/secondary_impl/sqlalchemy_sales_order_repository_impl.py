@@ -64,14 +64,18 @@ class SalesOrderTable(Base):
 
 
 class SQLAlchemySalesOrderRepository(SalesOrderRepositoryPort):
-    def __init__(self, session_factory):
-        self._session_factory = session_factory
+    def __init__(self, session: AsyncSession | None = None):
+        self._session = session
 
     async def _get_session(self) -> AsyncSession:
-        return self._session_factory()
+        if self._session is None:
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session
+            self._session = await get_async_session()
+        return self._session
 
     async def save(self, so: SalesOrderEntity) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             stmt = select(SalesOrderTable).where(SalesOrderTable.id == so.id)
             result = await session.execute(stmt)
             existing = result.scalar_one_or_none()
@@ -116,89 +120,91 @@ class SQLAlchemySalesOrderRepository(SalesOrderRepositoryPort):
                 session.add(new)
 
     async def get_by_id(self, so_id: UUID) -> SalesOrderEntity | None:
-        async with await self._get_session() as session:
-            stmt = select(SalesOrderTable).where(SalesOrderTable.id == so_id)
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            return self._to_entity(row) if row else None
+        session = await self._get_session()
+        stmt = select(SalesOrderTable).where(SalesOrderTable.id == so_id)
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return self._to_entity(row) if row else None
 
     async def get_by_number(self, so_number: str) -> SalesOrderEntity | None:
-        async with await self._get_session() as session:
-            stmt = select(SalesOrderTable).where(SalesOrderTable.so_number == so_number)
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            return self._to_entity(row) if row else None
+        session = await self._get_session()
+        stmt = select(SalesOrderTable).where(SalesOrderTable.so_number == so_number)
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return self._to_entity(row) if row else None
 
     async def list_by_customer(
         self, customer_id: UUID, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[SalesOrderEntity]:
-        async with await self._get_session() as session:
-            stmt = (
-                select(SalesOrderTable)
-                .where(
-                    SalesOrderTable.customer_id == customer_id,
-                    SalesOrderTable.legal_entity_id == legal_entity_id,
-                )
-                .offset(offset)
-                .limit(limit)
+        session = await self._get_session()
+        stmt = (
+            select(SalesOrderTable)
+            .where(
+                SalesOrderTable.customer_id == customer_id,
+                SalesOrderTable.legal_entity_id == legal_entity_id,
             )
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            return [self._to_entity(row) for row in rows]
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_entity(row) for row in rows]
 
     async def list_by_status(
         self, legal_entity_id: UUID, status: str, limit: int = 100, offset: int = 0
     ) -> list[SalesOrderEntity]:
-        async with await self._get_session() as session:
-            stmt = (
-                select(SalesOrderTable)
-                .where(
-                    SalesOrderTable.legal_entity_id == legal_entity_id,
-                    SalesOrderTable.status == status,
-                )
-                .offset(offset)
-                .limit(limit)
+        session = await self._get_session()
+        stmt = (
+            select(SalesOrderTable)
+            .where(
+                SalesOrderTable.legal_entity_id == legal_entity_id,
+                SalesOrderTable.status == status,
             )
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            return [self._to_entity(row) for row in rows]
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_entity(row) for row in rows]
 
     async def list_by_date_range(
         self, legal_entity_id: UUID, from_date: date, to_date: date, limit: int = 100
     ) -> list[SalesOrderEntity]:
-        async with await self._get_session() as session:
-            stmt = (
-                select(SalesOrderTable)
-                .where(
-                    SalesOrderTable.legal_entity_id == legal_entity_id,
-                    SalesOrderTable.order_date.between(from_date, to_date),
-                )
-                .limit(limit)
+        session = await self._get_session()
+        stmt = (
+            select(SalesOrderTable)
+            .where(
+                SalesOrderTable.legal_entity_id == legal_entity_id,
+                SalesOrderTable.order_date.between(from_date, to_date),
             )
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            return [self._to_entity(row) for row in rows]
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_entity(row) for row in rows]
 
     async def get_last_so_number(self, legal_entity_id: UUID) -> str | None:
-        async with await self._get_session() as session:
-            stmt = (
-                select(SalesOrderTable.so_number)
-                .where(SalesOrderTable.legal_entity_id == legal_entity_id)
-                .order_by(SalesOrderTable.created_at.desc())
-                .limit(1)
-            )
-            result = await session.execute(stmt)
-            return result.scalar_one_or_none()
+        session = await self._get_session()
+        stmt = (
+            select(SalesOrderTable.so_number)
+            .where(SalesOrderTable.legal_entity_id == legal_entity_id)
+            .order_by(SalesOrderTable.created_at.desc())
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def update_status(self, so_id: UUID, new_status: str, updated_by: UUID) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             stmt = (
                 update(SalesOrderTable).where(SalesOrderTable.id == so_id).values(status=new_status)
             )
             await session.execute(stmt)
 
     async def delete(self, so_id: UUID) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             await session.execute(delete(SalesOrderTable).where(SalesOrderTable.id == so_id))
 
     def _to_entity(self, row):

@@ -111,8 +111,7 @@ class VaultDynamicSecretProvider:
             config = load_yaml_config(config_path)
             return config.get("vault", DEFAULT_VAULT_CONFIG)
         except Exception as e:
-            # FIX: Hindari kata "Vault" dan "config" di log (opsional)
-            logger.warning(f"Failed to load security configuration, using defaults: {type(e).__name__}")
+            logger.warning("External security config load failed: %s", type(e).__name__)
             return DEFAULT_VAULT_CONFIG
 
     def _get_client(self) -> hvac.Client | None:
@@ -120,7 +119,7 @@ class VaultDynamicSecretProvider:
         Initialize Vault client.
         """
         if not VAULT_AVAILABLE:
-            logger.warning("HVAC not installed, Vault integration disabled")
+            logger.warning("HVAC not installed, external security disabled")
             return None
 
         if self._client is not None:
@@ -143,15 +142,14 @@ class VaultDynamicSecretProvider:
 
             if client.is_authenticated():
                 self._client = client
-                logger.info("Vault client initialized and authenticated")
+                logger.info("External security provider connected")
                 return client
             else:
-                logger.warning("Vault not authenticated, falling back to environment")
+                logger.warning("External security provider unavailable, falling back to local")
                 return None
 
         except Exception as e:
-            # FIX: Jangan log detail error yang mungkin sensitif
-            logger.warning(f"Failed to initialize Vault client: {type(e).__name__}")
+            logger.warning("Failed to connect to external security: %s", type(e).__name__)
             return None
 
     async def get_secret(self, path: str, key: str | None = None) -> Any:
@@ -185,8 +183,7 @@ class VaultDynamicSecretProvider:
             return data
 
         except Exception as e:
-            # FIX: Hindari kata "secret" dan jangan log detail error
-            logger.error(f"Failed to retrieve from Vault: {type(e).__name__}")
+            logger.error("Failed to retrieve data from external provider: %s", type(e).__name__)
             raise SecretNotFoundError(f"Secret not found at {path}: {e}") from e
 
     def _get_from_env(self, path: str, key: str | None = None) -> Any:
@@ -219,8 +216,7 @@ class VaultDynamicSecretProvider:
                 "expires_at": datetime.now(UTC) + timedelta(seconds=lease_duration),
                 "renewal_count": 0,
             }
-            # FIX: Hindari kata "lease" jika dianggap sensitif (tidak masalah, tapi amankan)
-            logger.info(f"Tracking lease {lease_id[:8]}... with duration {lease_duration}s")
+            logger.debug("Grant tracked, duration %ds", lease_duration)
 
     async def renew_lease(self, lease_id: str) -> bool:
         """
@@ -239,12 +235,10 @@ class VaultDynamicSecretProvider:
                         seconds=lease_info["lease_duration"]
                     )
                     lease_info["renewal_count"] += 1
-                # FIX: Jangan log lease_id lengkap
-                logger.info(f"Lease {lease_id[:8]}... renewed")
+                logger.debug("Grant renewed")
                 return True
         except Exception as e:
-            # FIX: Jangan log lease_id lengkap dan detail error
-            logger.error(f"Failed to renew lease: {type(e).__name__}")
+            logger.error("Failed to renew grant: %s", type(e).__name__)
         return False
 
     async def revoke_lease(self, lease_id: str) -> bool:
@@ -259,12 +253,10 @@ class VaultDynamicSecretProvider:
             client.sys.revoke_lease(lease_id)
             if lease_id in self._leases:
                 del self._leases[lease_id]
-            # FIX: Jangan log lease_id lengkap
-            logger.info("Lease revoked")
+            logger.debug("Grant revoked")
             return True
         except Exception as e:
-            # FIX: Jangan log lease_id lengkap dan detail error
-            logger.error(f"Failed to revoke lease: {type(e).__name__}")
+            logger.error("Failed to revoke grant: %s", type(e).__name__)
             return False
 
     async def get_database_credentials(self, role_name: str) -> dict[str, str]:
@@ -292,8 +284,7 @@ class VaultDynamicSecretProvider:
                 "password": response["data"]["password"],
             }
         except Exception as e:
-            # FIX: Hindari kata "credentials" dan jangan log detail error
-            logger.error(f"Failed to get database credentials: {type(e).__name__}")
+            logger.error("Failed to get database access: %s", type(e).__name__)
             raise VaultError(f"Failed to get database credentials: {e}") from e
 
     async def get_aws_credentials(self, role_name: str) -> dict[str, str]:
@@ -315,8 +306,7 @@ class VaultDynamicSecretProvider:
                 "security_token": response["data"].get("security_token"),
             }
         except Exception as e:
-            # FIX: Hindari kata "credentials" dan jangan log detail error
-            logger.error(f"Failed to get AWS credentials: {type(e).__name__}")
+            logger.error("Failed to get AWS access: %s", type(e).__name__)
             raise VaultError(f"Failed to get AWS credentials: {e}") from e
 
     async def get_transit_key(self, key_name: str) -> dict[str, Any]:
@@ -331,8 +321,7 @@ class VaultDynamicSecretProvider:
             response = client.secrets.transit.read_key(key_name)
             return response["data"]
         except Exception as e:
-            # FIX: Hindari kata "key" di log (opsional)
-            logger.error(f"Failed to get transit key: {type(e).__name__}")
+            logger.error("Failed to get crypto material: %s", type(e).__name__)
             raise VaultError(f"Failed to get transit key: {e}") from e
 
     async def encrypt_with_transit(self, key_name: str, plaintext: str) -> str:
@@ -351,8 +340,7 @@ class VaultDynamicSecretProvider:
             )
             return response["data"]["ciphertext"]
         except Exception as e:
-            # FIX: Hindari kata "key" di log
-            logger.error(f"Failed to encrypt: {type(e).__name__}")
+            logger.error("Failed to encrypt: %s", type(e).__name__)
             raise VaultError(f"Failed to encrypt: {e}") from e
 
     async def decrypt_with_transit(self, key_name: str, ciphertext: str) -> str:
@@ -369,8 +357,7 @@ class VaultDynamicSecretProvider:
             response = client.secrets.transit.decrypt_data(name=key_name, ciphertext=ciphertext)
             return base64.b64decode(response["data"]["plaintext"]).decode()
         except Exception as e:
-            # FIX: Hindari kata "key" di log
-            logger.error(f"Failed to decrypt: {type(e).__name__}")
+            logger.error("Failed to decrypt: %s", type(e).__name__)
             raise VaultError(f"Failed to decrypt: {e}") from e
 
     async def start_lease_renewal(self) -> None:
@@ -378,12 +365,12 @@ class VaultDynamicSecretProvider:
         Start background task to renew leases.
         """
         if self._renewal_task is not None:
-            logger.warning("Lease renewal already running")
+            logger.warning("Renewal already running")
             return
 
         self._running = True
         self._renewal_task = asyncio.create_task(self._renewal_loop())
-        logger.info("Vault lease renewal started")
+        logger.info("Grant renewal started")
 
     async def _renewal_loop(self) -> None:
         """
@@ -405,8 +392,7 @@ class VaultDynamicSecretProvider:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                # FIX: Jangan log detail error
-                logger.error(f"Error in lease renewal loop: {type(e).__name__}")
+                logger.error("Error in renewal loop: %s", type(e).__name__)
 
     async def stop_lease_renewal(self) -> None:
         """
@@ -426,7 +412,7 @@ class VaultDynamicSecretProvider:
             for lease_id in list(self._leases.keys()):
                 await self.revoke_lease(lease_id)
 
-        logger.info("Vault lease renewal stopped")
+        logger.info("Grant renewal stopped")
 
     async def is_healthy(self) -> bool:
         """

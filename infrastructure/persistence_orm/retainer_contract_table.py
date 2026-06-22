@@ -134,12 +134,12 @@ class RetainerContractTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin,
     # RELATIONSHIPS
     # ========================================================================
 
-    customer: Mapped["CustomerTable"] = relationship(
+    customer: Mapped[CustomerTable] = relationship(
         "CustomerTable",
         foreign_keys=[customer_id],
         back_populates="retainer_contracts",
     )
-    project: Mapped["ProjectTable | None"] = relationship(
+    project: Mapped[ProjectTable | None] = relationship(
         "ProjectTable",
         foreign_keys=[project_id],
         back_populates="retainer_contracts",

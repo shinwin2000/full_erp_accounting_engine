@@ -28,9 +28,9 @@ from application.dto_objects.manufacturing_request import (
 )
 from application.service_layer.service_inventory import InventoryService
 from application.service_layer.service_manufacturing import ManufacturingService
+from bootstrap.dependency_container.ioc_container import get_container
 from domain.manufacturing.hpp_per_product_calculator import HPPCalculator
 from domain.manufacturing.overhead_allocation_engine import OverheadAllocationEngine
-from bootstrap.dependency_container.ioc_container import get_container
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 from ports.primary.bill_of_materials_repository_port import BillOfMaterialsRepositoryPort

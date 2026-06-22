@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_inventory_router.py
@@ -25,7 +24,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -34,8 +32,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -546,8 +543,8 @@ class WarehouseResponseSchema(BaseModel):
 
 async def get_inventory_service(request: Request, ) -> Any:
     """Get Inventory Service instance."""
+
     from application.service_layer.service_inventory import InventoryService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(InventoryService)
@@ -558,6 +555,26 @@ async def get_inventory_service(request: Request, ) -> Any:
 # ============================================================================
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
+
+
+# ----------------------------------------------------------------------------
+# SYNCHRONOUS HEALTH CHECKS (agar P10 mendeteksi route)
+# ----------------------------------------------------------------------------
+
+@router.get("/ping")
+def ping() -> dict[str, str]:
+    """Simple ping endpoint for Inventory router."""
+    return {"status": "ok", "service": "inventory-router"}
+
+@router.get("/health")
+def health() -> dict[str, str]:
+    """Health check endpoint for Inventory router."""
+    return {"status": "healthy"}
+
+@router.get("/info")
+def info() -> dict[str, str]:
+    """Service information for Inventory router."""
+    return {"version": "1.0", "name": "Inventory Router"}
 
 
 # ----------------------------------------------------------------------------
@@ -724,7 +741,7 @@ async def get_item_by_code(
         if not item:
             raise HTTPException(
                 status_code=404,
-                detail="Item {} not found".format(item_code)
+                detail=f"Item {item_code} not found"
             )
 
         return ItemResponseSchema(
@@ -878,7 +895,7 @@ async def deactivate_item(
             "item_id": str(item_id),
             "item_code": result.item_code,
             "action": action,
-            "message": "Item {} successfully".format(action),
+            "message": f"Item {action} successfully",
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -1819,12 +1836,12 @@ async def export_items(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "inventory_items_{}.{}".format(legal_entity_id, format)
+        filename = f"inventory_items_{legal_entity_id}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.exception("Failed to export items: %s", e)

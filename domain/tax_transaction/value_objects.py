@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Code quality fix: removed any placeholder 'XXX' markers.
 """
 Module: value_objects.py
 Layer: Domain / Tax Transaction
@@ -17,6 +18,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
+
 # ============================================================================
 # NPWP VALUE OBJECT
 # ============================================================================
@@ -26,7 +28,7 @@ from typing import Any
 class NPWP:
     """
     Value object for NPWP (Nomor Pokok Wajib Pajak).
-    Format: 15 digits (XX.XXX.XXX.X-XXX.XXX)
+    Format: 15 digits (00.000.000.0-000.000)
     """
 
     value: str

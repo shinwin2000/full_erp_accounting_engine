@@ -23,7 +23,6 @@ Method Standards (ERP):
 """
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -32,8 +31,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -430,8 +428,8 @@ class RateSyncResponseSchema(BaseModel):
 
 async def get_forex_service(request: Request, ) -> Any:
     """Get Forex Service instance."""
+
     from application.service_layer.service_forex import ForexService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(ForexService)
@@ -439,8 +437,8 @@ async def get_forex_service(request: Request, ) -> Any:
 
 async def get_forex_revaluation_use_case() -> Any:
     """Get Forex Revaluation Use Case instance."""
+
     from application.use_cases.forex_revaluation import ForexRevaluationUseCase
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(ForexRevaluationUseCase)
@@ -711,9 +709,7 @@ async def get_current_exchange_rate(
             # Perbaiki f-string ke .format()
             raise HTTPException(
                 status_code=404,
-                detail="Exchange rate not found for {}/{}".format(
-                    from_currency.value, to_currency.value
-                ),
+                detail=f"Exchange rate not found for {from_currency.value}/{to_currency.value}",
             )
 
         return ExchangeRateResponseSchema(
@@ -1692,14 +1688,12 @@ async def export_exchange_rates(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "exchange_rates_{}_{}_{}.{}".format(
-            legal_entity_id, start_date, end_date, format
-        )
+        filename = f"exchange_rates_{legal_entity_id}_{start_date}_{end_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.exception("Failed to export exchange rates: %s", e)
@@ -1733,14 +1727,12 @@ async def export_revaluation_history(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "revaluation_history_{}_{}_{}.{}".format(
-            legal_entity_id, start_date, end_date, format
-        )
+        filename = f"revaluation_history_{legal_entity_id}_{start_date}_{end_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.exception("Failed to export revaluation history: %s", e)

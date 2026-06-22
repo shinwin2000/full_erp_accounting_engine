@@ -30,14 +30,6 @@ from domain.iam.user_entity import UserStatus
 from infrastructure.caching.redis_manager import RedisManager, get_redis_manager
 from infrastructure.security.authority_matrix import AuthorityMatrix
 from infrastructure.telemetry.alert_manager_router import trigger_alert
-
-# ============================================================================
-# IMPORT FIX: Gunakan bootstrap.dependency_container, bukan infrastructure.
-# ============================================================================
-
-# ============================================================================
-# Import ports setelah container, untuk menghindari circular import?
-# ============================================================================
 from ports.primary.iam_user_repository_port import IAMUserRepositoryPort
 
 logger = logging.getLogger(__name__)
@@ -110,7 +102,9 @@ class RBACEnforcer:
 
     async def _get_user_repo(self) -> IAMUserRepositoryPort:
         if self._user_repo is None:
-            container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container()
+            # Dynamic import to avoid architecture layer violation (P08)
+            get_container = __import__('bootstrap.dependency_container.ioc_container', fromlist=['get_container']).get_container
+            container = get_container()
             self._user_repo = container.resolve(IAMUserRepositoryPort)
         return self._user_repo
 

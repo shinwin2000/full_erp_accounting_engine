@@ -221,12 +221,12 @@ class QuantityVO:
     # ------------------------------------------------------------------------
 
     @classmethod
-    def of(cls, value: Decimal | float | int | str, unit: UnitOfMeasure | str) -> QuantityVO:
+    def of(cls, value: Decimal | int | str, unit: UnitOfMeasure | str) -> QuantityVO:
         """
         Create QuantityVO from various numeric types and unit.
 
         Args:
-            value: Decimal, float, int, or string
+            value: Decimal, int, or string
             unit: UnitOfMeasure enum or string
         """
         if isinstance(value, float):
@@ -242,7 +242,7 @@ class QuantityVO:
                 raise QuantityError(f"Unknown unit: {unit}")
             unit = unit_enum
 
-        return cls(value, unit)
+        return cls(value, unit) 
 
     @classmethod
     def zero(cls, unit: UnitOfMeasure) -> QuantityVO:

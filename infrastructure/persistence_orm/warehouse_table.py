@@ -15,14 +15,14 @@ from typing import TYPE_CHECKING
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
-    ForeignKey,
     Index,
     Numeric,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import (
@@ -95,18 +95,18 @@ class WarehouseTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # RELATIONSHIPS
     # ========================================================================
 
-    items: Mapped[list["InventoryItemTable"]] = relationship(
+    items: Mapped[list[InventoryItemTable]] = relationship(
         "InventoryItemTable",
         back_populates="warehouse",
         lazy="selectin",
     )
 
-    movements_from: Mapped[list["InventoryMovementTable"]] = relationship(
+    movements_from: Mapped[list[InventoryMovementTable]] = relationship(
         "InventoryMovementTable",
         foreign_keys="[InventoryMovementTable.warehouse_id]",
         back_populates="from_warehouse",
     )
-    movements_to: Mapped[list["InventoryMovementTable"]] = relationship(
+    movements_to: Mapped[list[InventoryMovementTable]] = relationship(
         "InventoryMovementTable",
         foreign_keys="[InventoryMovementTable.to_warehouse_id]",
         back_populates="to_warehouse",
@@ -114,7 +114,7 @@ class WarehouseTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
 
     # Relasi stock_opnames diperbaiki: back_populates="warehouse" dan tanpa foreign_keys
     # SQLAlchemy akan otomatis mendeteksi foreign key dari StockOpnameTable.warehouse_id
-    stock_opnames: Mapped[list["StockOpnameTable"]] = relationship(
+    stock_opnames: Mapped[list[StockOpnameTable]] = relationship(
         "StockOpnameTable",
         back_populates="warehouse",
         lazy="selectin",

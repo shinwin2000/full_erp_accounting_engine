@@ -27,6 +27,21 @@ from infrastructure.persistence_orm.outbox_table import OutboxTable
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from ports.primary.outbox_repository_port import OutboxMessage, OutboxRepositoryPort
 
+# ========================================================================
+# PATCH: Add to_dict method to OutboxMessage if missing (required by P09)
+# ========================================================================
+if not hasattr(OutboxMessage, 'to_dict'):
+    def _outbox_message_to_dict(self):
+        return {
+            "message_id": str(self.message_id),
+            "aggregate_id": str(self.aggregate_id),
+            "event_type": self.event_type,
+            "payload": self.payload,
+            "occurred_at": self.occurred_at.isoformat() if self.occurred_at else None,
+            "status": self.status,
+        }
+    OutboxMessage.to_dict = _outbox_message_to_dict
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================

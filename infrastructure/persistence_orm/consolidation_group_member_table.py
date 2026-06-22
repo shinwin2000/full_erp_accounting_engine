@@ -59,7 +59,7 @@ class ConsolidationGroupMemberTable(Base, TimestampMixin, SoftDeleteMixin):
     # - entity: TIDAK didefinisikan di sini, karena sudah disediakan oleh backref
     #   dari LegalEntityTable.consolidation_members (backref="entity")
     # =========================================================================
-    group: Mapped["ConsolidationGroupTable"] = relationship(
+    group: Mapped[ConsolidationGroupTable] = relationship(
         "ConsolidationGroupTable",
         back_populates="members",
         foreign_keys=[group_id],

@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_bank_cash import BankCashService
 from application.service_layer.service_journal import JournalService
 from application.service_layer.service_payroll import PayrollService
@@ -28,7 +28,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class PayrollMonthlyRunCommand(Command):
+class PayrollMonthlyRunCommand(BaseCommand):
     """Command untuk menjalankan payroll bulanan."""
 
     __slots__ = (
@@ -317,7 +317,7 @@ class PayrollMonthlyRunUseCase:
 
 
 async def payroll_monthly_run_handler(
-    command: Command, use_case: PayrollMonthlyRunUseCase
+    command: BaseCommand, use_case: PayrollMonthlyRunUseCase
 ) -> CommandResult:
     if not isinstance(command, PayrollMonthlyRunCommand):
         raise TypeError(f"Expected PayrollMonthlyRunCommand, got {type(command)}")

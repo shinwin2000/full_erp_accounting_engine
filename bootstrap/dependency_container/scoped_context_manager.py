@@ -12,9 +12,10 @@ import logging
 from contextlib import asynccontextmanager
 from typing import TypeVar
 
-from bootstrap.dependency_container.ioc_container import IoCContainer, get_container
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+
+from bootstrap.dependency_container.ioc_container import IoCContainer, get_container
 
 logger = logging.getLogger(__name__)
 

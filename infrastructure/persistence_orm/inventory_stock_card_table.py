@@ -6,12 +6,12 @@ Responsibility: Read model untuk kartu stok inventory.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import date
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Date, Index, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID

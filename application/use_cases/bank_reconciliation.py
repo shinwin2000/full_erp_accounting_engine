@@ -18,7 +18,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_bank_cash import BankCashService
 from application.service_layer.service_journal import JournalService
 from kernel.sealed_gate import SealedGate
@@ -26,7 +26,7 @@ from kernel.sealed_gate import SealedGate
 logger = logging.getLogger(__name__)
 
 
-class BankReconciliationCommand(Command):
+class BankReconciliationCommand(BaseCommand):
     """Command untuk rekonsiliasi bank."""
 
     __slots__ = (
@@ -348,7 +348,7 @@ class BankReconciliationUseCase:
 
 
 async def bank_reconciliation_handler(
-    command: Command, use_case: BankReconciliationUseCase
+    command: BaseCommand, use_case: BankReconciliationUseCase
 ) -> CommandResult:
     if not isinstance(command, BankReconciliationCommand):
         raise TypeError(f"Expected BankReconciliationCommand, got {type(command)}")

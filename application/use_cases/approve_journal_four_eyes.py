@@ -15,14 +15,14 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.service_layer.service_journal import JournalService
 from kernel.sealed_gate import SealedGate
 
 logger = logging.getLogger(__name__)
 
 
-class ApproveJournalCommand(Command):
+class ApproveJournalCommand(BaseCommand):
     """Command untuk approve jurnal."""
 
     __slots__ = ("is_override", "journal_id", "override_reason")
@@ -138,7 +138,7 @@ class ApproveJournalUseCase:
 
 
 async def approve_journal_handler(
-    command: Command, use_case: ApproveJournalUseCase
+    command: BaseCommand, use_case: ApproveJournalUseCase
 ) -> CommandResult:
     if not isinstance(command, ApproveJournalCommand):
         raise TypeError(f"Expected ApproveJournalCommand, got {type(command)}")

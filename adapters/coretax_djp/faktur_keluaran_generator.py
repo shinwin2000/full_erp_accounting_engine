@@ -416,9 +416,9 @@ class FakturKeluaran:
 
     def update(self, data: dict[str, Any], updated_by: UUID) -> FakturKeluaran:
         if self.is_locked:
-            raise FakturLockedError("Faktur {} is locked".format(self._faktur_number))
+            raise FakturLockedError(f"Faktur {self._faktur_number} is locked")
         if self._status not in [FakturStatus.DRAFT, FakturStatus.PENDING, FakturStatus.REJECTED]:
-            raise FakturInvalidStateError("Cannot update faktur in status {}".format(self._status.value))
+            raise FakturInvalidStateError(f"Cannot update faktur in status {self._status.value}")
         old_data = self.to_dict()
         if "dpp" in data:
             self._dpp = Decimal(str(data["dpp"]))
@@ -452,7 +452,7 @@ class FakturKeluaran:
 
     def delete(self, deleted_by: UUID, permanent: bool = False) -> FakturKeluaran:
         if self.is_locked:
-            raise FakturLockedError("Faktur {} is locked".format(self._faktur_number))
+            raise FakturLockedError(f"Faktur {self._faktur_number} is locked")
         if permanent:
             self._status = FakturStatus.VOID
         else:
@@ -471,7 +471,7 @@ class FakturKeluaran:
 
     def restore(self, restored_by: UUID) -> FakturKeluaran:
         if self._status not in [FakturStatus.ARCHIVED, FakturStatus.VOID]:
-            raise FakturInvalidStateError("Cannot restore faktur in status {}".format(self._status.value))
+            raise FakturInvalidStateError(f"Cannot restore faktur in status {self._status.value}")
         self._status = FakturStatus.DRAFT
         self._updated_at = datetime.now()
         self._version += 1
@@ -486,7 +486,7 @@ class FakturKeluaran:
 
     def activate(self, activated_by: UUID) -> FakturKeluaran:
         if self._status != FakturStatus.DRAFT:
-            raise FakturInvalidStateError("Cannot activate faktur in status {}".format(self._status.value))
+            raise FakturInvalidStateError(f"Cannot activate faktur in status {self._status.value}")
         self._status = FakturStatus.PENDING
         self._updated_at = datetime.now()
         self._version += 1
@@ -501,7 +501,7 @@ class FakturKeluaran:
 
     def deactivate(self, deactivated_by: UUID) -> FakturKeluaran:
         if self._status != FakturStatus.PENDING:
-            raise FakturInvalidStateError("Cannot deactivate faktur in status {}".format(self._status.value))
+            raise FakturInvalidStateError(f"Cannot deactivate faktur in status {self._status.value}")
         self._status = FakturStatus.DRAFT
         self._updated_at = datetime.now()
         self._version += 1
@@ -516,7 +516,7 @@ class FakturKeluaran:
 
     def lock(self, locked_by: UUID, reason: str = "") -> FakturKeluaran:
         if self.is_locked:
-            raise FakturLockedError("Faktur {} already locked".format(self._faktur_number))
+            raise FakturLockedError(f"Faktur {self._faktur_number} already locked")
         self._locked_at = datetime.now()
         self._locked_by = locked_by
         self._status = FakturStatus.LOCKED
@@ -534,7 +534,7 @@ class FakturKeluaran:
 
     def unlock(self, unlocked_by: UUID) -> FakturKeluaran:
         if not self.is_locked:
-            raise FakturLockedError("Faktur {} is not locked".format(self._faktur_number))
+            raise FakturLockedError(f"Faktur {self._faktur_number} is not locked")
         self._locked_at = None
         self._locked_by = None
         self._status = FakturStatus.PENDING
@@ -551,9 +551,9 @@ class FakturKeluaran:
 
     def validate(self, validator_id: UUID) -> FakturKeluaran:
         if self.is_locked:
-            raise FakturLockedError("Faktur {} is locked".format(self._faktur_number))
+            raise FakturLockedError(f"Faktur {self._faktur_number} is locked")
         if self._status not in [FakturStatus.DRAFT, FakturStatus.PENDING]:
-            raise FakturInvalidStateError("Cannot validate faktur in status {}".format(self._status.value))
+            raise FakturInvalidStateError(f"Cannot validate faktur in status {self._status.value}")
         errors = []
         if self._dpp <= 0:
             errors.append("DPP harus lebih besar dari 0")
@@ -571,7 +571,7 @@ class FakturKeluaran:
             errors.append("Tahun pajak tidak valid")
         expected_ppn = (self._dpp * PPN_RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if abs(self._ppn - expected_ppn) > Decimal("0.01"):
-            errors.append("PPN tidak sesuai: expected {}, got {}".format(expected_ppn, self._ppn))
+            errors.append(f"PPN tidak sesuai: expected {expected_ppn}, got {self._ppn}")
         if errors:
             raise FakturValidationError("Validasi gagal: {}".format("; ".join(errors)))
         self._status = FakturStatus.VALIDATED
@@ -589,9 +589,9 @@ class FakturKeluaran:
 
     def approve(self, approver_id: UUID, notes: str = "") -> FakturKeluaran:
         if self.is_locked:
-            raise FakturLockedError("Faktur {} is locked".format(self._faktur_number))
+            raise FakturLockedError(f"Faktur {self._faktur_number} is locked")
         if self._status != FakturStatus.SUBMITTED:
-            raise FakturInvalidStateError("Cannot approve faktur in status {}".format(self._status.value))
+            raise FakturInvalidStateError(f"Cannot approve faktur in status {self._status.value}")
         self._status = FakturStatus.APPROVED
         self._approved_at = datetime.now()
         self._updated_at = datetime.now()
@@ -608,9 +608,9 @@ class FakturKeluaran:
 
     def reject(self, rejector_id: UUID, reason: str) -> FakturKeluaran:
         if self.is_locked:
-            raise FakturLockedError("Faktur {} is locked".format(self._faktur_number))
+            raise FakturLockedError(f"Faktur {self._faktur_number} is locked")
         if self._status not in [FakturStatus.PENDING, FakturStatus.SUBMITTED]:
-            raise FakturInvalidStateError("Cannot reject faktur in status {}".format(self._status.value))
+            raise FakturInvalidStateError(f"Cannot reject faktur in status {self._status.value}")
         self._status = FakturStatus.REJECTED
         self._rejected_at = datetime.now()
         self._rejection_reason = reason
@@ -628,9 +628,9 @@ class FakturKeluaran:
 
     def cancel(self, cancelled_by: UUID, reason: str) -> FakturKeluaran:
         if self.is_locked:
-            raise FakturLockedError("Faktur {} is locked".format(self._faktur_number))
+            raise FakturLockedError(f"Faktur {self._faktur_number} is locked")
         if self._status in [FakturStatus.CANCELLED, FakturStatus.VOID, FakturStatus.CLOSED]:
-            raise FakturInvalidStateError("Cannot cancel faktur in status {}".format(self._status.value))
+            raise FakturInvalidStateError(f"Cannot cancel faktur in status {self._status.value}")
         self._status = FakturStatus.CANCELLED
         self._cancelled_at = datetime.now()
         self._cancellation_reason = reason
@@ -648,7 +648,7 @@ class FakturKeluaran:
 
     def void(self, voided_by: UUID, reason: str) -> FakturKeluaran:
         if self.is_locked:
-            raise FakturLockedError("Faktur {} is locked".format(self._faktur_number))
+            raise FakturLockedError(f"Faktur {self._faktur_number} is locked")
         self._status = FakturStatus.VOID
         self._cancelled_at = datetime.now()
         self._cancellation_reason = reason
@@ -666,9 +666,9 @@ class FakturKeluaran:
 
     def submit(self, submitted_by: UUID) -> FakturKeluaran:
         if self.is_locked:
-            raise FakturLockedError("Faktur {} is locked".format(self._faktur_number))
+            raise FakturLockedError(f"Faktur {self._faktur_number} is locked")
         if self._status not in [FakturStatus.PENDING, FakturStatus.VALIDATED]:
-            raise FakturInvalidStateError("Cannot submit faktur in status {}".format(self._status.value))
+            raise FakturInvalidStateError(f"Cannot submit faktur in status {self._status.value}")
         self.validate(submitted_by)
         self._generate_qr_code()
         self._status = FakturStatus.SUBMITTED
@@ -775,7 +775,7 @@ class FakturKeluaran:
             alamat_penjual=self._alamat_penjual,
             alamat_pembeli=self._alamat_pembeli,
             ppn_bm=self._ppn_bm,
-            keterangan="COPY of {}".format(self._faktur_number),
+            keterangan=f"COPY of {self._faktur_number}",
             referensi=self._referensi,
             jenis_transaksi=self._jenis_transaksi,
             status_pembayaran=self._status_pembayaran,
@@ -878,7 +878,7 @@ class FakturKeluaran:
 
     def transition(self, new_status: FakturStatus, actor_id: UUID, reason: str = "") -> FakturKeluaran:
         if not self.can_transition(new_status):
-            raise FakturInvalidStateError("Cannot transition from {} to {}".format(self._status.value, new_status.value))
+            raise FakturInvalidStateError(f"Cannot transition from {self._status.value} to {new_status.value}")
         old_status = self._status
         self._status = new_status
         self._updated_at = datetime.now()
@@ -958,7 +958,7 @@ class FakturKeluaran:
                 )
                 self._signature = base64.b64encode(signature).decode()
             except Exception as e:
-                raise FakturSigningError("Failed to sign faktur: {}".format(e))
+                raise FakturSigningError(f"Failed to sign faktur: {e}")
         self._updated_at = datetime.now()
         self._version += 1
         return self
@@ -983,7 +983,7 @@ class FakturKeluaran:
         elif self._status == FakturStatus.ERROR:
             self._status = FakturStatus.PENDING
         else:
-            raise FakturInvalidStateError("Cannot resend faktur in status {}".format(self._status.value))
+            raise FakturInvalidStateError(f"Cannot resend faktur in status {self._status.value}")
         self._updated_at = datetime.now()
         self._version += 1
         self._register_event(
@@ -1006,24 +1006,11 @@ class FakturKeluaran:
         return self
 
     def _calculate_hash(self) -> None:
-        data = "{}{}{}{}{}{}{}".format(
-            self._faktur_id,
-            self._faktur_number,
-            self._nsfp,
-            self._npwp_penjual,
-            self._dpp,
-            self._ppn,
-            self._status.value
-        )
+        data = f"{self._faktur_id}{self._faktur_number}{self._nsfp}{self._npwp_penjual}{self._dpp}{self._ppn}{self._status.value}"
         self._hash = hashlib.sha256(data.encode()).hexdigest()
 
     def _generate_faktur_id(self) -> str:
-        return "{}.{}.{:02d}.{}".format(
-            self._jenis_transaksi,
-            self._tahun,
-            self._bulan,
-            self._nsfp
-        )
+        return f"{self._jenis_transaksi}.{self._tahun}.{self._bulan:02d}.{self._nsfp}"
 
     def _create_xml_faktur(self) -> str:
         try:
@@ -1048,9 +1035,9 @@ class FakturKeluaran:
             if self._alamat_pembeli:
                 ET.SubElement(pembeli, "Alamat").text = self._alamat_pembeli
             detail = ET.SubElement(root, "DetailTransaksi")
-            ET.SubElement(detail, "DPP").text = "{:.2f}".format(self._dpp)
-            ET.SubElement(detail, "PPN").text = "{:.2f}".format(self._ppn)
-            ET.SubElement(detail, "PPNBM").text = "{:.2f}".format(self._ppn_bm)
+            ET.SubElement(detail, "DPP").text = f"{self._dpp:.2f}"
+            ET.SubElement(detail, "PPN").text = f"{self._ppn:.2f}"
+            ET.SubElement(detail, "PPNBM").text = f"{self._ppn_bm:.2f}"
             if self._keterangan:
                 ET.SubElement(detail, "Keterangan").text = self._keterangan
             if self._referensi:
@@ -1060,19 +1047,14 @@ class FakturKeluaran:
             self._xml_content = dom.toprettyxml(indent="  ")
             return self._xml_content
         except Exception as e:
-            raise FakturXMLGenerationError("Failed to create XML faktur: {}".format(e))
+            raise FakturXMLGenerationError(f"Failed to create XML faktur: {e}")
 
     def _generate_qr_code(self) -> None:
         faktur_id = self._generate_faktur_id()
-        qr_data = "{}|{}|{}|{}".format(
-            self._npwp_penjual,
-            faktur_id,
-            self._dpp,
-            self._ppn
-        )
+        qr_data = f"{self._npwp_penjual}|{faktur_id}|{self._dpp}|{self._ppn}"
         hash_bytes = hashlib.sha256(qr_data.encode()).digest()
         qr_base64 = base64.b64encode(hash_bytes).decode()
-        self._qr_code = "QR:{}".format(qr_base64[:50])
+        self._qr_code = f"QR:{qr_base64[:50]}"
         while len(self._qr_code) < 100:
             self._qr_code += "="
 
@@ -1097,9 +1079,9 @@ class FakturKeluaran:
                 ["NPWP Pembeli", self._npwp_pembeli],
                 ["Nama Pembeli", self._nama_pembeli],
                 ["Tanggal Faktur", self._tanggal_faktur.strftime("%d/%m/%Y")],
-                ["DPP", "Rp {:.2f}".format(self._dpp)],
-                ["PPN (11%)", "Rp {:.2f}".format(self._ppn)],
-                ["Total", "Rp {:.2f}".format(self.total_amount)],
+                ["DPP", f"Rp {self._dpp:.2f}"],
+                ["PPN (11%)", f"Rp {self._ppn:.2f}"],
+                ["Total", f"Rp {self.total_amount:.2f}"],
                 ["Jenis Transaksi", self.jenis_transaksi_text],
                 ["Status Pembayaran", self.status_pembayaran_text],
             ]
@@ -1122,13 +1104,13 @@ class FakturKeluaran:
             c = canvas.Canvas(buffer, pagesize=A4)
             y = 800
             c.drawString(100, y, "FAKTUR PAJAK KELUARAN")
-            c.drawString(100, y - 20, "Nomor: {}".format(self._generate_faktur_id()))
-            c.drawString(100, y - 40, "Penjual: {} ({})".format(self._nama_penjual, self._npwp_penjual))
-            c.drawString(100, y - 60, "Pembeli: {} ({})".format(self._nama_pembeli, self._npwp_pembeli))
+            c.drawString(100, y - 20, f"Nomor: {self._generate_faktur_id()}")
+            c.drawString(100, y - 40, f"Penjual: {self._nama_penjual} ({self._npwp_penjual})")
+            c.drawString(100, y - 60, f"Pembeli: {self._nama_pembeli} ({self._npwp_pembeli})")
             c.drawString(100, y - 80, "Tanggal: {}".format(self._tanggal_faktur.strftime("%d/%m/%Y")))
-            c.drawString(100, y - 100, "DPP: Rp {:.2f}".format(self._dpp))
-            c.drawString(100, y - 120, "PPN: Rp {:.2f}".format(self._ppn))
-            c.drawString(100, y - 140, "Total: Rp {:.2f}".format(self.total_amount))
+            c.drawString(100, y - 100, f"DPP: Rp {self._dpp:.2f}")
+            c.drawString(100, y - 120, f"PPN: Rp {self._ppn:.2f}")
+            c.drawString(100, y - 140, f"Total: Rp {self.total_amount:.2f}")
             c.save()
             return buffer.getvalue()
 
@@ -1286,7 +1268,7 @@ class FakturKeluaranGenerator:
         return self._coretax_client
 
     def _get_cache_key(self, faktur_number: str) -> str:
-        return "faktur_keluaran:{}".format(faktur_number)
+        return f"faktur_keluaran:{faktur_number}"
 
     async def _get_cached(self, faktur_number: str) -> dict[str, Any] | None:
         key = self._get_cache_key(faktur_number)
@@ -1389,7 +1371,7 @@ class FakturKeluaranGenerator:
         except CoretaxAuthError as e:
             faktur.transition(FakturStatus.ERROR, submitted_by, str(e))
             await self._repository.update(faktur)
-            return {"success": False, "error": "Coretax authentication failed: {}".format(e)}
+            return {"success": False, "error": f"Coretax authentication failed: {e}"}
         except Exception as e:
             logger.exception("Failed to submit faktur")
             faktur.transition(FakturStatus.ERROR, submitted_by, str(e))
@@ -1408,7 +1390,7 @@ class FakturKeluaranGenerator:
                 "message": "Not yet submitted to Coretax",
             }
         client = await self._get_coretax_client()
-        endpoint = "{}/{}".format(CORETAX_FAKTUR_STATUS_ENDPOINT, faktur.coretax_id)
+        endpoint = f"{CORETAX_FAKTUR_STATUS_ENDPOINT}/{faktur.coretax_id}"
         try:
             response = await client.get(endpoint)
             faktur.check_approval_status(response)
@@ -1471,7 +1453,7 @@ class FakturKeluaranGenerator:
         else:
             return {
                 "success": False,
-                "error": "Cannot resend faktur with status {}".format(faktur.status.value),
+                "error": f"Cannot resend faktur with status {faktur.status.value}",
             }
 
     async def get_by_id(self, faktur_id: UUID) -> FakturKeluaran | None:
@@ -1506,12 +1488,12 @@ class FakturKeluaranGenerator:
     # Helper Methods
     # ========================================================================
     def _generate_faktur_id(self, kode_transaksi: str, tahun: int, bulan: int, nsfp: str) -> str:
-        return "{}.{}.{:02d}.{}".format(kode_transaksi, tahun, bulan, nsfp)
+        return f"{kode_transaksi}.{tahun}.{bulan:02d}.{nsfp}"
 
     def _generate_long_qr_code(self, base_data: str) -> str:
         hash_bytes = hashlib.sha256(base_data.encode("utf-8")).digest()
         qr_base64 = base64.b64encode(hash_bytes).decode("utf-8")
-        qr_code = "QR:{}:{}".format(qr_base64, base_data[:20])
+        qr_code = f"QR:{qr_base64}:{base_data[:20]}"
         while len(qr_code) < 100:
             qr_code += "="
         return qr_code

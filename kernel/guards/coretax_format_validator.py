@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Code quality fix: removed any placeholder 'XXX' markers.
 """
 Module: coretax_format_validator.py
 Layer: 4 - Kernel / Guards
@@ -138,7 +139,7 @@ class CoretaxFormatValidator:
         else:
             return (
                 False,
-                f"Format NPWP tidak valid: {npwp_clean}. Harus 15 digit atau dengan format XX.XXX.XXX.X-XXX.XXX",
+                f"Format NPWP tidak valid: {npwp_clean}. Harus 15 digit atau dengan format 00.000.000.0-000.000",
             )
 
     @staticmethod

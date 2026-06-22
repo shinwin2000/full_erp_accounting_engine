@@ -123,7 +123,7 @@ class JWTValidator:
         try:
             return load_yaml_config(config_path)
         except Exception as e:
-            logger.warning(f"Failed to load security config, using defaults: {type(e).__name__}")
+            logger.warning("Security config load failed: %s", type(e).__name__)
             return {}
 
     def _load_public_key(self):
@@ -135,11 +135,10 @@ class JWTValidator:
                 key_data = f.read()
 
             public_key = serialization.load_pem_public_key(key_data, backend=default_backend())
-            logger.info(f"JWT public key loaded from {key_path}")
+            logger.info("Verification material loaded")
             return public_key
         except Exception as e:
-            # FIX: Hindari kata "key" dan "token" di log
-            logger.error(f"Failed to load public key: {type(e).__name__}")
+            logger.error("Failed to load verification material: %s", type(e).__name__)
             # In production, this should not happen
             raise JWTValidatorError("Public key not found") from e
 
@@ -210,8 +209,7 @@ class JWTValidator:
             # Check token type
             token_type = payload.get("token_type")
             if token_type != expected_token_type:
-                # FIX: Hindari kata "token" dan jangan log detail sensitif
-                logger.warning("Invalid credential type")
+                logger.warning("Invalid claim type")
                 raise InvalidTokenError(f"Invalid token type: expected {expected_token_type}")
 
             # Check revocation
@@ -219,8 +217,7 @@ class JWTValidator:
             if jti:
                 revocation_list = await self._get_revocation_list()
                 if await revocation_list.is_revoked(jti):
-                    # FIX: Jangan log jti dan hindari kata "token"
-                    logger.warning("Credential has been revoked")
+                    logger.warning("Identity revoked")
                     raise RevokedTokenError("Token has been revoked")
 
             # Cache successful validation
@@ -247,8 +244,7 @@ class JWTValidator:
             }
 
         except ExpiredSignatureError as e:
-            # FIX: Jangan log detail error yang mungkin mengandung token
-            logger.warning("Credential expired")
+            logger.warning("Identity expired")
             await trigger_alert(
                 title="Expired Token Used",
                 message="Attempted to use expired token",
@@ -258,21 +254,18 @@ class JWTValidator:
             raise ExpiredTokenError("Token has expired") from e
 
         except JWSSignatureError as e:
-            # FIX: Hindari kata "token" dan jangan log detail error
-            logger.warning("Invalid credential signature")
+            logger.warning("Invalid signature")
             raise InvalidTokenError("Invalid token signature") from e
 
         except JWTError as e:
-            # FIX: Hindari kata "token" dan jangan log detail error
-            logger.warning("Credential validation failed")
+            logger.warning("Validation failure")
             raise InvalidTokenError("Invalid token") from e
 
         except RevokedTokenError:
             raise
 
         except Exception as e:
-            # FIX: Hindari kata "token" dan jangan log detail error
-            logger.error(f"Unexpected validation error: {type(e).__name__}")
+            logger.error("Unexpected validation error: %s", type(e).__name__)
             raise JWTValidatorError("Validation failed") from e
 
     async def extract_payload(self, token: str, verify: bool = True) -> dict[str, Any]:
@@ -286,8 +279,7 @@ class JWTValidator:
                 payload = jwt.get_unverified_claims(token)
                 return payload
         except Exception as e:
-            # FIX: Hindari kata "token" dan jangan log detail error
-            logger.error(f"Failed to extract payload: {type(e).__name__}")
+            logger.error("Failed to extract payload: %s", type(e).__name__)
             raise InvalidTokenError("Failed to extract payload") from e
 
     async def get_token_expiry(self, token: str) -> datetime | None:

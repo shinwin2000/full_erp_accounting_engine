@@ -8,11 +8,11 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel cost_card.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import date
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import (
     JSON,

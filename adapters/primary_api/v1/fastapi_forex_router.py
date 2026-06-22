@@ -26,7 +26,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -35,8 +34,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -376,8 +374,8 @@ class ForexDashboardResponseSchema(BaseModel):
 
 async def get_forex_service(request: Request, ) -> Any:
     """Get Forex Service instance."""
+
     from application.service_layer.service_forex import ForexService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(ForexService)
@@ -385,8 +383,8 @@ async def get_forex_service(request: Request, ) -> Any:
 
 async def get_forex_revaluation_use_case() -> Any:
     """Get Forex Revaluation Use Case instance."""
+
     from application.use_cases.forex_revaluation import ForexRevaluationUseCase
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(ForexRevaluationUseCase)
@@ -458,7 +456,7 @@ async def create_exchange_rate(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create exchange rate: {}".format(e))
+        logger.exception(f"Failed to create exchange rate: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -505,7 +503,7 @@ async def get_exchange_rate(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get exchange rate: {}".format(e))
+        logger.exception(f"Failed to get exchange rate: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -537,7 +535,7 @@ async def get_current_rate(
         if not rate:
             raise HTTPException(
                 status_code=404,
-                detail="Exchange rate not found for {}/{}".format(from_currency.value, to_currency.value),
+                detail=f"Exchange rate not found for {from_currency.value}/{to_currency.value}",
             )
 
         return ExchangeRateResponseSchema(
@@ -564,7 +562,7 @@ async def get_current_rate(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get current rate: {}".format(e))
+        logger.exception(f"Failed to get current rate: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -624,7 +622,7 @@ async def list_exchange_rates(
             for r in rates
         ]
     except Exception as e:
-        logger.exception("Failed to list exchange rates: {}".format(e))
+        logger.exception(f"Failed to list exchange rates: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -683,7 +681,7 @@ async def update_exchange_rate(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to update exchange rate: {}".format(e))
+        logger.exception(f"Failed to update exchange rate: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -724,7 +722,7 @@ async def deactivate_exchange_rate(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to deactivate exchange rate: {}".format(e))
+        logger.exception(f"Failed to deactivate exchange rate: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -778,7 +776,7 @@ async def lock_exchange_rate(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to lock exchange rate: {}".format(e))
+        logger.exception(f"Failed to lock exchange rate: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -832,7 +830,7 @@ async def unlock_exchange_rate(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to unlock exchange rate: {}".format(e))
+        logger.exception(f"Failed to unlock exchange rate: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -879,7 +877,7 @@ async def convert_currency(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to convert currency: {}".format(e))
+        logger.exception(f"Failed to convert currency: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -938,7 +936,7 @@ async def batch_convert_currency(
             errors=errors,
         )
     except Exception as e:
-        logger.exception("Failed to batch convert currency: {}".format(e))
+        logger.exception(f"Failed to batch convert currency: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -988,7 +986,7 @@ async def get_historical_rates(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception("Failed to get historical rates: {}".format(e))
+        logger.exception(f"Failed to get historical rates: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1052,7 +1050,7 @@ async def run_forex_revaluation(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to run forex revaluation: {}".format(e))
+        logger.exception(f"Failed to run forex revaluation: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1105,7 +1103,7 @@ async def list_forex_revaluations(
             for r in revaluations
         ]
     except Exception as e:
-        logger.exception("Failed to list forex revaluations: {}".format(e))
+        logger.exception(f"Failed to list forex revaluations: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1149,7 +1147,7 @@ async def get_forex_revaluation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get forex revaluation: {}".format(e))
+        logger.exception(f"Failed to get forex revaluation: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1204,7 +1202,7 @@ async def reverse_forex_revaluation(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to reverse revaluation: {}".format(e))
+        logger.exception(f"Failed to reverse revaluation: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1247,7 +1245,7 @@ async def get_forex_position(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception("Failed to get forex position: {}".format(e))
+        logger.exception(f"Failed to get forex position: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1288,7 +1286,7 @@ async def get_forex_dashboard(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception("Failed to get forex dashboard: {}".format(e))
+        logger.exception(f"Failed to get forex dashboard: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1328,12 +1326,12 @@ async def sync_rates_from_provider(
             "updated_rates": result.updated_rates,
             "failed_currencies": result.failed_currencies,
             "errors": result.errors,
-            "message": "Successfully synced {} rates".format(result.rates_synced),
+            "message": f"Successfully synced {result.rates_synced} rates",
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to sync rates from provider: {}".format(e))
+        logger.exception(f"Failed to sync rates from provider: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1372,7 +1370,7 @@ async def get_rate_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception("Failed to get rate history: {}".format(e))
+        logger.exception(f"Failed to get rate history: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1418,7 +1416,7 @@ async def get_rate_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get rate status: {}".format(e))
+        logger.exception(f"Failed to get rate status: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1456,15 +1454,15 @@ async def export_exchange_rates(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "exchange_rates_{}_{}_{}.{}".format(legal_entity_id, start_date, end_date, format)
+        filename = f"exchange_rates_{legal_entity_id}_{start_date}_{end_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
-        logger.exception("Failed to export exchange rates: {}".format(e))
+        logger.exception(f"Failed to export exchange rates: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1495,15 +1493,15 @@ async def export_revaluation_history(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "revaluation_history_{}_{}_{}.{}".format(legal_entity_id, start_date, end_date, format)
+        filename = f"revaluation_history_{legal_entity_id}_{start_date}_{end_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
-        logger.exception("Failed to export revaluation history: {}".format(e))
+        logger.exception(f"Failed to export revaluation history: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

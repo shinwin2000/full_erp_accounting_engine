@@ -13,11 +13,11 @@ Audit: Setiap perubahan status hash chain dicatat.
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID

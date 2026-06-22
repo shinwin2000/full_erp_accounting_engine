@@ -1,5 +1,5 @@
 # command_bus_unified.py - Hardened version with BaseCommand (fix P56)
-# (Ganti seluruh isi file dengan kode di bawah)
+# Ganti seluruh isi file dengan kode di bawah
 
 #!/usr/bin/env python3
 
@@ -256,8 +256,10 @@ class BaseCommand(Generic[T]):
         self._result: CommandResult | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Konversi command ke dictionary untuk logging/audit."""
-        result = {
+        """Konversi command ke dictionary untuk logging/audit.
+        Manual construction to avoid __slots__ conflict with __dict__.
+        """
+        return {
             "command_id": str(self.command_id),
             "command_type": self.command_type,
             "occurred_at": self.occurred_at.isoformat(),
@@ -269,9 +271,6 @@ class BaseCommand(Generic[T]):
             "user_agent": self.user_agent,
             "metadata": self.metadata,
         }
-        if self._result:
-            result["result"] = self._result.to_dict() if self._result else None
-        return result
 
     def set_result(self, result: CommandResult) -> None:
         """Set the command result for audit purposes."""
@@ -283,6 +282,12 @@ class BaseCommand(Generic[T]):
 
     def __repr__(self) -> str:
         return f"BaseCommand({self.command_type}, id={self.command_id})"
+
+
+# === ALIAS UNTUK KOMPATIBILITAS ===
+# P49 dan berbagai file workflow mengimpor 'Command' (tanpa Base)
+# Kita buat alias agar import tetap berfungsi
+Command = BaseCommand
 
 
 # === 3. COMMAND BUS EXCEPTIONS ===
@@ -1042,6 +1047,7 @@ __all__ = [
     "AuditMiddleware",
     "BaseCommand",
     "CachePort",
+    "Command",
     "CommandBus",
     "CommandBusClosedError",
     "CommandBusError",

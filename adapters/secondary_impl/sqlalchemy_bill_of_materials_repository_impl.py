@@ -108,11 +108,14 @@ class BOMItemTable(Base):
 class SQLAlchemyBillOfMaterialsRepository(BillOfMaterialsRepositoryPort):
     """SQLAlchemy implementation of BillOfMaterialsRepositoryPort."""
 
-    def __init__(self, session_factory):
-        self._session_factory = session_factory
+    def __init__(self, session: AsyncSession | None = None):
+        self._session = session
 
     async def _get_session(self) -> AsyncSession:
-        return self._session_factory()
+        if self._session is None:
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session
+            self._session = await get_async_session()
+        return self._session
 
     def _to_domain_entity(self, bom_row: BOMTable) -> BillOfMaterialsEntity:
         items = [
@@ -148,7 +151,8 @@ class SQLAlchemyBillOfMaterialsRepository(BillOfMaterialsRepositoryPort):
         )
 
     async def save(self, bom: BillOfMaterialsEntity) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             # Check if exists
             stmt = select(BOMTable).where(BOMTable.id == bom.id)
             result = await session.execute(stmt)
@@ -220,100 +224,102 @@ class SQLAlchemyBillOfMaterialsRepository(BillOfMaterialsRepositoryPort):
                     session.add(item_row)
 
     async def get_by_id(self, bom_id: UUID) -> BillOfMaterialsEntity | None:
-        async with await self._get_session() as session:
-            stmt = (
-                select(BOMTable).options(selectinload(BOMTable.items)).where(BOMTable.id == bom_id)
-            )
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if not row:
-                return None
-            return self._to_domain_entity(row)
+        session = await self._get_session()
+        stmt = (
+            select(BOMTable).options(selectinload(BOMTable.items)).where(BOMTable.id == bom_id)
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            return None
+        return self._to_domain_entity(row)
 
     async def get_by_code(
         self, bom_code: str, legal_entity_id: UUID
     ) -> BillOfMaterialsEntity | None:
         # Note: legal_entity_id not directly in BOMTable; may need join to product.
         # For simplicity, we ignore legal_entity_id or assume product_id links to legal entity.
-        async with await self._get_session() as session:
-            stmt = (
-                select(BOMTable)
-                .options(selectinload(BOMTable.items))
-                .where(BOMTable.bom_code == bom_code)
-            )
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if not row:
-                return None
-            return self._to_domain_entity(row)
+        session = await self._get_session()
+        stmt = (
+            select(BOMTable)
+            .options(selectinload(BOMTable.items))
+            .where(BOMTable.bom_code == bom_code)
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            return None
+        return self._to_domain_entity(row)
 
     async def get_active_bom(
         self, product_id: UUID, as_of_date: date
     ) -> BillOfMaterialsEntity | None:
-        async with await self._get_session() as session:
-            stmt = (
-                select(BOMTable)
-                .options(selectinload(BOMTable.items))
-                .where(
-                    BOMTable.product_id == product_id,
-                    BOMTable.status == "ACTIVE",
-                    BOMTable.effective_date <= as_of_date,
-                    or_(BOMTable.expiry_date.is_(None), BOMTable.expiry_date >= as_of_date),
-                )
-                .order_by(BOMTable.version.desc())
-                .limit(1)
+        session = await self._get_session()
+        stmt = (
+            select(BOMTable)
+            .options(selectinload(BOMTable.items))
+            .where(
+                BOMTable.product_id == product_id,
+                BOMTable.status == "ACTIVE",
+                BOMTable.effective_date <= as_of_date,
+                or_(BOMTable.expiry_date.is_(None), BOMTable.expiry_date >= as_of_date),
             )
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if not row:
-                return None
-            return self._to_domain_entity(row)
+            .order_by(BOMTable.version.desc())
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            return None
+        return self._to_domain_entity(row)
 
     async def get_bom_by_product_and_version(
         self, product_id: UUID, version: int
     ) -> BillOfMaterialsEntity | None:
-        async with await self._get_session() as session:
-            stmt = (
-                select(BOMTable)
-                .options(selectinload(BOMTable.items))
-                .where(BOMTable.product_id == product_id, BOMTable.version == version)
-            )
-            result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
-            if not row:
-                return None
-            return self._to_domain_entity(row)
+        session = await self._get_session()
+        stmt = (
+            select(BOMTable)
+            .options(selectinload(BOMTable.items))
+            .where(BOMTable.product_id == product_id, BOMTable.version == version)
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            return None
+        return self._to_domain_entity(row)
 
     async def list_boms_by_product(
         self, product_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[BillOfMaterialsEntity]:
-        async with await self._get_session() as session:
-            stmt = (
-                select(BOMTable)
-                .options(selectinload(BOMTable.items))
-                .where(BOMTable.product_id == product_id)
-                .order_by(BOMTable.version.desc())
-                .offset(offset)
-                .limit(limit)
-            )
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-            return [self._to_domain_entity(row) for row in rows]
+        session = await self._get_session()
+        stmt = (
+            select(BOMTable)
+            .options(selectinload(BOMTable.items))
+            .where(BOMTable.product_id == product_id)
+            .order_by(BOMTable.version.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_domain_entity(row) for row in rows]
 
     async def get_last_bom_code(self, legal_entity_id: UUID) -> str | None:
-        async with await self._get_session() as session:
-            # This assumes bom_code contains prefix. For simplicity, return the latest BOM code.
-            stmt = select(BOMTable.bom_code).order_by(BOMTable.created_at.desc()).limit(1)
-            result = await session.execute(stmt)
-            return result.scalar_one_or_none()
+        session = await self._get_session()
+        # This assumes bom_code contains prefix. For simplicity, return the latest BOM code.
+        stmt = select(BOMTable.bom_code).order_by(BOMTable.created_at.desc()).limit(1)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def update_status(self, bom_id: UUID, new_status: str, updated_by: UUID) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             stmt = update(BOMTable).where(BOMTable.id == bom_id).values(status=new_status)
             await session.execute(stmt)
 
     async def delete(self, bom_id: UUID) -> None:
-        async with await self._get_session() as session, session.begin():
+        session = await self._get_session()
+        async with session.begin():
             await session.execute(delete(BOMTable).where(BOMTable.id == bom_id))
 
 

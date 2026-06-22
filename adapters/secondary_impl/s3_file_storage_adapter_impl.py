@@ -8,6 +8,7 @@ Responsibility: Menyimpan file ke AWS S3.
 from __future__ import annotations
 
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +19,9 @@ class S3FileStorageAdapter:
     Stub, hanya log.
     """
 
-    def __init__(self, bucket: str, region: str = "ap-southeast-1"):
-        self.bucket = bucket
-        self.region = region
+    def __init__(self, bucket: str | None = None, region: str | None = None):
+        self.bucket = bucket or os.getenv("S3_BUCKET", "default-bucket")
+        self.region = region or os.getenv("S3_REGION", "ap-southeast-1")
 
     async def upload(self, key: str, data: bytes, metadata: dict | None = None) -> str:
         logger.info(f"Uploading {key} to S3 bucket {self.bucket} ({len(data)} bytes)")

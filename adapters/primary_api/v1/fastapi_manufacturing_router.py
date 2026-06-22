@@ -25,7 +25,6 @@ Method Standards (ERP):
 
 
 from __future__ import annotations
-from fastapi import Request
 
 import logging
 from datetime import date, datetime
@@ -34,8 +33,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from adapters.dependency_provider import get_service
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -583,8 +581,8 @@ class OverheadAllocationResponseSchema(BaseModel):
 
 async def get_manufacturing_service(request: Request, ) -> Any:
     """Get Manufacturing Service instance."""
+
     from application.service_layer.service_manufacturing import ManufacturingService
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(ManufacturingService)
@@ -592,8 +590,8 @@ async def get_manufacturing_service(request: Request, ) -> Any:
 
 async def get_hpp_close_use_case() -> Any:
     """Get HPP Manufacturing Close Use Case instance."""
+
     from application.use_cases.hpp_manufacturing_close import HPPManufacturingCloseUseCase
-    from fastapi import Request
 
     container = request.app.state.container
     return container.resolve(HPPManufacturingCloseUseCase)
@@ -1909,12 +1907,12 @@ async def export_work_orders(
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = "work_orders_{}_{}_{}.{}".format(legal_entity_id, start_date, end_date, format)
+        filename = f"work_orders_{legal_entity_id}_{start_date}_{end_date}.{format}"
 
         return Response(
             content=data,
             media_type=media_type,
-            headers={"Content-Disposition": "attachment; filename={}".format(filename)},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.exception("Failed to export work orders: %s", e)

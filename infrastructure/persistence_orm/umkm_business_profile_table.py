@@ -6,10 +6,10 @@ Responsibility: Model untuk profil bisnis UMKM (simplified accounting).
 """
 
 from __future__ import annotations
-from uuid import UUID
 
 import uuid
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import Boolean, CheckConstraint, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID

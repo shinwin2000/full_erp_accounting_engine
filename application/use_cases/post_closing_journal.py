@@ -17,7 +17,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from application.commands_cqrs.command_bus_unified import Command, CommandResult
+from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.dto_objects.journal_request import JournalEntryRequestDTO, JournalLineRequestDTO
 from application.service_layer.service_coa import COAService
 from application.service_layer.service_fiscal_period import FiscalPeriodService
@@ -29,7 +29,7 @@ from ports.primary.ledger_repository_port import LedgerRepositoryPort
 logger = logging.getLogger(__name__)
 
 
-class PostClosingJournalCommand(Command):
+class PostClosingJournalCommand(BaseCommand):
     """Command untuk posting jurnal penutup."""
 
     __slots__ = (
@@ -328,7 +328,7 @@ class PostClosingJournalUseCase:
 
 
 async def post_closing_journal_handler(
-    command: Command, use_case: PostClosingJournalUseCase
+    command: BaseCommand, use_case: PostClosingJournalUseCase
 ) -> CommandResult:
     if not isinstance(command, PostClosingJournalCommand):
         raise TypeError(f"Expected PostClosingJournalCommand, got {type(command)}")

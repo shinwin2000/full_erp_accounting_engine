@@ -94,14 +94,101 @@ class GuardErrorCode(Enum):
     GUARD_NOT_APPLICABLE = auto()
     GUARD_VALIDATION_FAILED = auto()
 
+    def display_name(self) -> str:
+        """Return human-readable display name."""
+        names = {
+            GuardErrorCode.BALANCE_NEGATIVE: "Negative Balance",
+            GuardErrorCode.BALANCE_INSUFFICIENT: "Insufficient Balance",
+            GuardErrorCode.BALANCE_CURRENCY_MISMATCH: "Currency Mismatch",
+            GuardErrorCode.PERIOD_CLOSED: "Period Closed",
+            GuardErrorCode.PERIOD_LOCKED: "Period Locked",
+            GuardErrorCode.PERIOD_FUTURE: "Future Period",
+            GuardErrorCode.PERIOD_NOT_FOUND: "Period Not Found",
+            GuardErrorCode.CURRENCY_NOT_SUPPORTED: "Currency Not Supported",
+            GuardErrorCode.CURRENCY_EXCHANGE_RATE_MISSING: "Exchange Rate Missing",
+            GuardErrorCode.CURRENCY_EXCHANGE_RATE_INVALID: "Invalid Exchange Rate",
+            GuardErrorCode.ENTITY_ACCESS_DENIED: "Entity Access Denied",
+            GuardErrorCode.ENTITY_NOT_FOUND: "Entity Not Found",
+            GuardErrorCode.ENTITY_CROSS_ACCESS_DENIED: "Cross-Entity Access Denied",
+            GuardErrorCode.AUTHORIZATION_MISSING: "Authorization Missing",
+            GuardErrorCode.ROLE_NOT_FOUND: "Role Not Found",
+            GuardErrorCode.PERMISSION_DENIED: "Permission Denied",
+            GuardErrorCode.EVIDENCE_MISSING: "Evidence Missing",
+            GuardErrorCode.EVIDENCE_TYPE_INVALID: "Invalid Evidence Type",
+            GuardErrorCode.EVIDENCE_INTEGRITY_FAILED: "Evidence Integrity Failed",
+            GuardErrorCode.REGULATORY_VIOLATION: "Regulatory Violation",
+            GuardErrorCode.AML_THRESHOLD_EXCEEDED: "AML Threshold Exceeded",
+            GuardErrorCode.TAX_COMPLIANCE_FAILED: "Tax Compliance Failed",
+            GuardErrorCode.TEMPORAL_INCONSISTENCY: "Temporal Inconsistency",
+            GuardErrorCode.CLOCK_SKEW_DETECTED: "Clock Skew Detected",
+            GuardErrorCode.BACKDATING_EXCEEDED: "Backdating Exceeded",
+            GuardErrorCode.SYSTEM_FROZEN: "System Frozen",
+            GuardErrorCode.FREEZE_AUTHORIZATION_MISSING: "Freeze Authorization Missing",
+            GuardErrorCode.CORETAX_FORMAT_INVALID: "Coretax Format Invalid",
+            GuardErrorCode.CORETAX_NPWP_INVALID: "Invalid NPWP",
+            GuardErrorCode.CORETAX_NTPN_INVALID: "Invalid NTPN",
+            GuardErrorCode.CORETAX_FAKTUR_INVALID: "Invalid Faktur",
+            GuardErrorCode.SOD_MAKER_CHECKER_VIOLATION: "Maker-Checker Violation",
+            GuardErrorCode.SOD_ROLE_CONFLICT: "Role Conflict",
+            GuardErrorCode.SOD_DUAL_CONTROL_REQUIRED: "Dual Control Required",
+            GuardErrorCode.SOD_APPROVAL_LIMIT_EXCEEDED: "Approval Limit Exceeded",
+            GuardErrorCode.BUDGET_INSUFFICIENT: "Insufficient Budget",
+            GuardErrorCode.BUDGET_NOT_FOUND: "Budget Not Found",
+            GuardErrorCode.BUDGET_APPROVAL_REQUIRED: "Budget Approval Required",
+            GuardErrorCode.CREDIT_LIMIT_EXCEEDED: "Credit Limit Exceeded",
+            GuardErrorCode.CREDIT_LIMIT_WARNING: "Credit Limit Warning",
+            GuardErrorCode.GUARD_NOT_APPLICABLE: "Guard Not Applicable",
+            GuardErrorCode.GUARD_VALIDATION_FAILED: "Guard Validation Failed",
+        }
+        return names.get(self, self.name.replace("_", " ").title())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "value": self.name,
+            "display": self.display_name(),
+        }
+
+    @classmethod
+    def from_string(cls, value: str) -> GuardErrorCode:
+        """Parse from string."""
+        for code in cls:
+            if code.name == value:
+                return code
+        raise ValueError(f"Unknown GuardErrorCode: {value}")
+
 
 class GuardSeverity(Enum):
     """Severity untuk guard error."""
 
-    CRITICAL = 80  # Guard gagal, operasi harus ditolak
-    HIGH = 60  # Guard gagal, perlu intervensi
-    MEDIUM = 40  # Guard warning, operasi dapat dilanjutkan
-    LOW = 20  # Info saja
+    CRITICAL = 80
+    HIGH = 60
+    MEDIUM = 40
+    LOW = 20
+
+    def display_name(self) -> str:
+        """Return human-readable display name."""
+        names = {
+            GuardSeverity.CRITICAL: "Critical",
+            GuardSeverity.HIGH: "High",
+            GuardSeverity.MEDIUM: "Medium",
+            GuardSeverity.LOW: "Low",
+        }
+        return names.get(self, self.name.title())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "value": self.name,
+            "level": self.value,
+            "display": self.display_name(),
+        }
+
+    @classmethod
+    def from_string(cls, value: str) -> GuardSeverity:
+        """Parse from string."""
+        for severity in cls:
+            if severity.name == value:
+                return severity
+        raise ValueError(f"Unknown GuardSeverity: {value}")
 
 
 # === 2. BASE EXCEPTION ===
@@ -143,7 +230,9 @@ class GuardViolationError(Exception):
             "type": self.__class__.__name__,
             "guard_name": self.guard_name,
             "error_code": self.error_code.name,
+            "error_code_display": self.error_code.display_name() if hasattr(self.error_code, "display_name") else self.error_code.name,
             "severity": self.severity.name,
+            "severity_level": self.severity.value,
             "message": self._original_message,
             "details": self.details,
             "cause": str(self.cause) if self.cause else None,
