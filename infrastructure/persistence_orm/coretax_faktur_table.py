@@ -11,17 +11,19 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel coretax_faktur.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     CheckConstraint,
     Date,
+    DateTime,
     Index,
     Numeric,
     String,
     Text,
     UniqueConstraint,
+    Integer,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -60,8 +62,8 @@ class CoretaxFakturTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         {"extend_existing": True},
     )
 
+    # --- Kolom Utama ---
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-
     faktur_number: Mapped[str] = mapped_column(String(50), nullable=False)
     nsfp_used: Mapped[str | None] = mapped_column(String(20), nullable=True)
     faktur_type: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -90,14 +92,25 @@ class CoretaxFakturTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
 
     xml_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
-    # ========================================================================
-    # RELATIONSHIPS
-    # ========================================================================
+    # --- Kolom Legacy (Ditambahkan untuk mencegah drop) ---
+    ppn_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    transaction_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    tahun_pajak: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    response_data: Mapped[str | None] = mapped_column(Text, nullable=True)
+    customer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    dpp_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 2), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    customer_npwp: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    customer_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ppn_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 2), nullable=True)
+    masa_pajak: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    submission_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    faktur_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    lines: Mapped[list[CoretaxFakturLineTable]] = relationship(
+    # --- Relationships ---
+    lines = relationship(
         "CoretaxFakturLineTable",
         back_populates="faktur",
         cascade="all, delete-orphan",

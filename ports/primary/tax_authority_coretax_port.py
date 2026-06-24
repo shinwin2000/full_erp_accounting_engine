@@ -23,7 +23,7 @@ from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
 
-
+from ports.primary.core_tax_port import CoreTaxPort
 # ============================================================================
 # ENUMS & DATA CLASSES (shared between port and implementations)
 # ============================================================================
@@ -37,7 +37,6 @@ class TaxSubmissionType(str, Enum):
     FAKTUR_PAJAK = "faktur_pajak"
     BUPOT = "bupot"
     SPT_PEMBETULAN = "spt_pembetulan"
-    # Tambahkan sesuai kebutuhan
 
 
 class TaxStatus(str, Enum):
@@ -64,7 +63,6 @@ class SubmissionResponse:
 
 class CoretaxEndpoint(Enum):
     """Endpoint Coretax DJP."""
-
     NSFP = "/v2/nsfp"
     FAKTUR_OUT = "/v2/faktur/keluaran"
     FAKTUR_OUT_STATUS = "/v2/faktur/keluaran/{id}/status"
@@ -79,7 +77,6 @@ class CoretaxEndpoint(Enum):
 
 class FakturStatus(Enum):
     """Status faktur pajak."""
-
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
     APPROVED = "APPROVED"
@@ -90,7 +87,6 @@ class FakturStatus(Enum):
 
 class SPTStatus(Enum):
     """Status SPT."""
-
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
     APPROVED = "APPROVED"
@@ -101,7 +97,6 @@ class SPTStatus(Enum):
 @dataclass
 class NSFPResponse:
     """Response NSFP dari DJP."""
-
     nsfp_list: list[str]
     tahun: int
     bulan: int
@@ -127,7 +122,6 @@ class NSFPResponse:
 @dataclass
 class FakturResponse:
     """Response submit faktur pajak."""
-
     faktur_id: str
     status: FakturStatus
     approval_code: str | None
@@ -153,7 +147,6 @@ class FakturResponse:
 @dataclass
 class SPTPResponse:
     """Response submit SPT."""
-
     spt_id: str
     status: SPTStatus
     bukti_penerimaan: str | None
@@ -177,7 +170,6 @@ class SPTPResponse:
 @dataclass
 class NTPNValidationResponse:
     """Response validasi NTPN."""
-
     ntpn: str
     valid: bool
     amount: Decimal
@@ -201,7 +193,6 @@ class NTPNValidationResponse:
 @dataclass
 class CoretaxRequestLog:
     """Log request ke Coretax."""
-
     id: UUID
     endpoint: str
     request_payload: dict[str, Any]
@@ -318,7 +309,7 @@ class TaxAuthorityCoretaxPort(ABC):
 # IN-MEMORY IMPLEMENTATION (for testing/development)
 # ============================================================================
 
-class CoreTaxPort:
+class InMemoryCoreTaxPort:
     """
     In-memory implementation of Coretax DJP API client with simulation.
     (This is a test double, not the primary port implementation.)
@@ -1031,24 +1022,26 @@ class CoreTaxPort:
             "base_url": self._base_url,
         }
 
-
-# For backward compatibility, keep alias
+# Re-export CoretaxPort alias for backward compatibility
 CoretaxPort = CoreTaxPort
-
+# ============================================================================
+# EXPORTS
+# ============================================================================
 
 __all__ = [
-    "CoreTaxPort",
     "CoretaxEndpoint",
-    "CoretaxPort",
     "CoretaxRequestLog",
     "FakturResponse",
     "FakturStatus",
+    "InMemoryCoreTaxPort",
     "NSFPResponse",
     "NTPNValidationResponse",
     "SPTPResponse",
     "SPTStatus",
-    "TaxAuthorityCoretaxPort",
-    "TaxSubmissionType",     
-    "TaxStatus",              
     "SubmissionResponse",
+    "TaxAuthorityCoretaxPort",
+    "TaxStatus",
+    "TaxSubmissionType",
+    "CoreTaxPort",
+    "CoretaxPort",
 ]

@@ -2,9 +2,8 @@
 """
 Module: global_event_subscribers.py
 Layer: Application / Events
-Responsibility: Global subscribers for ALL domain events.
-                Ensures every domain event has at least one subscriber.
-                Also exports all handlers needed by use cases and __init__.py.
+Responsibility: Provides generic handler and specific handler aliases for backward compatibility.
+               No auto-registration to avoid circular imports.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# GENERIC HANDLER
+# GENERIC HANDLER (CORE)
 # ============================================================================
 
 async def handle_any_event(envelope: Any) -> None:
@@ -26,17 +25,27 @@ async def handle_any_event(envelope: Any) -> None:
     Generic handler for any domain event.
     Logs the event to audit trail.
     """
-    event_data = getattr(envelope, "payload", {}) or getattr(envelope, "event", {})
-    event_name = getattr(envelope, "event_type", None) or event_data.get("event_type", "Unknown")
-    logger.info(f"Domain event processed: {event_name}", extra={"event": event_data})
+    event = getattr(envelope, "event", None)
+    event_type = getattr(envelope, "event_type", None)
+    if not event_type:
+        event_data = getattr(envelope, "payload", {})
+        event_type = event_data.get("event_type", "Unknown")
+
+    logger.info(
+        f"Generic handler: {event_type}",
+        extra={
+            "event_id": str(getattr(envelope, "event_id", "none")),
+            "correlation_id": getattr(envelope, "correlation_id", "none"),
+        }
+    )
 
 
 # ============================================================================
-# SEMUA HANDLER YANG DIBUTUHKAN OLEH __init__.py DAN USE CASE
+# SPECIFIC HANDLERS (diperlukan oleh __init__.py dan use cases)
 # ============================================================================
 
 async def handle_account_reactivated_event(envelope: Any) -> None:
-    """Handler untuk AccountReactivatedEvent."""
+    """Handler untuk AccountReactivatedEvent (alias untuk generic)."""
     await handle_any_event(envelope)
 
 async def handle_bank_account_updated_event(envelope: Any) -> None:
@@ -77,7 +86,7 @@ async def handle_work_order_completed_event(envelope: Any) -> None:
 
 
 # ============================================================================
-# REGISTRASI FUNGSI (alias)
+# REGISTRATION FUNCTIONS
 # ============================================================================
 
 def register_global_subscribers(registry=None) -> None:
@@ -88,345 +97,30 @@ def register_global_subscribers(registry=None) -> None:
     register_all_subscribers(registry)
 
 
-# ============================================================================
-# DAFTAR SEMUA EVENT NAMES (dari domain/*/domain_events.py)
-# ============================================================================
-
-ALL_EVENT_NAMES = [
-    # === Bank & Cash ===
-    "BankAccountCreatedEvent",
-    "BankAccountUpdatedEvent",
-    "BankAccountBlockedEvent",
-    "BankAccountClosedEvent",
-    "BankTransactionRecordedEvent",
-    "BankTransactionClearedEvent",
-    "BankTransactionReconciledEvent",
-    "BankTransferInitiatedEvent",
-    "BankTransferCompletedEvent",
-    "BankTransferFailedEvent",
-    "BankTransferCancelledEvent",
-    "CashReceiptConfirmedEvent",
-    "CashReceiptCancelledEvent",
-    "CashDisbursementApprovedEvent",
-    "CashDisbursementPaidEvent",
-    "CashDisbursementCancelledEvent",
-    "PettyCashDisbursementEvent",
-    "PettyCashReplenishedEvent",
-    "PettyCashAdjustedEvent",
-    "PettyCashSuspendedEvent",
-    "PettyCashActivatedEvent",
-    "PettyCashClosedEvent",
-    "BankReconciliationCompletedEvent",
-    "CashBookUpdatedEvent",
-    "CashBookClosedEvent",
-
-    # === Budget ===
-    "BudgetEventType",
-    "BudgetEventPublisher",
-
-    # === COA ===
-    "AccountCreatedEvent",
-    "AccountUpdatedEvent",
-    "AccountDeactivatedEvent",
-    "AccountReactivatedEvent",
-    "AccountLockedEvent",
-    "AccountUnlockedEvent",
-    "HierarchyChangedEvent",
-    "AccountMergedEvent",
-    "AccountSplitEvent",
-    "COACreatedEvent",
-    "COALockedEvent",
-    "COAUnlockedEvent",
-    "COAArchivedEvent",
-    "EventStore",
-
-    # === Consolidation ===
-    "ConsolidationEventType",
-    "ConsolidationEventPublisher",
-
-    # === Customer/Supplier/Employee ===
-    "CustomerCreatedEvent",
-    "CustomerStatusChangedEvent",
-    "CustomerCreditLimitChangedEvent",
-    "CustomerBalanceUpdatedEvent",
-    "SupplierCreatedEvent",
-    "SupplierPaymentTermsChangedEvent",
-    "SupplierWithholdingCategoryChangedEvent",
-    "EmployeeCreatedEvent",
-    "EmployeeResignedEvent",
-    "EmployeePTKPUpdatedEvent",
-    "EmployeeBPJSUpdatedEvent",
-
-    # === Equity Retained ===
-    "CapitalContributionRecordedEvent",
-    "CapitalContributionApprovedEvent",
-    "CapitalContributionPostedEvent",
-    "CapitalContributionCancelledEvent",
-    "CapitalWithdrawalRecordedEvent",
-    "CapitalWithdrawalApprovedEvent",
-    "CapitalWithdrawalPostedEvent",
-    "CapitalWithdrawalCancelledEvent",
-    "RetainedEarningsUpdatedEvent",
-    "RetainedEarningsAdjustedEvent",
-    "RetainedEarningsTransferEvent",
-    "DividendDeclaredEvent",
-    "DividendApprovedEvent",
-    "DividendPaidEvent",
-    "DividendPartiallyPaidEvent",
-    "DividendCancelledEvent",
-
-    # === Fiscal Period ===
-    "PeriodCreatedEvent",
-    "PeriodOpenedEvent",
-    "PeriodLockedEvent",
-    "PeriodClosedEvent",
-    "PeriodReopenedEvent",
-    "PeriodUpdatedEvent",
-    "PeriodStatusChangedEvent",
-
-    # === Fixed Asset ===
-    "AssetAcquiredEvent",
-    "AssetUpdatedEvent",
-    "AssetDepreciationPostedEvent",
-    "AssetRevaluatedEvent",
-    "AssetDisposedEvent",
-    "AssetTransferredEvent",
-    "AssetImpairedEvent",
-    "AssetImpairmentReversedEvent",
-    "AssetFullyDepreciatedEvent",
-    "AssetGroupCreatedEvent",
-    "AssetGroupUpdatedEvent",
-
-    # === Goodwill ===
-    "GoodwillRecognizedEvent",
-    "GoodwillImpairedEvent",
-    "GoodwillAmortizedEvent",
-    "GoodwillImpairmentReversedEvent",
-    "GoodwillDisposedEvent",
-
-    # === Hedge ===
-    "HedgeDesignatedEvent",
-    "HedgeDiscontinuedEvent",
-    "HedgeEffectivenessTestedEvent",
-    "HedgeFairValueAdjustedEvent",
-    "HedgeAmountReclassifiedEvent",
-    "HedgeCancelledEvent",
-
-    # === IAM ===
-    "UserCreatedEvent",
-    "UserUpdatedEvent",
-    "UserActivatedEvent",
-    "UserDeactivatedEvent",
-    "UserSuspendedEvent",
-    "UserUnlockedEvent",
-    "UserPasswordChangedEvent",
-    "UserDeletedEvent",
-    "RoleCreatedEvent",
-    "RoleUpdatedEvent",
-    "RoleDeletedEvent",
-    "RoleAssignedEvent",
-    "RoleRevokedEvent",
-    "SessionCreatedEvent",
-    "SessionRefreshedEvent",
-    "SessionTerminatedEvent",
-    "SessionCompromisedEvent",
-    "LoginSuccessEvent",
-    "LoginFailureEvent",
-    "PermissionGrantedEvent",
-    "PermissionRevokedEvent",
-
-    # === Intangible Asset ===
-    "IntangibleAssetAcquiredEvent",
-    "IntangibleAssetUpdatedEvent",
-    "IntangibleAssetAmortizationPostedEvent",
-    "IntangibleAssetImpairedEvent",
-    "IntangibleAssetImpairmentReversedEvent",
-    "IntangibleAssetDisposedEvent",
-    "IntangibleAssetFullyAmortizedEvent",
-    "IntangibleAssetRevaluatedEvent",
-    "IntangibleAssetTransferredEvent",
-
-    # === Inventory ===
-    "ItemCreatedEvent",
-    "ItemUpdatedEvent",
-    "ItemDeactivatedEvent",
-    "StockMovementCreatedEvent",
-    "StockAdjustedEvent",
-    "StockOpnameCreatedEvent",
-    "StockOpnameApprovedEvent",
-    "InterWarehouseTransferCreatedEvent",
-    "TransferCompletedEvent",
-    "COGSCalculatedEvent",
-    "InventoryValuationUpdatedEvent",
-    "StockLevelAlertEvent",
-
-    # === Journal ===
-    "JournalCreatedEvent",
-    "JournalSubmittedEvent",
-    "JournalApprovedEvent",
-    "JournalRejectedEvent",
-    "JournalPostedEvent",
-    "JournalReversedEvent",
-    "JournalVoidedEvent",
-    "JournalAdjustedEvent",
-    "JournalArchivedEvent",
-    "JournalUnarchivedEvent",
-    "JournalCancelledEvent",
-
-    # === Legal Entity ===
-    "CompanyRegisteredEvent",
-    "CompanySuspendedEvent",
-    "CompanyReactivatedEvent",
-    "CompanyDissolvedEvent",
-    "TaxProfileUpdatedEvent",
-    "CompanyAddressUpdatedEvent",
-    "CompanyContactUpdatedEvent",
-    "PKPStatusChangedEvent",
-
-    # === Manufacturing ===
-    "BOMCreatedEvent",
-    "BOMUpdatedEvent",
-    "BOMActivatedEvent",
-    "BOMObsoletedEvent",
-    "BOMItemAddedEvent",
-    "WorkOrderCreatedEvent",
-    "WorkOrderApprovedEvent",
-    "WorkOrderStartedEvent",
-    "WorkOrderCompletedEvent",
-    "WorkOrderCancelledEvent",
-    "MaterialIssuedEvent",
-    "LaborPostedEvent",
-    "OverheadAppliedEvent",
-    "ProductionCompletedEvent",
-    "CostCardUpdatedEvent",
-    "HPPCalculatedEvent",
-    "StandardCostCreatedEvent",
-    "StandardCostActivatedEvent",
-    "VarianceAnalyzedEvent",
-
-    # === Payroll ===
-    "PayrollRunCreatedEvent",
-    "PayrollRunCalculatedEvent",
-    "PayrollRunApprovedEvent",
-    "PayrollRunPaidEvent",
-    "PayrollRunPostedEvent",
-    "PayrollRunCancelledEvent",
-    "PayslipGeneratedEvent",
-    "PayslipSentToEmployeeEvent",
-    "EmployeeStructureUpdatedEvent",
-    "SalaryComponentAddedEvent",
-
-    # === Project Services ===
-    "ProjectCreatedEvent",
-    "ProjectActivatedEvent",
-    "ProjectCompletedEvent",
-    "RevenueRecognizedEvent",
-    "ProjectBillingGeneratedEvent",
-    "MilestoneReadyEvent",
-    "MilestoneBilledEvent",
-    "TimeEntrySubmittedEvent",
-    "TimeEntryApprovedEvent",
-    "RetainerContractActivatedEvent",
-
-    # === Purchase & Sales ===
-    "PurchaseOrderCreatedEvent",
-    "PurchaseOrderApprovedEvent",
-    "SalesOrderCreatedEvent",
-    "SalesOrderApprovedEvent",
-    "GoodsReceiptCreatedEvent",
-    "DeliveryNoteShippedEvent",
-    "SalesInvoiceIssuedEvent",
-    "SalesInvoicePaidEvent",
-    "PurchaseInvoiceReceivedEvent",
-
-    # === Subledger AP ===
-    "InvoiceReceivedEvent",
-    "InvoiceVerifiedEvent",
-    "InvoiceDisputedEvent",
-    "InvoiceCreatedEvent",
-    "PaymentSentEvent",
-    "PaymentApprovedEvent",
-    "PaymentProcessedEvent",
-    "PaymentConfirmedEvent",
-    "PaymentCancelledEvent",
-    "PaymentMadeEvent",
-    "PaymentAppliedEvent",
-    "PaymentVoidedEvent",
-    "CreditNoteReceivedEvent",
-    "DebitNoteAppliedEvent",
-    "DebitNoteIssuedServiceEvent",
-    "ThreeWayMatchResultEvent",
-    "PaymentRunGeneratedEvent",
-    "PaymentRunExecutedEvent",
-
-    # === Subledger AR ===
-    "InvoicePaidEvent",
-    "InvoiceCancelledEvent",
-    "InvoiceApprovedEvent",
-    "InvoiceIssuedEvent",
-    "InvoicePartiallyPaidEvent",
-    "InvoiceWrittenOffEvent",
-    "PaymentReceivedEvent",
-    "PaymentAllocatedEvent",
-    "CreditNoteIssuedEvent",
-    "CreditNoteAppliedEvent",
-    "DebitNoteIssuedEvent",
-
-    # === System Settings ===
-    "SettingChangedEvent",
-    "SettingResetEvent",
-    "SettingAddedEvent",
-    "SettingRemovedEvent",
-    "SettingsLockedEvent",
-    "SettingsUnlockedEvent",
-    "SettingsBulkUpdatedEvent",
-
-    # === Tax Transaction ===
-    "FakturSubmittedEvent",
-    "FakturApprovedEvent",
-    "FakturRejectedEvent",
-    "SPTSubmittedEvent",
-    "SPTApprovedEvent",
-    "BupotSubmittedEvent",
-    "BupotApprovedEvent",
-    "MeteraiUsedEvent",
-
-    # === UMKM Simplified ===
-    "DomainEventType",
-    "DomainEvent",
-    "DomainEventPublisher",
-    "TransactionCreatedEvent",
-    "TransactionUpdatedEvent",
-    "TransactionDeletedEvent",
-    "TaxCalculatedEvent",
-    "TransactionRecordedEvent",
-]
-
-
-# ============================================================================
-# REGISTRASI (otomatis)
-# ============================================================================
-
 def register_all_subscribers(registry=None) -> None:
     """
     Register generic handler for ALL domain events.
-    This ensures every event has at least one subscriber.
+    This function must be called explicitly (no auto-registration).
     """
     if registry is None:
         registry = event_handler_registry
 
-    for event_name in ALL_EVENT_NAMES:
-        registry.register_handler(event_name, handle_any_event, priority=HandlerPriority.LOWEST)
+    # Daftarkan generic handler untuk event yang sudah terdaftar di registry
+    # atau kita bisa mendaftarkan untuk semua event yang diketahui.
+    # Untuk menghindari double registration, kita hanya daftarkan jika belum ada.
+    registered = registry.list_registered_event_types()
+    for event_name in registered:
+        # Cek apakah sudah ada handler selain wildcard
+        handlers = registry.get_handlers(event_name)
+        if not handlers:
+            registry.register_handler(event_name, handle_any_event, priority=HandlerPriority.LOWEST)
 
-    logger.info(f"Registered generic handler for {len(ALL_EVENT_NAMES)} event types.")
+    logger.info(f"Registered generic handler for {len(registered)} event types.")
 
 
-# Registrasi otomatis saat modul diimport
-register_all_subscribers()
-
+# Tidak ada auto-registrasi di sini.
 
 __all__ = [
-    "ALL_EVENT_NAMES",
     "handle_any_event",
     "handle_account_reactivated_event",
     "handle_bank_account_updated_event",

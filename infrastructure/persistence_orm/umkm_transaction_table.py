@@ -47,6 +47,14 @@ class UMKMTransactionTable(Base):
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
     reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    
+    # --- Kolom Tambahan (Ditambahkan agar tidak di-drop oleh Alembic) ---
+    reference_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reference_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    umkm_profile_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    # -------------------------------------------------------------------
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, onupdate=datetime.utcnow)

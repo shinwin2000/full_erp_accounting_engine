@@ -17,6 +17,9 @@ from pathlib import Path
 from typing import Dict, List, Set, Any, Type, get_type_hints
 from dataclasses import dataclass, field
 
+from application.events.handler_registry import event_handler_registry, HandlerPriority
+from application.events.global_event_subscribers import handle_any_event
+
 # --- KONFIGURASI NAVIGASI DIREKTORI ---
 ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
@@ -168,8 +171,32 @@ class EventFortressIntrospector:
 
 if __name__ == "__main__":
     print(f"{B_BOLD}{C_CYAN}--- MEMULAI RUNTIME EVENT INTROSPECTION ---{C_RESET}")
+    
     introspector = EventFortressIntrospector()
     introspector.extract_from_registry()
     introspector.scan_project_classes()
+    
+    # ============================================================
+    # Daftarkan generic handler untuk semua event yang ditemukan
+    # ============================================================
+    try:
+        from application.events.global_event_subscribers import handle_any_event
+        from application.events.handler_registry import event_handler_registry, HandlerPriority
+        
+        for event_name in introspector.events.keys():
+            event_handler_registry.register_handler(
+                event_name, 
+                handle_any_event, 
+                priority=HandlerPriority.LOWEST
+            )
+        print(f"{C_GREEN}✅ Generic handlers registered for {len(introspector.events)} events.{C_RESET}")
+        
+        # 🔥 Refresh registry dump setelah registrasi
+        introspector.runtime_registry_dump = {}
+        introspector.extract_from_registry()
+        
+    except Exception as e:
+        print(f"{C_YELLOW}⚠ Gagal registrasi generic handlers: {e}{C_RESET}")
+    
     exit_code = introspector.cross_reference_and_validate()
     sys.exit(exit_code)

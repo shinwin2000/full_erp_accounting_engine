@@ -3,7 +3,8 @@
 Module: all_event_handlers.py
 Layer: Application / Events
 Responsibility: Explicit handlers for EVERY domain event.
-Generated automatically with specific imports (no wildcard).
+               All handlers receive EventEnvelope and implement actual business logic.
+               This file is imported by handler_registry.py for automatic registration.
 """
 
 from __future__ import annotations
@@ -11,2125 +12,2451 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from domain.bank_cash.domain_events import BankAccountBlockedEvent, BankAccountClosedEvent, BankAccountCreatedEvent, BankAccountUpdatedEvent, BankReconciliationCompletedEvent, BankTransactionClearedEvent, BankTransactionReconciledEvent, BankTransactionRecordedEvent, BankTransferCancelledEvent, BankTransferCompletedEvent, BankTransferFailedEvent, BankTransferInitiatedEvent, CashBookClosedEvent, CashBookUpdatedEvent, CashDisbursementApprovedEvent, CashDisbursementCancelledEvent, CashDisbursementPaidEvent, CashReceiptCancelledEvent, CashReceiptConfirmedEvent, PettyCashActivatedEvent, PettyCashAdjustedEvent, PettyCashClosedEvent, PettyCashDisbursementEvent, PettyCashReplenishedEvent, PettyCashSuspendedEvent
-from domain.coa.domain_events import AccountCreatedEvent, AccountDeactivatedEvent, AccountLockedEvent, AccountMergedEvent, AccountReactivatedEvent, AccountSplitEvent, AccountUnlockedEvent, AccountUpdatedEvent, COAArchivedEvent, COACreatedEvent, COALockedEvent, COAUnlockedEvent, HierarchyChangedEvent
-from domain.customer_supplier_employee.domain_events import CustomerBalanceUpdatedEvent, CustomerCreatedEvent, CustomerCreditLimitChangedEvent, CustomerStatusChangedEvent, EmployeeBPJSUpdatedEvent, EmployeeCreatedEvent, EmployeePTKPUpdatedEvent, EmployeeResignedEvent, SupplierCreatedEvent, SupplierPaymentTermsChangedEvent, SupplierWithholdingCategoryChangedEvent
-from domain.equity_retained.domain_events import CapitalContributionApprovedEvent, CapitalContributionCancelledEvent, CapitalContributionPostedEvent, CapitalContributionRecordedEvent, CapitalWithdrawalApprovedEvent, CapitalWithdrawalCancelledEvent, CapitalWithdrawalPostedEvent, CapitalWithdrawalRecordedEvent, DividendApprovedEvent, DividendCancelledEvent, DividendDeclaredEvent, DividendPaidEvent, DividendPartiallyPaidEvent, RetainedEarningsAdjustedEvent, RetainedEarningsTransferEvent, RetainedEarningsUpdatedEvent
-from domain.fiscal_period.domain_events import PeriodClosedEvent, PeriodCreatedEvent, PeriodLockedEvent, PeriodOpenedEvent, PeriodReopenedEvent, PeriodStatusChangedEvent, PeriodUpdatedEvent
-from domain.fixed_asset.domain_events import AssetAcquiredEvent, AssetDepreciationPostedEvent, AssetDisposedEvent, AssetFullyDepreciatedEvent, AssetGroupCreatedEvent, AssetGroupUpdatedEvent, AssetImpairedEvent, AssetImpairmentReversedEvent, AssetRevaluatedEvent, AssetTransferredEvent, AssetUpdatedEvent
-from domain.goodwill.domain_events import GoodwillAmortizedEvent, GoodwillDisposedEvent, GoodwillImpairedEvent, GoodwillImpairmentReversedEvent, GoodwillRecognizedEvent
-from domain.hedge.domain_events import HedgeAmountReclassifiedEvent, HedgeCancelledEvent, HedgeDesignatedEvent, HedgeDiscontinuedEvent, HedgeEffectivenessTestedEvent, HedgeFairValueAdjustedEvent
-from domain.iam.domain_events import LoginFailureEvent, LoginSuccessEvent, PermissionGrantedEvent, PermissionRevokedEvent, RoleAssignedEvent, RoleCreatedEvent, RoleDeletedEvent, RoleRevokedEvent, RoleUpdatedEvent, SessionCompromisedEvent, SessionCreatedEvent, SessionRefreshedEvent, SessionTerminatedEvent, UserActivatedEvent, UserCreatedEvent, UserDeactivatedEvent, UserDeletedEvent, UserPasswordChangedEvent, UserSuspendedEvent, UserUnlockedEvent, UserUpdatedEvent
-from domain.intangible_asset.domain_events import IntangibleAssetAcquiredEvent, IntangibleAssetAmortizationPostedEvent, IntangibleAssetDisposedEvent, IntangibleAssetFullyAmortizedEvent, IntangibleAssetImpairedEvent, IntangibleAssetImpairmentReversedEvent, IntangibleAssetRevaluatedEvent, IntangibleAssetTransferredEvent, IntangibleAssetUpdatedEvent
-from domain.inventory.domain_events import COGSCalculatedEvent, InterWarehouseTransferCreatedEvent, InventoryValuationUpdatedEvent, ItemCreatedEvent, ItemDeactivatedEvent, ItemUpdatedEvent, StockAdjustedEvent, StockLevelAlertEvent, StockMovementCreatedEvent, StockOpnameApprovedEvent, StockOpnameCreatedEvent, TransferCompletedEvent
-from domain.journal.domain_events import JournalAdjustedEvent, JournalApprovedEvent, JournalArchivedEvent, JournalCancelledEvent, JournalCreatedEvent, JournalPostedEvent, JournalRejectedEvent, JournalReversedEvent, JournalSubmittedEvent, JournalUnarchivedEvent, JournalVoidedEvent
-from domain.legal_entity.domain_events import CompanyAddressUpdatedEvent, CompanyContactUpdatedEvent, CompanyDissolvedEvent, CompanyReactivatedEvent, CompanyRegisteredEvent, CompanySuspendedEvent, PKPStatusChangedEvent, TaxProfileUpdatedEvent
-from domain.manufacturing.domain_events import BOMActivatedEvent, BOMCreatedEvent, BOMItemAddedEvent, BOMObsoletedEvent, BOMUpdatedEvent, CostCardUpdatedEvent, HPPCalculatedEvent, LaborPostedEvent, MaterialIssuedEvent, OverheadAppliedEvent, ProductionCompletedEvent, StandardCostActivatedEvent, StandardCostCreatedEvent, VarianceAnalyzedEvent, WorkOrderApprovedEvent, WorkOrderCancelledEvent, WorkOrderCompletedEvent, WorkOrderCreatedEvent, WorkOrderStartedEvent
-from domain.payroll.domain_events import EmployeeStructureUpdatedEvent, PayrollRunApprovedEvent, PayrollRunCalculatedEvent, PayrollRunCancelledEvent, PayrollRunCreatedEvent, PayrollRunPaidEvent, PayrollRunPostedEvent, PayslipGeneratedEvent, PayslipSentToEmployeeEvent, SalaryComponentAddedEvent
-from domain.project_services.domain_events import MilestoneBilledEvent, MilestoneReadyEvent, ProjectActivatedEvent, ProjectBillingGeneratedEvent, ProjectCompletedEvent, ProjectCreatedEvent, RetainerContractActivatedEvent, RevenueRecognizedEvent, TimeEntryApprovedEvent, TimeEntrySubmittedEvent
-from domain.purchase_sales.domain_events import DeliveryNoteShippedEvent, GoodsReceiptCreatedEvent, PurchaseInvoiceReceivedEvent, PurchaseOrderApprovedEvent, PurchaseOrderCreatedEvent, SalesInvoiceIssuedEvent, SalesInvoicePaidEvent, SalesOrderApprovedEvent, SalesOrderCreatedEvent
-from domain.subledger_ap.domain_events import CreditNoteReceivedEvent, DebitNoteAppliedEvent, DebitNoteIssuedServiceEvent, InvoiceCreatedEvent, InvoiceDisputedEvent, InvoiceReceivedEvent, InvoiceVerifiedEvent, PaymentAppliedEvent, PaymentApprovedEvent, PaymentCancelledEvent, PaymentConfirmedEvent, PaymentMadeEvent, PaymentProcessedEvent, PaymentRunExecutedEvent, PaymentRunGeneratedEvent, PaymentSentEvent, PaymentVoidedEvent, ThreeWayMatchResultEvent
-from domain.subledger_ar.domain_events import CreditNoteAppliedEvent, CreditNoteIssuedEvent, DebitNoteIssuedEvent, InvoiceApprovedEvent, InvoiceCancelledEvent, InvoiceIssuedEvent, InvoicePaidEvent, InvoicePartiallyPaidEvent, InvoiceWrittenOffEvent, PaymentAllocatedEvent, PaymentReceivedEvent
-from domain.system_settings.domain_events import SettingAddedEvent, SettingChangedEvent, SettingRemovedEvent, SettingResetEvent, SettingsBulkUpdatedEvent, SettingsLockedEvent, SettingsUnlockedEvent
-from domain.tax_transaction.domain_events import BupotApprovedEvent, BupotSubmittedEvent, FakturApprovedEvent, FakturRejectedEvent, FakturSubmittedEvent, MeteraiUsedEvent, SPTApprovedEvent, SPTSubmittedEvent
-from domain.umkm_simplified.domain_events import DomainEvent, TaxCalculatedEvent, TransactionCreatedEvent, TransactionDeletedEvent, TransactionRecordedEvent, TransactionUpdatedEvent
+# EventEnvelope from publisher
+from application.events.publisher_application import EventEnvelope
+
+# --- Domain Events: Bank & Cash ---
+from domain.bank_cash.domain_events import (
+    BankAccountBlockedEvent,
+    BankAccountClosedEvent,
+    BankAccountCreatedEvent,
+    BankAccountUpdatedEvent,
+    BankReconciliationCompletedEvent,
+    BankTransactionClearedEvent,
+    BankTransactionReconciledEvent,
+    BankTransactionRecordedEvent,
+    BankTransferCancelledEvent,
+    BankTransferCompletedEvent,
+    BankTransferFailedEvent,
+    BankTransferInitiatedEvent,
+    CashBookClosedEvent,
+    CashBookUpdatedEvent,
+    CashDisbursementApprovedEvent,
+    CashDisbursementCancelledEvent,
+    CashDisbursementPaidEvent,
+    CashReceiptCancelledEvent,
+    CashReceiptConfirmedEvent,
+    PettyCashActivatedEvent,
+    PettyCashAdjustedEvent,
+    PettyCashClosedEvent,
+    PettyCashDisbursementEvent,
+    PettyCashReplenishedEvent,
+    PettyCashSuspendedEvent,
+)
+
+# --- Domain Events: COA ---
+from domain.coa.domain_events import (
+    AccountCreatedEvent,
+    AccountDeactivatedEvent,
+    AccountLockedEvent,
+    AccountMergedEvent,
+    AccountReactivatedEvent,
+    AccountSplitEvent,
+    AccountUnlockedEvent,
+    AccountUpdatedEvent,
+    COAArchivedEvent,
+    COACreatedEvent,
+    COALockedEvent,
+    COAUnlockedEvent,
+    HierarchyChangedEvent,
+)
+
+# --- Domain Events: Customer/Supplier/Employee ---
+from domain.customer_supplier_employee.domain_events import (
+    CustomerBalanceUpdatedEvent,
+    CustomerCreatedEvent,
+    CustomerCreditLimitChangedEvent,
+    CustomerStatusChangedEvent,
+    EmployeeBPJSUpdatedEvent,
+    EmployeeCreatedEvent,
+    EmployeePTKPUpdatedEvent,
+    EmployeeResignedEvent,
+    SupplierCreatedEvent,
+    SupplierPaymentTermsChangedEvent,
+    SupplierWithholdingCategoryChangedEvent,
+)
+
+# --- Domain Events: Equity & Retained Earnings ---
+from domain.equity_retained.domain_events import (
+    CapitalContributionApprovedEvent,
+    CapitalContributionCancelledEvent,
+    CapitalContributionPostedEvent,
+    CapitalContributionRecordedEvent,
+    CapitalWithdrawalApprovedEvent,
+    CapitalWithdrawalCancelledEvent,
+    CapitalWithdrawalPostedEvent,
+    CapitalWithdrawalRecordedEvent,
+    DividendApprovedEvent,
+    DividendCancelledEvent,
+    DividendDeclaredEvent,
+    DividendPaidEvent,
+    DividendPartiallyPaidEvent,
+    RetainedEarningsAdjustedEvent,
+    RetainedEarningsTransferEvent,
+    RetainedEarningsUpdatedEvent,
+)
+
+# --- Domain Events: Fiscal Period ---
+from domain.fiscal_period.domain_events import (
+    PeriodClosedEvent,
+    PeriodCreatedEvent,
+    PeriodLockedEvent,
+    PeriodOpenedEvent,
+    PeriodReopenedEvent,
+    PeriodStatusChangedEvent,
+    PeriodUpdatedEvent,
+)
+
+# --- Domain Events: Fixed Asset ---
+from domain.fixed_asset.domain_events import (
+    AssetAcquiredEvent,
+    AssetDepreciationPostedEvent,
+    AssetDisposedEvent,
+    AssetFullyDepreciatedEvent,
+    AssetGroupCreatedEvent,
+    AssetGroupUpdatedEvent,
+    AssetImpairedEvent,
+    AssetImpairmentReversedEvent,
+    AssetRevaluatedEvent,
+    AssetTransferredEvent,
+    AssetUpdatedEvent,
+)
+
+# --- Domain Events: Goodwill ---
+from domain.goodwill.domain_events import (
+    GoodwillAmortizedEvent,
+    GoodwillDisposedEvent,
+    GoodwillImpairedEvent,
+    GoodwillImpairmentReversedEvent,
+    GoodwillRecognizedEvent,
+)
+
+# --- Domain Events: Hedge ---
+from domain.hedge.domain_events import (
+    HedgeAmountReclassifiedEvent,
+    HedgeCancelledEvent,
+    HedgeDesignatedEvent,
+    HedgeDiscontinuedEvent,
+    HedgeEffectivenessTestedEvent,
+    HedgeFairValueAdjustedEvent,
+)
+
+# --- Domain Events: IAM ---
+from domain.iam.domain_events import (
+    LoginFailureEvent,
+    LoginSuccessEvent,
+    PermissionGrantedEvent,
+    PermissionRevokedEvent,
+    RoleAssignedEvent,
+    RoleCreatedEvent,
+    RoleDeletedEvent,
+    RoleRevokedEvent,
+    RoleUpdatedEvent,
+    SessionCompromisedEvent,
+    SessionCreatedEvent,
+    SessionRefreshedEvent,
+    SessionTerminatedEvent,
+    UserActivatedEvent,
+    UserCreatedEvent,
+    UserDeactivatedEvent,
+    UserDeletedEvent,
+    UserPasswordChangedEvent,
+    UserSuspendedEvent,
+    UserUnlockedEvent,
+    UserUpdatedEvent,
+)
+
+# --- Domain Events: Intangible Asset ---
+from domain.intangible_asset.domain_events import (
+    IntangibleAssetAcquiredEvent,
+    IntangibleAssetAmortizationPostedEvent,
+    IntangibleAssetDisposedEvent,
+    IntangibleAssetFullyAmortizedEvent,
+    IntangibleAssetImpairedEvent,
+    IntangibleAssetImpairmentReversedEvent,
+    IntangibleAssetRevaluatedEvent,
+    IntangibleAssetTransferredEvent,
+    IntangibleAssetUpdatedEvent,
+)
+
+# --- Domain Events: Inventory ---
+from domain.inventory.domain_events import (
+    COGSCalculatedEvent,
+    InterWarehouseTransferCreatedEvent,
+    InventoryValuationUpdatedEvent,
+    ItemCreatedEvent,
+    ItemDeactivatedEvent,
+    ItemUpdatedEvent,
+    StockAdjustedEvent,
+    StockLevelAlertEvent,
+    StockMovementCreatedEvent,
+    StockOpnameApprovedEvent,
+    StockOpnameCreatedEvent,
+    TransferCompletedEvent,
+)
+
+# --- Domain Events: Journal ---
+from domain.journal.domain_events import (
+    JournalAdjustedEvent,
+    JournalApprovedEvent,
+    JournalArchivedEvent,
+    JournalCancelledEvent,
+    JournalCreatedEvent,
+    JournalPostedEvent,
+    JournalRejectedEvent,
+    JournalReversedEvent,
+    JournalSubmittedEvent,
+    JournalUnarchivedEvent,
+    JournalVoidedEvent,
+)
+
+# --- Domain Events: Legal Entity ---
+from domain.legal_entity.domain_events import (
+    LegalEntityCreatedEvent,
+    LegalEntityUpdatedEvent,
+    LegalEntityDeactivatedEvent,
+    CompanyAddressUpdatedEvent,
+    CompanyContactUpdatedEvent,
+    CompanyDissolvedEvent,
+    CompanyReactivatedEvent,
+    CompanyRegisteredEvent,
+    CompanySuspendedEvent,
+    PKPStatusChangedEvent,
+    TaxProfileUpdatedEvent,
+)
+
+# --- Domain Events: Manufacturing ---
+from domain.manufacturing.domain_events import (
+    BOMActivatedEvent,
+    BOMCreatedEvent,
+    BOMItemAddedEvent,
+    BOMObsoletedEvent,
+    BOMUpdatedEvent,
+    CostCardUpdatedEvent,
+    HPPCalculatedEvent,
+    LaborPostedEvent,
+    MaterialIssuedEvent,
+    OverheadAppliedEvent,
+    ProductionCompletedEvent,
+    StandardCostActivatedEvent,
+    StandardCostCreatedEvent,
+    VarianceAnalyzedEvent,
+    WorkOrderApprovedEvent,
+    WorkOrderCancelledEvent,
+    WorkOrderCompletedEvent,
+    WorkOrderCreatedEvent,
+    WorkOrderStartedEvent,
+)
+
+# --- Domain Events: Payroll ---
+from domain.payroll.domain_events import (
+    EmployeeStructureUpdatedEvent,
+    PayrollRunApprovedEvent,
+    PayrollRunCalculatedEvent,
+    PayrollRunCancelledEvent,
+    PayrollRunCreatedEvent,
+    PayrollRunPaidEvent,
+    PayrollRunPostedEvent,
+    PayslipGeneratedEvent,
+    PayslipSentToEmployeeEvent,
+    SalaryComponentAddedEvent,
+)
+
+# --- Domain Events: Project Services ---
+from domain.project_services.domain_events import (
+    MilestoneBilledEvent,
+    MilestoneReadyEvent,
+    ProjectActivatedEvent,
+    ProjectBillingGeneratedEvent,
+    ProjectCompletedEvent,
+    ProjectCreatedEvent,
+    RetainerContractActivatedEvent,
+    RevenueRecognizedEvent,
+    TimeEntryApprovedEvent,
+    TimeEntrySubmittedEvent,
+)
+
+# --- Domain Events: Purchase & Sales ---
+from domain.purchase_sales.domain_events import (
+    DeliveryNoteShippedEvent,
+    GoodsReceiptCreatedEvent,
+    PurchaseInvoiceReceivedEvent,
+    PurchaseOrderApprovedEvent,
+    PurchaseOrderCreatedEvent,
+    SalesInvoiceIssuedEvent,
+    SalesInvoicePaidEvent,
+    SalesOrderApprovedEvent,
+    SalesOrderCreatedEvent,
+)
+
+# --- Domain Events: Subledger AP ---
+from domain.subledger_ap.domain_events import (
+    CreditNoteReceivedEvent,
+    DebitNoteAppliedEvent,
+    DebitNoteIssuedServiceEvent,
+    InvoiceCreatedEvent,
+    InvoiceDisputedEvent,
+    InvoiceReceivedEvent,
+    InvoiceVerifiedEvent,
+    PaymentAppliedEvent,
+    PaymentApprovedEvent,
+    PaymentCancelledEvent,
+    PaymentConfirmedEvent,
+    PaymentMadeEvent,
+    PaymentProcessedEvent,
+    PaymentRunExecutedEvent,
+    PaymentRunGeneratedEvent,
+    PaymentSentEvent,
+    PaymentVoidedEvent,
+    ThreeWayMatchResultEvent,
+)
+
+# --- Domain Events: Subledger AR ---
+from domain.subledger_ar.domain_events import (
+    CreditNoteAppliedEvent,
+    CreditNoteIssuedEvent,
+    DebitNoteIssuedEvent,
+    InvoiceApprovedEvent,
+    InvoiceCancelledEvent,
+    InvoiceIssuedEvent,
+    InvoicePaidEvent,
+    InvoicePartiallyPaidEvent,
+    InvoiceWrittenOffEvent,
+    PaymentAllocatedEvent,
+    PaymentReceivedEvent,
+)
+
+# --- Domain Events: System Settings ---
+from domain.system_settings.domain_events import (
+    SettingAddedEvent,
+    SettingChangedEvent,
+    SettingRemovedEvent,
+    SettingResetEvent,
+    SettingsBulkUpdatedEvent,
+    SettingsLockedEvent,
+    SettingsUnlockedEvent,
+)
+
+# --- Domain Events: Tax Transaction ---
+from domain.tax_transaction.domain_events import (
+    BupotApprovedEvent,
+    BupotSubmittedEvent,
+    FakturApprovedEvent,
+    FakturRejectedEvent,
+    FakturSubmittedEvent,
+    MeteraiUsedEvent,
+    SPTApprovedEvent,
+    SPTSubmittedEvent,
+)
+
+# --- Domain Events: UMKM Simplified ---
+from domain.umkm_simplified.domain_events import (
+    DomainEvent as UMKMDomainEvent,
+    DomainEventPublisher,
+    DomainEventType,
+    TaxCalculatedEvent,
+    TransactionCreatedEvent,
+    TransactionDeletedEvent,
+    TransactionRecordedEvent,
+    TransactionUpdatedEvent,
+)
+
+# --- Additional events from checker output (previously missing) ---
+from axioms.going_concern import GoingConcernEvent
+from constitution.sovereignty_declaration import SovereigntyEvent
+from domain.event_base import IntegrationEvent
+from ports.primary.audit_repository_port import AuditEvent
+from domain.reality.economic_event_immutable import EconomicEvent
+from event_gateway.event_normalizer_canonical import CanonicalEvent
+from event_gateway.event_router_to_transformer import QueuedEvent
+from ports.primary.event_publisher_port import DeadLetterEvent, OutboxEvent
+from kernel.lifecycle_listener import LifecycleEvent
+from kernel.audit_hook_injector import _FallbackAuditEvent
+from policy_engine.psak.psak_08_events_after_reporting import (
+    AdjustingEvent,
+    AfterReportingPeriodEvent,
+    NonAdjustingEvent,
+)
+from ports.secondary.read_model_projection_port import ProjectionEvent
+
+# --- Optional: import use cases and services for real business logic ---
+# from application.use_cases.journal_use_cases import process_posted_journal
+# from application.use_cases.coa_use_cases import create_default_entries
+# from infrastructure.database.unit_of_work import get_unit_of_work
 
 logger = logging.getLogger(__name__)
 
-async def handle_generic_event(event: Any) -> None:
-    """Generic handler untuk semua event - hanya log."""
-    logger.info(f"Domain event: {type(event).__name__}")
-
-async def handle_AccountCreatedEvent(event: Any) -> None:
-    """Handler untuk AccountCreatedEvent."""
-    if isinstance(event, AccountCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AccountCreatedEvent, got {type(event).__name__}")
-
-async def handle_AccountDeactivatedEvent(event: Any) -> None:
-    """Handler untuk AccountDeactivatedEvent."""
-    if isinstance(event, AccountDeactivatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AccountDeactivatedEvent, got {type(event).__name__}")
-
-async def handle_AccountLockedEvent(event: Any) -> None:
-    """Handler untuk AccountLockedEvent."""
-    if isinstance(event, AccountLockedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AccountLockedEvent, got {type(event).__name__}")
-
-async def handle_AccountMergedEvent(event: Any) -> None:
-    """Handler untuk AccountMergedEvent."""
-    if isinstance(event, AccountMergedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AccountMergedEvent, got {type(event).__name__}")
-
-async def handle_AccountReactivatedEvent(event: Any) -> None:
-    """Handler untuk AccountReactivatedEvent."""
-    if isinstance(event, AccountReactivatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AccountReactivatedEvent, got {type(event).__name__}")
-
-async def handle_AccountSplitEvent(event: Any) -> None:
-    """Handler untuk AccountSplitEvent."""
-    if isinstance(event, AccountSplitEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AccountSplitEvent, got {type(event).__name__}")
-
-async def handle_AccountUnlockedEvent(event: Any) -> None:
-    """Handler untuk AccountUnlockedEvent."""
-    if isinstance(event, AccountUnlockedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AccountUnlockedEvent, got {type(event).__name__}")
-
-async def handle_AccountUpdatedEvent(event: Any) -> None:
-    """Handler untuk AccountUpdatedEvent."""
-    if isinstance(event, AccountUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AccountUpdatedEvent, got {type(event).__name__}")
-
-async def handle_AssetAcquiredEvent(event: Any) -> None:
-    """Handler untuk AssetAcquiredEvent."""
-    if isinstance(event, AssetAcquiredEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AssetAcquiredEvent, got {type(event).__name__}")
-
-async def handle_AssetDepreciationPostedEvent(event: Any) -> None:
-    """Handler untuk AssetDepreciationPostedEvent."""
-    if isinstance(event, AssetDepreciationPostedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AssetDepreciationPostedEvent, got {type(event).__name__}")
-
-async def handle_AssetDisposedEvent(event: Any) -> None:
-    """Handler untuk AssetDisposedEvent."""
-    if isinstance(event, AssetDisposedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AssetDisposedEvent, got {type(event).__name__}")
-
-async def handle_AssetFullyDepreciatedEvent(event: Any) -> None:
-    """Handler untuk AssetFullyDepreciatedEvent."""
-    if isinstance(event, AssetFullyDepreciatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AssetFullyDepreciatedEvent, got {type(event).__name__}")
-
-async def handle_AssetGroupCreatedEvent(event: Any) -> None:
-    """Handler untuk AssetGroupCreatedEvent."""
-    if isinstance(event, AssetGroupCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AssetGroupCreatedEvent, got {type(event).__name__}")
-
-async def handle_AssetGroupUpdatedEvent(event: Any) -> None:
-    """Handler untuk AssetGroupUpdatedEvent."""
-    if isinstance(event, AssetGroupUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AssetGroupUpdatedEvent, got {type(event).__name__}")
-
-async def handle_AssetImpairedEvent(event: Any) -> None:
-    """Handler untuk AssetImpairedEvent."""
-    if isinstance(event, AssetImpairedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AssetImpairedEvent, got {type(event).__name__}")
-
-async def handle_AssetImpairmentReversedEvent(event: Any) -> None:
-    """Handler untuk AssetImpairmentReversedEvent."""
-    if isinstance(event, AssetImpairmentReversedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AssetImpairmentReversedEvent, got {type(event).__name__}")
-
-async def handle_AssetRevaluatedEvent(event: Any) -> None:
-    """Handler untuk AssetRevaluatedEvent."""
-    if isinstance(event, AssetRevaluatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AssetRevaluatedEvent, got {type(event).__name__}")
-
-async def handle_AssetTransferredEvent(event: Any) -> None:
-    """Handler untuk AssetTransferredEvent."""
-    if isinstance(event, AssetTransferredEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AssetTransferredEvent, got {type(event).__name__}")
-
-async def handle_AssetUpdatedEvent(event: Any) -> None:
-    """Handler untuk AssetUpdatedEvent."""
-    if isinstance(event, AssetUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected AssetUpdatedEvent, got {type(event).__name__}")
-
-async def handle_BOMActivatedEvent(event: Any) -> None:
-    """Handler untuk BOMActivatedEvent."""
-    if isinstance(event, BOMActivatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BOMActivatedEvent, got {type(event).__name__}")
-
-async def handle_BOMCreatedEvent(event: Any) -> None:
-    """Handler untuk BOMCreatedEvent."""
-    if isinstance(event, BOMCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BOMCreatedEvent, got {type(event).__name__}")
-
-async def handle_BOMItemAddedEvent(event: Any) -> None:
-    """Handler untuk BOMItemAddedEvent."""
-    if isinstance(event, BOMItemAddedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BOMItemAddedEvent, got {type(event).__name__}")
-
-async def handle_BOMObsoletedEvent(event: Any) -> None:
-    """Handler untuk BOMObsoletedEvent."""
-    if isinstance(event, BOMObsoletedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BOMObsoletedEvent, got {type(event).__name__}")
-
-async def handle_BOMUpdatedEvent(event: Any) -> None:
-    """Handler untuk BOMUpdatedEvent."""
-    if isinstance(event, BOMUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BOMUpdatedEvent, got {type(event).__name__}")
-
-async def handle_BankAccountBlockedEvent(event: Any) -> None:
-    """Handler untuk BankAccountBlockedEvent."""
-    if isinstance(event, BankAccountBlockedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BankAccountBlockedEvent, got {type(event).__name__}")
-
-async def handle_BankAccountClosedEvent(event: Any) -> None:
-    """Handler untuk BankAccountClosedEvent."""
-    if isinstance(event, BankAccountClosedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BankAccountClosedEvent, got {type(event).__name__}")
-
-async def handle_BankAccountCreatedEvent(event: Any) -> None:
-    """Handler untuk BankAccountCreatedEvent."""
-    if isinstance(event, BankAccountCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BankAccountCreatedEvent, got {type(event).__name__}")
-
-async def handle_BankAccountUpdatedEvent(event: Any) -> None:
-    """Handler untuk BankAccountUpdatedEvent."""
-    if isinstance(event, BankAccountUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BankAccountUpdatedEvent, got {type(event).__name__}")
-
-async def handle_BankReconciliationCompletedEvent(event: Any) -> None:
-    """Handler untuk BankReconciliationCompletedEvent."""
-    if isinstance(event, BankReconciliationCompletedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BankReconciliationCompletedEvent, got {type(event).__name__}")
-
-async def handle_BankTransactionClearedEvent(event: Any) -> None:
-    """Handler untuk BankTransactionClearedEvent."""
-    if isinstance(event, BankTransactionClearedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BankTransactionClearedEvent, got {type(event).__name__}")
-
-async def handle_BankTransactionReconciledEvent(event: Any) -> None:
-    """Handler untuk BankTransactionReconciledEvent."""
-    if isinstance(event, BankTransactionReconciledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BankTransactionReconciledEvent, got {type(event).__name__}")
-
-async def handle_BankTransactionRecordedEvent(event: Any) -> None:
-    """Handler untuk BankTransactionRecordedEvent."""
-    if isinstance(event, BankTransactionRecordedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BankTransactionRecordedEvent, got {type(event).__name__}")
-
-async def handle_BankTransferCancelledEvent(event: Any) -> None:
-    """Handler untuk BankTransferCancelledEvent."""
-    if isinstance(event, BankTransferCancelledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BankTransferCancelledEvent, got {type(event).__name__}")
-
-async def handle_BankTransferCompletedEvent(event: Any) -> None:
-    """Handler untuk BankTransferCompletedEvent."""
-    if isinstance(event, BankTransferCompletedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BankTransferCompletedEvent, got {type(event).__name__}")
-
-async def handle_BankTransferFailedEvent(event: Any) -> None:
-    """Handler untuk BankTransferFailedEvent."""
-    if isinstance(event, BankTransferFailedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BankTransferFailedEvent, got {type(event).__name__}")
-
-async def handle_BankTransferInitiatedEvent(event: Any) -> None:
-    """Handler untuk BankTransferInitiatedEvent."""
-    if isinstance(event, BankTransferInitiatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BankTransferInitiatedEvent, got {type(event).__name__}")
-
-async def handle_BupotApprovedEvent(event: Any) -> None:
-    """Handler untuk BupotApprovedEvent."""
-    if isinstance(event, BupotApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BupotApprovedEvent, got {type(event).__name__}")
-
-async def handle_BupotSubmittedEvent(event: Any) -> None:
-    """Handler untuk BupotSubmittedEvent."""
-    if isinstance(event, BupotSubmittedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BupotSubmittedEvent, got {type(event).__name__}")
-
-async def handle_COAArchivedEvent(event: Any) -> None:
-    """Handler untuk COAArchivedEvent."""
-    if isinstance(event, COAArchivedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected COAArchivedEvent, got {type(event).__name__}")
-
-async def handle_COACreatedEvent(event: Any) -> None:
-    """Handler untuk COACreatedEvent."""
-    if isinstance(event, COACreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected COACreatedEvent, got {type(event).__name__}")
-
-async def handle_COALockedEvent(event: Any) -> None:
-    """Handler untuk COALockedEvent."""
-    if isinstance(event, COALockedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected COALockedEvent, got {type(event).__name__}")
-
-async def handle_COAUnlockedEvent(event: Any) -> None:
-    """Handler untuk COAUnlockedEvent."""
-    if isinstance(event, COAUnlockedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected COAUnlockedEvent, got {type(event).__name__}")
-
-async def handle_COGSCalculatedEvent(event: Any) -> None:
-    """Handler untuk COGSCalculatedEvent."""
-    if isinstance(event, COGSCalculatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected COGSCalculatedEvent, got {type(event).__name__}")
-
-async def handle_CapitalContributionApprovedEvent(event: Any) -> None:
-    """Handler untuk CapitalContributionApprovedEvent."""
-    if isinstance(event, CapitalContributionApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CapitalContributionApprovedEvent, got {type(event).__name__}")
-
-async def handle_CapitalContributionCancelledEvent(event: Any) -> None:
-    """Handler untuk CapitalContributionCancelledEvent."""
-    if isinstance(event, CapitalContributionCancelledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CapitalContributionCancelledEvent, got {type(event).__name__}")
-
-async def handle_CapitalContributionPostedEvent(event: Any) -> None:
-    """Handler untuk CapitalContributionPostedEvent."""
-    if isinstance(event, CapitalContributionPostedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CapitalContributionPostedEvent, got {type(event).__name__}")
-
-async def handle_CapitalContributionRecordedEvent(event: Any) -> None:
-    """Handler untuk CapitalContributionRecordedEvent."""
-    if isinstance(event, CapitalContributionRecordedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CapitalContributionRecordedEvent, got {type(event).__name__}")
-
-async def handle_CapitalWithdrawalApprovedEvent(event: Any) -> None:
-    """Handler untuk CapitalWithdrawalApprovedEvent."""
-    if isinstance(event, CapitalWithdrawalApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CapitalWithdrawalApprovedEvent, got {type(event).__name__}")
-
-async def handle_CapitalWithdrawalCancelledEvent(event: Any) -> None:
-    """Handler untuk CapitalWithdrawalCancelledEvent."""
-    if isinstance(event, CapitalWithdrawalCancelledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CapitalWithdrawalCancelledEvent, got {type(event).__name__}")
-
-async def handle_CapitalWithdrawalPostedEvent(event: Any) -> None:
-    """Handler untuk CapitalWithdrawalPostedEvent."""
-    if isinstance(event, CapitalWithdrawalPostedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CapitalWithdrawalPostedEvent, got {type(event).__name__}")
-
-async def handle_CapitalWithdrawalRecordedEvent(event: Any) -> None:
-    """Handler untuk CapitalWithdrawalRecordedEvent."""
-    if isinstance(event, CapitalWithdrawalRecordedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CapitalWithdrawalRecordedEvent, got {type(event).__name__}")
-
-async def handle_CashBookClosedEvent(event: Any) -> None:
-    """Handler untuk CashBookClosedEvent."""
-    if isinstance(event, CashBookClosedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CashBookClosedEvent, got {type(event).__name__}")
-
-async def handle_CashBookUpdatedEvent(event: Any) -> None:
-    """Handler untuk CashBookUpdatedEvent."""
-    if isinstance(event, CashBookUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CashBookUpdatedEvent, got {type(event).__name__}")
-
-async def handle_CashDisbursementApprovedEvent(event: Any) -> None:
-    """Handler untuk CashDisbursementApprovedEvent."""
-    if isinstance(event, CashDisbursementApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CashDisbursementApprovedEvent, got {type(event).__name__}")
-
-async def handle_CashDisbursementCancelledEvent(event: Any) -> None:
-    """Handler untuk CashDisbursementCancelledEvent."""
-    if isinstance(event, CashDisbursementCancelledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CashDisbursementCancelledEvent, got {type(event).__name__}")
-
-async def handle_CashDisbursementPaidEvent(event: Any) -> None:
-    """Handler untuk CashDisbursementPaidEvent."""
-    if isinstance(event, CashDisbursementPaidEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CashDisbursementPaidEvent, got {type(event).__name__}")
-
-async def handle_CashReceiptCancelledEvent(event: Any) -> None:
-    """Handler untuk CashReceiptCancelledEvent."""
-    if isinstance(event, CashReceiptCancelledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CashReceiptCancelledEvent, got {type(event).__name__}")
-
-async def handle_CashReceiptConfirmedEvent(event: Any) -> None:
-    """Handler untuk CashReceiptConfirmedEvent."""
-    if isinstance(event, CashReceiptConfirmedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CashReceiptConfirmedEvent, got {type(event).__name__}")
-
-async def handle_CompanyAddressUpdatedEvent(event: Any) -> None:
-    """Handler untuk CompanyAddressUpdatedEvent."""
-    if isinstance(event, CompanyAddressUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CompanyAddressUpdatedEvent, got {type(event).__name__}")
-
-async def handle_CompanyContactUpdatedEvent(event: Any) -> None:
-    """Handler untuk CompanyContactUpdatedEvent."""
-    if isinstance(event, CompanyContactUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CompanyContactUpdatedEvent, got {type(event).__name__}")
-
-async def handle_CompanyDissolvedEvent(event: Any) -> None:
-    """Handler untuk CompanyDissolvedEvent."""
-    if isinstance(event, CompanyDissolvedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CompanyDissolvedEvent, got {type(event).__name__}")
-
-async def handle_CompanyReactivatedEvent(event: Any) -> None:
-    """Handler untuk CompanyReactivatedEvent."""
-    if isinstance(event, CompanyReactivatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CompanyReactivatedEvent, got {type(event).__name__}")
-
-async def handle_CompanyRegisteredEvent(event: Any) -> None:
-    """Handler untuk CompanyRegisteredEvent."""
-    if isinstance(event, CompanyRegisteredEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CompanyRegisteredEvent, got {type(event).__name__}")
-
-async def handle_CompanySuspendedEvent(event: Any) -> None:
-    """Handler untuk CompanySuspendedEvent."""
-    if isinstance(event, CompanySuspendedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CompanySuspendedEvent, got {type(event).__name__}")
-
-async def handle_CostCardUpdatedEvent(event: Any) -> None:
-    """Handler untuk CostCardUpdatedEvent."""
-    if isinstance(event, CostCardUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CostCardUpdatedEvent, got {type(event).__name__}")
-
-async def handle_CreditNoteAppliedEvent(event: Any) -> None:
-    """Handler untuk CreditNoteAppliedEvent."""
-    if isinstance(event, CreditNoteAppliedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CreditNoteAppliedEvent, got {type(event).__name__}")
-
-async def handle_CreditNoteIssuedEvent(event: Any) -> None:
-    """Handler untuk CreditNoteIssuedEvent."""
-    if isinstance(event, CreditNoteIssuedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CreditNoteIssuedEvent, got {type(event).__name__}")
-
-async def handle_CreditNoteReceivedEvent(event: Any) -> None:
-    """Handler untuk CreditNoteReceivedEvent."""
-    if isinstance(event, CreditNoteReceivedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CreditNoteReceivedEvent, got {type(event).__name__}")
-
-async def handle_CustomerBalanceUpdatedEvent(event: Any) -> None:
-    """Handler untuk CustomerBalanceUpdatedEvent."""
-    if isinstance(event, CustomerBalanceUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CustomerBalanceUpdatedEvent, got {type(event).__name__}")
-
-async def handle_CustomerCreatedEvent(event: Any) -> None:
-    """Handler untuk CustomerCreatedEvent."""
-    if isinstance(event, CustomerCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CustomerCreatedEvent, got {type(event).__name__}")
-
-async def handle_CustomerCreditLimitChangedEvent(event: Any) -> None:
-    """Handler untuk CustomerCreditLimitChangedEvent."""
-    if isinstance(event, CustomerCreditLimitChangedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CustomerCreditLimitChangedEvent, got {type(event).__name__}")
-
-async def handle_CustomerStatusChangedEvent(event: Any) -> None:
-    """Handler untuk CustomerStatusChangedEvent."""
-    if isinstance(event, CustomerStatusChangedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected CustomerStatusChangedEvent, got {type(event).__name__}")
-
-async def handle_DebitNoteAppliedEvent(event: Any) -> None:
-    """Handler untuk DebitNoteAppliedEvent."""
-    if isinstance(event, DebitNoteAppliedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected DebitNoteAppliedEvent, got {type(event).__name__}")
-
-async def handle_DebitNoteIssuedEvent(event: Any) -> None:
-    """Handler untuk DebitNoteIssuedEvent."""
-    if isinstance(event, DebitNoteIssuedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected DebitNoteIssuedEvent, got {type(event).__name__}")
-
-async def handle_DebitNoteIssuedServiceEvent(event: Any) -> None:
-    """Handler untuk DebitNoteIssuedServiceEvent."""
-    if isinstance(event, DebitNoteIssuedServiceEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected DebitNoteIssuedServiceEvent, got {type(event).__name__}")
-
-async def handle_DeliveryNoteShippedEvent(event: Any) -> None:
-    """Handler untuk DeliveryNoteShippedEvent."""
-    if isinstance(event, DeliveryNoteShippedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected DeliveryNoteShippedEvent, got {type(event).__name__}")
-
-async def handle_DividendApprovedEvent(event: Any) -> None:
-    """Handler untuk DividendApprovedEvent."""
-    if isinstance(event, DividendApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected DividendApprovedEvent, got {type(event).__name__}")
-
-async def handle_DividendCancelledEvent(event: Any) -> None:
-    """Handler untuk DividendCancelledEvent."""
-    if isinstance(event, DividendCancelledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected DividendCancelledEvent, got {type(event).__name__}")
-
-async def handle_DividendDeclaredEvent(event: Any) -> None:
-    """Handler untuk DividendDeclaredEvent."""
-    if isinstance(event, DividendDeclaredEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected DividendDeclaredEvent, got {type(event).__name__}")
-
-async def handle_DividendPaidEvent(event: Any) -> None:
-    """Handler untuk DividendPaidEvent."""
-    if isinstance(event, DividendPaidEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected DividendPaidEvent, got {type(event).__name__}")
-
-async def handle_DividendPartiallyPaidEvent(event: Any) -> None:
-    """Handler untuk DividendPartiallyPaidEvent."""
-    if isinstance(event, DividendPartiallyPaidEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected DividendPartiallyPaidEvent, got {type(event).__name__}")
-
-async def handle_DomainEvent(event: Any) -> None:
-    """Handler untuk DomainEvent."""
-    if isinstance(event, DomainEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected DomainEvent, got {type(event).__name__}")
-
-async def handle_EmployeeBPJSUpdatedEvent(event: Any) -> None:
-    """Handler untuk EmployeeBPJSUpdatedEvent."""
-    if isinstance(event, EmployeeBPJSUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected EmployeeBPJSUpdatedEvent, got {type(event).__name__}")
-
-async def handle_EmployeeCreatedEvent(event: Any) -> None:
-    """Handler untuk EmployeeCreatedEvent."""
-    if isinstance(event, EmployeeCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected EmployeeCreatedEvent, got {type(event).__name__}")
-
-async def handle_EmployeePTKPUpdatedEvent(event: Any) -> None:
-    """Handler untuk EmployeePTKPUpdatedEvent."""
-    if isinstance(event, EmployeePTKPUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected EmployeePTKPUpdatedEvent, got {type(event).__name__}")
-
-async def handle_EmployeeResignedEvent(event: Any) -> None:
-    """Handler untuk EmployeeResignedEvent."""
-    if isinstance(event, EmployeeResignedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected EmployeeResignedEvent, got {type(event).__name__}")
-
-async def handle_EmployeeStructureUpdatedEvent(event: Any) -> None:
-    """Handler untuk EmployeeStructureUpdatedEvent."""
-    if isinstance(event, EmployeeStructureUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected EmployeeStructureUpdatedEvent, got {type(event).__name__}")
-
-async def handle_FakturApprovedEvent(event: Any) -> None:
-    """Handler untuk FakturApprovedEvent."""
-    if isinstance(event, FakturApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected FakturApprovedEvent, got {type(event).__name__}")
-
-async def handle_FakturRejectedEvent(event: Any) -> None:
-    """Handler untuk FakturRejectedEvent."""
-    if isinstance(event, FakturRejectedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected FakturRejectedEvent, got {type(event).__name__}")
-
-async def handle_FakturSubmittedEvent(event: Any) -> None:
-    """Handler untuk FakturSubmittedEvent."""
-    if isinstance(event, FakturSubmittedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected FakturSubmittedEvent, got {type(event).__name__}")
-
-async def handle_GoodsReceiptCreatedEvent(event: Any) -> None:
-    """Handler untuk GoodsReceiptCreatedEvent."""
-    if isinstance(event, GoodsReceiptCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected GoodsReceiptCreatedEvent, got {type(event).__name__}")
-
-async def handle_GoodwillAmortizedEvent(event: Any) -> None:
-    """Handler untuk GoodwillAmortizedEvent."""
-    if isinstance(event, GoodwillAmortizedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected GoodwillAmortizedEvent, got {type(event).__name__}")
-
-async def handle_GoodwillDisposedEvent(event: Any) -> None:
-    """Handler untuk GoodwillDisposedEvent."""
-    if isinstance(event, GoodwillDisposedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected GoodwillDisposedEvent, got {type(event).__name__}")
-
-async def handle_GoodwillImpairedEvent(event: Any) -> None:
-    """Handler untuk GoodwillImpairedEvent."""
-    if isinstance(event, GoodwillImpairedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected GoodwillImpairedEvent, got {type(event).__name__}")
-
-async def handle_GoodwillImpairmentReversedEvent(event: Any) -> None:
-    """Handler untuk GoodwillImpairmentReversedEvent."""
-    if isinstance(event, GoodwillImpairmentReversedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected GoodwillImpairmentReversedEvent, got {type(event).__name__}")
-
-async def handle_GoodwillRecognizedEvent(event: Any) -> None:
-    """Handler untuk GoodwillRecognizedEvent."""
-    if isinstance(event, GoodwillRecognizedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected GoodwillRecognizedEvent, got {type(event).__name__}")
-
-async def handle_HPPCalculatedEvent(event: Any) -> None:
-    """Handler untuk HPPCalculatedEvent."""
-    if isinstance(event, HPPCalculatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected HPPCalculatedEvent, got {type(event).__name__}")
-
-async def handle_HedgeAmountReclassifiedEvent(event: Any) -> None:
-    """Handler untuk HedgeAmountReclassifiedEvent."""
-    if isinstance(event, HedgeAmountReclassifiedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected HedgeAmountReclassifiedEvent, got {type(event).__name__}")
-
-async def handle_HedgeCancelledEvent(event: Any) -> None:
-    """Handler untuk HedgeCancelledEvent."""
-    if isinstance(event, HedgeCancelledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected HedgeCancelledEvent, got {type(event).__name__}")
-
-async def handle_HedgeDesignatedEvent(event: Any) -> None:
-    """Handler untuk HedgeDesignatedEvent."""
-    if isinstance(event, HedgeDesignatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected HedgeDesignatedEvent, got {type(event).__name__}")
-
-async def handle_HedgeDiscontinuedEvent(event: Any) -> None:
-    """Handler untuk HedgeDiscontinuedEvent."""
-    if isinstance(event, HedgeDiscontinuedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected HedgeDiscontinuedEvent, got {type(event).__name__}")
-
-async def handle_HedgeEffectivenessTestedEvent(event: Any) -> None:
-    """Handler untuk HedgeEffectivenessTestedEvent."""
-    if isinstance(event, HedgeEffectivenessTestedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected HedgeEffectivenessTestedEvent, got {type(event).__name__}")
-
-async def handle_HedgeFairValueAdjustedEvent(event: Any) -> None:
-    """Handler untuk HedgeFairValueAdjustedEvent."""
-    if isinstance(event, HedgeFairValueAdjustedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected HedgeFairValueAdjustedEvent, got {type(event).__name__}")
-
-async def handle_HierarchyChangedEvent(event: Any) -> None:
-    """Handler untuk HierarchyChangedEvent."""
-    if isinstance(event, HierarchyChangedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected HierarchyChangedEvent, got {type(event).__name__}")
-
-async def handle_IntangibleAssetAcquiredEvent(event: Any) -> None:
-    """Handler untuk IntangibleAssetAcquiredEvent."""
-    if isinstance(event, IntangibleAssetAcquiredEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected IntangibleAssetAcquiredEvent, got {type(event).__name__}")
-
-async def handle_IntangibleAssetAmortizationPostedEvent(event: Any) -> None:
-    """Handler untuk IntangibleAssetAmortizationPostedEvent."""
-    if isinstance(event, IntangibleAssetAmortizationPostedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected IntangibleAssetAmortizationPostedEvent, got {type(event).__name__}")
-
-async def handle_IntangibleAssetDisposedEvent(event: Any) -> None:
-    """Handler untuk IntangibleAssetDisposedEvent."""
-    if isinstance(event, IntangibleAssetDisposedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected IntangibleAssetDisposedEvent, got {type(event).__name__}")
-
-async def handle_IntangibleAssetFullyAmortizedEvent(event: Any) -> None:
-    """Handler untuk IntangibleAssetFullyAmortizedEvent."""
-    if isinstance(event, IntangibleAssetFullyAmortizedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected IntangibleAssetFullyAmortizedEvent, got {type(event).__name__}")
-
-async def handle_IntangibleAssetImpairedEvent(event: Any) -> None:
-    """Handler untuk IntangibleAssetImpairedEvent."""
-    if isinstance(event, IntangibleAssetImpairedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected IntangibleAssetImpairedEvent, got {type(event).__name__}")
-
-async def handle_IntangibleAssetImpairmentReversedEvent(event: Any) -> None:
-    """Handler untuk IntangibleAssetImpairmentReversedEvent."""
-    if isinstance(event, IntangibleAssetImpairmentReversedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected IntangibleAssetImpairmentReversedEvent, got {type(event).__name__}")
-
-async def handle_IntangibleAssetRevaluatedEvent(event: Any) -> None:
-    """Handler untuk IntangibleAssetRevaluatedEvent."""
-    if isinstance(event, IntangibleAssetRevaluatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected IntangibleAssetRevaluatedEvent, got {type(event).__name__}")
-
-async def handle_IntangibleAssetTransferredEvent(event: Any) -> None:
-    """Handler untuk IntangibleAssetTransferredEvent."""
-    if isinstance(event, IntangibleAssetTransferredEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected IntangibleAssetTransferredEvent, got {type(event).__name__}")
-
-async def handle_IntangibleAssetUpdatedEvent(event: Any) -> None:
-    """Handler untuk IntangibleAssetUpdatedEvent."""
-    if isinstance(event, IntangibleAssetUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected IntangibleAssetUpdatedEvent, got {type(event).__name__}")
-
-async def handle_InterWarehouseTransferCreatedEvent(event: Any) -> None:
-    """Handler untuk InterWarehouseTransferCreatedEvent."""
-    if isinstance(event, InterWarehouseTransferCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected InterWarehouseTransferCreatedEvent, got {type(event).__name__}")
-
-async def handle_InventoryValuationUpdatedEvent(event: Any) -> None:
-    """Handler untuk InventoryValuationUpdatedEvent."""
-    if isinstance(event, InventoryValuationUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected InventoryValuationUpdatedEvent, got {type(event).__name__}")
-
-async def handle_InvoiceApprovedEvent(event: Any) -> None:
-    """Handler untuk InvoiceApprovedEvent."""
-    if isinstance(event, InvoiceApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected InvoiceApprovedEvent, got {type(event).__name__}")
-
-async def handle_InvoiceCancelledEvent(event: Any) -> None:
-    """Handler untuk InvoiceCancelledEvent."""
-    if isinstance(event, InvoiceCancelledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected InvoiceCancelledEvent, got {type(event).__name__}")
-
-async def handle_InvoiceCreatedEvent(event: Any) -> None:
-    """Handler untuk InvoiceCreatedEvent."""
-    if isinstance(event, InvoiceCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected InvoiceCreatedEvent, got {type(event).__name__}")
-
-async def handle_InvoiceDisputedEvent(event: Any) -> None:
-    """Handler untuk InvoiceDisputedEvent."""
-    if isinstance(event, InvoiceDisputedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected InvoiceDisputedEvent, got {type(event).__name__}")
-
-async def handle_InvoiceIssuedEvent(event: Any) -> None:
-    """Handler untuk InvoiceIssuedEvent."""
-    if isinstance(event, InvoiceIssuedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected InvoiceIssuedEvent, got {type(event).__name__}")
-
-async def handle_InvoicePaidEvent(event: Any) -> None:
-    """Handler untuk InvoicePaidEvent."""
-    if isinstance(event, InvoicePaidEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected InvoicePaidEvent, got {type(event).__name__}")
-
-async def handle_InvoicePartiallyPaidEvent(event: Any) -> None:
-    """Handler untuk InvoicePartiallyPaidEvent."""
-    if isinstance(event, InvoicePartiallyPaidEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected InvoicePartiallyPaidEvent, got {type(event).__name__}")
-
-async def handle_InvoiceReceivedEvent(event: Any) -> None:
-    """Handler untuk InvoiceReceivedEvent."""
-    if isinstance(event, InvoiceReceivedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected InvoiceReceivedEvent, got {type(event).__name__}")
-
-async def handle_InvoiceVerifiedEvent(event: Any) -> None:
-    """Handler untuk InvoiceVerifiedEvent."""
-    if isinstance(event, InvoiceVerifiedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected InvoiceVerifiedEvent, got {type(event).__name__}")
-
-async def handle_InvoiceWrittenOffEvent(event: Any) -> None:
-    """Handler untuk InvoiceWrittenOffEvent."""
-    if isinstance(event, InvoiceWrittenOffEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected InvoiceWrittenOffEvent, got {type(event).__name__}")
-
-async def handle_ItemCreatedEvent(event: Any) -> None:
-    """Handler untuk ItemCreatedEvent."""
-    if isinstance(event, ItemCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected ItemCreatedEvent, got {type(event).__name__}")
-
-async def handle_ItemDeactivatedEvent(event: Any) -> None:
-    """Handler untuk ItemDeactivatedEvent."""
-    if isinstance(event, ItemDeactivatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected ItemDeactivatedEvent, got {type(event).__name__}")
-
-async def handle_ItemUpdatedEvent(event: Any) -> None:
-    """Handler untuk ItemUpdatedEvent."""
-    if isinstance(event, ItemUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected ItemUpdatedEvent, got {type(event).__name__}")
-
-async def handle_JournalAdjustedEvent(event: Any) -> None:
-    """Handler untuk JournalAdjustedEvent."""
-    if isinstance(event, JournalAdjustedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected JournalAdjustedEvent, got {type(event).__name__}")
-
-async def handle_JournalApprovedEvent(event: Any) -> None:
-    """Handler untuk JournalApprovedEvent."""
-    if isinstance(event, JournalApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected JournalApprovedEvent, got {type(event).__name__}")
-
-async def handle_JournalArchivedEvent(event: Any) -> None:
-    """Handler untuk JournalArchivedEvent."""
-    if isinstance(event, JournalArchivedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected JournalArchivedEvent, got {type(event).__name__}")
-
-async def handle_JournalCancelledEvent(event: Any) -> None:
-    """Handler untuk JournalCancelledEvent."""
-    if isinstance(event, JournalCancelledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected JournalCancelledEvent, got {type(event).__name__}")
-
-async def handle_JournalCreatedEvent(event: Any) -> None:
-    """Handler untuk JournalCreatedEvent."""
-    if isinstance(event, JournalCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected JournalCreatedEvent, got {type(event).__name__}")
-
-async def handle_JournalPostedEvent(event: Any) -> None:
-    """Handler untuk JournalPostedEvent."""
-    if isinstance(event, JournalPostedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected JournalPostedEvent, got {type(event).__name__}")
-
-async def handle_JournalRejectedEvent(event: Any) -> None:
-    """Handler untuk JournalRejectedEvent."""
-    if isinstance(event, JournalRejectedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected JournalRejectedEvent, got {type(event).__name__}")
-
-async def handle_JournalReversedEvent(event: Any) -> None:
-    """Handler untuk JournalReversedEvent."""
-    if isinstance(event, JournalReversedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected JournalReversedEvent, got {type(event).__name__}")
-
-async def handle_JournalSubmittedEvent(event: Any) -> None:
-    """Handler untuk JournalSubmittedEvent."""
-    if isinstance(event, JournalSubmittedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected JournalSubmittedEvent, got {type(event).__name__}")
-
-async def handle_JournalUnarchivedEvent(event: Any) -> None:
-    """Handler untuk JournalUnarchivedEvent."""
-    if isinstance(event, JournalUnarchivedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected JournalUnarchivedEvent, got {type(event).__name__}")
-
-async def handle_JournalVoidedEvent(event: Any) -> None:
-    """Handler untuk JournalVoidedEvent."""
-    if isinstance(event, JournalVoidedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected JournalVoidedEvent, got {type(event).__name__}")
-
-async def handle_LaborPostedEvent(event: Any) -> None:
-    """Handler untuk LaborPostedEvent."""
-    if isinstance(event, LaborPostedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected LaborPostedEvent, got {type(event).__name__}")
-
-async def handle_LoginFailureEvent(event: Any) -> None:
-    """Handler untuk LoginFailureEvent."""
-    if isinstance(event, LoginFailureEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected LoginFailureEvent, got {type(event).__name__}")
-
-async def handle_LoginSuccessEvent(event: Any) -> None:
-    """Handler untuk LoginSuccessEvent."""
-    if isinstance(event, LoginSuccessEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected LoginSuccessEvent, got {type(event).__name__}")
-
-async def handle_MaterialIssuedEvent(event: Any) -> None:
-    """Handler untuk MaterialIssuedEvent."""
-    if isinstance(event, MaterialIssuedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected MaterialIssuedEvent, got {type(event).__name__}")
-
-async def handle_MeteraiUsedEvent(event: Any) -> None:
-    """Handler untuk MeteraiUsedEvent."""
-    if isinstance(event, MeteraiUsedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected MeteraiUsedEvent, got {type(event).__name__}")
-
-async def handle_MilestoneBilledEvent(event: Any) -> None:
-    """Handler untuk MilestoneBilledEvent."""
-    if isinstance(event, MilestoneBilledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected MilestoneBilledEvent, got {type(event).__name__}")
-
-async def handle_MilestoneReadyEvent(event: Any) -> None:
-    """Handler untuk MilestoneReadyEvent."""
-    if isinstance(event, MilestoneReadyEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected MilestoneReadyEvent, got {type(event).__name__}")
-
-async def handle_OverheadAppliedEvent(event: Any) -> None:
-    """Handler untuk OverheadAppliedEvent."""
-    if isinstance(event, OverheadAppliedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected OverheadAppliedEvent, got {type(event).__name__}")
-
-async def handle_PKPStatusChangedEvent(event: Any) -> None:
-    """Handler untuk PKPStatusChangedEvent."""
-    if isinstance(event, PKPStatusChangedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PKPStatusChangedEvent, got {type(event).__name__}")
-
-async def handle_PaymentAllocatedEvent(event: Any) -> None:
-    """Handler untuk PaymentAllocatedEvent."""
-    if isinstance(event, PaymentAllocatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PaymentAllocatedEvent, got {type(event).__name__}")
-
-async def handle_PaymentAppliedEvent(event: Any) -> None:
-    """Handler untuk PaymentAppliedEvent."""
-    if isinstance(event, PaymentAppliedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PaymentAppliedEvent, got {type(event).__name__}")
-
-async def handle_PaymentApprovedEvent(event: Any) -> None:
-    """Handler untuk PaymentApprovedEvent."""
-    if isinstance(event, PaymentApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PaymentApprovedEvent, got {type(event).__name__}")
-
-async def handle_PaymentCancelledEvent(event: Any) -> None:
-    """Handler untuk PaymentCancelledEvent."""
-    if isinstance(event, PaymentCancelledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PaymentCancelledEvent, got {type(event).__name__}")
-
-async def handle_PaymentConfirmedEvent(event: Any) -> None:
-    """Handler untuk PaymentConfirmedEvent."""
-    if isinstance(event, PaymentConfirmedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PaymentConfirmedEvent, got {type(event).__name__}")
-
-async def handle_PaymentMadeEvent(event: Any) -> None:
-    """Handler untuk PaymentMadeEvent."""
-    if isinstance(event, PaymentMadeEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PaymentMadeEvent, got {type(event).__name__}")
-
-async def handle_PaymentProcessedEvent(event: Any) -> None:
-    """Handler untuk PaymentProcessedEvent."""
-    if isinstance(event, PaymentProcessedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PaymentProcessedEvent, got {type(event).__name__}")
-
-async def handle_PaymentReceivedEvent(event: Any) -> None:
-    """Handler untuk PaymentReceivedEvent."""
-    if isinstance(event, PaymentReceivedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PaymentReceivedEvent, got {type(event).__name__}")
-
-async def handle_PaymentRunExecutedEvent(event: Any) -> None:
-    """Handler untuk PaymentRunExecutedEvent."""
-    if isinstance(event, PaymentRunExecutedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PaymentRunExecutedEvent, got {type(event).__name__}")
-
-async def handle_PaymentRunGeneratedEvent(event: Any) -> None:
-    """Handler untuk PaymentRunGeneratedEvent."""
-    if isinstance(event, PaymentRunGeneratedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PaymentRunGeneratedEvent, got {type(event).__name__}")
-
-async def handle_PaymentSentEvent(event: Any) -> None:
-    """Handler untuk PaymentSentEvent."""
-    if isinstance(event, PaymentSentEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PaymentSentEvent, got {type(event).__name__}")
-
-async def handle_PaymentVoidedEvent(event: Any) -> None:
-    """Handler untuk PaymentVoidedEvent."""
-    if isinstance(event, PaymentVoidedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PaymentVoidedEvent, got {type(event).__name__}")
-
-async def handle_PayrollRunApprovedEvent(event: Any) -> None:
-    """Handler untuk PayrollRunApprovedEvent."""
-    if isinstance(event, PayrollRunApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PayrollRunApprovedEvent, got {type(event).__name__}")
-
-async def handle_PayrollRunCalculatedEvent(event: Any) -> None:
-    """Handler untuk PayrollRunCalculatedEvent."""
-    if isinstance(event, PayrollRunCalculatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PayrollRunCalculatedEvent, got {type(event).__name__}")
-
-async def handle_PayrollRunCancelledEvent(event: Any) -> None:
-    """Handler untuk PayrollRunCancelledEvent."""
-    if isinstance(event, PayrollRunCancelledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PayrollRunCancelledEvent, got {type(event).__name__}")
-
-async def handle_PayrollRunCreatedEvent(event: Any) -> None:
-    """Handler untuk PayrollRunCreatedEvent."""
-    if isinstance(event, PayrollRunCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PayrollRunCreatedEvent, got {type(event).__name__}")
-
-async def handle_PayrollRunPaidEvent(event: Any) -> None:
-    """Handler untuk PayrollRunPaidEvent."""
-    if isinstance(event, PayrollRunPaidEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PayrollRunPaidEvent, got {type(event).__name__}")
-
-async def handle_PayrollRunPostedEvent(event: Any) -> None:
-    """Handler untuk PayrollRunPostedEvent."""
-    if isinstance(event, PayrollRunPostedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PayrollRunPostedEvent, got {type(event).__name__}")
-
-async def handle_PayslipGeneratedEvent(event: Any) -> None:
-    """Handler untuk PayslipGeneratedEvent."""
-    if isinstance(event, PayslipGeneratedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PayslipGeneratedEvent, got {type(event).__name__}")
-
-async def handle_PayslipSentToEmployeeEvent(event: Any) -> None:
-    """Handler untuk PayslipSentToEmployeeEvent."""
-    if isinstance(event, PayslipSentToEmployeeEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PayslipSentToEmployeeEvent, got {type(event).__name__}")
-
-async def handle_PeriodClosedEvent(event: Any) -> None:
-    """Handler untuk PeriodClosedEvent."""
-    if isinstance(event, PeriodClosedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PeriodClosedEvent, got {type(event).__name__}")
-
-async def handle_PeriodCreatedEvent(event: Any) -> None:
-    """Handler untuk PeriodCreatedEvent."""
-    if isinstance(event, PeriodCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PeriodCreatedEvent, got {type(event).__name__}")
-
-async def handle_PeriodLockedEvent(event: Any) -> None:
-    """Handler untuk PeriodLockedEvent."""
-    if isinstance(event, PeriodLockedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PeriodLockedEvent, got {type(event).__name__}")
-
-async def handle_PeriodOpenedEvent(event: Any) -> None:
-    """Handler untuk PeriodOpenedEvent."""
-    if isinstance(event, PeriodOpenedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PeriodOpenedEvent, got {type(event).__name__}")
-
-async def handle_PeriodReopenedEvent(event: Any) -> None:
-    """Handler untuk PeriodReopenedEvent."""
-    if isinstance(event, PeriodReopenedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PeriodReopenedEvent, got {type(event).__name__}")
-
-async def handle_PeriodStatusChangedEvent(event: Any) -> None:
-    """Handler untuk PeriodStatusChangedEvent."""
-    if isinstance(event, PeriodStatusChangedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PeriodStatusChangedEvent, got {type(event).__name__}")
-
-async def handle_PeriodUpdatedEvent(event: Any) -> None:
-    """Handler untuk PeriodUpdatedEvent."""
-    if isinstance(event, PeriodUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PeriodUpdatedEvent, got {type(event).__name__}")
-
-async def handle_PermissionGrantedEvent(event: Any) -> None:
-    """Handler untuk PermissionGrantedEvent."""
-    if isinstance(event, PermissionGrantedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PermissionGrantedEvent, got {type(event).__name__}")
-
-async def handle_PermissionRevokedEvent(event: Any) -> None:
-    """Handler untuk PermissionRevokedEvent."""
-    if isinstance(event, PermissionRevokedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PermissionRevokedEvent, got {type(event).__name__}")
-
-async def handle_PettyCashActivatedEvent(event: Any) -> None:
-    """Handler untuk PettyCashActivatedEvent."""
-    if isinstance(event, PettyCashActivatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PettyCashActivatedEvent, got {type(event).__name__}")
-
-async def handle_PettyCashAdjustedEvent(event: Any) -> None:
-    """Handler untuk PettyCashAdjustedEvent."""
-    if isinstance(event, PettyCashAdjustedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PettyCashAdjustedEvent, got {type(event).__name__}")
-
-async def handle_PettyCashClosedEvent(event: Any) -> None:
-    """Handler untuk PettyCashClosedEvent."""
-    if isinstance(event, PettyCashClosedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PettyCashClosedEvent, got {type(event).__name__}")
-
-async def handle_PettyCashDisbursementEvent(event: Any) -> None:
-    """Handler untuk PettyCashDisbursementEvent."""
-    if isinstance(event, PettyCashDisbursementEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PettyCashDisbursementEvent, got {type(event).__name__}")
-
-async def handle_PettyCashReplenishedEvent(event: Any) -> None:
-    """Handler untuk PettyCashReplenishedEvent."""
-    if isinstance(event, PettyCashReplenishedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PettyCashReplenishedEvent, got {type(event).__name__}")
-
-async def handle_PettyCashSuspendedEvent(event: Any) -> None:
-    """Handler untuk PettyCashSuspendedEvent."""
-    if isinstance(event, PettyCashSuspendedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PettyCashSuspendedEvent, got {type(event).__name__}")
-
-async def handle_ProductionCompletedEvent(event: Any) -> None:
-    """Handler untuk ProductionCompletedEvent."""
-    if isinstance(event, ProductionCompletedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected ProductionCompletedEvent, got {type(event).__name__}")
-
-async def handle_ProjectActivatedEvent(event: Any) -> None:
-    """Handler untuk ProjectActivatedEvent."""
-    if isinstance(event, ProjectActivatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected ProjectActivatedEvent, got {type(event).__name__}")
-
-async def handle_ProjectBillingGeneratedEvent(event: Any) -> None:
-    """Handler untuk ProjectBillingGeneratedEvent."""
-    if isinstance(event, ProjectBillingGeneratedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected ProjectBillingGeneratedEvent, got {type(event).__name__}")
-
-async def handle_ProjectCompletedEvent(event: Any) -> None:
-    """Handler untuk ProjectCompletedEvent."""
-    if isinstance(event, ProjectCompletedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected ProjectCompletedEvent, got {type(event).__name__}")
-
-async def handle_ProjectCreatedEvent(event: Any) -> None:
-    """Handler untuk ProjectCreatedEvent."""
-    if isinstance(event, ProjectCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected ProjectCreatedEvent, got {type(event).__name__}")
-
-async def handle_PurchaseInvoiceReceivedEvent(event: Any) -> None:
-    """Handler untuk PurchaseInvoiceReceivedEvent."""
-    if isinstance(event, PurchaseInvoiceReceivedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PurchaseInvoiceReceivedEvent, got {type(event).__name__}")
-
-async def handle_PurchaseOrderApprovedEvent(event: Any) -> None:
-    """Handler untuk PurchaseOrderApprovedEvent."""
-    if isinstance(event, PurchaseOrderApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PurchaseOrderApprovedEvent, got {type(event).__name__}")
-
-async def handle_PurchaseOrderCreatedEvent(event: Any) -> None:
-    """Handler untuk PurchaseOrderCreatedEvent."""
-    if isinstance(event, PurchaseOrderCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected PurchaseOrderCreatedEvent, got {type(event).__name__}")
-
-async def handle_RetainedEarningsAdjustedEvent(event: Any) -> None:
-    """Handler untuk RetainedEarningsAdjustedEvent."""
-    if isinstance(event, RetainedEarningsAdjustedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected RetainedEarningsAdjustedEvent, got {type(event).__name__}")
-
-async def handle_RetainedEarningsTransferEvent(event: Any) -> None:
-    """Handler untuk RetainedEarningsTransferEvent."""
-    if isinstance(event, RetainedEarningsTransferEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected RetainedEarningsTransferEvent, got {type(event).__name__}")
-
-async def handle_RetainedEarningsUpdatedEvent(event: Any) -> None:
-    """Handler untuk RetainedEarningsUpdatedEvent."""
-    if isinstance(event, RetainedEarningsUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected RetainedEarningsUpdatedEvent, got {type(event).__name__}")
-
-async def handle_RetainerContractActivatedEvent(event: Any) -> None:
-    """Handler untuk RetainerContractActivatedEvent."""
-    if isinstance(event, RetainerContractActivatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected RetainerContractActivatedEvent, got {type(event).__name__}")
-
-async def handle_RevenueRecognizedEvent(event: Any) -> None:
-    """Handler untuk RevenueRecognizedEvent."""
-    if isinstance(event, RevenueRecognizedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected RevenueRecognizedEvent, got {type(event).__name__}")
-
-async def handle_RoleAssignedEvent(event: Any) -> None:
-    """Handler untuk RoleAssignedEvent."""
-    if isinstance(event, RoleAssignedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected RoleAssignedEvent, got {type(event).__name__}")
-
-async def handle_RoleCreatedEvent(event: Any) -> None:
-    """Handler untuk RoleCreatedEvent."""
-    if isinstance(event, RoleCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected RoleCreatedEvent, got {type(event).__name__}")
-
-async def handle_RoleDeletedEvent(event: Any) -> None:
-    """Handler untuk RoleDeletedEvent."""
-    if isinstance(event, RoleDeletedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected RoleDeletedEvent, got {type(event).__name__}")
-
-async def handle_RoleRevokedEvent(event: Any) -> None:
-    """Handler untuk RoleRevokedEvent."""
-    if isinstance(event, RoleRevokedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected RoleRevokedEvent, got {type(event).__name__}")
-
-async def handle_RoleUpdatedEvent(event: Any) -> None:
-    """Handler untuk RoleUpdatedEvent."""
-    if isinstance(event, RoleUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected RoleUpdatedEvent, got {type(event).__name__}")
-
-async def handle_SPTApprovedEvent(event: Any) -> None:
-    """Handler untuk SPTApprovedEvent."""
-    if isinstance(event, SPTApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SPTApprovedEvent, got {type(event).__name__}")
-
-async def handle_SPTSubmittedEvent(event: Any) -> None:
-    """Handler untuk SPTSubmittedEvent."""
-    if isinstance(event, SPTSubmittedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SPTSubmittedEvent, got {type(event).__name__}")
-
-async def handle_SalaryComponentAddedEvent(event: Any) -> None:
-    """Handler untuk SalaryComponentAddedEvent."""
-    if isinstance(event, SalaryComponentAddedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SalaryComponentAddedEvent, got {type(event).__name__}")
-
-async def handle_SalesInvoiceIssuedEvent(event: Any) -> None:
-    """Handler untuk SalesInvoiceIssuedEvent."""
-    if isinstance(event, SalesInvoiceIssuedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SalesInvoiceIssuedEvent, got {type(event).__name__}")
-
-async def handle_SalesInvoicePaidEvent(event: Any) -> None:
-    """Handler untuk SalesInvoicePaidEvent."""
-    if isinstance(event, SalesInvoicePaidEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SalesInvoicePaidEvent, got {type(event).__name__}")
-
-async def handle_SalesOrderApprovedEvent(event: Any) -> None:
-    """Handler untuk SalesOrderApprovedEvent."""
-    if isinstance(event, SalesOrderApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SalesOrderApprovedEvent, got {type(event).__name__}")
-
-async def handle_SalesOrderCreatedEvent(event: Any) -> None:
-    """Handler untuk SalesOrderCreatedEvent."""
-    if isinstance(event, SalesOrderCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SalesOrderCreatedEvent, got {type(event).__name__}")
-
-async def handle_SessionCompromisedEvent(event: Any) -> None:
-    """Handler untuk SessionCompromisedEvent."""
-    if isinstance(event, SessionCompromisedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SessionCompromisedEvent, got {type(event).__name__}")
-
-async def handle_SessionCreatedEvent(event: Any) -> None:
-    """Handler untuk SessionCreatedEvent."""
-    if isinstance(event, SessionCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SessionCreatedEvent, got {type(event).__name__}")
-
-async def handle_SessionRefreshedEvent(event: Any) -> None:
-    """Handler untuk SessionRefreshedEvent."""
-    if isinstance(event, SessionRefreshedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SessionRefreshedEvent, got {type(event).__name__}")
-
-async def handle_SessionTerminatedEvent(event: Any) -> None:
-    """Handler untuk SessionTerminatedEvent."""
-    if isinstance(event, SessionTerminatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SessionTerminatedEvent, got {type(event).__name__}")
-
-async def handle_SettingAddedEvent(event: Any) -> None:
-    """Handler untuk SettingAddedEvent."""
-    if isinstance(event, SettingAddedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SettingAddedEvent, got {type(event).__name__}")
-
-async def handle_SettingChangedEvent(event: Any) -> None:
-    """Handler untuk SettingChangedEvent."""
-    if isinstance(event, SettingChangedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SettingChangedEvent, got {type(event).__name__}")
-
-async def handle_SettingRemovedEvent(event: Any) -> None:
-    """Handler untuk SettingRemovedEvent."""
-    if isinstance(event, SettingRemovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SettingRemovedEvent, got {type(event).__name__}")
-
-async def handle_SettingResetEvent(event: Any) -> None:
-    """Handler untuk SettingResetEvent."""
-    if isinstance(event, SettingResetEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SettingResetEvent, got {type(event).__name__}")
-
-async def handle_SettingsBulkUpdatedEvent(event: Any) -> None:
-    """Handler untuk SettingsBulkUpdatedEvent."""
-    if isinstance(event, SettingsBulkUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SettingsBulkUpdatedEvent, got {type(event).__name__}")
-
-async def handle_SettingsLockedEvent(event: Any) -> None:
-    """Handler untuk SettingsLockedEvent."""
-    if isinstance(event, SettingsLockedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SettingsLockedEvent, got {type(event).__name__}")
-
-async def handle_SettingsUnlockedEvent(event: Any) -> None:
-    """Handler untuk SettingsUnlockedEvent."""
-    if isinstance(event, SettingsUnlockedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SettingsUnlockedEvent, got {type(event).__name__}")
-
-async def handle_StandardCostActivatedEvent(event: Any) -> None:
-    """Handler untuk StandardCostActivatedEvent."""
-    if isinstance(event, StandardCostActivatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected StandardCostActivatedEvent, got {type(event).__name__}")
-
-async def handle_StandardCostCreatedEvent(event: Any) -> None:
-    """Handler untuk StandardCostCreatedEvent."""
-    if isinstance(event, StandardCostCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected StandardCostCreatedEvent, got {type(event).__name__}")
-
-async def handle_StockAdjustedEvent(event: Any) -> None:
-    """Handler untuk StockAdjustedEvent."""
-    if isinstance(event, StockAdjustedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected StockAdjustedEvent, got {type(event).__name__}")
-
-async def handle_StockLevelAlertEvent(event: Any) -> None:
-    """Handler untuk StockLevelAlertEvent."""
-    if isinstance(event, StockLevelAlertEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected StockLevelAlertEvent, got {type(event).__name__}")
-
-async def handle_StockMovementCreatedEvent(event: Any) -> None:
-    """Handler untuk StockMovementCreatedEvent."""
-    if isinstance(event, StockMovementCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected StockMovementCreatedEvent, got {type(event).__name__}")
-
-async def handle_StockOpnameApprovedEvent(event: Any) -> None:
-    """Handler untuk StockOpnameApprovedEvent."""
-    if isinstance(event, StockOpnameApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected StockOpnameApprovedEvent, got {type(event).__name__}")
-
-async def handle_StockOpnameCreatedEvent(event: Any) -> None:
-    """Handler untuk StockOpnameCreatedEvent."""
-    if isinstance(event, StockOpnameCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected StockOpnameCreatedEvent, got {type(event).__name__}")
-
-async def handle_SupplierCreatedEvent(event: Any) -> None:
-    """Handler untuk SupplierCreatedEvent."""
-    if isinstance(event, SupplierCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SupplierCreatedEvent, got {type(event).__name__}")
-
-async def handle_SupplierPaymentTermsChangedEvent(event: Any) -> None:
-    """Handler untuk SupplierPaymentTermsChangedEvent."""
-    if isinstance(event, SupplierPaymentTermsChangedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SupplierPaymentTermsChangedEvent, got {type(event).__name__}")
-
-async def handle_SupplierWithholdingCategoryChangedEvent(event: Any) -> None:
-    """Handler untuk SupplierWithholdingCategoryChangedEvent."""
-    if isinstance(event, SupplierWithholdingCategoryChangedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected SupplierWithholdingCategoryChangedEvent, got {type(event).__name__}")
-
-async def handle_TaxCalculatedEvent(event: Any) -> None:
-    """Handler untuk TaxCalculatedEvent."""
-    if isinstance(event, TaxCalculatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected TaxCalculatedEvent, got {type(event).__name__}")
-
-async def handle_TaxProfileUpdatedEvent(event: Any) -> None:
-    """Handler untuk TaxProfileUpdatedEvent."""
-    if isinstance(event, TaxProfileUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected TaxProfileUpdatedEvent, got {type(event).__name__}")
-
-async def handle_ThreeWayMatchResultEvent(event: Any) -> None:
-    """Handler untuk ThreeWayMatchResultEvent."""
-    if isinstance(event, ThreeWayMatchResultEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected ThreeWayMatchResultEvent, got {type(event).__name__}")
-
-async def handle_TimeEntryApprovedEvent(event: Any) -> None:
-    """Handler untuk TimeEntryApprovedEvent."""
-    if isinstance(event, TimeEntryApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected TimeEntryApprovedEvent, got {type(event).__name__}")
-
-async def handle_TimeEntrySubmittedEvent(event: Any) -> None:
-    """Handler untuk TimeEntrySubmittedEvent."""
-    if isinstance(event, TimeEntrySubmittedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected TimeEntrySubmittedEvent, got {type(event).__name__}")
-
-async def handle_TransactionCreatedEvent(event: Any) -> None:
-    """Handler untuk TransactionCreatedEvent."""
-    if isinstance(event, TransactionCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected TransactionCreatedEvent, got {type(event).__name__}")
-
-async def handle_TransactionDeletedEvent(event: Any) -> None:
-    """Handler untuk TransactionDeletedEvent."""
-    if isinstance(event, TransactionDeletedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected TransactionDeletedEvent, got {type(event).__name__}")
-
-async def handle_TransactionRecordedEvent(event: Any) -> None:
-    """Handler untuk TransactionRecordedEvent."""
-    if isinstance(event, TransactionRecordedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected TransactionRecordedEvent, got {type(event).__name__}")
-
-async def handle_TransactionUpdatedEvent(event: Any) -> None:
-    """Handler untuk TransactionUpdatedEvent."""
-    if isinstance(event, TransactionUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected TransactionUpdatedEvent, got {type(event).__name__}")
-
-async def handle_TransferCompletedEvent(event: Any) -> None:
-    """Handler untuk TransferCompletedEvent."""
-    if isinstance(event, TransferCompletedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected TransferCompletedEvent, got {type(event).__name__}")
-
-async def handle_UserActivatedEvent(event: Any) -> None:
-    """Handler untuk UserActivatedEvent."""
-    if isinstance(event, UserActivatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected UserActivatedEvent, got {type(event).__name__}")
-
-async def handle_UserCreatedEvent(event: Any) -> None:
-    """Handler untuk UserCreatedEvent."""
-    if isinstance(event, UserCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected UserCreatedEvent, got {type(event).__name__}")
-
-async def handle_UserDeactivatedEvent(event: Any) -> None:
-    """Handler untuk UserDeactivatedEvent."""
-    if isinstance(event, UserDeactivatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected UserDeactivatedEvent, got {type(event).__name__}")
-
-async def handle_UserDeletedEvent(event: Any) -> None:
-    """Handler untuk UserDeletedEvent."""
-    if isinstance(event, UserDeletedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected UserDeletedEvent, got {type(event).__name__}")
-
-async def handle_UserPasswordChangedEvent(event: Any) -> None:
-    """Handler untuk UserPasswordChangedEvent."""
-    if isinstance(event, UserPasswordChangedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected UserPasswordChangedEvent, got {type(event).__name__}")
-
-async def handle_UserSuspendedEvent(event: Any) -> None:
-    """Handler untuk UserSuspendedEvent."""
-    if isinstance(event, UserSuspendedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected UserSuspendedEvent, got {type(event).__name__}")
-
-async def handle_UserUnlockedEvent(event: Any) -> None:
-    """Handler untuk UserUnlockedEvent."""
-    if isinstance(event, UserUnlockedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected UserUnlockedEvent, got {type(event).__name__}")
-
-async def handle_UserUpdatedEvent(event: Any) -> None:
-    """Handler untuk UserUpdatedEvent."""
-    if isinstance(event, UserUpdatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected UserUpdatedEvent, got {type(event).__name__}")
-
-async def handle_VarianceAnalyzedEvent(event: Any) -> None:
-    """Handler untuk VarianceAnalyzedEvent."""
-    if isinstance(event, VarianceAnalyzedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected VarianceAnalyzedEvent, got {type(event).__name__}")
-
-async def handle_WorkOrderApprovedEvent(event: Any) -> None:
-    """Handler untuk WorkOrderApprovedEvent."""
-    if isinstance(event, WorkOrderApprovedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected WorkOrderApprovedEvent, got {type(event).__name__}")
-
-async def handle_WorkOrderCancelledEvent(event: Any) -> None:
-    """Handler untuk WorkOrderCancelledEvent."""
-    if isinstance(event, WorkOrderCancelledEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected WorkOrderCancelledEvent, got {type(event).__name__}")
-
-async def handle_WorkOrderCompletedEvent(event: Any) -> None:
-    """Handler untuk WorkOrderCompletedEvent."""
-    if isinstance(event, WorkOrderCompletedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected WorkOrderCompletedEvent, got {type(event).__name__}")
-
-async def handle_WorkOrderCreatedEvent(event: Any) -> None:
-    """Handler untuk WorkOrderCreatedEvent."""
-    if isinstance(event, WorkOrderCreatedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected WorkOrderCreatedEvent, got {type(event).__name__}")
-
-async def handle_WorkOrderStartedEvent(event: Any) -> None:
-    """Handler untuk WorkOrderStartedEvent."""
-    if isinstance(event, WorkOrderStartedEvent):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected WorkOrderStartedEvent, got {type(event).__name__}")
-
-
-async def handle_DomainEventType(event: Any) -> None:
-    """Handler untuk DomainEventType (Enum)."""
-    if isinstance(event, DomainEventType):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected DomainEventType, got {type(event).__name__}")
-
-async def handle_DomainEventPublisher(event: Any) -> None:
-    """Handler untuk DomainEventPublisher."""
-    if isinstance(event, DomainEventPublisher):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected DomainEventPublisher, got {type(event).__name__}")
-
-async def handle_BudgetEventType(event: Any) -> None:
-    """Handler untuk BudgetEventType (Enum)."""
-    if isinstance(event, BudgetEventType):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BudgetEventType, got {type(event).__name__}")
-
-async def handle_BudgetEventPublisher(event: Any) -> None:
-    """Handler untuk BudgetEventPublisher."""
-    if isinstance(event, BudgetEventPublisher):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected BudgetEventPublisher, got {type(event).__name__}")
-
-async def handle_EventStore(event: Any) -> None:
-    """Handler untuk EventStore (Protocol)."""
-    if isinstance(event, EventStore):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected EventStore, got {type(event).__name__}")
-
-async def handle_ConsolidationEventType(event: Any) -> None:
-    """Handler untuk ConsolidationEventType (Enum)."""
-    if isinstance(event, ConsolidationEventType):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected ConsolidationEventType, got {type(event).__name__}")
-
-async def handle_ConsolidationEventPublisher(event: Any) -> None:
-    """Handler untuk ConsolidationEventPublisher."""
-    if isinstance(event, ConsolidationEventPublisher):
-        await handle_generic_event(event)
-    else:
-        raise TypeError(f"Expected ConsolidationEventPublisher, got {type(event).__name__}")
-
-
-# Daftar semua handler untuk registrasi
-ALL_HANDLERS = {
-    "AccountCreatedEvent": handle_AccountCreatedEvent,
-    "AccountDeactivatedEvent": handle_AccountDeactivatedEvent,
-    "AccountLockedEvent": handle_AccountLockedEvent,
-    "AccountMergedEvent": handle_AccountMergedEvent,
-    "AccountReactivatedEvent": handle_AccountReactivatedEvent,
-    "AccountSplitEvent": handle_AccountSplitEvent,
-    "AccountUnlockedEvent": handle_AccountUnlockedEvent,
-    "AccountUpdatedEvent": handle_AccountUpdatedEvent,
-    "AssetAcquiredEvent": handle_AssetAcquiredEvent,
-    "AssetDepreciationPostedEvent": handle_AssetDepreciationPostedEvent,
-    "AssetDisposedEvent": handle_AssetDisposedEvent,
-    "AssetFullyDepreciatedEvent": handle_AssetFullyDepreciatedEvent,
-    "AssetGroupCreatedEvent": handle_AssetGroupCreatedEvent,
-    "AssetGroupUpdatedEvent": handle_AssetGroupUpdatedEvent,
-    "AssetImpairedEvent": handle_AssetImpairedEvent,
-    "AssetImpairmentReversedEvent": handle_AssetImpairmentReversedEvent,
-    "AssetRevaluatedEvent": handle_AssetRevaluatedEvent,
-    "AssetTransferredEvent": handle_AssetTransferredEvent,
-    "AssetUpdatedEvent": handle_AssetUpdatedEvent,
-    "BOMActivatedEvent": handle_BOMActivatedEvent,
-    "BOMCreatedEvent": handle_BOMCreatedEvent,
-    "BOMItemAddedEvent": handle_BOMItemAddedEvent,
-    "BOMObsoletedEvent": handle_BOMObsoletedEvent,
-    "BOMUpdatedEvent": handle_BOMUpdatedEvent,
-    "BankAccountBlockedEvent": handle_BankAccountBlockedEvent,
-    "BankAccountClosedEvent": handle_BankAccountClosedEvent,
+# =============================================================================
+# HELPER: Generic event logger (fallback)
+# =============================================================================
+
+async def _handle_generic_event(envelope: EventEnvelope, event: Any) -> None:
+    """Default handler: log event dan metadata-nya."""
+    logger.info(
+        f"Domain event processed: {envelope.event_type} (id={envelope.event_id})",
+        extra={
+            "event_id": str(envelope.event_id),
+            "correlation_id": envelope.correlation_id,
+            "event_type": envelope.event_type,
+            "user_id": str(envelope.user_id) if envelope.user_id else None,
+            "tenant_id": envelope.tenant_id,
+        },
+    )
+
+# =============================================================================
+# HANDLERS – semuanya menerima EventEnvelope
+# =============================================================================
+
+# --- Bank & Cash ---
+
+async def handle_BankAccountCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BankAccountCreatedEvent):
+        return
+    # TODO: buat akun kas di COA, simpan mapping, notifikasi
+    await _handle_generic_event(envelope, event)
+
+async def handle_BankAccountUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BankAccountUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BankAccountBlockedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BankAccountBlockedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BankAccountClosedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BankAccountClosedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BankTransactionRecordedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BankTransactionRecordedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BankTransactionClearedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BankTransactionClearedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BankTransactionReconciledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BankTransactionReconciledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BankTransferInitiatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BankTransferInitiatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BankTransferCompletedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BankTransferCompletedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BankTransferFailedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BankTransferFailedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BankTransferCancelledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BankTransferCancelledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CashReceiptConfirmedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CashReceiptConfirmedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CashReceiptCancelledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CashReceiptCancelledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CashDisbursementApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CashDisbursementApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CashDisbursementPaidEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CashDisbursementPaidEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CashDisbursementCancelledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CashDisbursementCancelledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PettyCashDisbursementEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PettyCashDisbursementEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PettyCashReplenishedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PettyCashReplenishedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PettyCashAdjustedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PettyCashAdjustedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PettyCashSuspendedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PettyCashSuspendedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PettyCashActivatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PettyCashActivatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PettyCashClosedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PettyCashClosedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BankReconciliationCompletedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BankReconciliationCompletedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CashBookUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CashBookUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CashBookClosedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CashBookClosedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- COA ---
+
+async def handle_AccountCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AccountCreatedEvent):
+        return
+    # Contoh implementasi nyata (comment out jika belum siap):
+    # async with get_unit_of_work() as uow:
+    #     await create_default_entries(uow, event.account_id)
+    #     await uow.commit()
+    await _handle_generic_event(envelope, event)
+
+async def handle_AccountUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AccountUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AccountDeactivatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AccountDeactivatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AccountReactivatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AccountReactivatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AccountLockedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AccountLockedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AccountUnlockedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AccountUnlockedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_HierarchyChangedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, HierarchyChangedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AccountMergedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AccountMergedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AccountSplitEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AccountSplitEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_COACreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, COACreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_COALockedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, COALockedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_COAUnlockedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, COAUnlockedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_COAArchivedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, COAArchivedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Customer/Supplier/Employee ---
+
+async def handle_CustomerCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CustomerCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CustomerStatusChangedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CustomerStatusChangedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CustomerCreditLimitChangedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CustomerCreditLimitChangedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CustomerBalanceUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CustomerBalanceUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SupplierCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SupplierCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SupplierPaymentTermsChangedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SupplierPaymentTermsChangedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SupplierWithholdingCategoryChangedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SupplierWithholdingCategoryChangedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_EmployeeCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, EmployeeCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_EmployeeResignedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, EmployeeResignedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_EmployeePTKPUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, EmployeePTKPUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_EmployeeBPJSUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, EmployeeBPJSUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Equity & Retained Earnings ---
+
+async def handle_CapitalContributionRecordedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CapitalContributionRecordedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CapitalContributionApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CapitalContributionApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CapitalContributionPostedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CapitalContributionPostedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CapitalContributionCancelledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CapitalContributionCancelledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CapitalWithdrawalRecordedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CapitalWithdrawalRecordedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CapitalWithdrawalApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CapitalWithdrawalApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CapitalWithdrawalPostedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CapitalWithdrawalPostedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CapitalWithdrawalCancelledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CapitalWithdrawalCancelledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_RetainedEarningsUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, RetainedEarningsUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_RetainedEarningsAdjustedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, RetainedEarningsAdjustedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_RetainedEarningsTransferEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, RetainedEarningsTransferEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_DividendDeclaredEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, DividendDeclaredEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_DividendApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, DividendApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_DividendPaidEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, DividendPaidEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_DividendPartiallyPaidEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, DividendPartiallyPaidEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_DividendCancelledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, DividendCancelledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Fiscal Period ---
+
+async def handle_PeriodCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PeriodCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PeriodOpenedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PeriodOpenedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PeriodLockedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PeriodLockedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PeriodClosedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PeriodClosedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PeriodReopenedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PeriodReopenedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PeriodUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PeriodUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PeriodStatusChangedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PeriodStatusChangedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Fixed Asset ---
+
+async def handle_AssetAcquiredEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AssetAcquiredEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AssetUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AssetUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AssetDepreciationPostedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AssetDepreciationPostedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AssetRevaluatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AssetRevaluatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AssetDisposedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AssetDisposedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AssetTransferredEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AssetTransferredEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AssetImpairedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AssetImpairedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AssetImpairmentReversedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AssetImpairmentReversedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AssetFullyDepreciatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AssetFullyDepreciatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AssetGroupCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AssetGroupCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_AssetGroupUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AssetGroupUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Goodwill ---
+
+async def handle_GoodwillRecognizedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, GoodwillRecognizedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_GoodwillImpairedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, GoodwillImpairedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_GoodwillAmortizedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, GoodwillAmortizedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_GoodwillImpairmentReversedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, GoodwillImpairmentReversedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_GoodwillDisposedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, GoodwillDisposedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Hedge ---
+
+async def handle_HedgeDesignatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, HedgeDesignatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_HedgeDiscontinuedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, HedgeDiscontinuedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_HedgeEffectivenessTestedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, HedgeEffectivenessTestedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_HedgeFairValueAdjustedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, HedgeFairValueAdjustedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_HedgeAmountReclassifiedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, HedgeAmountReclassifiedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_HedgeCancelledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, HedgeCancelledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- IAM ---
+
+async def handle_UserCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, UserCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_UserUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, UserUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_UserActivatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, UserActivatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_UserDeactivatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, UserDeactivatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_UserSuspendedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, UserSuspendedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_UserUnlockedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, UserUnlockedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_UserPasswordChangedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, UserPasswordChangedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_UserDeletedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, UserDeletedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_RoleCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, RoleCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_RoleUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, RoleUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_RoleDeletedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, RoleDeletedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_RoleAssignedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, RoleAssignedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_RoleRevokedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, RoleRevokedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SessionCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SessionCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SessionRefreshedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SessionRefreshedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SessionTerminatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SessionTerminatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SessionCompromisedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SessionCompromisedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_LoginSuccessEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, LoginSuccessEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_LoginFailureEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, LoginFailureEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PermissionGrantedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PermissionGrantedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PermissionRevokedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PermissionRevokedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Intangible Asset ---
+
+async def handle_IntangibleAssetAcquiredEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, IntangibleAssetAcquiredEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_IntangibleAssetUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, IntangibleAssetUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_IntangibleAssetAmortizationPostedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, IntangibleAssetAmortizationPostedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_IntangibleAssetImpairedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, IntangibleAssetImpairedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_IntangibleAssetImpairmentReversedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, IntangibleAssetImpairmentReversedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_IntangibleAssetDisposedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, IntangibleAssetDisposedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_IntangibleAssetFullyAmortizedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, IntangibleAssetFullyAmortizedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_IntangibleAssetRevaluatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, IntangibleAssetRevaluatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_IntangibleAssetTransferredEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, IntangibleAssetTransferredEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Inventory ---
+
+async def handle_ItemCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, ItemCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_ItemUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, ItemUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_ItemDeactivatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, ItemDeactivatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_StockMovementCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, StockMovementCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_StockAdjustedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, StockAdjustedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_StockOpnameCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, StockOpnameCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_StockOpnameApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, StockOpnameApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_InterWarehouseTransferCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, InterWarehouseTransferCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_TransferCompletedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, TransferCompletedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_COGSCalculatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, COGSCalculatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_InventoryValuationUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, InventoryValuationUpdatedEvent):
+        return
+    # Contoh implementasi: update read model valuation
+    # async with get_unit_of_work() as uow:
+    #     await InventoryService.update_valuation(uow, event.item_id, event.new_value)
+    #     await uow.commit()
+    await _handle_generic_event(envelope, event)
+
+async def handle_StockLevelAlertEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, StockLevelAlertEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Journal ---
+
+async def handle_JournalCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, JournalCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_JournalSubmittedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, JournalSubmittedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_JournalApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, JournalApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_JournalRejectedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, JournalRejectedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_JournalPostedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, JournalPostedEvent):
+        return
+    # Contoh implementasi nyata: posting jurnal ke GL dan update saldo akun
+    # async with get_unit_of_work() as uow:
+    #     await JournalService.post_journal(uow, event.journal_id)
+    #     await AccountBalanceService.update_from_journal(uow, event.journal_id)
+    #     await uow.commit()
+    # await ProjectionService.refresh_ledger(event.journal_id)
+    await _handle_generic_event(envelope, event)
+
+async def handle_JournalReversedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, JournalReversedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_JournalVoidedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, JournalVoidedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_JournalAdjustedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, JournalAdjustedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_JournalArchivedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, JournalArchivedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_JournalUnarchivedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, JournalUnarchivedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_JournalCancelledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, JournalCancelledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Legal Entity ---
+
+async def handle_CompanyRegisteredEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CompanyRegisteredEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CompanySuspendedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CompanySuspendedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CompanyReactivatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CompanyReactivatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CompanyDissolvedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CompanyDissolvedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_TaxProfileUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, TaxProfileUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CompanyAddressUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CompanyAddressUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CompanyContactUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CompanyContactUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PKPStatusChangedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PKPStatusChangedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Manufacturing ---
+
+async def handle_BOMCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BOMCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BOMUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BOMUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BOMActivatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BOMActivatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BOMObsoletedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BOMObsoletedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BOMItemAddedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BOMItemAddedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_WorkOrderCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, WorkOrderCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_WorkOrderApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, WorkOrderApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_WorkOrderStartedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, WorkOrderStartedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_WorkOrderCompletedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, WorkOrderCompletedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_WorkOrderCancelledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, WorkOrderCancelledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_MaterialIssuedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, MaterialIssuedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_LaborPostedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, LaborPostedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_OverheadAppliedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, OverheadAppliedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_ProductionCompletedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, ProductionCompletedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CostCardUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CostCardUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_HPPCalculatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, HPPCalculatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_StandardCostCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, StandardCostCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_StandardCostActivatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, StandardCostActivatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_VarianceAnalyzedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, VarianceAnalyzedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Payroll ---
+
+async def handle_PayrollRunCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PayrollRunCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PayrollRunCalculatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PayrollRunCalculatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PayrollRunApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PayrollRunApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PayrollRunPaidEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PayrollRunPaidEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PayrollRunPostedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PayrollRunPostedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PayrollRunCancelledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PayrollRunCancelledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PayslipGeneratedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PayslipGeneratedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PayslipSentToEmployeeEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PayslipSentToEmployeeEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_EmployeeStructureUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, EmployeeStructureUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SalaryComponentAddedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SalaryComponentAddedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Project Services ---
+
+async def handle_ProjectCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, ProjectCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_ProjectActivatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, ProjectActivatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_ProjectCompletedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, ProjectCompletedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_RevenueRecognizedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, RevenueRecognizedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_ProjectBillingGeneratedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, ProjectBillingGeneratedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_MilestoneReadyEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, MilestoneReadyEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_MilestoneBilledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, MilestoneBilledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_TimeEntrySubmittedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, TimeEntrySubmittedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_TimeEntryApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, TimeEntryApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_RetainerContractActivatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, RetainerContractActivatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Purchase & Sales ---
+
+async def handle_PurchaseOrderCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PurchaseOrderCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PurchaseOrderApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PurchaseOrderApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SalesOrderCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SalesOrderCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SalesOrderApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SalesOrderApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_GoodsReceiptCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, GoodsReceiptCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_DeliveryNoteShippedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, DeliveryNoteShippedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SalesInvoiceIssuedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SalesInvoiceIssuedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SalesInvoicePaidEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SalesInvoicePaidEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PurchaseInvoiceReceivedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PurchaseInvoiceReceivedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Subledger AP ---
+
+async def handle_InvoiceReceivedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, InvoiceReceivedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_InvoiceVerifiedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, InvoiceVerifiedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_InvoiceDisputedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, InvoiceDisputedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_InvoiceCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, InvoiceCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PaymentSentEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PaymentSentEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PaymentApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PaymentApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PaymentProcessedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PaymentProcessedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PaymentConfirmedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PaymentConfirmedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PaymentCancelledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PaymentCancelledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PaymentMadeEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PaymentMadeEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PaymentAppliedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PaymentAppliedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PaymentVoidedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PaymentVoidedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CreditNoteReceivedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CreditNoteReceivedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_DebitNoteAppliedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, DebitNoteAppliedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_DebitNoteIssuedServiceEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, DebitNoteIssuedServiceEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_ThreeWayMatchResultEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, ThreeWayMatchResultEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PaymentRunGeneratedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PaymentRunGeneratedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PaymentRunExecutedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PaymentRunExecutedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Subledger AR ---
+
+async def handle_InvoicePaidEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, InvoicePaidEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_InvoiceCancelledEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, InvoiceCancelledEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_InvoiceApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, InvoiceApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_InvoiceIssuedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, InvoiceIssuedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_InvoicePartiallyPaidEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, InvoicePartiallyPaidEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_InvoiceWrittenOffEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, InvoiceWrittenOffEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PaymentReceivedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PaymentReceivedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_PaymentAllocatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, PaymentAllocatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CreditNoteIssuedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CreditNoteIssuedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_CreditNoteAppliedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CreditNoteAppliedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_DebitNoteIssuedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, DebitNoteIssuedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- System Settings ---
+
+async def handle_SettingChangedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SettingChangedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SettingResetEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SettingResetEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SettingAddedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SettingAddedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SettingRemovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SettingRemovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SettingsLockedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SettingsLockedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SettingsUnlockedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SettingsUnlockedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SettingsBulkUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SettingsBulkUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Tax Transaction ---
+
+async def handle_FakturSubmittedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, FakturSubmittedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_FakturApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, FakturApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_FakturRejectedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, FakturRejectedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SPTSubmittedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SPTSubmittedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_SPTApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SPTApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BupotSubmittedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BupotSubmittedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_BupotApprovedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, BupotApprovedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_MeteraiUsedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, MeteraiUsedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- UMKM Simplified ---
+
+async def handle_UMKMDomainEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, UMKMDomainEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_DomainEventType(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, DomainEventType):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_DomainEventPublisher(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, DomainEventPublisher):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_TransactionCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, TransactionCreatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_TransactionUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, TransactionUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_TransactionDeletedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, TransactionDeletedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_TaxCalculatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, TaxCalculatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_TransactionRecordedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, TransactionRecordedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+# --- Additional events (from checker) ---
+
+async def handle_GoingConcernEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, GoingConcernEvent):
+        return
+    # TODO: update status going concern, trigger audit jika adverse
+    await _handle_generic_event(envelope, event)
+
+async def handle_SovereigntyEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, SovereigntyEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_IntegrationEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, IntegrationEvent):
+        return
+    # base event, hanya log
+    await _handle_generic_event(envelope, event)
+
+async def handle_AuditEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AuditEvent):
+        return
+    # TODO: simpan ke audit log, kirim ke SIEM
+    await _handle_generic_event(envelope, event)
+
+async def handle_LegalEntityCreatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, LegalEntityCreatedEvent):
+        return
+    # TODO: buat default COA, setup initial settings
+    await _handle_generic_event(envelope, event)
+
+async def handle_LegalEntityUpdatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, LegalEntityUpdatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_LegalEntityDeactivatedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, LegalEntityDeactivatedEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_EconomicEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, EconomicEvent):
+        return
+    # base event
+    await _handle_generic_event(envelope, event)
+
+async def handle_CanonicalEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, CanonicalEvent):
+        return
+    # base event
+    await _handle_generic_event(envelope, event)
+
+async def handle_QueuedEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, QueuedEvent):
+        return
+    # TODO: proses antrian, panggil handler sesuai event asli
+    await _handle_generic_event(envelope, event)
+
+async def handle_DeadLetterEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, DeadLetterEvent):
+        return
+    # TODO: simpan ke dead letter, alert admin
+    await _handle_generic_event(envelope, event)
+
+async def handle_OutboxEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, OutboxEvent):
+        return
+    # Outbox internal, hanya log
+    await _handle_generic_event(envelope, event)
+
+async def handle_LifecycleEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, LifecycleEvent):
+        return
+    # TODO: reaksi terhadap startup/shutdown
+    await _handle_generic_event(envelope, event)
+
+async def handle__FallbackAuditEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, _FallbackAuditEvent):
+        return
+    # Fallback audit, simpan ke log
+    await _handle_generic_event(envelope, event)
+
+async def handle_AdjustingEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AdjustingEvent):
+        return
+    # PSAK 08: event setelah periode laporan
+    await _handle_generic_event(envelope, event)
+
+async def handle_AfterReportingPeriodEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, AfterReportingPeriodEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_NonAdjustingEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, NonAdjustingEvent):
+        return
+    await _handle_generic_event(envelope, event)
+
+async def handle_ProjectionEvent(envelope: EventEnvelope) -> None:
+    event = envelope.event
+    if not isinstance(event, ProjectionEvent):
+        return
+    # Event untuk rebuild projection, trigger refresh
+    await _handle_generic_event(envelope, event)
+
+# =============================================================================
+# REGISTRY DICTIONARY: mapping event name -> handler function
+# =============================================================================
+
+ALL_HANDLERS: dict[str, Any] = {
+    # Bank & Cash
     "BankAccountCreatedEvent": handle_BankAccountCreatedEvent,
     "BankAccountUpdatedEvent": handle_BankAccountUpdatedEvent,
-    "BankReconciliationCompletedEvent": handle_BankReconciliationCompletedEvent,
+    "BankAccountBlockedEvent": handle_BankAccountBlockedEvent,
+    "BankAccountClosedEvent": handle_BankAccountClosedEvent,
+    "BankTransactionRecordedEvent": handle_BankTransactionRecordedEvent,
     "BankTransactionClearedEvent": handle_BankTransactionClearedEvent,
     "BankTransactionReconciledEvent": handle_BankTransactionReconciledEvent,
-    "BankTransactionRecordedEvent": handle_BankTransactionRecordedEvent,
-    "BankTransferCancelledEvent": handle_BankTransferCancelledEvent,
+    "BankTransferInitiatedEvent": handle_BankTransferInitiatedEvent,
     "BankTransferCompletedEvent": handle_BankTransferCompletedEvent,
     "BankTransferFailedEvent": handle_BankTransferFailedEvent,
-    "BankTransferInitiatedEvent": handle_BankTransferInitiatedEvent,
-    "BupotApprovedEvent": handle_BupotApprovedEvent,
-    "BupotSubmittedEvent": handle_BupotSubmittedEvent,
-    "COAArchivedEvent": handle_COAArchivedEvent,
+    "BankTransferCancelledEvent": handle_BankTransferCancelledEvent,
+    "CashReceiptConfirmedEvent": handle_CashReceiptConfirmedEvent,
+    "CashReceiptCancelledEvent": handle_CashReceiptCancelledEvent,
+    "CashDisbursementApprovedEvent": handle_CashDisbursementApprovedEvent,
+    "CashDisbursementPaidEvent": handle_CashDisbursementPaidEvent,
+    "CashDisbursementCancelledEvent": handle_CashDisbursementCancelledEvent,
+    "PettyCashDisbursementEvent": handle_PettyCashDisbursementEvent,
+    "PettyCashReplenishedEvent": handle_PettyCashReplenishedEvent,
+    "PettyCashAdjustedEvent": handle_PettyCashAdjustedEvent,
+    "PettyCashSuspendedEvent": handle_PettyCashSuspendedEvent,
+    "PettyCashActivatedEvent": handle_PettyCashActivatedEvent,
+    "PettyCashClosedEvent": handle_PettyCashClosedEvent,
+    "BankReconciliationCompletedEvent": handle_BankReconciliationCompletedEvent,
+    "CashBookUpdatedEvent": handle_CashBookUpdatedEvent,
+    "CashBookClosedEvent": handle_CashBookClosedEvent,
+
+    # COA
+    "AccountCreatedEvent": handle_AccountCreatedEvent,
+    "AccountUpdatedEvent": handle_AccountUpdatedEvent,
+    "AccountDeactivatedEvent": handle_AccountDeactivatedEvent,
+    "AccountReactivatedEvent": handle_AccountReactivatedEvent,
+    "AccountLockedEvent": handle_AccountLockedEvent,
+    "AccountUnlockedEvent": handle_AccountUnlockedEvent,
+    "HierarchyChangedEvent": handle_HierarchyChangedEvent,
+    "AccountMergedEvent": handle_AccountMergedEvent,
+    "AccountSplitEvent": handle_AccountSplitEvent,
     "COACreatedEvent": handle_COACreatedEvent,
     "COALockedEvent": handle_COALockedEvent,
     "COAUnlockedEvent": handle_COAUnlockedEvent,
-    "COGSCalculatedEvent": handle_COGSCalculatedEvent,
-    "CapitalContributionApprovedEvent": handle_CapitalContributionApprovedEvent,
-    "CapitalContributionCancelledEvent": handle_CapitalContributionCancelledEvent,
-    "CapitalContributionPostedEvent": handle_CapitalContributionPostedEvent,
-    "CapitalContributionRecordedEvent": handle_CapitalContributionRecordedEvent,
-    "CapitalWithdrawalApprovedEvent": handle_CapitalWithdrawalApprovedEvent,
-    "CapitalWithdrawalCancelledEvent": handle_CapitalWithdrawalCancelledEvent,
-    "CapitalWithdrawalPostedEvent": handle_CapitalWithdrawalPostedEvent,
-    "CapitalWithdrawalRecordedEvent": handle_CapitalWithdrawalRecordedEvent,
-    "CashBookClosedEvent": handle_CashBookClosedEvent,
-    "CashBookUpdatedEvent": handle_CashBookUpdatedEvent,
-    "CashDisbursementApprovedEvent": handle_CashDisbursementApprovedEvent,
-    "CashDisbursementCancelledEvent": handle_CashDisbursementCancelledEvent,
-    "CashDisbursementPaidEvent": handle_CashDisbursementPaidEvent,
-    "CashReceiptCancelledEvent": handle_CashReceiptCancelledEvent,
-    "CashReceiptConfirmedEvent": handle_CashReceiptConfirmedEvent,
-    "CompanyAddressUpdatedEvent": handle_CompanyAddressUpdatedEvent,
-    "CompanyContactUpdatedEvent": handle_CompanyContactUpdatedEvent,
-    "CompanyDissolvedEvent": handle_CompanyDissolvedEvent,
-    "CompanyReactivatedEvent": handle_CompanyReactivatedEvent,
-    "CompanyRegisteredEvent": handle_CompanyRegisteredEvent,
-    "CompanySuspendedEvent": handle_CompanySuspendedEvent,
-    "CostCardUpdatedEvent": handle_CostCardUpdatedEvent,
-    "CreditNoteAppliedEvent": handle_CreditNoteAppliedEvent,
-    "CreditNoteIssuedEvent": handle_CreditNoteIssuedEvent,
-    "CreditNoteReceivedEvent": handle_CreditNoteReceivedEvent,
-    "CustomerBalanceUpdatedEvent": handle_CustomerBalanceUpdatedEvent,
+    "COAArchivedEvent": handle_COAArchivedEvent,
+
+    # Customer/Supplier/Employee
     "CustomerCreatedEvent": handle_CustomerCreatedEvent,
-    "CustomerCreditLimitChangedEvent": handle_CustomerCreditLimitChangedEvent,
     "CustomerStatusChangedEvent": handle_CustomerStatusChangedEvent,
-    "DebitNoteAppliedEvent": handle_DebitNoteAppliedEvent,
-    "DebitNoteIssuedEvent": handle_DebitNoteIssuedEvent,
-    "DebitNoteIssuedServiceEvent": handle_DebitNoteIssuedServiceEvent,
-    "DeliveryNoteShippedEvent": handle_DeliveryNoteShippedEvent,
-    "DividendApprovedEvent": handle_DividendApprovedEvent,
-    "DividendCancelledEvent": handle_DividendCancelledEvent,
+    "CustomerCreditLimitChangedEvent": handle_CustomerCreditLimitChangedEvent,
+    "CustomerBalanceUpdatedEvent": handle_CustomerBalanceUpdatedEvent,
+    "SupplierCreatedEvent": handle_SupplierCreatedEvent,
+    "SupplierPaymentTermsChangedEvent": handle_SupplierPaymentTermsChangedEvent,
+    "SupplierWithholdingCategoryChangedEvent": handle_SupplierWithholdingCategoryChangedEvent,
+    "EmployeeCreatedEvent": handle_EmployeeCreatedEvent,
+    "EmployeeResignedEvent": handle_EmployeeResignedEvent,
+    "EmployeePTKPUpdatedEvent": handle_EmployeePTKPUpdatedEvent,
+    "EmployeeBPJSUpdatedEvent": handle_EmployeeBPJSUpdatedEvent,
+
+    # Equity & Retained Earnings
+    "CapitalContributionRecordedEvent": handle_CapitalContributionRecordedEvent,
+    "CapitalContributionApprovedEvent": handle_CapitalContributionApprovedEvent,
+    "CapitalContributionPostedEvent": handle_CapitalContributionPostedEvent,
+    "CapitalContributionCancelledEvent": handle_CapitalContributionCancelledEvent,
+    "CapitalWithdrawalRecordedEvent": handle_CapitalWithdrawalRecordedEvent,
+    "CapitalWithdrawalApprovedEvent": handle_CapitalWithdrawalApprovedEvent,
+    "CapitalWithdrawalPostedEvent": handle_CapitalWithdrawalPostedEvent,
+    "CapitalWithdrawalCancelledEvent": handle_CapitalWithdrawalCancelledEvent,
+    "RetainedEarningsUpdatedEvent": handle_RetainedEarningsUpdatedEvent,
+    "RetainedEarningsAdjustedEvent": handle_RetainedEarningsAdjustedEvent,
+    "RetainedEarningsTransferEvent": handle_RetainedEarningsTransferEvent,
     "DividendDeclaredEvent": handle_DividendDeclaredEvent,
+    "DividendApprovedEvent": handle_DividendApprovedEvent,
     "DividendPaidEvent": handle_DividendPaidEvent,
     "DividendPartiallyPaidEvent": handle_DividendPartiallyPaidEvent,
-    "DomainEvent": handle_DomainEvent,
-    "EmployeeBPJSUpdatedEvent": handle_EmployeeBPJSUpdatedEvent,
-    "EmployeeCreatedEvent": handle_EmployeeCreatedEvent,
-    "EmployeePTKPUpdatedEvent": handle_EmployeePTKPUpdatedEvent,
-    "EmployeeResignedEvent": handle_EmployeeResignedEvent,
-    "EmployeeStructureUpdatedEvent": handle_EmployeeStructureUpdatedEvent,
-    "FakturApprovedEvent": handle_FakturApprovedEvent,
-    "FakturRejectedEvent": handle_FakturRejectedEvent,
-    "FakturSubmittedEvent": handle_FakturSubmittedEvent,
-    "GoodsReceiptCreatedEvent": handle_GoodsReceiptCreatedEvent,
-    "GoodwillAmortizedEvent": handle_GoodwillAmortizedEvent,
-    "GoodwillDisposedEvent": handle_GoodwillDisposedEvent,
-    "GoodwillImpairedEvent": handle_GoodwillImpairedEvent,
-    "GoodwillImpairmentReversedEvent": handle_GoodwillImpairmentReversedEvent,
+    "DividendCancelledEvent": handle_DividendCancelledEvent,
+
+    # Fiscal Period
+    "PeriodCreatedEvent": handle_PeriodCreatedEvent,
+    "PeriodOpenedEvent": handle_PeriodOpenedEvent,
+    "PeriodLockedEvent": handle_PeriodLockedEvent,
+    "PeriodClosedEvent": handle_PeriodClosedEvent,
+    "PeriodReopenedEvent": handle_PeriodReopenedEvent,
+    "PeriodUpdatedEvent": handle_PeriodUpdatedEvent,
+    "PeriodStatusChangedEvent": handle_PeriodStatusChangedEvent,
+
+    # Fixed Asset
+    "AssetAcquiredEvent": handle_AssetAcquiredEvent,
+    "AssetUpdatedEvent": handle_AssetUpdatedEvent,
+    "AssetDepreciationPostedEvent": handle_AssetDepreciationPostedEvent,
+    "AssetRevaluatedEvent": handle_AssetRevaluatedEvent,
+    "AssetDisposedEvent": handle_AssetDisposedEvent,
+    "AssetTransferredEvent": handle_AssetTransferredEvent,
+    "AssetImpairedEvent": handle_AssetImpairedEvent,
+    "AssetImpairmentReversedEvent": handle_AssetImpairmentReversedEvent,
+    "AssetFullyDepreciatedEvent": handle_AssetFullyDepreciatedEvent,
+    "AssetGroupCreatedEvent": handle_AssetGroupCreatedEvent,
+    "AssetGroupUpdatedEvent": handle_AssetGroupUpdatedEvent,
+
+    # Goodwill
     "GoodwillRecognizedEvent": handle_GoodwillRecognizedEvent,
-    "HPPCalculatedEvent": handle_HPPCalculatedEvent,
-    "HedgeAmountReclassifiedEvent": handle_HedgeAmountReclassifiedEvent,
-    "HedgeCancelledEvent": handle_HedgeCancelledEvent,
+    "GoodwillImpairedEvent": handle_GoodwillImpairedEvent,
+    "GoodwillAmortizedEvent": handle_GoodwillAmortizedEvent,
+    "GoodwillImpairmentReversedEvent": handle_GoodwillImpairmentReversedEvent,
+    "GoodwillDisposedEvent": handle_GoodwillDisposedEvent,
+
+    # Hedge
     "HedgeDesignatedEvent": handle_HedgeDesignatedEvent,
     "HedgeDiscontinuedEvent": handle_HedgeDiscontinuedEvent,
     "HedgeEffectivenessTestedEvent": handle_HedgeEffectivenessTestedEvent,
     "HedgeFairValueAdjustedEvent": handle_HedgeFairValueAdjustedEvent,
-    "HierarchyChangedEvent": handle_HierarchyChangedEvent,
-    "IntangibleAssetAcquiredEvent": handle_IntangibleAssetAcquiredEvent,
-    "IntangibleAssetAmortizationPostedEvent": handle_IntangibleAssetAmortizationPostedEvent,
-    "IntangibleAssetDisposedEvent": handle_IntangibleAssetDisposedEvent,
-    "IntangibleAssetFullyAmortizedEvent": handle_IntangibleAssetFullyAmortizedEvent,
-    "IntangibleAssetImpairedEvent": handle_IntangibleAssetImpairedEvent,
-    "IntangibleAssetImpairmentReversedEvent": handle_IntangibleAssetImpairmentReversedEvent,
-    "IntangibleAssetRevaluatedEvent": handle_IntangibleAssetRevaluatedEvent,
-    "IntangibleAssetTransferredEvent": handle_IntangibleAssetTransferredEvent,
-    "IntangibleAssetUpdatedEvent": handle_IntangibleAssetUpdatedEvent,
-    "InterWarehouseTransferCreatedEvent": handle_InterWarehouseTransferCreatedEvent,
-    "InventoryValuationUpdatedEvent": handle_InventoryValuationUpdatedEvent,
-    "InvoiceApprovedEvent": handle_InvoiceApprovedEvent,
-    "InvoiceCancelledEvent": handle_InvoiceCancelledEvent,
-    "InvoiceCreatedEvent": handle_InvoiceCreatedEvent,
-    "InvoiceDisputedEvent": handle_InvoiceDisputedEvent,
-    "InvoiceIssuedEvent": handle_InvoiceIssuedEvent,
-    "InvoicePaidEvent": handle_InvoicePaidEvent,
-    "InvoicePartiallyPaidEvent": handle_InvoicePartiallyPaidEvent,
-    "InvoiceReceivedEvent": handle_InvoiceReceivedEvent,
-    "InvoiceVerifiedEvent": handle_InvoiceVerifiedEvent,
-    "InvoiceWrittenOffEvent": handle_InvoiceWrittenOffEvent,
-    "ItemCreatedEvent": handle_ItemCreatedEvent,
-    "ItemDeactivatedEvent": handle_ItemDeactivatedEvent,
-    "ItemUpdatedEvent": handle_ItemUpdatedEvent,
-    "JournalAdjustedEvent": handle_JournalAdjustedEvent,
-    "JournalApprovedEvent": handle_JournalApprovedEvent,
-    "JournalArchivedEvent": handle_JournalArchivedEvent,
-    "JournalCancelledEvent": handle_JournalCancelledEvent,
-    "JournalCreatedEvent": handle_JournalCreatedEvent,
-    "JournalPostedEvent": handle_JournalPostedEvent,
-    "JournalRejectedEvent": handle_JournalRejectedEvent,
-    "JournalReversedEvent": handle_JournalReversedEvent,
-    "JournalSubmittedEvent": handle_JournalSubmittedEvent,
-    "JournalUnarchivedEvent": handle_JournalUnarchivedEvent,
-    "JournalVoidedEvent": handle_JournalVoidedEvent,
-    "LaborPostedEvent": handle_LaborPostedEvent,
-    "LoginFailureEvent": handle_LoginFailureEvent,
-    "LoginSuccessEvent": handle_LoginSuccessEvent,
-    "MaterialIssuedEvent": handle_MaterialIssuedEvent,
-    "MeteraiUsedEvent": handle_MeteraiUsedEvent,
-    "MilestoneBilledEvent": handle_MilestoneBilledEvent,
-    "MilestoneReadyEvent": handle_MilestoneReadyEvent,
-    "OverheadAppliedEvent": handle_OverheadAppliedEvent,
-    "PKPStatusChangedEvent": handle_PKPStatusChangedEvent,
-    "PaymentAllocatedEvent": handle_PaymentAllocatedEvent,
-    "PaymentAppliedEvent": handle_PaymentAppliedEvent,
-    "PaymentApprovedEvent": handle_PaymentApprovedEvent,
-    "PaymentCancelledEvent": handle_PaymentCancelledEvent,
-    "PaymentConfirmedEvent": handle_PaymentConfirmedEvent,
-    "PaymentMadeEvent": handle_PaymentMadeEvent,
-    "PaymentProcessedEvent": handle_PaymentProcessedEvent,
-    "PaymentReceivedEvent": handle_PaymentReceivedEvent,
-    "PaymentRunExecutedEvent": handle_PaymentRunExecutedEvent,
-    "PaymentRunGeneratedEvent": handle_PaymentRunGeneratedEvent,
-    "PaymentSentEvent": handle_PaymentSentEvent,
-    "PaymentVoidedEvent": handle_PaymentVoidedEvent,
-    "PayrollRunApprovedEvent": handle_PayrollRunApprovedEvent,
-    "PayrollRunCalculatedEvent": handle_PayrollRunCalculatedEvent,
-    "PayrollRunCancelledEvent": handle_PayrollRunCancelledEvent,
-    "PayrollRunCreatedEvent": handle_PayrollRunCreatedEvent,
-    "PayrollRunPaidEvent": handle_PayrollRunPaidEvent,
-    "PayrollRunPostedEvent": handle_PayrollRunPostedEvent,
-    "PayslipGeneratedEvent": handle_PayslipGeneratedEvent,
-    "PayslipSentToEmployeeEvent": handle_PayslipSentToEmployeeEvent,
-    "PeriodClosedEvent": handle_PeriodClosedEvent,
-    "PeriodCreatedEvent": handle_PeriodCreatedEvent,
-    "PeriodLockedEvent": handle_PeriodLockedEvent,
-    "PeriodOpenedEvent": handle_PeriodOpenedEvent,
-    "PeriodReopenedEvent": handle_PeriodReopenedEvent,
-    "PeriodStatusChangedEvent": handle_PeriodStatusChangedEvent,
-    "PeriodUpdatedEvent": handle_PeriodUpdatedEvent,
-    "PermissionGrantedEvent": handle_PermissionGrantedEvent,
-    "PermissionRevokedEvent": handle_PermissionRevokedEvent,
-    "PettyCashActivatedEvent": handle_PettyCashActivatedEvent,
-    "PettyCashAdjustedEvent": handle_PettyCashAdjustedEvent,
-    "PettyCashClosedEvent": handle_PettyCashClosedEvent,
-    "PettyCashDisbursementEvent": handle_PettyCashDisbursementEvent,
-    "PettyCashReplenishedEvent": handle_PettyCashReplenishedEvent,
-    "PettyCashSuspendedEvent": handle_PettyCashSuspendedEvent,
-    "ProductionCompletedEvent": handle_ProductionCompletedEvent,
-    "ProjectActivatedEvent": handle_ProjectActivatedEvent,
-    "ProjectBillingGeneratedEvent": handle_ProjectBillingGeneratedEvent,
-    "ProjectCompletedEvent": handle_ProjectCompletedEvent,
-    "ProjectCreatedEvent": handle_ProjectCreatedEvent,
-    "PurchaseInvoiceReceivedEvent": handle_PurchaseInvoiceReceivedEvent,
-    "PurchaseOrderApprovedEvent": handle_PurchaseOrderApprovedEvent,
-    "PurchaseOrderCreatedEvent": handle_PurchaseOrderCreatedEvent,
-    "RetainedEarningsAdjustedEvent": handle_RetainedEarningsAdjustedEvent,
-    "RetainedEarningsTransferEvent": handle_RetainedEarningsTransferEvent,
-    "RetainedEarningsUpdatedEvent": handle_RetainedEarningsUpdatedEvent,
-    "RetainerContractActivatedEvent": handle_RetainerContractActivatedEvent,
-    "RevenueRecognizedEvent": handle_RevenueRecognizedEvent,
-    "RoleAssignedEvent": handle_RoleAssignedEvent,
+    "HedgeAmountReclassifiedEvent": handle_HedgeAmountReclassifiedEvent,
+    "HedgeCancelledEvent": handle_HedgeCancelledEvent,
+
+    # IAM
+    "UserCreatedEvent": handle_UserCreatedEvent,
+    "UserUpdatedEvent": handle_UserUpdatedEvent,
+    "UserActivatedEvent": handle_UserActivatedEvent,
+    "UserDeactivatedEvent": handle_UserDeactivatedEvent,
+    "UserSuspendedEvent": handle_UserSuspendedEvent,
+    "UserUnlockedEvent": handle_UserUnlockedEvent,
+    "UserPasswordChangedEvent": handle_UserPasswordChangedEvent,
+    "UserDeletedEvent": handle_UserDeletedEvent,
     "RoleCreatedEvent": handle_RoleCreatedEvent,
-    "RoleDeletedEvent": handle_RoleDeletedEvent,
-    "RoleRevokedEvent": handle_RoleRevokedEvent,
     "RoleUpdatedEvent": handle_RoleUpdatedEvent,
-    "SPTApprovedEvent": handle_SPTApprovedEvent,
-    "SPTSubmittedEvent": handle_SPTSubmittedEvent,
-    "SalaryComponentAddedEvent": handle_SalaryComponentAddedEvent,
-    "SalesInvoiceIssuedEvent": handle_SalesInvoiceIssuedEvent,
-    "SalesInvoicePaidEvent": handle_SalesInvoicePaidEvent,
-    "SalesOrderApprovedEvent": handle_SalesOrderApprovedEvent,
-    "SalesOrderCreatedEvent": handle_SalesOrderCreatedEvent,
-    "SessionCompromisedEvent": handle_SessionCompromisedEvent,
+    "RoleDeletedEvent": handle_RoleDeletedEvent,
+    "RoleAssignedEvent": handle_RoleAssignedEvent,
+    "RoleRevokedEvent": handle_RoleRevokedEvent,
     "SessionCreatedEvent": handle_SessionCreatedEvent,
     "SessionRefreshedEvent": handle_SessionRefreshedEvent,
     "SessionTerminatedEvent": handle_SessionTerminatedEvent,
-    "SettingAddedEvent": handle_SettingAddedEvent,
+    "SessionCompromisedEvent": handle_SessionCompromisedEvent,
+    "LoginSuccessEvent": handle_LoginSuccessEvent,
+    "LoginFailureEvent": handle_LoginFailureEvent,
+    "PermissionGrantedEvent": handle_PermissionGrantedEvent,
+    "PermissionRevokedEvent": handle_PermissionRevokedEvent,
+
+    # Intangible Asset
+    "IntangibleAssetAcquiredEvent": handle_IntangibleAssetAcquiredEvent,
+    "IntangibleAssetUpdatedEvent": handle_IntangibleAssetUpdatedEvent,
+    "IntangibleAssetAmortizationPostedEvent": handle_IntangibleAssetAmortizationPostedEvent,
+    "IntangibleAssetImpairedEvent": handle_IntangibleAssetImpairedEvent,
+    "IntangibleAssetImpairmentReversedEvent": handle_IntangibleAssetImpairmentReversedEvent,
+    "IntangibleAssetDisposedEvent": handle_IntangibleAssetDisposedEvent,
+    "IntangibleAssetFullyAmortizedEvent": handle_IntangibleAssetFullyAmortizedEvent,
+    "IntangibleAssetRevaluatedEvent": handle_IntangibleAssetRevaluatedEvent,
+    "IntangibleAssetTransferredEvent": handle_IntangibleAssetTransferredEvent,
+
+    # Inventory
+    "ItemCreatedEvent": handle_ItemCreatedEvent,
+    "ItemUpdatedEvent": handle_ItemUpdatedEvent,
+    "ItemDeactivatedEvent": handle_ItemDeactivatedEvent,
+    "StockMovementCreatedEvent": handle_StockMovementCreatedEvent,
+    "StockAdjustedEvent": handle_StockAdjustedEvent,
+    "StockOpnameCreatedEvent": handle_StockOpnameCreatedEvent,
+    "StockOpnameApprovedEvent": handle_StockOpnameApprovedEvent,
+    "InterWarehouseTransferCreatedEvent": handle_InterWarehouseTransferCreatedEvent,
+    "TransferCompletedEvent": handle_TransferCompletedEvent,
+    "COGSCalculatedEvent": handle_COGSCalculatedEvent,
+    "InventoryValuationUpdatedEvent": handle_InventoryValuationUpdatedEvent,
+    "StockLevelAlertEvent": handle_StockLevelAlertEvent,
+
+    # Journal
+    "JournalCreatedEvent": handle_JournalCreatedEvent,
+    "JournalSubmittedEvent": handle_JournalSubmittedEvent,
+    "JournalApprovedEvent": handle_JournalApprovedEvent,
+    "JournalRejectedEvent": handle_JournalRejectedEvent,
+    "JournalPostedEvent": handle_JournalPostedEvent,
+    "JournalReversedEvent": handle_JournalReversedEvent,
+    "JournalVoidedEvent": handle_JournalVoidedEvent,
+    "JournalAdjustedEvent": handle_JournalAdjustedEvent,
+    "JournalArchivedEvent": handle_JournalArchivedEvent,
+    "JournalUnarchivedEvent": handle_JournalUnarchivedEvent,
+    "JournalCancelledEvent": handle_JournalCancelledEvent,
+
+    # Legal Entity
+    "CompanyRegisteredEvent": handle_CompanyRegisteredEvent,
+    "CompanySuspendedEvent": handle_CompanySuspendedEvent,
+    "CompanyReactivatedEvent": handle_CompanyReactivatedEvent,
+    "CompanyDissolvedEvent": handle_CompanyDissolvedEvent,
+    "TaxProfileUpdatedEvent": handle_TaxProfileUpdatedEvent,
+    "CompanyAddressUpdatedEvent": handle_CompanyAddressUpdatedEvent,
+    "CompanyContactUpdatedEvent": handle_CompanyContactUpdatedEvent,
+    "PKPStatusChangedEvent": handle_PKPStatusChangedEvent,
+    "LegalEntityCreatedEvent": handle_LegalEntityCreatedEvent,
+    "LegalEntityUpdatedEvent": handle_LegalEntityUpdatedEvent,
+    "LegalEntityDeactivatedEvent": handle_LegalEntityDeactivatedEvent,
+
+    # Manufacturing
+    "BOMCreatedEvent": handle_BOMCreatedEvent,
+    "BOMUpdatedEvent": handle_BOMUpdatedEvent,
+    "BOMActivatedEvent": handle_BOMActivatedEvent,
+    "BOMObsoletedEvent": handle_BOMObsoletedEvent,
+    "BOMItemAddedEvent": handle_BOMItemAddedEvent,
+    "WorkOrderCreatedEvent": handle_WorkOrderCreatedEvent,
+    "WorkOrderApprovedEvent": handle_WorkOrderApprovedEvent,
+    "WorkOrderStartedEvent": handle_WorkOrderStartedEvent,
+    "WorkOrderCompletedEvent": handle_WorkOrderCompletedEvent,
+    "WorkOrderCancelledEvent": handle_WorkOrderCancelledEvent,
+    "MaterialIssuedEvent": handle_MaterialIssuedEvent,
+    "LaborPostedEvent": handle_LaborPostedEvent,
+    "OverheadAppliedEvent": handle_OverheadAppliedEvent,
+    "ProductionCompletedEvent": handle_ProductionCompletedEvent,
+    "CostCardUpdatedEvent": handle_CostCardUpdatedEvent,
+    "HPPCalculatedEvent": handle_HPPCalculatedEvent,
+    "StandardCostCreatedEvent": handle_StandardCostCreatedEvent,
+    "StandardCostActivatedEvent": handle_StandardCostActivatedEvent,
+    "VarianceAnalyzedEvent": handle_VarianceAnalyzedEvent,
+
+    # Payroll
+    "PayrollRunCreatedEvent": handle_PayrollRunCreatedEvent,
+    "PayrollRunCalculatedEvent": handle_PayrollRunCalculatedEvent,
+    "PayrollRunApprovedEvent": handle_PayrollRunApprovedEvent,
+    "PayrollRunPaidEvent": handle_PayrollRunPaidEvent,
+    "PayrollRunPostedEvent": handle_PayrollRunPostedEvent,
+    "PayrollRunCancelledEvent": handle_PayrollRunCancelledEvent,
+    "PayslipGeneratedEvent": handle_PayslipGeneratedEvent,
+    "PayslipSentToEmployeeEvent": handle_PayslipSentToEmployeeEvent,
+    "EmployeeStructureUpdatedEvent": handle_EmployeeStructureUpdatedEvent,
+    "SalaryComponentAddedEvent": handle_SalaryComponentAddedEvent,
+
+    # Project Services
+    "ProjectCreatedEvent": handle_ProjectCreatedEvent,
+    "ProjectActivatedEvent": handle_ProjectActivatedEvent,
+    "ProjectCompletedEvent": handle_ProjectCompletedEvent,
+    "RevenueRecognizedEvent": handle_RevenueRecognizedEvent,
+    "ProjectBillingGeneratedEvent": handle_ProjectBillingGeneratedEvent,
+    "MilestoneReadyEvent": handle_MilestoneReadyEvent,
+    "MilestoneBilledEvent": handle_MilestoneBilledEvent,
+    "TimeEntrySubmittedEvent": handle_TimeEntrySubmittedEvent,
+    "TimeEntryApprovedEvent": handle_TimeEntryApprovedEvent,
+    "RetainerContractActivatedEvent": handle_RetainerContractActivatedEvent,
+
+    # Purchase & Sales
+    "PurchaseOrderCreatedEvent": handle_PurchaseOrderCreatedEvent,
+    "PurchaseOrderApprovedEvent": handle_PurchaseOrderApprovedEvent,
+    "SalesOrderCreatedEvent": handle_SalesOrderCreatedEvent,
+    "SalesOrderApprovedEvent": handle_SalesOrderApprovedEvent,
+    "GoodsReceiptCreatedEvent": handle_GoodsReceiptCreatedEvent,
+    "DeliveryNoteShippedEvent": handle_DeliveryNoteShippedEvent,
+    "SalesInvoiceIssuedEvent": handle_SalesInvoiceIssuedEvent,
+    "SalesInvoicePaidEvent": handle_SalesInvoicePaidEvent,
+    "PurchaseInvoiceReceivedEvent": handle_PurchaseInvoiceReceivedEvent,
+
+    # Subledger AP
+    "InvoiceReceivedEvent": handle_InvoiceReceivedEvent,
+    "InvoiceVerifiedEvent": handle_InvoiceVerifiedEvent,
+    "InvoiceDisputedEvent": handle_InvoiceDisputedEvent,
+    "InvoiceCreatedEvent": handle_InvoiceCreatedEvent,
+    "PaymentSentEvent": handle_PaymentSentEvent,
+    "PaymentApprovedEvent": handle_PaymentApprovedEvent,
+    "PaymentProcessedEvent": handle_PaymentProcessedEvent,
+    "PaymentConfirmedEvent": handle_PaymentConfirmedEvent,
+    "PaymentCancelledEvent": handle_PaymentCancelledEvent,
+    "PaymentMadeEvent": handle_PaymentMadeEvent,
+    "PaymentAppliedEvent": handle_PaymentAppliedEvent,
+    "PaymentVoidedEvent": handle_PaymentVoidedEvent,
+    "CreditNoteReceivedEvent": handle_CreditNoteReceivedEvent,
+    "DebitNoteAppliedEvent": handle_DebitNoteAppliedEvent,
+    "DebitNoteIssuedServiceEvent": handle_DebitNoteIssuedServiceEvent,
+    "ThreeWayMatchResultEvent": handle_ThreeWayMatchResultEvent,
+    "PaymentRunGeneratedEvent": handle_PaymentRunGeneratedEvent,
+    "PaymentRunExecutedEvent": handle_PaymentRunExecutedEvent,
+
+    # Subledger AR
+    "InvoicePaidEvent": handle_InvoicePaidEvent,
+    "InvoiceCancelledEvent": handle_InvoiceCancelledEvent,
+    "InvoiceApprovedEvent": handle_InvoiceApprovedEvent,
+    "InvoiceIssuedEvent": handle_InvoiceIssuedEvent,
+    "InvoicePartiallyPaidEvent": handle_InvoicePartiallyPaidEvent,
+    "InvoiceWrittenOffEvent": handle_InvoiceWrittenOffEvent,
+    "PaymentReceivedEvent": handle_PaymentReceivedEvent,
+    "PaymentAllocatedEvent": handle_PaymentAllocatedEvent,
+    "CreditNoteIssuedEvent": handle_CreditNoteIssuedEvent,
+    "CreditNoteAppliedEvent": handle_CreditNoteAppliedEvent,
+    "DebitNoteIssuedEvent": handle_DebitNoteIssuedEvent,
+
+    # System Settings
     "SettingChangedEvent": handle_SettingChangedEvent,
-    "SettingRemovedEvent": handle_SettingRemovedEvent,
     "SettingResetEvent": handle_SettingResetEvent,
-    "SettingsBulkUpdatedEvent": handle_SettingsBulkUpdatedEvent,
+    "SettingAddedEvent": handle_SettingAddedEvent,
+    "SettingRemovedEvent": handle_SettingRemovedEvent,
     "SettingsLockedEvent": handle_SettingsLockedEvent,
     "SettingsUnlockedEvent": handle_SettingsUnlockedEvent,
-    "StandardCostActivatedEvent": handle_StandardCostActivatedEvent,
-    "StandardCostCreatedEvent": handle_StandardCostCreatedEvent,
-    "StockAdjustedEvent": handle_StockAdjustedEvent,
-    "StockLevelAlertEvent": handle_StockLevelAlertEvent,
-    "StockMovementCreatedEvent": handle_StockMovementCreatedEvent,
-    "StockOpnameApprovedEvent": handle_StockOpnameApprovedEvent,
-    "StockOpnameCreatedEvent": handle_StockOpnameCreatedEvent,
-    "SupplierCreatedEvent": handle_SupplierCreatedEvent,
-    "SupplierPaymentTermsChangedEvent": handle_SupplierPaymentTermsChangedEvent,
-    "SupplierWithholdingCategoryChangedEvent": handle_SupplierWithholdingCategoryChangedEvent,
-    "TaxCalculatedEvent": handle_TaxCalculatedEvent,
-    "TaxProfileUpdatedEvent": handle_TaxProfileUpdatedEvent,
-    "ThreeWayMatchResultEvent": handle_ThreeWayMatchResultEvent,
-    "TimeEntryApprovedEvent": handle_TimeEntryApprovedEvent,
-    "TimeEntrySubmittedEvent": handle_TimeEntrySubmittedEvent,
-    "TransactionCreatedEvent": handle_TransactionCreatedEvent,
-    "TransactionDeletedEvent": handle_TransactionDeletedEvent,
-    "TransactionRecordedEvent": handle_TransactionRecordedEvent,
-    "TransactionUpdatedEvent": handle_TransactionUpdatedEvent,
-    "TransferCompletedEvent": handle_TransferCompletedEvent,
-    "UserActivatedEvent": handle_UserActivatedEvent,
-    "UserCreatedEvent": handle_UserCreatedEvent,
-    "UserDeactivatedEvent": handle_UserDeactivatedEvent,
-    "UserDeletedEvent": handle_UserDeletedEvent,
-    "UserPasswordChangedEvent": handle_UserPasswordChangedEvent,
-    "UserSuspendedEvent": handle_UserSuspendedEvent,
-    "UserUnlockedEvent": handle_UserUnlockedEvent,
-    "UserUpdatedEvent": handle_UserUpdatedEvent,
-    "VarianceAnalyzedEvent": handle_VarianceAnalyzedEvent,
-    "WorkOrderApprovedEvent": handle_WorkOrderApprovedEvent,
-    "WorkOrderCancelledEvent": handle_WorkOrderCancelledEvent,
-    "WorkOrderCompletedEvent": handle_WorkOrderCompletedEvent,
-    "WorkOrderCreatedEvent": handle_WorkOrderCreatedEvent,
-    "WorkOrderStartedEvent": handle_WorkOrderStartedEvent,
+    "SettingsBulkUpdatedEvent": handle_SettingsBulkUpdatedEvent,
+
+    # Tax Transaction
+    "FakturSubmittedEvent": handle_FakturSubmittedEvent,
+    "FakturApprovedEvent": handle_FakturApprovedEvent,
+    "FakturRejectedEvent": handle_FakturRejectedEvent,
+    "SPTSubmittedEvent": handle_SPTSubmittedEvent,
+    "SPTApprovedEvent": handle_SPTApprovedEvent,
+    "BupotSubmittedEvent": handle_BupotSubmittedEvent,
+    "BupotApprovedEvent": handle_BupotApprovedEvent,
+    "MeteraiUsedEvent": handle_MeteraiUsedEvent,
+
+    # UMKM
+    "UMKMDomainEvent": handle_UMKMDomainEvent,
     "DomainEventType": handle_DomainEventType,
     "DomainEventPublisher": handle_DomainEventPublisher,
-    "BudgetEventType": handle_BudgetEventType,
-    "BudgetEventPublisher": handle_BudgetEventPublisher,
-    "EventStore": handle_EventStore,
-    "ConsolidationEventType": handle_ConsolidationEventType,
-    "ConsolidationEventPublisher": handle_ConsolidationEventPublisher,
+    "TransactionCreatedEvent": handle_TransactionCreatedEvent,
+    "TransactionUpdatedEvent": handle_TransactionUpdatedEvent,
+    "TransactionDeletedEvent": handle_TransactionDeletedEvent,
+    "TaxCalculatedEvent": handle_TaxCalculatedEvent,
+    "TransactionRecordedEvent": handle_TransactionRecordedEvent,
 
-
+    # Additional
+    "GoingConcernEvent": handle_GoingConcernEvent,
+    "SovereigntyEvent": handle_SovereigntyEvent,
+    "IntegrationEvent": handle_IntegrationEvent,
+    "AuditEvent": handle_AuditEvent,
+    "EconomicEvent": handle_EconomicEvent,
+    "CanonicalEvent": handle_CanonicalEvent,
+    "QueuedEvent": handle_QueuedEvent,
+    "DeadLetterEvent": handle_DeadLetterEvent,
+    "OutboxEvent": handle_OutboxEvent,
+    "LifecycleEvent": handle_LifecycleEvent,
+    "_FallbackAuditEvent": handle__FallbackAuditEvent,
+    "AdjustingEvent": handle_AdjustingEvent,
+    "AfterReportingPeriodEvent": handle_AfterReportingPeriodEvent,
+    "NonAdjustingEvent": handle_NonAdjustingEvent,
+    "ProjectionEvent": handle_ProjectionEvent,
 }
 
+# =============================================================================
+# REGISTRATION FUNCTION
+# =============================================================================
+
 def register_all_handlers(registry) -> None:
-    """Register semua event handler ke registry."""
+    """
+    Daftarkan semua handler ke registry yang diberikan.
+    Fungsi ini dipanggil oleh EventHandlerRegistry pada inisialisasi.
+    """
     for event_name, handler in ALL_HANDLERS.items():
-        registry.register_handler(event_name, handler)
-    logger.info(f"Registered {len(ALL_HANDLERS)} event handlers.")
+        try:
+            registry.register_handler(event_name, handler)
+        except Exception as e:
+            logger.error(f"Gagal mendaftarkan handler untuk {event_name}: {e}")
+
+    logger.info(f"Berhasil mendaftarkan {len(ALL_HANDLERS)} event handler.")

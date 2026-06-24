@@ -696,40 +696,64 @@ async def versioned_journal(journal_id: str, accept: str = Header(None, alias="A
 
 
 # ============================================================
-# ADAPTER ROUTERS
+# ADAPTER ROUTERS - DYNAMIC IMPORT
 # ============================================================
-try:
-    from adapters.primary_api.v1.fastapi_ap_router import router as ap_router
-    from adapters.primary_api.v1.fastapi_ar_router import router as ar_router
-    from adapters.primary_api.v1.fastapi_bank_cash_router import router as bank_cash_router
-    from adapters.primary_api.v1.fastapi_coa_router import router as coa_router
-    from adapters.primary_api.v1.fastapi_fixed_asset_router import router as fixed_asset_router
-    from adapters.primary_api.v1.fastapi_inventory_router import router as inventory_router
-    from adapters.primary_api.v1.fastapi_journal_router import router as journal_router
-    from adapters.primary_api.v1.fastapi_ledger_router import router as ledger_router
-    from adapters.primary_api.v1.fastapi_report_router import router as report_router
-    from adapters.primary_api.v1.fastapi_tax_coretax_router import router as coretax_router
+def _discover_and_register_adapter_routers(app: FastAPI) -> None:
+    """
+    Scan semua file di adapters/primary_api/v1/ yang memiliki variabel 'router'
+    dan mendaftarkannya ke aplikasi FastAPI dengan prefix /api/v1/{module_name}
+    atau dengan prefix yang ditentukan di dalam router.
+    """
+    import importlib
+    from pathlib import Path
 
-    ADAPTERS_AVAILABLE = True
-except ImportError as e:
-    ADAPTERS_AVAILABLE = False
-    logger.critical(f"Adapters not found: {e}")
-    raise
+    v1_dir = Path(__file__).parent.parent / "adapters" / "primary_api" / "v1"
+    if not v1_dir.exists():
+        logger.warning(f"Adapter directory not found: {v1_dir}")
+        return
 
+    # Daftar router yang sudah dikenali untuk prefix khusus
+    known_prefixes = {
+        "fastapi_ap_router": "/api/v1/ap",
+        "fastapi_ar_router": "/api/v1/ar",
+        "fastapi_bank_cash_router": "/api/v1/bank-cash",
+        "fastapi_coa_router": "/api/v1/coa",
+        "fastapi_fixed_asset_router": "/api/v1/fixed-assets",
+        "fastapi_inventory_router": "/api/v1/inventory",
+        "fastapi_journal_router": "/api/v1/journals",
+        "fastapi_ledger_router": "/api/v1/ledger",
+        "fastapi_report_router": "/api/v1/reports",
+        "fastapi_tax_coretax_router": "/api/v1/tax/coretax",
+    }
 
-def _register_v1_routers(app: FastAPI) -> None:
-    if not ADAPTERS_AVAILABLE:
-        raise RuntimeError("Adapters are required but not available")
-    app.include_router(journal_router, prefix="/api/v1/journals", tags=["Journal"])
-    app.include_router(ledger_router, prefix="/api/v1/ledger", tags=["Ledger"])
-    app.include_router(coa_router, prefix="/api/v1/coa", tags=["Chart of Accounts"])
-    app.include_router(ap_router, prefix="/api/v1/ap", tags=["Accounts Payable"])
-    app.include_router(ar_router, prefix="/api/v1/ar", tags=["Accounts Receivable"])
-    app.include_router(bank_cash_router, prefix="/api/v1/bank-cash", tags=["Bank & Cash"])
-    app.include_router(fixed_asset_router, prefix="/api/v1/fixed-assets", tags=["Fixed Assets"])
-    app.include_router(inventory_router, prefix="/api/v1/inventory", tags=["Inventory"])
-    app.include_router(coretax_router, prefix="/api/v1/tax/coretax", tags=["Tax / Coretax DJP"])
-    app.include_router(report_router, prefix="/api/v1/reports", tags=["Reports"])
+    # Coba scan semua file .py di direktori
+    for file_path in v1_dir.glob("fastapi_*.py"):
+        if file_path.name == "__init__.py":
+            continue
+        module_name = file_path.stem
+        # Skip jika module_name adalah "fastapi_router" atau "fastapi_common"
+        if module_name in ("fastapi_router", "fastapi_common"):
+            continue
+        try:
+            # Import module
+            module = importlib.import_module(f"adapters.primary_api.v1.{module_name}")
+            router = getattr(module, "router", None)
+            if router is None or not isinstance(router, APIRouter):
+                continue
+
+            # Tentukan prefix
+            if module_name in known_prefixes:
+                prefix = known_prefixes[module_name]
+            else:
+                # Gunakan nama modul sebagai prefix, tanpa 'fastapi_' dan '_router'
+                prefix_name = module_name.replace("fastapi_", "").replace("_router", "").replace("_", "-")
+                prefix = f"/api/v1/{prefix_name}"
+
+            # Daftarkan router
+            app.include_router(router, prefix=prefix, tags=[prefix_name.capitalize()])
+            logger.info(f"Registered router: {module_name} @ {prefix}")
+        except Exception as e:
+            logger.warning(f"Failed to load router from {module_name}: {e}")
 
 
 # ============================================================
@@ -785,7 +809,11 @@ def create_app() -> FastAPI:
     _app.include_router(_v1_router)
     _app.include_router(_v2_router)
     _app.include_router(_unversioned_router)
-    _register_v1_routers(_app)
+
+    # ============================================================
+    # DAFTARKAN SEMUA ADAPTER ROUTER SECARA DINAMIS
+    # ============================================================
+    _discover_and_register_adapter_routers(_app)
 
     try:
         FastAPIInstrumentor.instrument_app(_app)

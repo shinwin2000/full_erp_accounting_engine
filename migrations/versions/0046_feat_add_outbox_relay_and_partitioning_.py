@@ -1431,7 +1431,7 @@ def upgrade() -> None:
     op.drop_column('coretax_emeterai', 'legal_entity_id')
     op.drop_column('coretax_emeterai', 'document_reference')
     op.drop_column('coretax_emeterai', 'purchased_at')
-    op.add_column('coretax_faktur', sa.Column('nsfp_used', sa.String(length=20), nullable=True))
+    #op.add_column('coretax_faktur', sa.Column('nsfp_used', sa.String(length=20), nullable=True))
     op.alter_column('coretax_faktur', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1490,11 +1490,11 @@ def upgrade() -> None:
                existing_type=sa.INTEGER(),
                server_default=None,
                existing_nullable=False)
-    op.drop_constraint('coretax_faktur_faktur_number_key', 'coretax_faktur', type_='unique')
-    op.drop_index('ix_coretax_faktur_date', table_name='coretax_faktur')
-    op.drop_index('ix_coretax_faktur_legal_entity', table_name='coretax_faktur')
-    op.drop_index('ix_coretax_faktur_number', table_name='coretax_faktur')
-    op.drop_index('ix_coretax_faktur_status', table_name='coretax_faktur')
+    #op.drop_constraint('coretax_faktur_faktur_number_key', 'coretax_faktur', type_='unique')
+    #op.drop_index('ix_coretax_faktur_date', table_name='coretax_faktur')
+    #op.drop_index('ix_coretax_faktur_legal_entity', table_name='coretax_faktur')
+    #op.drop_index('ix_coretax_faktur_number', table_name='coretax_faktur')
+    #op.drop_index('ix_coretax_faktur_status', table_name='coretax_faktur')
     op.create_index('idx_cf_faktur_date', 'coretax_faktur', ['faktur_date'], unique=False)
     op.create_index('idx_cf_faktur_number', 'coretax_faktur', ['faktur_number'], unique=False)
     op.create_index('idx_cf_legal_entity', 'coretax_faktur', ['legal_entity_id'], unique=False)
@@ -1504,20 +1504,20 @@ def upgrade() -> None:
     op.create_index('idx_cf_status', 'coretax_faktur', ['status'], unique=False)
     op.create_index(op.f('ix_coretax_faktur_legal_entity_id'), 'coretax_faktur', ['legal_entity_id'], unique=False)
     op.create_unique_constraint('uq_coretax_faktur_number', 'coretax_faktur', ['faktur_number'])
-    op.drop_column('coretax_faktur', 'is_deleted')
-    op.drop_column('coretax_faktur', 'submitted_at')
-    op.drop_column('coretax_faktur', 'tarif_ppn')
-    op.drop_column('coretax_faktur', 'hash_link')
-    op.drop_column('coretax_faktur', 'source_document_type')
-    op.drop_column('coretax_faktur', 'approved_at')
-    op.drop_column('coretax_faktur', 'counterparty_name')
-    op.drop_column('coretax_faktur', 'ppn_total')
-    op.drop_column('coretax_faktur', 'ppnbm_total')
-    op.drop_column('coretax_faktur', 'updated_by')
-    op.drop_column('coretax_faktur', 'dpp_total')
-    op.drop_column('coretax_faktur', 'source_document_id')
-    op.drop_column('coretax_faktur', 'voided_at')
-    op.drop_column('coretax_faktur', 'counterparty_npwp')
+    #op.drop_column('coretax_faktur', 'is_deleted')
+    #op.drop_column('coretax_faktur', 'submitted_at')
+    #op.drop_column('coretax_faktur', 'tarif_ppn')
+    #op.drop_column('coretax_faktur', 'hash_link')
+    #op.drop_column('coretax_faktur', 'source_document_type')
+    #op.drop_column('coretax_faktur', 'approved_at')
+    #op.drop_column('coretax_faktur', 'counterparty_name')
+    #op.drop_column('coretax_faktur', 'ppn_total')
+    #op.drop_column('coretax_faktur', 'ppnbm_total')
+    #op.drop_column('coretax_faktur', 'updated_by')
+    #op.drop_column('coretax_faktur', 'dpp_total')
+    #op.drop_column('coretax_faktur', 'source_document_id')
+    #op.drop_column('coretax_faktur', 'voided_at')
+    #op.drop_column('coretax_faktur', 'counterparty_npwp')
     op.alter_column('coretax_faktur_keluaran', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -3184,8 +3184,8 @@ def upgrade() -> None:
     op.drop_column('hedge_effectiveness_test', 'is_effective')
     op.drop_column('hedge_effectiveness_test', 'effectiveness_ratio')
     op.drop_column('hedge_effectiveness_test', 'test_details')
-    op.add_column('hedge_instrument', sa.Column('start_date', sa.Date(), nullable=False))
-    op.add_column('hedge_instrument', sa.Column('fair_value', sa.Numeric(precision=20, scale=2), nullable=False))
+    #op.add_column('hedge_instrument', sa.Column('start_date', sa.Date(), nullable=False))
+    #op.add_column('hedge_instrument', sa.Column('fair_value', sa.Numeric(precision=20, scale=2), nullable=False))
     op.alter_column('hedge_instrument', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -3211,26 +3211,26 @@ def upgrade() -> None:
                existing_type=sa.INTEGER(),
                server_default=None,
                existing_nullable=False)
-    op.drop_constraint('hedge_instrument_instrument_code_key', 'hedge_instrument', type_='unique')
-    op.drop_index('ix_hedge_instrument_code', table_name='hedge_instrument')
-    op.drop_index('ix_hedge_instrument_counterparty', table_name='hedge_instrument')
-    op.drop_index('ix_hedge_instrument_legal_entity', table_name='hedge_instrument')
+    #op.drop_constraint('hedge_instrument_instrument_code_key', 'hedge_instrument', type_='unique')
+    #op.drop_index('ix_hedge_instrument_code', table_name='hedge_instrument')
+    #op.drop_index('ix_hedge_instrument_counterparty', table_name='hedge_instrument')
+    #op.drop_index('ix_hedge_instrument_legal_entity', table_name='hedge_instrument')
     op.create_index('idx_hedge_instrument_code', 'hedge_instrument', ['instrument_code', 'legal_entity_id'], unique=True)
     op.create_index('idx_hedge_instrument_maturity', 'hedge_instrument', ['maturity_date'], unique=False)
     op.create_index('idx_hedge_instrument_status', 'hedge_instrument', ['status'], unique=False)
     op.create_index('idx_hedge_instrument_type', 'hedge_instrument', ['instrument_type'], unique=False)
     op.create_index(op.f('ix_hedge_instrument_legal_entity_id'), 'hedge_instrument', ['legal_entity_id'], unique=False)
-    op.drop_column('hedge_instrument', 'is_designated_hedge')
-    op.drop_column('hedge_instrument', 'premium_paid')
-    op.drop_column('hedge_instrument', 'settlement_date')
-    op.drop_column('hedge_instrument', 'valuation_method')
-    op.drop_column('hedge_instrument', 'hedging_relationship_id')
-    op.drop_column('hedge_instrument', 'updated_by')
-    op.drop_column('hedge_instrument', 'currency_code')
-    op.drop_column('hedge_instrument', 'counterparty_id')
-    op.drop_column('hedge_instrument', 'underlying_asset')
-    op.drop_column('hedge_instrument', 'fair_value_at_reporting')
-    op.drop_column('hedge_instrument', 'strike_price')
+    #op.drop_column('hedge_instrument', 'is_designated_hedge')
+    #op.drop_column('hedge_instrument', 'premium_paid')
+    #op.drop_column('hedge_instrument', 'settlement_date')
+    #op.drop_column('hedge_instrument', 'valuation_method')
+    #op.drop_column('hedge_instrument', 'hedging_relationship_id')
+    #op.drop_column('hedge_instrument', 'updated_by')
+    #op.drop_column('hedge_instrument', 'currency_code')
+    #op.drop_column('hedge_instrument', 'counterparty_id')
+    #op.drop_column('hedge_instrument', 'underlying_asset')
+    #op.drop_column('hedge_instrument', 'fair_value_at_reporting')
+    #op.drop_column('hedge_instrument', 'strike_price')
     op.alter_column('hedged_item', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -3345,9 +3345,9 @@ def upgrade() -> None:
                existing_type=postgresql.TIMESTAMP(timezone=True),
                server_default=None,
                nullable=True)
-    op.drop_index('idx_iam_login_attempt_attempted_at', table_name='iam_login_attempt')
-    op.drop_index('idx_iam_login_attempt_success', table_name='iam_login_attempt')
-    op.drop_index('idx_iam_login_attempt_username', table_name='iam_login_attempt')
+    #op.drop_index('idx_iam_login_attempt_attempted_at', table_name='iam_login_attempt')
+    #op.drop_index('idx_iam_login_attempt_success', table_name='iam_login_attempt')
+    #op.drop_index('idx_iam_login_attempt_username', table_name='iam_login_attempt')
     op.execute("CREATE INDEX IF NOT EXISTS idx_login_attempt_success ON iam_login_attempt (success)")
     op.execute("CREATE INDEX IF NOT EXISTS idx_login_attempt_username ON iam_login_attempt (username)")
     op.alter_column('iam_permission', 'id',
@@ -4353,7 +4353,7 @@ def upgrade() -> None:
     op.drop_column('outbox', 'kafka_partition')
     op.drop_column('outbox', 'event_version')
     op.drop_column('outbox', 'kafka_key')
-    op.drop_column('outbox', 'extra_metadata')
+    #op.drop_column('outbox', 'extra_metadata')
     op.drop_column('outbox', 'last_attempt_at')
     op.drop_column('outbox', 'locked_until')
     op.drop_column('outbox', 'kafka_topic')
@@ -7067,8 +7067,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_umkm_profile_legal_entity_id'), 'umkm_profile', ['legal_entity_id'], unique=False)
     op.drop_column('umkm_profile', 'uses_simplified_journal')
     op.drop_column('umkm_profile', 'annual_turnover')
-    op.add_column('umkm_transaction', sa.Column('transaction_type', sa.String(length=20), nullable=False))
-    op.add_column('umkm_transaction', sa.Column('category', sa.String(length=100), nullable=True))
+    #op.add_column('umkm_transaction', sa.Column('transaction_type', sa.String(length=20), nullable=False))
+    #op.add_column('umkm_transaction', sa.Column('category', sa.String(length=100), nullable=True))
     op.alter_column('umkm_transaction', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -7097,22 +7097,22 @@ def upgrade() -> None:
                existing_type=postgresql.TIMESTAMP(timezone=True),
                server_default=None,
                nullable=True)
-    op.drop_index('ix_umkm_transaction_date', table_name='umkm_transaction')
-    op.drop_index('ix_umkm_transaction_legal_entity', table_name='umkm_transaction')
+    #op.drop_index('ix_umkm_transaction_date', table_name='umkm_transaction')
+    #op.drop_index('ix_umkm_transaction_legal_entity', table_name='umkm_transaction')
     op.create_index('idx_umkm_tx_date', 'umkm_transaction', ['transaction_date'], unique=False)
     op.create_index('idx_umkm_tx_profile', 'umkm_transaction', ['profile_id'], unique=False)
     op.create_index('idx_umkm_tx_status', 'umkm_transaction', ['status'], unique=False)
     op.create_index('idx_umkm_tx_type', 'umkm_transaction', ['transaction_type'], unique=False)
     op.create_index(op.f('ix_umkm_transaction_profile_id'), 'umkm_transaction', ['profile_id'], unique=False)
     op.create_unique_constraint(None, 'umkm_transaction', ['transaction_number'])
-    op.drop_constraint('fk_umkm_transaction_legal_entity', 'umkm_transaction', type_='foreignkey')
-    op.drop_column('umkm_transaction', 'version')
-    op.drop_column('umkm_transaction', 'credit_account_code')
-    op.drop_column('umkm_transaction', 'debit_account_code')
-    op.drop_column('umkm_transaction', 'updated_by')
-    op.drop_column('umkm_transaction', 'legal_entity_id')
-    op.drop_column('umkm_transaction', 'attachment_url')
-    op.drop_column('umkm_transaction', 'tax_id')
+    #op.drop_constraint('fk_umkm_transaction_legal_entity', 'umkm_transaction', type_='foreignkey')
+    #op.drop_column('umkm_transaction', 'version')
+    #op.drop_column('umkm_transaction', 'credit_account_code')
+    #op.drop_column('umkm_transaction', 'debit_account_code')
+    #op.drop_column('umkm_transaction', 'updated_by')
+    #op.drop_column('umkm_transaction', 'legal_entity_id')
+    #op.drop_column('umkm_transaction', 'attachment_url')
+    #op.drop_column('umkm_transaction', 'tax_id')
     op.alter_column('warehouse', 'id',
                existing_type=sa.UUID(),
                server_default=None,

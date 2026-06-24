@@ -1,8 +1,8 @@
-﻿"""feat_add_outbox_relay_and_partitioning_tables
+"""feat_add_outbox_relay_and_partitioning_tables
 
-Revision ID: 073f73f3e2ed
-Revises: bbe2abbbfed8
-Create Date: 2026-06-23 18:46:03.406473
+Revision ID: 0046
+Revises: 0045abcd
+Create Date: 2026-06-23 20:12:19.191833
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '073f73f3e2ed'
-down_revision: Union[str, None] = None
+revision: str = '0046'
+down_revision: Union[str, None] = '0045abcd'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -142,8 +142,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_aml_risk_score_legal_entity_id'), 'aml_risk_score', ['legal_entity_id'], unique=False)
     op.create_unique_constraint('uq_aml_risk_customer_legal', 'aml_risk_score', ['customer_id', 'legal_entity_id'])
     op.create_foreign_key(None, 'aml_risk_score', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.drop_column('aml_risk_score', 'supplier_id')
     op.drop_column('aml_risk_score', 'risk_level')
+    op.drop_column('aml_risk_score', 'supplier_id')
     op.alter_column('aml_suspicious_transaction', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -211,9 +211,9 @@ def upgrade() -> None:
     op.create_index(op.f('ix_aml_suspicious_transaction_legal_entity_id'), 'aml_suspicious_transaction', ['legal_entity_id'], unique=False)
     op.create_index(op.f('ix_aml_suspicious_transaction_transaction_id'), 'aml_suspicious_transaction', ['transaction_id'], unique=False)
     op.create_foreign_key(None, 'aml_suspicious_transaction', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.drop_column('aml_suspicious_transaction', 'review_status')
-    op.drop_column('aml_suspicious_transaction', 'reason')
     op.drop_column('aml_suspicious_transaction', 'amount')
+    op.drop_column('aml_suspicious_transaction', 'reason')
+    op.drop_column('aml_suspicious_transaction', 'review_status')
     op.alter_column('amortization_schedule', 'period_date',
                existing_type=sa.DATE(),
                nullable=False)
@@ -251,16 +251,16 @@ def upgrade() -> None:
     op.create_index(op.f('ix_amortization_schedule_asset_id'), 'amortization_schedule', ['asset_id'], unique=False)
     op.create_index(op.f('ix_amortization_schedule_status'), 'amortization_schedule', ['status'], unique=False)
     op.drop_constraint('fk_amortization_schedule_legal_entity', 'amortization_schedule', type_='foreignkey')
-    op.drop_column('amortization_schedule', 'posted_at')
-    op.drop_column('amortization_schedule', 'legal_entity_id')
     op.drop_column('amortization_schedule', 'version')
-    op.drop_column('amortization_schedule', 'created_by')
+    op.drop_column('amortization_schedule', 'posted_at')
     op.drop_column('amortization_schedule', 'month')
-    op.drop_column('amortization_schedule', 'accumulated_amortization')
-    op.drop_column('amortization_schedule', 'net_book_value')
     op.drop_column('amortization_schedule', 'period')
     op.drop_column('amortization_schedule', 'amortization_amount')
+    op.drop_column('amortization_schedule', 'net_book_value')
+    op.drop_column('amortization_schedule', 'legal_entity_id')
+    op.drop_column('amortization_schedule', 'accumulated_amortization')
     op.drop_column('amortization_schedule', 'deleted_at')
+    op.drop_column('amortization_schedule', 'created_by')
     op.alter_column('ap_credit_note', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -278,9 +278,9 @@ def upgrade() -> None:
                server_default=None,
                existing_nullable=False)
     op.create_index(op.f('ix_ap_credit_note_legal_entity_id'), 'ap_credit_note', ['legal_entity_id'], unique=False)
-    op.drop_constraint('fk_ap_credit_note_invoice', 'ap_credit_note', type_='foreignkey')
-    op.drop_constraint('fk_ap_credit_note_applied_by', 'ap_credit_note', type_='foreignkey')
     op.drop_constraint('fk_ap_credit_note_legal_entity', 'ap_credit_note', type_='foreignkey')
+    op.drop_constraint('fk_ap_credit_note_applied_by', 'ap_credit_note', type_='foreignkey')
+    op.drop_constraint('fk_ap_credit_note_invoice', 'ap_credit_note', type_='foreignkey')
     op.create_foreign_key(None, 'ap_credit_note', 'ap_invoice', ['invoice_id'], ['id'], ondelete='RESTRICT')
     op.create_foreign_key(None, 'ap_credit_note', 'legal_entity', ['legal_entity_id'], ['id'])
     op.alter_column('ap_invoice', 'id',
@@ -320,13 +320,13 @@ def upgrade() -> None:
                server_default=None,
                existing_nullable=False)
     op.create_index(op.f('ix_ap_invoice_legal_entity_id'), 'ap_invoice', ['legal_entity_id'], unique=False)
-    op.drop_constraint('fk_ap_invoice_vendor', 'ap_invoice', type_='foreignkey')
     op.drop_constraint('fk_ap_invoice_legal_entity', 'ap_invoice', type_='foreignkey')
+    op.drop_constraint('fk_ap_invoice_vendor', 'ap_invoice', type_='foreignkey')
     op.drop_constraint('fk_ap_invoice_approved_by', 'ap_invoice', type_='foreignkey')
-    op.create_foreign_key(None, 'ap_invoice', 'supplier', ['vendor_id'], ['id'], ondelete='RESTRICT')
-    op.create_foreign_key(None, 'ap_invoice', 'goods_receipt_note', ['goods_receipt_note_id'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key(None, 'ap_invoice', 'purchase_order', ['purchase_order_id'], ['id'], ondelete='SET NULL')
     op.create_foreign_key(None, 'ap_invoice', 'legal_entity', ['legal_entity_id'], ['id'])
+    op.create_foreign_key(None, 'ap_invoice', 'goods_receipt_note', ['goods_receipt_note_id'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key(None, 'ap_invoice', 'supplier', ['vendor_id'], ['id'], ondelete='RESTRICT')
+    op.create_foreign_key(None, 'ap_invoice', 'purchase_order', ['purchase_order_id'], ['id'], ondelete='SET NULL')
     op.alter_column('ap_invoice_line', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -365,13 +365,13 @@ def upgrade() -> None:
     op.create_index('idx_ap_invoice_line_account', 'ap_invoice_line', ['account_code'], unique=False)
     op.create_index(op.f('ix_ap_invoice_line_invoice_id'), 'ap_invoice_line', ['invoice_id'], unique=False)
     op.drop_constraint('fk_ap_invoice_line_legal_entity', 'ap_invoice_line', type_='foreignkey')
+    op.drop_column('ap_invoice_line', 'version')
+    op.drop_column('ap_invoice_line', 'goods_receipt_line_id')
     op.drop_column('ap_invoice_line', 'currency')
     op.drop_column('ap_invoice_line', 'legal_entity_id')
-    op.drop_column('ap_invoice_line', 'purchase_order_line_id')
-    op.drop_column('ap_invoice_line', 'goods_receipt_line_id')
-    op.drop_column('ap_invoice_line', 'version')
-    op.drop_column('ap_invoice_line', 'deleted_at')
     op.drop_column('ap_invoice_line', 'discount_percent')
+    op.drop_column('ap_invoice_line', 'purchase_order_line_id')
+    op.drop_column('ap_invoice_line', 'deleted_at')
     op.alter_column('ap_payment', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -401,16 +401,16 @@ def upgrade() -> None:
     op.drop_index('idx_ap_payment_reference', table_name='ap_payment')
     op.create_index('idx_ap_payment_legal_entity', 'ap_payment', ['legal_entity_id'], unique=False)
     op.create_index(op.f('ix_ap_payment_legal_entity_id'), 'ap_payment', ['legal_entity_id'], unique=False)
-    op.drop_constraint('fk_ap_payment_supplier', 'ap_payment', type_='foreignkey')
+    op.drop_constraint('fk_ap_payment_legal_entity', 'ap_payment', type_='foreignkey')
     op.drop_constraint('fk_ap_payment_invoice', 'ap_payment', type_='foreignkey')
     op.drop_constraint('fk_ap_payment_bank_account', 'ap_payment', type_='foreignkey')
-    op.drop_constraint('fk_ap_payment_legal_entity', 'ap_payment', type_='foreignkey')
-    op.create_foreign_key(None, 'ap_payment', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.create_foreign_key(None, 'ap_payment', 'supplier', ['supplier_id'], ['id'], ondelete='RESTRICT')
+    op.drop_constraint('fk_ap_payment_supplier', 'ap_payment', type_='foreignkey')
     op.create_foreign_key(None, 'ap_payment', 'ap_invoice', ['invoice_id'], ['id'], ondelete='RESTRICT')
-    op.drop_column('ap_payment', 'bank_account_id')
-    op.drop_column('ap_payment', 'notes')
+    op.create_foreign_key(None, 'ap_payment', 'supplier', ['supplier_id'], ['id'], ondelete='RESTRICT')
+    op.create_foreign_key(None, 'ap_payment', 'legal_entity', ['legal_entity_id'], ['id'])
     op.drop_column('ap_payment', 'amount')
+    op.drop_column('ap_payment', 'notes')
+    op.drop_column('ap_payment', 'bank_account_id')
     op.alter_column('approval_request', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -456,12 +456,12 @@ def upgrade() -> None:
     op.create_index('idx_approval_status', 'approval_request', ['status'], unique=False)
     op.create_index(op.f('ix_approval_request_legal_entity_id'), 'approval_request', ['legal_entity_id'], unique=False)
     op.create_unique_constraint('uq_approval_request_number_legal_entity', 'approval_request', ['request_number', 'legal_entity_id'])
-    op.drop_column('approval_request', 'rejection_reason')
-    op.drop_column('approval_request', 'request_data')
-    op.drop_column('approval_request', 'submitted_by')
     op.drop_column('approval_request', 'submitted_at')
-    op.drop_column('approval_request', 'request_type')
+    op.drop_column('approval_request', 'request_data')
+    op.drop_column('approval_request', 'rejection_reason')
+    op.drop_column('approval_request', 'submitted_by')
     op.drop_column('approval_request', 'updated_by')
+    op.drop_column('approval_request', 'request_type')
     op.alter_column('approval_rule', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -518,8 +518,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_approval_rule_legal_entity_id'), 'approval_rule', ['legal_entity_id'], unique=False)
     op.create_unique_constraint('uq_approval_rule_code_legal_entity', 'approval_rule', ['rule_code', 'legal_entity_id'])
     op.create_foreign_key(None, 'approval_rule', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.drop_column('approval_rule', 'requires_second_approval')
     op.drop_column('approval_rule', 'approver_role_ids')
+    op.drop_column('approval_rule', 'requires_second_approval')
     op.alter_column('ar_credit_note', 'currency',
                existing_type=sa.VARCHAR(length=3),
                server_default=None,
@@ -544,10 +544,10 @@ def upgrade() -> None:
     op.drop_constraint('fk_ar_credit_note_legal_entity', 'ar_credit_note', type_='foreignkey')
     op.drop_constraint('fk_ar_credit_note_invoice', 'ar_credit_note', type_='foreignkey')
     op.drop_constraint('fk_ar_credit_note_applied_by', 'ar_credit_note', type_='foreignkey')
-    op.create_foreign_key(None, 'ar_credit_note', 'ar_invoice', ['invoice_id'], ['id'], ondelete='RESTRICT')
     op.create_foreign_key(None, 'ar_credit_note', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.drop_column('ar_credit_note', 'reference_number')
+    op.create_foreign_key(None, 'ar_credit_note', 'ar_invoice', ['invoice_id'], ['id'], ondelete='RESTRICT')
     op.drop_column('ar_credit_note', 'reason')
+    op.drop_column('ar_credit_note', 'reference_number')
     op.alter_column('ar_invoice', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -581,8 +581,8 @@ def upgrade() -> None:
                server_default=None,
                existing_nullable=False)
     op.create_index(op.f('ix_ar_invoice_legal_entity_id'), 'ar_invoice', ['legal_entity_id'], unique=False)
-    op.drop_constraint('fk_ar_invoice_approved_by', 'ar_invoice', type_='foreignkey')
     op.drop_constraint('fk_ar_invoice_customer', 'ar_invoice', type_='foreignkey')
+    op.drop_constraint('fk_ar_invoice_approved_by', 'ar_invoice', type_='foreignkey')
     op.drop_constraint('fk_ar_invoice_legal_entity', 'ar_invoice', type_='foreignkey')
     op.create_foreign_key(None, 'ar_invoice', 'legal_entity', ['legal_entity_id'], ['id'])
     op.create_foreign_key(None, 'ar_invoice', 'customer', ['customer_id'], ['id'], ondelete='RESTRICT')
@@ -624,10 +624,10 @@ def upgrade() -> None:
                existing_nullable=False)
     op.drop_index('idx_ar_invoice_line_number', table_name='ar_invoice_line')
     op.drop_constraint('fk_ar_invoice_line_legal_entity', 'ar_invoice_line', type_='foreignkey')
-    op.drop_column('ar_invoice_line', 'tax_amount')
-    op.drop_column('ar_invoice_line', 'version')
     op.drop_column('ar_invoice_line', 'legal_entity_id')
+    op.drop_column('ar_invoice_line', 'version')
     op.drop_column('ar_invoice_line', 'deleted_at')
+    op.drop_column('ar_invoice_line', 'tax_amount')
     op.alter_column('ar_payment', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -652,9 +652,9 @@ def upgrade() -> None:
     op.drop_index('idx_ar_payment_reference', table_name='ar_payment')
     op.create_index('idx_ar_payment_legal_entity', 'ar_payment', ['legal_entity_id'], unique=False)
     op.create_index(op.f('ix_ar_payment_legal_entity_id'), 'ar_payment', ['legal_entity_id'], unique=False)
-    op.drop_constraint('fk_ar_payment_bank_account', 'ar_payment', type_='foreignkey')
     op.drop_constraint('fk_ar_payment_legal_entity', 'ar_payment', type_='foreignkey')
     op.drop_constraint('fk_ar_payment_customer', 'ar_payment', type_='foreignkey')
+    op.drop_constraint('fk_ar_payment_bank_account', 'ar_payment', type_='foreignkey')
     op.create_foreign_key(None, 'ar_payment', 'legal_entity', ['legal_entity_id'], ['id'])
     op.drop_column('ar_payment', 'customer_id')
     op.drop_column('ar_payment', 'bank_account_id')
@@ -686,11 +686,11 @@ def upgrade() -> None:
     op.create_index('idx_asset_cat_legal_entity', 'asset_categories', ['legal_entity_id'], unique=False)
     op.create_unique_constraint(None, 'asset_categories', ['code'])
     op.drop_column('asset_categories', 'category_code')
-    op.drop_column('asset_categories', 'useful_life_years')
     op.drop_column('asset_categories', 'updated_by')
-    op.drop_column('asset_categories', 'depreciation_method')
     op.drop_column('asset_categories', 'category_name')
     op.drop_column('asset_categories', 'salvage_value_percent')
+    op.drop_column('asset_categories', 'useful_life_years')
+    op.drop_column('asset_categories', 'depreciation_method')
     op.alter_column('asset_category', 'category_code',
                existing_type=sa.VARCHAR(length=30),
                type_=sa.String(length=255),
@@ -868,10 +868,10 @@ def upgrade() -> None:
     op.create_index('idx_bank_recon_item_transaction', 'bank_reconciliation_items', ['transaction_id'], unique=False)
     op.create_index('idx_bank_recon_item_type', 'bank_reconciliation_items', ['item_type'], unique=False)
     op.create_foreign_key(None, 'bank_reconciliation_items', 'bank_reconciliations', ['reconciliation_id'], ['id'], ondelete='CASCADE')
-    op.drop_column('bank_reconciliation_items', 'statement_line_id')
-    op.drop_column('bank_reconciliation_items', 'match_status')
-    op.drop_column('bank_reconciliation_items', 'created_by')
     op.drop_column('bank_reconciliation_items', 'bank_transaction_id')
+    op.drop_column('bank_reconciliation_items', 'statement_line_id')
+    op.drop_column('bank_reconciliation_items', 'created_by')
+    op.drop_column('bank_reconciliation_items', 'match_status')
     op.alter_column('bank_reconciliations', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -907,10 +907,10 @@ def upgrade() -> None:
     op.create_index('idx_bank_recon_status', 'bank_reconciliations', ['status'], unique=False)
     op.create_foreign_key(None, 'bank_reconciliations', 'bank_account', ['bank_account_id'], ['id'])
     op.drop_column('bank_reconciliations', 'statement_balance')
-    op.drop_column('bank_reconciliations', 'is_reconciled')
-    op.drop_column('bank_reconciliations', 'book_balance')
     op.drop_column('bank_reconciliations', 'reconciliation_date')
+    op.drop_column('bank_reconciliations', 'book_balance')
     op.drop_column('bank_reconciliations', 'updated_by')
+    op.drop_column('bank_reconciliations', 'is_reconciled')
     op.alter_column('bank_transaction', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -928,10 +928,10 @@ def upgrade() -> None:
                server_default=None,
                existing_nullable=False)
     op.create_index(op.f('ix_bank_transaction_legal_entity_id'), 'bank_transaction', ['legal_entity_id'], unique=False)
-    op.drop_constraint('fk_bank_tx_legal_entity', 'bank_transaction', type_='foreignkey')
     op.drop_constraint('fk_bank_tx_account', 'bank_transaction', type_='foreignkey')
-    op.create_foreign_key(None, 'bank_transaction', 'legal_entity', ['legal_entity_id'], ['id'])
+    op.drop_constraint('fk_bank_tx_legal_entity', 'bank_transaction', type_='foreignkey')
     op.create_foreign_key(None, 'bank_transaction', 'bank_account', ['bank_account_id'], ['id'])
+    op.create_foreign_key(None, 'bank_transaction', 'legal_entity', ['legal_entity_id'], ['id'])
     op.drop_column('bank_transaction', 'is_reconciled')
     op.alter_column('bill_of_materials', 'id',
                existing_type=sa.UUID(),
@@ -998,10 +998,10 @@ def upgrade() -> None:
     op.drop_constraint('fk_bom_line_legal_entity', 'bill_of_materials_line', type_='foreignkey')
     op.drop_constraint('fk_bom_line_component', 'bill_of_materials_line', type_='foreignkey')
     op.create_foreign_key(None, 'bill_of_materials_line', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.drop_column('bill_of_materials_line', 'scrap_percent')
-    op.drop_column('bill_of_materials_line', 'component_code')
     op.drop_column('bill_of_materials_line', 'component_item_id')
+    op.drop_column('bill_of_materials_line', 'scrap_percent')
     op.drop_column('bill_of_materials_line', 'component_name')
+    op.drop_column('bill_of_materials_line', 'component_code')
     op.alter_column('budget', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1104,13 +1104,13 @@ def upgrade() -> None:
     op.create_foreign_key(None, 'budget_actual', 'budget', ['budget_id'], ['id'], ondelete='RESTRICT')
     op.create_foreign_key(None, 'budget_actual', 'legal_entity', ['legal_entity_id'], ['id'])
     op.drop_column('budget_actual', 'variance')
-    op.drop_column('budget_actual', 'fiscal_year')
-    op.drop_column('budget_actual', 'budget_amount')
-    op.drop_column('budget_actual', 'account_id')
-    op.drop_column('budget_actual', 'variance_percent')
-    op.drop_column('budget_actual', 'period')
     op.drop_column('budget_actual', 'actual_amount')
     op.drop_column('budget_actual', 'last_updated_at')
+    op.drop_column('budget_actual', 'variance_percent')
+    op.drop_column('budget_actual', 'period')
+    op.drop_column('budget_actual', 'budget_amount')
+    op.drop_column('budget_actual', 'account_id')
+    op.drop_column('budget_actual', 'fiscal_year')
     op.alter_column('capital_contribution', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1148,8 +1148,8 @@ def upgrade() -> None:
                existing_type=sa.UUID(),
                nullable=True)
     op.create_unique_constraint(None, 'capital_contribution', ['contribution_number'])
-    op.drop_column('capital_contribution', 'currency_code')
     op.drop_column('capital_contribution', 'journal_id')
+    op.drop_column('capital_contribution', 'currency_code')
     op.alter_column('cash_book', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1198,10 +1198,10 @@ def upgrade() -> None:
                nullable=False)
     op.drop_index('ix_company_entity_legal_entity', table_name='company_entity')
     op.drop_column('company_entity', 'entity_code')
-    op.drop_column('company_entity', 'parent_entity_id')
-    op.drop_column('company_entity', 'created_by')
     op.drop_column('company_entity', 'entity_name')
     op.drop_column('company_entity', 'updated_by')
+    op.drop_column('company_entity', 'parent_entity_id')
+    op.drop_column('company_entity', 'created_by')
     op.alter_column('consolidation_group', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1215,9 +1215,9 @@ def upgrade() -> None:
     op.drop_index('ix_consolidation_group_parent', table_name='consolidation_group')
     op.create_index('idx_cons_group_name', 'consolidation_group', ['group_name'], unique=True)
     op.create_index(op.f('ix_consolidation_group_group_name'), 'consolidation_group', ['group_name'], unique=True)
-    op.drop_column('consolidation_group', 'parent_legal_entity_id')
-    op.drop_column('consolidation_group', 'updated_by')
     op.drop_column('consolidation_group', 'group_code')
+    op.drop_column('consolidation_group', 'updated_by')
+    op.drop_column('consolidation_group', 'parent_legal_entity_id')
     op.alter_column('consolidation_group_member', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1239,8 +1239,8 @@ def upgrade() -> None:
     op.create_unique_constraint('uq_group_entity', 'consolidation_group_member', ['group_id', 'entity_id'])
     op.create_foreign_key(None, 'consolidation_group_member', 'consolidation_group', ['group_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key(None, 'consolidation_group_member', 'legal_entity', ['entity_id'], ['id'], ondelete='CASCADE')
-    op.drop_column('consolidation_group_member', 'created_by')
     op.drop_column('consolidation_group_member', 'legal_entity_id')
+    op.drop_column('consolidation_group_member', 'created_by')
     op.drop_column('consolidation_group_member', 'effective_date')
     op.alter_column('coretax_audit_log', 'api_endpoint',
                existing_type=sa.VARCHAR(length=200),
@@ -1334,17 +1334,17 @@ def upgrade() -> None:
     op.create_index('ix_coretax_bupot_status_type', 'coretax_bupot', ['status', 'bupot_type'], unique=False)
     op.create_index(op.f('ix_coretax_bupot_taxpayer_npwp'), 'coretax_bupot', ['taxpayer_npwp'], unique=False)
     op.create_unique_constraint('uq_bupot_number', 'coretax_bupot', ['bupot_number'])
-    op.create_foreign_key(None, 'coretax_bupot', 'iam_user', ['void_by'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key(None, 'coretax_bupot', 'ap_invoice', ['purchase_invoice_id'], ['id'], ondelete='SET NULL')
     op.create_foreign_key(None, 'coretax_bupot', 'ap_payment', ['payment_id'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key(None, 'coretax_bupot', 'iam_user', ['void_by'], ['id'], ondelete='SET NULL')
     op.create_foreign_key(None, 'coretax_bupot', 'ar_invoice', ['invoice_id'], ['id'], ondelete='SET NULL')
-    op.drop_column('coretax_bupot', 'dpp')
-    op.drop_column('coretax_bupot', 'bupot_date')
-    op.drop_column('coretax_bupot', 'legal_entity_id')
-    op.drop_column('coretax_bupot', 'created_by')
+    op.create_foreign_key(None, 'coretax_bupot', 'ap_invoice', ['purchase_invoice_id'], ['id'], ondelete='SET NULL')
     op.drop_column('coretax_bupot', 'pph_amount')
-    op.drop_column('coretax_bupot', 'counterparty_npwp')
+    op.drop_column('coretax_bupot', 'created_by')
+    op.drop_column('coretax_bupot', 'legal_entity_id')
     op.drop_column('coretax_bupot', 'pph_type')
+    op.drop_column('coretax_bupot', 'bupot_date')
+    op.drop_column('coretax_bupot', 'counterparty_npwp')
+    op.drop_column('coretax_bupot', 'dpp')
     op.alter_column('coretax_emeterai', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1372,8 +1372,8 @@ def upgrade() -> None:
     op.create_index('idx_coretax_emeterai_status', 'coretax_emeterai', ['status'], unique=False)
     op.create_unique_constraint('uq_coretax_emeterai_code', 'coretax_emeterai', ['meterai_code'])
     op.create_unique_constraint(None, 'coretax_emeterai', ['meterai_code'])
-    op.drop_column('coretax_emeterai', 'document_reference')
     op.drop_column('coretax_emeterai', 'legal_entity_id')
+    op.drop_column('coretax_emeterai', 'document_reference')
     op.drop_column('coretax_emeterai', 'purchased_at')
     op.add_column('coretax_faktur', sa.Column('nsfp_used', sa.String(length=20), nullable=True))
     op.alter_column('coretax_faktur', 'id',
@@ -1448,20 +1448,20 @@ def upgrade() -> None:
     op.create_index('idx_cf_status', 'coretax_faktur', ['status'], unique=False)
     op.create_index(op.f('ix_coretax_faktur_legal_entity_id'), 'coretax_faktur', ['legal_entity_id'], unique=False)
     op.create_unique_constraint('uq_coretax_faktur_number', 'coretax_faktur', ['faktur_number'])
-    op.drop_column('coretax_faktur', 'dpp_total')
-    op.drop_column('coretax_faktur', 'approved_at')
-    op.drop_column('coretax_faktur', 'ppn_total')
-    op.drop_column('coretax_faktur', 'voided_at')
-    op.drop_column('coretax_faktur', 'source_document_id')
-    op.drop_column('coretax_faktur', 'counterparty_name')
-    op.drop_column('coretax_faktur', 'ppnbm_total')
-    op.drop_column('coretax_faktur', 'submitted_at')
     op.drop_column('coretax_faktur', 'is_deleted')
-    op.drop_column('coretax_faktur', 'source_document_type')
-    op.drop_column('coretax_faktur', 'counterparty_npwp')
+    op.drop_column('coretax_faktur', 'submitted_at')
     op.drop_column('coretax_faktur', 'tarif_ppn')
     op.drop_column('coretax_faktur', 'hash_link')
+    op.drop_column('coretax_faktur', 'source_document_type')
+    op.drop_column('coretax_faktur', 'approved_at')
+    op.drop_column('coretax_faktur', 'counterparty_name')
+    op.drop_column('coretax_faktur', 'ppn_total')
+    op.drop_column('coretax_faktur', 'ppnbm_total')
     op.drop_column('coretax_faktur', 'updated_by')
+    op.drop_column('coretax_faktur', 'dpp_total')
+    op.drop_column('coretax_faktur', 'source_document_id')
+    op.drop_column('coretax_faktur', 'voided_at')
+    op.drop_column('coretax_faktur', 'counterparty_npwp')
     op.alter_column('coretax_faktur_keluaran', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1551,25 +1551,25 @@ def upgrade() -> None:
     op.drop_index('ix_coretax_faktur_keluaran_source', table_name='coretax_faktur_keluaran')
     op.drop_index('ix_coretax_faktur_keluaran_status', table_name='coretax_faktur_keluaran')
     op.drop_index('ix_coretax_faktur_keluaran_sync', table_name='coretax_faktur_keluaran')
-    op.drop_column('coretax_faktur_keluaran', 'approved_at')
-    op.drop_column('coretax_faktur_keluaran', 'is_latest_version')
     op.drop_column('coretax_faktur_keluaran', 'signature_djp')
+    op.drop_column('coretax_faktur_keluaran', 'nsfp')
+    op.drop_column('coretax_faktur_keluaran', 'prepopulated_data')
+    op.drop_column('coretax_faktur_keluaran', 'last_sync_at')
+    op.drop_column('coretax_faktur_keluaran', 'faktur_date')
+    op.drop_column('coretax_faktur_keluaran', 'tarif_ppn')
+    op.drop_column('coretax_faktur_keluaran', 'submitted_at')
+    op.drop_column('coretax_faktur_keluaran', 'validation_token')
+    op.drop_column('coretax_faktur_keluaran', 'ppn_total')
+    op.drop_column('coretax_faktur_keluaran', 'is_latest_version')
+    op.drop_column('coretax_faktur_keluaran', 'qr_code_url')
+    op.drop_column('coretax_faktur_keluaran', 'source_document_id')
+    op.drop_column('coretax_faktur_keluaran', 'previous_version_id')
+    op.drop_column('coretax_faktur_keluaran', 'approved_at')
+    op.drop_column('coretax_faktur_keluaran', 'source_document_type')
     op.drop_column('coretax_faktur_keluaran', 'ppnbm_total')
     op.drop_column('coretax_faktur_keluaran', 'original_faktur_id')
-    op.drop_column('coretax_faktur_keluaran', 'tarif_ppn')
-    op.drop_column('coretax_faktur_keluaran', 'dpp_total')
-    op.drop_column('coretax_faktur_keluaran', 'source_document_type')
     op.drop_column('coretax_faktur_keluaran', 'sync_attempts')
-    op.drop_column('coretax_faktur_keluaran', 'prepopulated_data')
-    op.drop_column('coretax_faktur_keluaran', 'ppn_total')
-    op.drop_column('coretax_faktur_keluaran', 'faktur_date')
-    op.drop_column('coretax_faktur_keluaran', 'submitted_at')
-    op.drop_column('coretax_faktur_keluaran', 'source_document_id')
-    op.drop_column('coretax_faktur_keluaran', 'qr_code_url')
-    op.drop_column('coretax_faktur_keluaran', 'previous_version_id')
-    op.drop_column('coretax_faktur_keluaran', 'last_sync_at')
-    op.drop_column('coretax_faktur_keluaran', 'nsfp')
-    op.drop_column('coretax_faktur_keluaran', 'validation_token')
+    op.drop_column('coretax_faktur_keluaran', 'dpp_total')
     op.alter_column('coretax_faktur_line', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1603,10 +1603,10 @@ def upgrade() -> None:
     op.create_index('idx_cfl_line_number', 'coretax_faktur_line', ['faktur_id', 'line_number'], unique=False)
     op.create_index(op.f('ix_coretax_faktur_line_legal_entity_id'), 'coretax_faktur_line', ['legal_entity_id'], unique=False)
     op.drop_constraint('fk_coretax_faktur_line_faktur', 'coretax_faktur_line', type_='foreignkey')
-    op.create_foreign_key(None, 'coretax_faktur_line', 'legal_entity', ['legal_entity_id'], ['id'])
     op.create_foreign_key(None, 'coretax_faktur_line', 'coretax_faktur', ['faktur_id'], ['id'], ondelete='CASCADE')
-    op.drop_column('coretax_faktur_line', 'dpp')
+    op.create_foreign_key(None, 'coretax_faktur_line', 'legal_entity', ['legal_entity_id'], ['id'])
     op.drop_column('coretax_faktur_line', 'ppn')
+    op.drop_column('coretax_faktur_line', 'dpp')
     op.alter_column('coretax_faktur_masukan', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1690,17 +1690,17 @@ def upgrade() -> None:
     op.drop_index('ix_coretax_faktur_masukan_date', table_name='coretax_faktur_masukan')
     op.drop_index('ix_coretax_faktur_masukan_legal_entity', table_name='coretax_faktur_masukan')
     op.drop_index('ix_coretax_faktur_masukan_supplier', table_name='coretax_faktur_masukan')
-    op.drop_column('coretax_faktur_masukan', 'dpp_total')
-    op.drop_column('coretax_faktur_masukan', 'ppn_total')
-    op.drop_column('coretax_faktur_masukan', 'credit_period_month')
-    op.drop_column('coretax_faktur_masukan', 'status_pengkreditan')
     op.drop_column('coretax_faktur_masukan', 'faktur_date')
+    op.drop_column('coretax_faktur_masukan', 'tarif_ppn')
+    op.drop_column('coretax_faktur_masukan', 'posted_to_journal_id')
+    op.drop_column('coretax_faktur_masukan', 'status_pengkreditan')
+    op.drop_column('coretax_faktur_masukan', 'ppn_total')
     op.drop_column('coretax_faktur_masukan', 'ppnbm_total')
+    op.drop_column('coretax_faktur_masukan', 'supplier_npwp')
+    op.drop_column('coretax_faktur_masukan', 'credit_period_month')
     op.drop_column('coretax_faktur_masukan', 'credit_period_year')
     op.drop_column('coretax_faktur_masukan', 'supplier_name')
-    op.drop_column('coretax_faktur_masukan', 'supplier_npwp')
-    op.drop_column('coretax_faktur_masukan', 'posted_to_journal_id')
-    op.drop_column('coretax_faktur_masukan', 'tarif_ppn')
+    op.drop_column('coretax_faktur_masukan', 'dpp_total')
     op.alter_column('coretax_nsfp', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1738,11 +1738,11 @@ def upgrade() -> None:
     op.create_index('ix_nsfp_legal_status', 'coretax_nsfp', ['legal_entity_id', 'status'], unique=False)
     op.create_unique_constraint('uq_nsfp_legal_start', 'coretax_nsfp', ['legal_entity_id', 'start_number'])
     op.create_foreign_key(None, 'coretax_nsfp', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
-    op.drop_column('coretax_nsfp', 'request_date')
-    op.drop_column('coretax_nsfp', 'created_by')
-    op.drop_column('coretax_nsfp', 'current_sequence')
-    op.drop_column('coretax_nsfp', 'nsfp_range_start')
     op.drop_column('coretax_nsfp', 'nsfp_range_end')
+    op.drop_column('coretax_nsfp', 'request_date')
+    op.drop_column('coretax_nsfp', 'nsfp_range_start')
+    op.drop_column('coretax_nsfp', 'current_sequence')
+    op.drop_column('coretax_nsfp', 'created_by')
     op.alter_column('coretax_ntpn', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1777,11 +1777,11 @@ def upgrade() -> None:
     op.create_index('idx_coretax_ntpn_npwp', 'coretax_ntpn', ['npwp'], unique=False)
     op.create_index('idx_coretax_ntpn_payment_date', 'coretax_ntpn', ['payment_date'], unique=False)
     op.create_unique_constraint('uq_coretax_ntpn', 'coretax_ntpn', ['ntpn'])
+    op.drop_column('coretax_ntpn', 'period_month')
     op.drop_column('coretax_ntpn', 'payment_amount')
     op.drop_column('coretax_ntpn', 'period_year')
-    op.drop_column('coretax_ntpn', 'validation_status')
-    op.drop_column('coretax_ntpn', 'period_month')
     op.drop_column('coretax_ntpn', 'tax_type')
+    op.drop_column('coretax_ntpn', 'validation_status')
     op.alter_column('coretax_spt', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -1822,8 +1822,8 @@ def upgrade() -> None:
     op.create_index('idx_coretax_spt_npwp_tahun_bulan', 'coretax_spt', ['npwp', 'tahun', 'bulan'], unique=False)
     op.create_index('idx_coretax_spt_status', 'coretax_spt', ['status'], unique=False)
     op.create_unique_constraint(None, 'coretax_spt', ['spt_number'])
-    op.drop_column('coretax_spt', 'period_month')
     op.drop_column('coretax_spt', 'period_year')
+    op.drop_column('coretax_spt', 'period_month')
     op.drop_column('coretax_spt', 'created_by')
     op.alter_column('coretax_spt_electronic', 'spt_type',
                existing_type=sa.VARCHAR(length=20),
@@ -1895,8 +1895,8 @@ def upgrade() -> None:
     op.create_index('idx_coretax_log_npwp', 'coretax_submission_log', ['npwp'], unique=False)
     op.create_index('idx_coretax_log_spt_type', 'coretax_submission_log', ['spt_type'], unique=False)
     op.create_index('idx_coretax_log_submission_id', 'coretax_submission_log', ['submission_id'], unique=False)
-    op.drop_column('coretax_submission_log', 'legal_entity_id')
     op.drop_column('coretax_submission_log', 'submission_payload')
+    op.drop_column('coretax_submission_log', 'legal_entity_id')
     op.drop_column('coretax_submission_log', 'submission_type')
     op.alter_column('coretax_webhook_inbound', 'webhook_type',
                existing_type=sa.VARCHAR(length=50),
@@ -2054,11 +2054,11 @@ def upgrade() -> None:
     op.create_index('idx_dle_event_type', 'dead_letter_events', ['event_type'], unique=False)
     op.create_index('idx_dle_resolved', 'dead_letter_events', ['resolved_at'], unique=False)
     op.create_index('idx_dle_retry_count', 'dead_letter_events', ['retry_count'], unique=False)
-    op.drop_column('dead_letter_events', 'status')
     op.drop_column('dead_letter_events', 'failed_at')
+    op.drop_column('dead_letter_events', 'status')
+    op.drop_column('dead_letter_events', 'aggregate_type')
     op.drop_column('dead_letter_events', 'aggregate_id')
     op.drop_column('dead_letter_events', 'error')
-    op.drop_column('dead_letter_events', 'aggregate_type')
     op.alter_column('delivery_order', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -2117,13 +2117,13 @@ def upgrade() -> None:
     op.drop_constraint('uq_do_number_legal_entity', 'delivery_order', type_='unique')
     op.create_unique_constraint(None, 'delivery_order', ['delivery_number'])
     op.drop_constraint('fk_delivery_order_customer', 'delivery_order', type_='foreignkey')
-    op.drop_constraint('fk_delivery_order_so', 'delivery_order', type_='foreignkey')
     op.drop_constraint('fk_delivery_order_legal_entity', 'delivery_order', type_='foreignkey')
     op.drop_constraint('fk_delivery_order_shipped_by', 'delivery_order', type_='foreignkey')
-    op.drop_column('delivery_order', 'do_date')
-    op.drop_column('delivery_order', 'carrier')
+    op.drop_constraint('fk_delivery_order_so', 'delivery_order', type_='foreignkey')
     op.drop_column('delivery_order', 'do_number')
+    op.drop_column('delivery_order', 'do_date')
     op.drop_column('delivery_order', 'tracking_number')
+    op.drop_column('delivery_order', 'carrier')
     op.drop_column('delivery_order', 'deleted_at')
     op.alter_column('delivery_order_line', 'id',
                existing_type=sa.UUID(),
@@ -2165,12 +2165,12 @@ def upgrade() -> None:
     op.drop_index('idx_do_line_item', table_name='delivery_order_line')
     op.drop_index('idx_do_line_number', table_name='delivery_order_line')
     op.drop_index('idx_do_line_so_line', table_name='delivery_order_line')
-    op.drop_constraint('fk_do_line_do', 'delivery_order_line', type_='foreignkey')
     op.drop_constraint('fk_do_line_legal_entity', 'delivery_order_line', type_='foreignkey')
     op.drop_constraint('fk_do_line_so_line', 'delivery_order_line', type_='foreignkey')
+    op.drop_constraint('fk_do_line_do', 'delivery_order_line', type_='foreignkey')
     op.drop_constraint('fk_do_line_item', 'delivery_order_line', type_='foreignkey')
-    op.drop_column('delivery_order_line', 'version')
     op.drop_column('delivery_order_line', 'legal_entity_id')
+    op.drop_column('delivery_order_line', 'version')
     op.drop_column('delivery_order_line', 'deleted_at')
     op.alter_column('delivery_order_lines', 'item_code',
                existing_type=sa.VARCHAR(length=30),
@@ -2227,11 +2227,11 @@ def upgrade() -> None:
                server_default=None,
                existing_nullable=False)
     op.create_index(op.f('ix_depreciation_schedule_legal_entity_id'), 'depreciation_schedule', ['legal_entity_id'], unique=False)
-    op.drop_constraint('fk_depreciation_schedule_asset', 'depreciation_schedule', type_='foreignkey')
-    op.drop_constraint('fk_depreciation_schedule_journal', 'depreciation_schedule', type_='foreignkey')
     op.drop_constraint('fk_depreciation_schedule_legal_entity', 'depreciation_schedule', type_='foreignkey')
-    op.create_foreign_key(None, 'depreciation_schedule', 'fixed_asset', ['asset_id'], ['id'])
+    op.drop_constraint('fk_depreciation_schedule_journal', 'depreciation_schedule', type_='foreignkey')
+    op.drop_constraint('fk_depreciation_schedule_asset', 'depreciation_schedule', type_='foreignkey')
     op.create_foreign_key(None, 'depreciation_schedule', 'legal_entity', ['legal_entity_id'], ['id'])
+    op.create_foreign_key(None, 'depreciation_schedule', 'fixed_asset', ['asset_id'], ['id'])
     op.alter_column('derivative_instrument', 'instrument_code',
                existing_type=sa.VARCHAR(length=50),
                type_=sa.String(length=255),
@@ -2463,10 +2463,10 @@ def upgrade() -> None:
     op.create_unique_constraint('uq_employee_email', 'employee', ['email'])
     op.create_unique_constraint('uq_employee_nik', 'employee', ['nik'])
     op.create_unique_constraint('uq_employee_tax_id', 'employee', ['tax_id'])
-    op.drop_constraint('fk_employee_manager', 'employee', type_='foreignkey')
     op.drop_constraint('fk_employee_legal_entity', 'employee', type_='foreignkey')
-    op.create_foreign_key(None, 'employee', 'legal_entity', ['legal_entity_id'], ['id'])
+    op.drop_constraint('fk_employee_manager', 'employee', type_='foreignkey')
     op.create_foreign_key(None, 'employee', 'employee', ['manager_id'], ['id'])
+    op.create_foreign_key(None, 'employee', 'legal_entity', ['legal_entity_id'], ['id'])
     op.drop_column('employee', 'metadata')
     op.alter_column('event_store', 'id',
                existing_type=sa.UUID(),
@@ -2524,17 +2524,17 @@ def upgrade() -> None:
     op.create_index('idx_es_stream_sequence', 'event_store', ['stream_name', 'sequence_number'], unique=False)
     op.create_index('idx_es_timestamp', 'event_store', ['timestamp'], unique=False)
     op.create_unique_constraint('uq_event_store_stream_sequence', 'event_store', ['stream_name', 'sequence_number'])
-    op.drop_column('event_store', 'voided_at')
-    op.drop_column('event_store', 'recorded_at')
-    op.drop_column('event_store', 'is_void')
     op.drop_column('event_store', 'version')
-    op.drop_column('event_store', 'void_reason')
-    op.drop_column('event_store', 'event_data')
-    op.drop_column('event_store', 'metadata')
-    op.drop_column('event_store', 'voided_by')
+    op.drop_column('event_store', 'recorded_at')
+    op.drop_column('event_store', 'recorded_by')
     op.drop_column('event_store', 'hash_current')
     op.drop_column('event_store', 'hash_prev')
-    op.drop_column('event_store', 'recorded_by')
+    op.drop_column('event_store', 'voided_by')
+    op.drop_column('event_store', 'is_void')
+    op.drop_column('event_store', 'void_reason')
+    op.drop_column('event_store', 'metadata')
+    op.drop_column('event_store', 'voided_at')
+    op.drop_column('event_store', 'event_data')
     op.alter_column('exchange_rate', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -2663,8 +2663,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_fixed_asset_legal_entity_id'), 'fixed_asset', ['legal_entity_id'], unique=False)
     op.drop_constraint('fk_fixed_asset_supplier', 'fixed_asset', type_='foreignkey')
     op.drop_constraint('fk_fixed_asset_legal_entity', 'fixed_asset', type_='foreignkey')
-    op.create_foreign_key(None, 'fixed_asset', 'legal_entity', ['legal_entity_id'], ['id'])
     op.create_foreign_key(None, 'fixed_asset', 'supplier', ['supplier_id'], ['id'])
+    op.create_foreign_key(None, 'fixed_asset', 'legal_entity', ['legal_entity_id'], ['id'])
     op.alter_column('fixed_asset_schedule', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -2691,10 +2691,10 @@ def upgrade() -> None:
     op.create_index('idx_fas_status', 'fixed_asset_schedule', ['posted_to_gl'], unique=False)
     op.create_foreign_key(None, 'fixed_asset_schedule', 'fixed_asset', ['asset_id'], ['id'])
     op.drop_column('fixed_asset_schedule', 'posted_at')
-    op.drop_column('fixed_asset_schedule', 'currency')
-    op.drop_column('fixed_asset_schedule', 'status')
-    op.drop_column('fixed_asset_schedule', 'legal_entity_id')
     op.drop_column('fixed_asset_schedule', 'month')
+    op.drop_column('fixed_asset_schedule', 'status')
+    op.drop_column('fixed_asset_schedule', 'currency')
+    op.drop_column('fixed_asset_schedule', 'legal_entity_id')
     op.drop_column('fixed_asset_schedule', 'fiscal_year')
     op.alter_column('general_ledger', 'id',
                existing_type=sa.UUID(),
@@ -2728,10 +2728,10 @@ def upgrade() -> None:
                nullable=False)
     op.drop_index('ix_general_ledger_account', table_name='general_ledger')
     op.drop_index('ix_general_ledger_legal_entity', table_name='general_ledger')
-    op.drop_column('general_ledger', 'account_id')
-    op.drop_column('general_ledger', 'debit_amount')
-    op.drop_column('general_ledger', 'credit_amount')
     op.drop_column('general_ledger', 'created_by')
+    op.drop_column('general_ledger', 'debit_amount')
+    op.drop_column('general_ledger', 'account_id')
+    op.drop_column('general_ledger', 'credit_amount')
     op.alter_column('goods_receipt_line', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -2770,10 +2770,10 @@ def upgrade() -> None:
     op.drop_index('idx_grn_line_item', table_name='goods_receipt_line')
     op.drop_index('idx_grn_line_number', table_name='goods_receipt_line')
     op.drop_index('idx_grn_line_po_line', table_name='goods_receipt_line')
-    op.drop_constraint('fk_grn_line_po_line', 'goods_receipt_line', type_='foreignkey')
-    op.drop_constraint('fk_grn_line_item', 'goods_receipt_line', type_='foreignkey')
-    op.drop_constraint('fk_grn_line_legal_entity', 'goods_receipt_line', type_='foreignkey')
     op.drop_constraint('fk_grn_line_grn', 'goods_receipt_line', type_='foreignkey')
+    op.drop_constraint('fk_grn_line_legal_entity', 'goods_receipt_line', type_='foreignkey')
+    op.drop_constraint('fk_grn_line_item', 'goods_receipt_line', type_='foreignkey')
+    op.drop_constraint('fk_grn_line_po_line', 'goods_receipt_line', type_='foreignkey')
     op.drop_column('goods_receipt_line', 'deleted_at')
     op.alter_column('goods_receipt_note', 'id',
                existing_type=sa.UUID(),
@@ -2806,12 +2806,12 @@ def upgrade() -> None:
     op.create_index('idx_grn_date', 'goods_receipt_note', ['receipt_date'], unique=False)
     op.create_index('idx_grn_legal_entity', 'goods_receipt_note', ['legal_entity_id'], unique=False)
     op.create_index(op.f('ix_goods_receipt_note_legal_entity_id'), 'goods_receipt_note', ['legal_entity_id'], unique=False)
-    op.drop_constraint('fk_grn_po', 'goods_receipt_note', type_='foreignkey')
     op.drop_constraint('fk_grn_supplier', 'goods_receipt_note', type_='foreignkey')
     op.drop_constraint('fk_grn_legal_entity', 'goods_receipt_note', type_='foreignkey')
     op.drop_constraint('fk_grn_received_by', 'goods_receipt_note', type_='foreignkey')
-    op.create_foreign_key(None, 'goods_receipt_note', 'legal_entity', ['legal_entity_id'], ['id'])
+    op.drop_constraint('fk_grn_po', 'goods_receipt_note', type_='foreignkey')
     op.create_foreign_key(None, 'goods_receipt_note', 'supplier', ['supplier_id'], ['id'], ondelete='RESTRICT')
+    op.create_foreign_key(None, 'goods_receipt_note', 'legal_entity', ['legal_entity_id'], ['id'])
     op.create_foreign_key(None, 'goods_receipt_note', 'purchase_order', ['purchase_order_id'], ['id'], ondelete='RESTRICT')
     op.drop_column('goods_receipt_note', 'received_by')
     op.drop_column('goods_receipt_note', 'grn_date')
@@ -2860,19 +2860,19 @@ def upgrade() -> None:
     op.create_unique_constraint('uq_grn_line_number', 'goods_receipt_note_lines', ['grn_id', 'line_number'])
     op.drop_constraint('fk_grn_lines_grn', 'goods_receipt_note_lines', type_='foreignkey')
     op.create_foreign_key(None, 'goods_receipt_note_lines', 'goods_receipt_note', ['grn_id'], ['id'], ondelete='CASCADE')
-    op.drop_column('goods_receipt_note_lines', 'batch_number')
-    op.drop_column('goods_receipt_note_lines', 'legal_entity_id')
-    op.drop_column('goods_receipt_note_lines', 'quantity_rejected')
-    op.drop_column('goods_receipt_note_lines', 'expiry_date')
     op.drop_column('goods_receipt_note_lines', 'item_name')
-    op.drop_column('goods_receipt_note_lines', 'rejection_reason')
+    op.drop_column('goods_receipt_note_lines', 'goods_receipt_note_id')
+    op.drop_column('goods_receipt_note_lines', 'quantity_received')
     op.drop_column('goods_receipt_note_lines', 'version')
     op.drop_column('goods_receipt_note_lines', 'quantity_accepted')
-    op.drop_column('goods_receipt_note_lines', 'item_id')
-    op.drop_column('goods_receipt_note_lines', 'quantity_received')
-    op.drop_column('goods_receipt_note_lines', 'goods_receipt_note_id')
+    op.drop_column('goods_receipt_note_lines', 'rejection_reason')
     op.drop_column('goods_receipt_note_lines', 'item_code')
+    op.drop_column('goods_receipt_note_lines', 'quantity_rejected')
+    op.drop_column('goods_receipt_note_lines', 'legal_entity_id')
+    op.drop_column('goods_receipt_note_lines', 'expiry_date')
+    op.drop_column('goods_receipt_note_lines', 'batch_number')
     op.drop_column('goods_receipt_note_lines', 'deleted_at')
+    op.drop_column('goods_receipt_note_lines', 'item_id')
     op.alter_column('goodwill', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -2938,9 +2938,9 @@ def upgrade() -> None:
     op.create_index(op.f('ix_goodwill_legal_entity_id'), 'goodwill', ['legal_entity_id'], unique=False)
     op.create_unique_constraint('uq_goodwill_code_legal_entity', 'goodwill', ['goodwill_code', 'legal_entity_id'])
     op.create_foreign_key(None, 'goodwill', 'legal_entity', ['legal_entity_id'], ['id'])
+    op.drop_column('goodwill', 'accumulated_impairment')
     op.drop_column('goodwill', 'cost')
     op.drop_column('goodwill', 'net_book_value')
-    op.drop_column('goodwill', 'accumulated_impairment')
     op.alter_column('goodwill_impairment', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -2987,8 +2987,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_goodwill_impairment_goodwill_id'), 'goodwill_impairment', ['goodwill_id'], unique=False)
     op.create_index(op.f('ix_goodwill_impairment_legal_entity_id'), 'goodwill_impairment', ['legal_entity_id'], unique=False)
     op.drop_constraint('fk_goodwill_impairment_goodwill', 'goodwill_impairment', type_='foreignkey')
-    op.create_foreign_key(None, 'goodwill_impairment', 'goodwill', ['goodwill_id'], ['id'], ondelete='RESTRICT')
     op.create_foreign_key(None, 'goodwill_impairment', 'legal_entity', ['legal_entity_id'], ['id'])
+    op.create_foreign_key(None, 'goodwill_impairment', 'goodwill', ['goodwill_id'], ['id'], ondelete='RESTRICT')
     op.drop_column('goodwill_impairment', 'journal_id')
     op.alter_column('hash_chain', 'id',
                existing_type=sa.UUID(),
@@ -3030,16 +3030,16 @@ def upgrade() -> None:
     op.create_index('idx_hc_status', 'hash_chain', ['status'], unique=False)
     op.create_index('idx_hc_stream_name', 'hash_chain', ['stream_name'], unique=False)
     op.create_unique_constraint('uq_hash_chain_stream', 'hash_chain', ['stream_name'])
-    op.drop_column('hash_chain', 'payload_hash')
-    op.drop_column('hash_chain', 'timestamp')
-    op.drop_column('hash_chain', 'created_by')
-    op.drop_column('hash_chain', 'current_hash')
-    op.drop_column('hash_chain', 'signer_cert_fingerprint')
-    op.drop_column('hash_chain', 'chain_type')
-    op.drop_column('hash_chain', 'sequence')
     op.drop_column('hash_chain', 'prev_hash')
-    op.drop_column('hash_chain', 'signature')
+    op.drop_column('hash_chain', 'signer_cert_fingerprint')
     op.drop_column('hash_chain', 'chain_id')
+    op.drop_column('hash_chain', 'sequence')
+    op.drop_column('hash_chain', 'signature')
+    op.drop_column('hash_chain', 'chain_type')
+    op.drop_column('hash_chain', 'current_hash')
+    op.drop_column('hash_chain', 'timestamp')
+    op.drop_column('hash_chain', 'payload_hash')
+    op.drop_column('hash_chain', 'created_by')
     op.alter_column('hedge_effectiveness_test', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -3086,11 +3086,11 @@ def upgrade() -> None:
     op.create_index(op.f('ix_hedge_effectiveness_test_legal_entity_id'), 'hedge_effectiveness_test', ['legal_entity_id'], unique=False)
     op.drop_constraint('fk_effectiveness_hedge', 'hedge_effectiveness_test', type_='foreignkey')
     op.create_foreign_key(None, 'hedge_effectiveness_test', 'legal_entity', ['legal_entity_id'], ['id'])
+    op.drop_column('hedge_effectiveness_test', 'test_method')
+    op.drop_column('hedge_effectiveness_test', 'hedging_relationship_id')
+    op.drop_column('hedge_effectiveness_test', 'is_effective')
     op.drop_column('hedge_effectiveness_test', 'effectiveness_ratio')
     op.drop_column('hedge_effectiveness_test', 'test_details')
-    op.drop_column('hedge_effectiveness_test', 'is_effective')
-    op.drop_column('hedge_effectiveness_test', 'hedging_relationship_id')
-    op.drop_column('hedge_effectiveness_test', 'test_method')
     op.add_column('hedge_instrument', sa.Column('start_date', sa.Date(), nullable=False))
     op.add_column('hedge_instrument', sa.Column('fair_value', sa.Numeric(precision=20, scale=2), nullable=False))
     op.alter_column('hedge_instrument', 'id',
@@ -3127,17 +3127,17 @@ def upgrade() -> None:
     op.create_index('idx_hedge_instrument_status', 'hedge_instrument', ['status'], unique=False)
     op.create_index('idx_hedge_instrument_type', 'hedge_instrument', ['instrument_type'], unique=False)
     op.create_index(op.f('ix_hedge_instrument_legal_entity_id'), 'hedge_instrument', ['legal_entity_id'], unique=False)
-    op.drop_column('hedge_instrument', 'valuation_method')
-    op.drop_column('hedge_instrument', 'premium_paid')
-    op.drop_column('hedge_instrument', 'strike_price')
     op.drop_column('hedge_instrument', 'is_designated_hedge')
-    op.drop_column('hedge_instrument', 'underlying_asset')
-    op.drop_column('hedge_instrument', 'currency_code')
-    op.drop_column('hedge_instrument', 'fair_value_at_reporting')
-    op.drop_column('hedge_instrument', 'hedging_relationship_id')
-    op.drop_column('hedge_instrument', 'counterparty_id')
+    op.drop_column('hedge_instrument', 'premium_paid')
     op.drop_column('hedge_instrument', 'settlement_date')
+    op.drop_column('hedge_instrument', 'valuation_method')
+    op.drop_column('hedge_instrument', 'hedging_relationship_id')
     op.drop_column('hedge_instrument', 'updated_by')
+    op.drop_column('hedge_instrument', 'currency_code')
+    op.drop_column('hedge_instrument', 'counterparty_id')
+    op.drop_column('hedge_instrument', 'underlying_asset')
+    op.drop_column('hedge_instrument', 'fair_value_at_reporting')
+    op.drop_column('hedge_instrument', 'strike_price')
     op.alter_column('hedged_item', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -3179,8 +3179,8 @@ def upgrade() -> None:
     op.create_index('idx_hedged_item_type', 'hedged_item', ['item_type'], unique=False)
     op.create_index(op.f('ix_hedged_item_legal_entity_id'), 'hedged_item', ['legal_entity_id'], unique=False)
     op.create_foreign_key(None, 'hedged_item', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.drop_column('hedged_item', 'fair_value')
     op.drop_column('hedged_item', 'hedging_relationship_id')
+    op.drop_column('hedged_item', 'fair_value')
     op.drop_column('hedged_item', 'item_id')
     op.alter_column('hedging_relationship', 'hedge_type',
                existing_type=sa.VARCHAR(length=30),
@@ -3264,11 +3264,11 @@ def upgrade() -> None:
     op.drop_constraint('iam_permission_name_key', 'iam_permission', type_='unique')
     op.drop_constraint('uq_iam_permission_resource_action', 'iam_permission', type_='unique')
     op.create_unique_constraint('uq_iam_permission_name', 'iam_permission', ['name'])
-    op.drop_column('iam_permission', 'is_system')
     op.drop_column('iam_permission', 'version')
-    op.drop_column('iam_permission', 'created_by')
     op.drop_column('iam_permission', 'is_active')
+    op.drop_column('iam_permission', 'is_system')
     op.drop_column('iam_permission', 'deleted_at')
+    op.drop_column('iam_permission', 'created_by')
     op.alter_column('iam_role', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -3287,9 +3287,9 @@ def upgrade() -> None:
     op.create_index('idx_iam_role_is_active', 'iam_role', ['is_active'], unique=False)
     op.create_unique_constraint('uq_iam_role_name', 'iam_role', ['name'])
     op.drop_constraint('iam_role_parent_role_id_fkey', 'iam_role', type_='foreignkey')
+    op.drop_column('iam_role', 'parent_role_id')
     op.drop_column('iam_role', 'version')
     op.drop_column('iam_role', 'status')
-    op.drop_column('iam_role', 'parent_role_id')
     op.alter_column('iam_role_permission', 'assigned_at',
                existing_type=postgresql.TIMESTAMP(timezone=True),
                nullable=True,
@@ -3380,16 +3380,16 @@ def upgrade() -> None:
                existing_type=postgresql.TIMESTAMP(timezone=True),
                nullable=True,
                existing_server_default=sa.text('now()'))
-    op.create_foreign_key(None, 'iam_user_legal_entity', 'legal_entity', ['legal_entity_id'], ['id'])
     op.create_foreign_key(None, 'iam_user_legal_entity', 'iam_user', ['user_id'], ['id'])
+    op.create_foreign_key(None, 'iam_user_legal_entity', 'legal_entity', ['legal_entity_id'], ['id'])
     op.alter_column('iam_user_role', 'assigned_at',
                existing_type=postgresql.TIMESTAMP(timezone=True),
                nullable=True,
                existing_server_default=sa.text('now()'))
     op.drop_index('idx_iam_user_role_role', table_name='iam_user_role')
     op.drop_index('idx_iam_user_role_user', table_name='iam_user_role')
-    op.drop_constraint('fk_iam_user_role_role', 'iam_user_role', type_='foreignkey')
     op.drop_constraint('fk_iam_user_role_user', 'iam_user_role', type_='foreignkey')
+    op.drop_constraint('fk_iam_user_role_role', 'iam_user_role', type_='foreignkey')
     op.alter_column('impairment_test', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -3474,11 +3474,11 @@ def upgrade() -> None:
     op.create_index('ix_intangible_legal_entity', 'intangible_asset', ['legal_entity_id'], unique=False)
     op.drop_constraint('fk_intangible_asset_legal_entity', 'intangible_asset', type_='foreignkey')
     op.create_foreign_key(None, 'intangible_asset', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.drop_column('intangible_asset', 'status')
-    op.drop_column('intangible_asset', 'asset_category')
-    op.drop_column('intangible_asset', 'amortization_rate')
     op.drop_column('intangible_asset', 'version')
+    op.drop_column('intangible_asset', 'asset_category')
+    op.drop_column('intangible_asset', 'status')
     op.drop_column('intangible_asset', 'current_period_amortization')
+    op.drop_column('intangible_asset', 'amortization_rate')
     op.drop_column('intangible_asset', 'deleted_at')
     op.alter_column('intangible_revaluation', 'id',
                existing_type=sa.UUID(),
@@ -3534,8 +3534,8 @@ def upgrade() -> None:
     op.create_index('idx_intangible_reval_asset', 'intangible_revaluation', ['asset_id'], unique=False)
     op.create_index('idx_intangible_reval_date', 'intangible_revaluation', ['revaluation_date'], unique=False)
     op.create_foreign_key(None, 'intangible_revaluation', 'intangible_asset', ['asset_id'], ['id'])
-    op.drop_column('intangible_revaluation', 'new_value')
     op.drop_column('intangible_revaluation', 'old_value')
+    op.drop_column('intangible_revaluation', 'new_value')
     op.alter_column('integrity_check_result', 'chain_type',
                existing_type=sa.VARCHAR(length=50),
                type_=sa.String(length=255),
@@ -3730,10 +3730,10 @@ def upgrade() -> None:
     op.create_unique_constraint(None, 'inventory_stock_card', ['movement_id'])
     op.drop_constraint('fk_inventory_stock_card_item', 'inventory_stock_card', type_='foreignkey')
     op.create_foreign_key(None, 'inventory_stock_card', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.drop_column('inventory_stock_card', 'reference_type')
     op.drop_column('inventory_stock_card', 'total_value')
-    op.drop_column('inventory_stock_card', 'transaction_date')
+    op.drop_column('inventory_stock_card', 'reference_type')
     op.drop_column('inventory_stock_card', 'reference_id')
+    op.drop_column('inventory_stock_card', 'transaction_date')
     op.alter_column('journal_header', 'total_debit',
                existing_type=sa.NUMERIC(precision=20, scale=2),
                server_default=None,
@@ -3766,13 +3766,13 @@ def upgrade() -> None:
     op.create_index(op.f('ix_journal_header_original_journal_id'), 'journal_header', ['original_journal_id'], unique=False)
     op.create_index(op.f('ix_journal_header_reversed_journal_id'), 'journal_header', ['reversed_journal_id'], unique=False)
     op.drop_constraint('fk_journal_header_period', 'journal_header', type_='foreignkey')
-    op.drop_constraint('fk_journal_header_reversed', 'journal_header', type_='foreignkey')
     op.drop_constraint('fk_journal_header_posted_by', 'journal_header', type_='foreignkey')
+    op.drop_constraint('fk_journal_header_reversed', 'journal_header', type_='foreignkey')
     op.drop_constraint('fk_journal_header_approved_by', 'journal_header', type_='foreignkey')
     op.drop_constraint('fk_journal_header_original', 'journal_header', type_='foreignkey')
     op.create_foreign_key(None, 'journal_header', 'fiscal_period', ['period_id'], ['id'])
-    op.create_foreign_key('fk_journal_header_original_journal', 'journal_header', 'journal_header', ['original_journal_id'], ['id'])
     op.create_foreign_key('fk_journal_header_reversed_journal', 'journal_header', 'journal_header', ['reversed_journal_id'], ['id'])
+    op.create_foreign_key('fk_journal_header_original_journal', 'journal_header', 'journal_header', ['original_journal_id'], ['id'])
     op.alter_column('journal_line', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -3794,11 +3794,11 @@ def upgrade() -> None:
                server_default=None,
                existing_nullable=False)
     op.create_index(op.f('ix_journal_line_legal_entity_id'), 'journal_line', ['legal_entity_id'], unique=False)
-    op.drop_constraint('fk_journal_line_journal', 'journal_line', type_='foreignkey')
     op.drop_constraint('fk_journal_line_legal_entity', 'journal_line', type_='foreignkey')
+    op.drop_constraint('fk_journal_line_journal', 'journal_line', type_='foreignkey')
+    op.create_foreign_key(None, 'journal_line', 'legal_entity', ['legal_entity_id'], ['id'])
     op.create_foreign_key('fk_journal_line_account', 'journal_line', 'account', ['account_code', 'legal_entity_id'], ['account_code', 'legal_entity_id'])
     op.create_foreign_key(None, 'journal_line', 'journal_header', ['journal_id'], ['id'])
-    op.create_foreign_key(None, 'journal_line', 'legal_entity', ['legal_entity_id'], ['id'])
     op.alter_column('journal_line_partitioned', 'account_code',
                existing_type=sa.VARCHAR(length=30),
                type_=sa.String(length=255),
@@ -3880,8 +3880,8 @@ def upgrade() -> None:
     op.create_index('idx_ledger_entry_legal_entity', 'ledger_entry', ['legal_entity_id'], unique=False)
     op.create_index('idx_ledger_entry_period', 'ledger_entry', ['fiscal_year', 'period_month'], unique=False)
     op.create_unique_constraint('uq_ledger_entry_journal_account_line', 'ledger_entry', ['journal_id', 'account_code', 'line_number'])
-    op.create_foreign_key(None, 'ledger_entry', 'journal_header', ['journal_id'], ['id'])
     op.create_foreign_key(None, 'ledger_entry', 'account', ['account_id'], ['id'])
+    op.create_foreign_key(None, 'ledger_entry', 'journal_header', ['journal_id'], ['id'])
     op.alter_column('ledger_entry_partitioned', 'account_code',
                existing_type=sa.VARCHAR(length=30),
                type_=sa.String(length=255),
@@ -4005,8 +4005,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_legal_entity_branch_branch_code'), 'legal_entity_branch', ['branch_code'], unique=False)
     op.create_index(op.f('ix_legal_entity_branch_parent_entity_id'), 'legal_entity_branch', ['parent_entity_id'], unique=False)
     op.create_foreign_key(None, 'legal_entity_branch', 'legal_entity', ['parent_entity_id'], ['id'], ondelete='CASCADE')
-    op.drop_column('legal_entity_branch', 'legal_entity_id')
     op.drop_column('legal_entity_branch', 'updated_by')
+    op.drop_column('legal_entity_branch', 'legal_entity_id')
     op.alter_column('login_attempt', 'username',
                existing_type=sa.VARCHAR(length=100),
                type_=sa.String(length=255),
@@ -4096,22 +4096,22 @@ def upgrade() -> None:
     op.drop_index('ix_mfg_cost_card_product', table_name='manufacturing_cost_card')
     op.create_index('idx_cost_card_period', 'manufacturing_cost_card', ['period'], unique=False)
     op.create_index('idx_cost_card_product', 'manufacturing_cost_card', ['product_id'], unique=False)
-    op.drop_column('manufacturing_cost_card', 'currency')
+    op.drop_column('manufacturing_cost_card', 'quantity_base')
+    op.drop_column('manufacturing_cost_card', 'product_name')
+    op.drop_column('manufacturing_cost_card', 'is_active')
+    op.drop_column('manufacturing_cost_card', 'cost_card_version')
+    op.drop_column('manufacturing_cost_card', 'effective_date')
     op.drop_column('manufacturing_cost_card', 'status')
+    op.drop_column('manufacturing_cost_card', 'unit_of_measure')
+    op.drop_column('manufacturing_cost_card', 'cost_card_code')
+    op.drop_column('manufacturing_cost_card', 'other_cost')
+    op.drop_column('manufacturing_cost_card', 'updated_by')
+    op.drop_column('manufacturing_cost_card', 'currency')
     op.drop_column('manufacturing_cost_card', 'legal_entity_id')
     op.drop_column('manufacturing_cost_card', 'expiry_date')
     op.drop_column('manufacturing_cost_card', 'notes')
-    op.drop_column('manufacturing_cost_card', 'unit_of_measure')
-    op.drop_column('manufacturing_cost_card', 'other_cost')
-    op.drop_column('manufacturing_cost_card', 'cost_card_code')
-    op.drop_column('manufacturing_cost_card', 'created_by')
-    op.drop_column('manufacturing_cost_card', 'is_active')
-    op.drop_column('manufacturing_cost_card', 'product_name')
-    op.drop_column('manufacturing_cost_card', 'effective_date')
-    op.drop_column('manufacturing_cost_card', 'quantity_base')
     op.drop_column('manufacturing_cost_card', 'breakdown')
-    op.drop_column('manufacturing_cost_card', 'updated_by')
-    op.drop_column('manufacturing_cost_card', 'cost_card_version')
+    op.drop_column('manufacturing_cost_card', 'created_by')
     op.alter_column('manufacturing_work_order', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -4188,15 +4188,15 @@ def upgrade() -> None:
     op.create_index(op.f('ix_manufacturing_work_order_legal_entity_id'), 'manufacturing_work_order', ['legal_entity_id'], unique=False)
     op.create_unique_constraint('uq_wo_number_legal_entity', 'manufacturing_work_order', ['wo_number', 'legal_entity_id'])
     op.create_foreign_key(None, 'manufacturing_work_order', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.drop_column('manufacturing_work_order', 'planned_quantity')
-    op.drop_column('manufacturing_work_order', 'actual_end_date')
     op.drop_column('manufacturing_work_order', 'routing_id')
-    op.drop_column('manufacturing_work_order', 'bom_id')
-    op.drop_column('manufacturing_work_order', 'work_order_number')
-    op.drop_column('manufacturing_work_order', 'standard_cost')
-    op.drop_column('manufacturing_work_order', 'actual_cost')
     op.drop_column('manufacturing_work_order', 'cost_center')
+    op.drop_column('manufacturing_work_order', 'planned_quantity')
+    op.drop_column('manufacturing_work_order', 'standard_cost')
+    op.drop_column('manufacturing_work_order', 'bom_id')
     op.drop_column('manufacturing_work_order', 'updated_by')
+    op.drop_column('manufacturing_work_order', 'actual_cost')
+    op.drop_column('manufacturing_work_order', 'work_order_number')
+    op.drop_column('manufacturing_work_order', 'actual_end_date')
     op.alter_column('outbox', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -4233,16 +4233,16 @@ def upgrade() -> None:
     op.create_index('idx_outbox_status', 'outbox', ['status'], unique=False)
     op.create_index('idx_outbox_updated_at', 'outbox', ['updated_at'], unique=False)
     op.create_index(op.f('ix_outbox_legal_entity_id'), 'outbox', ['legal_entity_id'], unique=False)
-    op.drop_column('outbox', 'last_attempt_at')
-    op.drop_column('outbox', 'extra_metadata')
-    op.drop_column('outbox', 'kafka_topic')
-    op.drop_column('outbox', 'event_version')
-    op.drop_column('outbox', 'locked_by')
     op.drop_column('outbox', 'kafka_partition')
-    op.drop_column('outbox', 'created_by')
-    op.drop_column('outbox', 'metadata')
+    op.drop_column('outbox', 'event_version')
     op.drop_column('outbox', 'kafka_key')
+    op.drop_column('outbox', 'extra_metadata')
+    op.drop_column('outbox', 'last_attempt_at')
     op.drop_column('outbox', 'locked_until')
+    op.drop_column('outbox', 'kafka_topic')
+    op.drop_column('outbox', 'locked_by')
+    op.drop_column('outbox', 'metadata')
+    op.drop_column('outbox', 'created_by')
     op.alter_column('outbox_checkpoint', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -4272,13 +4272,13 @@ def upgrade() -> None:
     op.create_index('idx_outbox_checkpoint_last_processed', 'outbox_checkpoint', ['last_processed_at'], unique=False)
     op.create_index('idx_outbox_checkpoint_relay', 'outbox_checkpoint', ['relay_id'], unique=False)
     op.create_unique_constraint('uq_outbox_checkpoint_relay', 'outbox_checkpoint', ['relay_id'])
-    op.drop_column('outbox_checkpoint', 'last_processed_outbox_id')
     op.drop_column('outbox_checkpoint', 'version')
-    op.drop_column('outbox_checkpoint', 'total_processed_count')
     op.drop_column('outbox_checkpoint', 'consumer_group')
-    op.drop_column('outbox_checkpoint', 'processed_by')
     op.drop_column('outbox_checkpoint', 'last_error')
+    op.drop_column('outbox_checkpoint', 'total_processed_count')
     op.drop_column('outbox_checkpoint', 'total_failed_count')
+    op.drop_column('outbox_checkpoint', 'processed_by')
+    op.drop_column('outbox_checkpoint', 'last_processed_outbox_id')
     op.alter_column('outbox_dead_letter', 'aggregate_type',
                existing_type=sa.VARCHAR(length=100),
                type_=sa.String(length=255),
@@ -4387,10 +4387,10 @@ def upgrade() -> None:
     op.drop_constraint('fk_payroll_adjustment_employee', 'payroll_adjustment', type_='foreignkey')
     op.drop_constraint('fk_payroll_adjustment_approved_by', 'payroll_adjustment', type_='foreignkey')
     op.drop_constraint('fk_payroll_adjustment_legal_entity', 'payroll_adjustment', type_='foreignkey')
-    op.drop_column('payroll_adjustment', 'currency')
     op.drop_column('payroll_adjustment', 'journal_id')
     op.drop_column('payroll_adjustment', 'version')
     op.drop_column('payroll_adjustment', 'adjustment_date')
+    op.drop_column('payroll_adjustment', 'currency')
     op.drop_column('payroll_adjustment', 'deleted_at')
     op.alter_column('payroll_detail', 'id',
                existing_type=sa.UUID(),
@@ -4424,22 +4424,22 @@ def upgrade() -> None:
                existing_server_default=sa.text('now()'))
     op.drop_index('idx_payroll_detail_employee', table_name='payroll_detail')
     op.drop_index('idx_payroll_detail_run', table_name='payroll_detail')
-    op.drop_constraint('fk_payroll_detail_run', 'payroll_detail', type_='foreignkey')
     op.drop_constraint('fk_payroll_detail_employee', 'payroll_detail', type_='foreignkey')
+    op.drop_constraint('fk_payroll_detail_run', 'payroll_detail', type_='foreignkey')
     op.drop_constraint('fk_payroll_detail_legal_entity', 'payroll_detail', type_='foreignkey')
-    op.drop_column('payroll_detail', 'basic_salary')
-    op.drop_column('payroll_detail', 'tax_pph21')
+    op.drop_column('payroll_detail', 'overtime_pay')
     op.drop_column('payroll_detail', 'version')
-    op.drop_column('payroll_detail', 'bonus')
-    op.drop_column('payroll_detail', 'net_salary')
+    op.drop_column('payroll_detail', 'basic_salary')
     op.drop_column('payroll_detail', 'bpjs_jht_employee')
-    op.drop_column('payroll_detail', 'employer_bpjs')
+    op.drop_column('payroll_detail', 'gross_income')
+    op.drop_column('payroll_detail', 'net_salary')
+    op.drop_column('payroll_detail', 'bpjs_kesehatan_employee')
+    op.drop_column('payroll_detail', 'bonus')
     op.drop_column('payroll_detail', 'allowances')
     op.drop_column('payroll_detail', 'deductions')
-    op.drop_column('payroll_detail', 'overtime_pay')
-    op.drop_column('payroll_detail', 'bpjs_kesehatan_employee')
-    op.drop_column('payroll_detail', 'gross_income')
+    op.drop_column('payroll_detail', 'employer_bpjs')
     op.drop_column('payroll_detail', 'deleted_at')
+    op.drop_column('payroll_detail', 'tax_pph21')
     op.alter_column('payroll_payslip', 'gross_pay',
                existing_type=sa.NUMERIC(precision=20, scale=2),
                type_=sa.Numeric(precision=20, scale=6),
@@ -4495,8 +4495,8 @@ def upgrade() -> None:
                existing_nullable=False)
     op.create_index(op.f('ix_payroll_run_legal_entity_id'), 'payroll_run', ['legal_entity_id'], unique=False)
     op.drop_constraint('fk_payroll_run_approved_by', 'payroll_run', type_='foreignkey')
-    op.drop_constraint('fk_payroll_run_paid_by', 'payroll_run', type_='foreignkey')
     op.drop_constraint('fk_payroll_run_legal_entity', 'payroll_run', type_='foreignkey')
+    op.drop_constraint('fk_payroll_run_paid_by', 'payroll_run', type_='foreignkey')
     op.create_foreign_key(None, 'payroll_run', 'legal_entity', ['legal_entity_id'], ['id'])
     op.alter_column('payslip', 'id',
                existing_type=sa.UUID(),
@@ -4614,11 +4614,11 @@ def upgrade() -> None:
     op.create_unique_constraint(None, 'payslip', ['payslip_number'])
     op.drop_constraint('fk_payslip_employee', 'payslip', type_='foreignkey')
     op.create_foreign_key(None, 'payslip', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.create_foreign_key(None, 'payslip', 'payroll_run', ['payroll_run_id'], ['id'], ondelete='RESTRICT')
     op.create_foreign_key(None, 'payslip', 'employee', ['employee_id'], ['id'], ondelete='RESTRICT')
-    op.drop_column('payslip', 'net')
-    op.drop_column('payslip', 'gross')
+    op.create_foreign_key(None, 'payslip', 'payroll_run', ['payroll_run_id'], ['id'], ondelete='RESTRICT')
     op.drop_column('payslip', 'period')
+    op.drop_column('payslip', 'gross')
+    op.drop_column('payslip', 'net')
     op.alter_column('petty_cash_fund', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -4643,8 +4643,8 @@ def upgrade() -> None:
                existing_type=sa.INTEGER(),
                server_default=None,
                existing_nullable=False)
-    op.drop_constraint('fk_petty_cash_gl', 'petty_cash_fund', type_='foreignkey')
     op.drop_constraint('fk_petty_cash_legal_entity', 'petty_cash_fund', type_='foreignkey')
+    op.drop_constraint('fk_petty_cash_gl', 'petty_cash_fund', type_='foreignkey')
     op.drop_constraint('fk_petty_cash_custodian', 'petty_cash_fund', type_='foreignkey')
     op.alter_column('pph_withholding_summary', 'id',
                existing_type=sa.UUID(),
@@ -4699,22 +4699,22 @@ def upgrade() -> None:
     op.drop_constraint('uq_pph_summary_npwp_period_type', 'pph_withholding_summary', type_='unique')
     op.drop_constraint('fk_pph_summary_legal_entity', 'pph_withholding_summary', type_='foreignkey')
     op.drop_constraint('fk_pph_summary_created_by', 'pph_withholding_summary', type_='foreignkey')
-    op.drop_column('pph_withholding_summary', 'masa_pajak')
-    op.drop_column('pph_withholding_summary', 'npwp_pemotong')
-    op.drop_column('pph_withholding_summary', 'kurang_bayar')
-    op.drop_column('pph_withholding_summary', 'kompensasi')
-    op.drop_column('pph_withholding_summary', 'spt_number')
+    op.drop_column('pph_withholding_summary', 'tahun_pajak')
+    op.drop_column('pph_withholding_summary', 'payment_date')
     op.drop_column('pph_withholding_summary', 'version')
     op.drop_column('pph_withholding_summary', 'spt_status')
-    op.drop_column('pph_withholding_summary', 'tahun_pajak')
+    op.drop_column('pph_withholding_summary', 'masa_pajak')
     op.drop_column('pph_withholding_summary', 'lebih_bayar')
-    op.drop_column('pph_withholding_summary', 'total_dpp')
     op.drop_column('pph_withholding_summary', 'period_end')
-    op.drop_column('pph_withholding_summary', 'period_start')
+    op.drop_column('pph_withholding_summary', 'kompensasi')
+    op.drop_column('pph_withholding_summary', 'spt_number')
     op.drop_column('pph_withholding_summary', 'total_pph_dipotong')
-    op.drop_column('pph_withholding_summary', 'payment_date')
+    op.drop_column('pph_withholding_summary', 'period_start')
+    op.drop_column('pph_withholding_summary', 'kurang_bayar')
     op.drop_column('pph_withholding_summary', 'payment_status')
+    op.drop_column('pph_withholding_summary', 'total_dpp')
     op.drop_column('pph_withholding_summary', 'bupot_count')
+    op.drop_column('pph_withholding_summary', 'npwp_pemotong')
     op.drop_column('pph_withholding_summary', 'deleted_at')
     op.alter_column('ppn_settlement', 'id',
                existing_type=sa.UUID(),
@@ -4773,25 +4773,25 @@ def upgrade() -> None:
     op.drop_index('idx_ppn_settlement_period', table_name='ppn_settlement')
     op.drop_index('idx_ppn_settlement_status', table_name='ppn_settlement')
     op.drop_constraint('uq_ppn_settlement_npwp_period', 'ppn_settlement', type_='unique')
-    op.drop_constraint('fk_ppn_settlement_legal_entity', 'ppn_settlement', type_='foreignkey')
     op.drop_constraint('fk_ppn_settlement_created_by', 'ppn_settlement', type_='foreignkey')
-    op.drop_column('ppn_settlement', 'kompensasi_dari_sebelumnya')
-    op.drop_column('ppn_settlement', 'masa_pajak')
-    op.drop_column('ppn_settlement', 'settlement_status')
-    op.drop_column('ppn_settlement', 'version')
-    op.drop_column('ppn_settlement', 'total_ppn_masukan')
-    op.drop_column('ppn_settlement', 'spt_number')
-    op.drop_column('ppn_settlement', 'npwp')
-    op.drop_column('ppn_settlement', 'ppn_kurang_bayar')
-    op.drop_column('ppn_settlement', 'status_pembayaran')
-    op.drop_column('ppn_settlement', 'tahun_pajak')
-    op.drop_column('ppn_settlement', 'submitted_at')
+    op.drop_constraint('fk_ppn_settlement_legal_entity', 'ppn_settlement', type_='foreignkey')
     op.drop_column('ppn_settlement', 'ppn_lebih_bayar')
-    op.drop_column('ppn_settlement', 'period_start')
-    op.drop_column('ppn_settlement', 'period_end')
-    op.drop_column('ppn_settlement', 'total_ppn_keluaran')
+    op.drop_column('ppn_settlement', 'tahun_pajak')
     op.drop_column('ppn_settlement', 'payment_date')
+    op.drop_column('ppn_settlement', 'submitted_at')
+    op.drop_column('ppn_settlement', 'version')
+    op.drop_column('ppn_settlement', 'kompensasi_dari_sebelumnya')
+    op.drop_column('ppn_settlement', 'total_ppn_keluaran')
+    op.drop_column('ppn_settlement', 'masa_pajak')
+    op.drop_column('ppn_settlement', 'period_end')
+    op.drop_column('ppn_settlement', 'total_ppn_masukan')
+    op.drop_column('ppn_settlement', 'status_pembayaran')
+    op.drop_column('ppn_settlement', 'spt_number')
+    op.drop_column('ppn_settlement', 'period_start')
+    op.drop_column('ppn_settlement', 'ppn_kurang_bayar')
+    op.drop_column('ppn_settlement', 'npwp')
     op.drop_column('ppn_settlement', 'deleted_at')
+    op.drop_column('ppn_settlement', 'settlement_status')
     op.alter_column('project', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -4870,14 +4870,14 @@ def upgrade() -> None:
     op.drop_constraint('fk_project_customer', 'project', type_='foreignkey')
     op.create_foreign_key(None, 'project', 'customer', ['customer_id'], ['id'], ondelete='SET NULL')
     op.create_foreign_key(None, 'project', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.drop_column('project', 'revenue_to_date')
-    op.drop_column('project', 'manager_employee_id')
-    op.drop_column('project', 'contract_type')
     op.drop_column('project', 'is_deleted')
     op.drop_column('project', 'cost_to_date')
-    op.drop_column('project', 'currency_code')
     op.drop_column('project', 'budget_total')
     op.drop_column('project', 'updated_by')
+    op.drop_column('project', 'manager_employee_id')
+    op.drop_column('project', 'revenue_to_date')
+    op.drop_column('project', 'currency_code')
+    op.drop_column('project', 'contract_type')
     op.alter_column('projection_ap_aging', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -4925,17 +4925,17 @@ def upgrade() -> None:
                type_=sa.DateTime(),
                existing_nullable=True)
     op.drop_index('ix_projection_ap_aging_entity_supplier', table_name='projection_ap_aging')
-    op.drop_column('projection_ap_aging', 'last_updated_by')
-    op.drop_column('projection_ap_aging', 'total_outstanding')
-    op.drop_column('projection_ap_aging', 'days_above_90')
-    op.drop_column('projection_ap_aging', 'days_1_30')
     op.drop_column('projection_ap_aging', 'current_amount')
-    op.drop_column('projection_ap_aging', 'days_61_90')
+    op.drop_column('projection_ap_aging', 'total_outstanding')
     op.drop_column('projection_ap_aging', 'days_31_60')
-    op.drop_column('projection_ap_aging', 'expected_credit_loss')
-    op.drop_column('projection_ap_aging', 'supplier_id')
-    op.drop_column('projection_ap_aging', 'as_of_date')
     op.drop_column('projection_ap_aging', 'last_updated_at')
+    op.drop_column('projection_ap_aging', 'as_of_date')
+    op.drop_column('projection_ap_aging', 'last_updated_by')
+    op.drop_column('projection_ap_aging', 'days_above_90')
+    op.drop_column('projection_ap_aging', 'supplier_id')
+    op.drop_column('projection_ap_aging', 'days_1_30')
+    op.drop_column('projection_ap_aging', 'expected_credit_loss')
+    op.drop_column('projection_ap_aging', 'days_61_90')
     op.alter_column('projection_ar_aging', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -4980,16 +4980,16 @@ def upgrade() -> None:
                type_=sa.DateTime(),
                existing_nullable=True)
     op.drop_index('ix_projection_ar_aging_entity_customer', table_name='projection_ar_aging')
-    op.drop_column('projection_ar_aging', 'last_updated_by')
+    op.drop_column('projection_ar_aging', 'current_amount')
     op.drop_column('projection_ar_aging', 'total_outstanding')
+    op.drop_column('projection_ar_aging', 'days_31_60')
+    op.drop_column('projection_ar_aging', 'last_updated_at')
+    op.drop_column('projection_ar_aging', 'as_of_date')
+    op.drop_column('projection_ar_aging', 'last_updated_by')
     op.drop_column('projection_ar_aging', 'days_above_90')
     op.drop_column('projection_ar_aging', 'days_1_30')
-    op.drop_column('projection_ar_aging', 'current_amount')
-    op.drop_column('projection_ar_aging', 'days_61_90')
-    op.drop_column('projection_ar_aging', 'days_31_60')
     op.drop_column('projection_ar_aging', 'expected_credit_loss')
-    op.drop_column('projection_ar_aging', 'as_of_date')
-    op.drop_column('projection_ar_aging', 'last_updated_at')
+    op.drop_column('projection_ar_aging', 'days_61_90')
     op.alter_column('projection_checkpoint', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5011,8 +5011,8 @@ def upgrade() -> None:
     op.create_index('idx_projection_checkpoint_legal_entity', 'projection_checkpoint', ['legal_entity_id'], unique=False)
     op.create_index('idx_projection_checkpoint_name', 'projection_checkpoint', ['projection_name'], unique=False)
     op.create_unique_constraint('uq_projection_checkpoint_name_legal_entity', 'projection_checkpoint', ['projection_name', 'legal_entity_id'])
-    op.drop_column('projection_checkpoint', 'status')
     op.drop_column('projection_checkpoint', 'last_processed_event_id')
+    op.drop_column('projection_checkpoint', 'status')
     op.alter_column('projection_coretax_dashboard', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5058,16 +5058,16 @@ def upgrade() -> None:
                type_=sa.DateTime(),
                existing_nullable=True)
     op.drop_index('ix_projection_coretax_dashboard_entity', table_name='projection_coretax_dashboard')
-    op.drop_column('projection_coretax_dashboard', 'last_updated_by')
-    op.drop_column('projection_coretax_dashboard', 'total_faktur_keluaran_rejected')
+    op.drop_column('projection_coretax_dashboard', 'total_spt_masa_pph_filed')
     op.drop_column('projection_coretax_dashboard', 'total_faktur_keluaran_draft')
     op.drop_column('projection_coretax_dashboard', 'total_faktur_keluaran_approved')
-    op.drop_column('projection_coretax_dashboard', 'last_sync_at')
-    op.drop_column('projection_coretax_dashboard', 'total_faktur_keluaran_submitted')
     op.drop_column('projection_coretax_dashboard', 'total_spt_masa_ppn_filed')
     op.drop_column('projection_coretax_dashboard', 'total_faktur_masukan_belum_kredit')
+    op.drop_column('projection_coretax_dashboard', 'last_updated_by')
+    op.drop_column('projection_coretax_dashboard', 'last_sync_at')
+    op.drop_column('projection_coretax_dashboard', 'total_faktur_keluaran_rejected')
+    op.drop_column('projection_coretax_dashboard', 'total_faktur_keluaran_submitted')
     op.drop_column('projection_coretax_dashboard', 'total_faktur_masukan_dikreditkan')
-    op.drop_column('projection_coretax_dashboard', 'total_spt_masa_pph_filed')
     op.alter_column('projection_financial_ratios', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5100,18 +5100,18 @@ def upgrade() -> None:
                type_=sa.DateTime(),
                existing_nullable=True)
     op.drop_index('ix_financial_ratios_entity_date', table_name='projection_financial_ratios')
-    op.drop_column('projection_financial_ratios', 'quick_ratio')
-    op.drop_column('projection_financial_ratios', 'debt_to_equity')
-    op.drop_column('projection_financial_ratios', 'roa')
-    op.drop_column('projection_financial_ratios', 'inventory_turnover')
-    op.drop_column('projection_financial_ratios', 'roe')
-    op.drop_column('projection_financial_ratios', 'net_margin')
-    op.drop_column('projection_financial_ratios', 'current_ratio')
-    op.drop_column('projection_financial_ratios', 'receivable_turnover')
     op.drop_column('projection_financial_ratios', 'payable_turnover')
+    op.drop_column('projection_financial_ratios', 'debt_to_equity')
     op.drop_column('projection_financial_ratios', 'gross_margin')
-    op.drop_column('projection_financial_ratios', 'as_of_date')
     op.drop_column('projection_financial_ratios', 'last_updated_at')
+    op.drop_column('projection_financial_ratios', 'receivable_turnover')
+    op.drop_column('projection_financial_ratios', 'quick_ratio')
+    op.drop_column('projection_financial_ratios', 'as_of_date')
+    op.drop_column('projection_financial_ratios', 'inventory_turnover')
+    op.drop_column('projection_financial_ratios', 'roa')
+    op.drop_column('projection_financial_ratios', 'roe')
+    op.drop_column('projection_financial_ratios', 'current_ratio')
+    op.drop_column('projection_financial_ratios', 'net_margin')
     op.alter_column('projection_gl_ledger', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5150,13 +5150,13 @@ def upgrade() -> None:
                type_=sa.DateTime(),
                existing_nullable=True)
     op.drop_index('ix_projection_gl_ledger_entity_period', table_name='projection_gl_ledger')
+    op.drop_column('projection_gl_ledger', 'last_updated_at')
     op.drop_column('projection_gl_ledger', 'last_updated_by')
+    op.drop_column('projection_gl_ledger', 'credit_movement')
     op.drop_column('projection_gl_ledger', 'opening_balance')
     op.drop_column('projection_gl_ledger', 'fiscal_year')
-    op.drop_column('projection_gl_ledger', 'debit_movement')
-    op.drop_column('projection_gl_ledger', 'credit_movement')
     op.drop_column('projection_gl_ledger', 'closing_balance')
-    op.drop_column('projection_gl_ledger', 'last_updated_at')
+    op.drop_column('projection_gl_ledger', 'debit_movement')
     op.alter_column('projection_kpi_alerter', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5185,12 +5185,12 @@ def upgrade() -> None:
                type_=sa.DateTime(),
                existing_nullable=True)
     op.drop_index('ix_kpi_alerter_entity_kpi', table_name='projection_kpi_alerter')
-    op.drop_column('projection_kpi_alerter', 'alert_sent_at')
-    op.drop_column('projection_kpi_alerter', 'threshold_upper')
     op.drop_column('projection_kpi_alerter', 'threshold_lower')
     op.drop_column('projection_kpi_alerter', 'breach_detected_at')
-    op.drop_column('projection_kpi_alerter', 'breach_status')
     op.drop_column('projection_kpi_alerter', 'last_updated_at')
+    op.drop_column('projection_kpi_alerter', 'alert_sent_at')
+    op.drop_column('projection_kpi_alerter', 'breach_status')
+    op.drop_column('projection_kpi_alerter', 'threshold_upper')
     op.alter_column('projection_pph_summary', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5225,16 +5225,16 @@ def upgrade() -> None:
                type_=sa.DateTime(),
                existing_nullable=True)
     op.drop_index('ix_projection_pph_summary_entity_period_type', table_name='projection_pph_summary')
-    op.drop_column('projection_pph_summary', 'last_updated_by')
-    op.drop_column('projection_pph_summary', 'amount_due')
     op.drop_column('projection_pph_summary', 'spt_status')
-    op.drop_column('projection_pph_summary', 'amount_credit')
-    op.drop_column('projection_pph_summary', 'spt_filed_at')
     op.drop_column('projection_pph_summary', 'last_updated_at')
-    op.drop_column('projection_pph_summary', 'tax_period_year')
-    op.drop_column('projection_pph_summary', 'tax_period_month')
-    op.drop_column('projection_pph_summary', 'amount_paid')
+    op.drop_column('projection_pph_summary', 'amount_credit')
+    op.drop_column('projection_pph_summary', 'amount_due')
+    op.drop_column('projection_pph_summary', 'last_updated_by')
+    op.drop_column('projection_pph_summary', 'spt_filed_at')
     op.drop_column('projection_pph_summary', 'coretax_submission_id')
+    op.drop_column('projection_pph_summary', 'tax_period_month')
+    op.drop_column('projection_pph_summary', 'tax_period_year')
+    op.drop_column('projection_pph_summary', 'amount_paid')
     op.alter_column('projection_ppn_settlement', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5278,18 +5278,18 @@ def upgrade() -> None:
                type_=sa.DateTime(),
                existing_nullable=True)
     op.drop_index('ix_projection_ppn_settlement_entity_period', table_name='projection_ppn_settlement')
-    op.drop_column('projection_ppn_settlement', 'ppn_input')
-    op.drop_column('projection_ppn_settlement', 'last_updated_by')
+    op.drop_column('projection_ppn_settlement', 'ppn_paid')
     op.drop_column('projection_ppn_settlement', 'spt_status')
+    op.drop_column('projection_ppn_settlement', 'last_updated_at')
+    op.drop_column('projection_ppn_settlement', 'last_updated_by')
     op.drop_column('projection_ppn_settlement', 'ppn_due')
     op.drop_column('projection_ppn_settlement', 'spt_filed_at')
-    op.drop_column('projection_ppn_settlement', 'ppn_paid')
-    op.drop_column('projection_ppn_settlement', 'ppn_net')
-    op.drop_column('projection_ppn_settlement', 'tax_period_year')
-    op.drop_column('projection_ppn_settlement', 'ppn_output')
-    op.drop_column('projection_ppn_settlement', 'tax_period_month')
-    op.drop_column('projection_ppn_settlement', 'last_updated_at')
     op.drop_column('projection_ppn_settlement', 'coretax_submission_id')
+    op.drop_column('projection_ppn_settlement', 'tax_period_month')
+    op.drop_column('projection_ppn_settlement', 'ppn_input')
+    op.drop_column('projection_ppn_settlement', 'tax_period_year')
+    op.drop_column('projection_ppn_settlement', 'ppn_net')
+    op.drop_column('projection_ppn_settlement', 'ppn_output')
     op.alter_column('projection_profitability_segment', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5323,14 +5323,14 @@ def upgrade() -> None:
                type_=sa.DateTime(),
                existing_nullable=True)
     op.drop_index('ix_profitability_segment_entity_type_period', table_name='projection_profitability_segment')
-    op.drop_column('projection_profitability_segment', 'gross_profit')
-    op.drop_column('projection_profitability_segment', 'direct_cost')
-    op.drop_column('projection_profitability_segment', 'fiscal_year')
-    op.drop_column('projection_profitability_segment', 'operating_profit')
     op.drop_column('projection_profitability_segment', 'indirect_cost_allocated')
-    op.drop_column('projection_profitability_segment', 'gross_margin_percentage')
-    op.drop_column('projection_profitability_segment', 'net_profit')
     op.drop_column('projection_profitability_segment', 'last_updated_at')
+    op.drop_column('projection_profitability_segment', 'direct_cost')
+    op.drop_column('projection_profitability_segment', 'gross_profit')
+    op.drop_column('projection_profitability_segment', 'operating_profit')
+    op.drop_column('projection_profitability_segment', 'net_profit')
+    op.drop_column('projection_profitability_segment', 'gross_margin_percentage')
+    op.drop_column('projection_profitability_segment', 'fiscal_year')
     op.alter_column('projection_trend_12month', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5363,21 +5363,21 @@ def upgrade() -> None:
                existing_nullable=True)
     op.drop_index('ix_trend_12month_entity_account_year', table_name='projection_trend_12month')
     op.drop_column('projection_trend_12month', 'month_2')
+    op.drop_column('projection_trend_12month', 'ytd_total')
+    op.drop_column('projection_trend_12month', 'last_updated_at')
     op.drop_column('projection_trend_12month', 'month_4')
-    op.drop_column('projection_trend_12month', 'month_8')
-    op.drop_column('projection_trend_12month', 'month_6')
-    op.drop_column('projection_trend_12month', 'month_7')
+    op.drop_column('projection_trend_12month', 'month_12')
     op.drop_column('projection_trend_12month', 'month_9')
-    op.drop_column('projection_trend_12month', 'month_11')
-    op.drop_column('projection_trend_12month', 'account_code')
-    op.drop_column('projection_trend_12month', 'month_10')
-    op.drop_column('projection_trend_12month', 'account_id')
     op.drop_column('projection_trend_12month', 'month_5')
     op.drop_column('projection_trend_12month', 'month_3')
-    op.drop_column('projection_trend_12month', 'ytd_total')
+    op.drop_column('projection_trend_12month', 'month_10')
+    op.drop_column('projection_trend_12month', 'account_id')
+    op.drop_column('projection_trend_12month', 'month_7')
     op.drop_column('projection_trend_12month', 'month_1')
-    op.drop_column('projection_trend_12month', 'month_12')
-    op.drop_column('projection_trend_12month', 'last_updated_at')
+    op.drop_column('projection_trend_12month', 'month_11')
+    op.drop_column('projection_trend_12month', 'month_6')
+    op.drop_column('projection_trend_12month', 'month_8')
+    op.drop_column('projection_trend_12month', 'account_code')
     op.alter_column('projection_trial_balance', 'account_id',
                existing_type=sa.UUID(),
                nullable=False)
@@ -5429,10 +5429,10 @@ def upgrade() -> None:
                server_default='now()',
                type_=sa.DateTime(),
                existing_nullable=True)
-    op.drop_column('projection_trial_balance', 'is_adjusted')
-    op.drop_column('projection_trial_balance', 'debit_balance')
     op.drop_column('projection_trial_balance', 'credit_balance')
     op.drop_column('projection_trial_balance', 'as_of_date')
+    op.drop_column('projection_trial_balance', 'is_adjusted')
+    op.drop_column('projection_trial_balance', 'debit_balance')
     op.alter_column('projection_variance_analysis', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5474,8 +5474,8 @@ def upgrade() -> None:
                type_=sa.DateTime(),
                existing_nullable=True)
     op.drop_index('ix_variance_entity_account_year_period', table_name='projection_variance_analysis')
-    op.drop_column('projection_variance_analysis', 'last_updated_by')
     op.drop_column('projection_variance_analysis', 'variance_percentage')
+    op.drop_column('projection_variance_analysis', 'last_updated_by')
     op.drop_column('projection_variance_analysis', 'fiscal_year')
     op.drop_column('projection_variance_analysis', 'last_updated_at')
     op.alter_column('purchase_order', 'id',
@@ -5523,12 +5523,12 @@ def upgrade() -> None:
                server_default=None,
                existing_nullable=False)
     op.create_index(op.f('ix_purchase_order_legal_entity_id'), 'purchase_order', ['legal_entity_id'], unique=False)
-    op.drop_constraint('fk_purchase_order_legal_entity', 'purchase_order', type_='foreignkey')
-    op.drop_constraint('fk_purchase_order_approved_by', 'purchase_order', type_='foreignkey')
-    op.drop_constraint('fk_purchase_order_requested_by', 'purchase_order', type_='foreignkey')
     op.drop_constraint('fk_purchase_order_supplier', 'purchase_order', type_='foreignkey')
-    op.create_foreign_key(None, 'purchase_order', 'legal_entity', ['legal_entity_id'], ['id'])
+    op.drop_constraint('fk_purchase_order_approved_by', 'purchase_order', type_='foreignkey')
+    op.drop_constraint('fk_purchase_order_legal_entity', 'purchase_order', type_='foreignkey')
+    op.drop_constraint('fk_purchase_order_requested_by', 'purchase_order', type_='foreignkey')
     op.create_foreign_key(None, 'purchase_order', 'supplier', ['supplier_id'], ['id'], ondelete='RESTRICT')
+    op.create_foreign_key(None, 'purchase_order', 'legal_entity', ['legal_entity_id'], ['id'])
     op.alter_column('purchase_order_line', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5571,17 +5571,17 @@ def upgrade() -> None:
     op.drop_constraint('fk_po_line_po', 'purchase_order_line', type_='foreignkey')
     op.drop_constraint('fk_po_line_item', 'purchase_order_line', type_='foreignkey')
     op.create_foreign_key(None, 'purchase_order_line', 'purchase_order', ['po_id'], ['id'], ondelete='CASCADE')
-    op.drop_column('purchase_order_line', 'legal_entity_id')
     op.drop_column('purchase_order_line', 'item_name')
     op.drop_column('purchase_order_line', 'version')
-    op.drop_column('purchase_order_line', 'purchase_order_id')
-    op.drop_column('purchase_order_line', 'item_id')
     op.drop_column('purchase_order_line', 'tax_rate')
-    op.drop_column('purchase_order_line', 'expected_delivery_date')
-    op.drop_column('purchase_order_line', 'total_amount')
     op.drop_column('purchase_order_line', 'item_code')
-    op.drop_column('purchase_order_line', 'deleted_at')
+    op.drop_column('purchase_order_line', 'legal_entity_id')
     op.drop_column('purchase_order_line', 'discount_percent')
+    op.drop_column('purchase_order_line', 'expected_delivery_date')
+    op.drop_column('purchase_order_line', 'purchase_order_id')
+    op.drop_column('purchase_order_line', 'total_amount')
+    op.drop_column('purchase_order_line', 'deleted_at')
+    op.drop_column('purchase_order_line', 'item_id')
     op.alter_column('purchase_order_lines', 'item_code',
                existing_type=sa.VARCHAR(length=30),
                type_=sa.String(length=255),
@@ -5647,8 +5647,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_report_definition_legal_entity_id'), 'report_definition', ['legal_entity_id'], unique=False)
     op.create_foreign_key(None, 'report_definition', 'legal_entity', ['legal_entity_id'], ['id'])
     op.drop_column('report_definition', 'report_type')
-    op.drop_column('report_definition', 'query_definition')
     op.drop_column('report_definition', 'updated_by')
+    op.drop_column('report_definition', 'query_definition')
     op.alter_column('report_output', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5675,8 +5675,8 @@ def upgrade() -> None:
     op.create_index('idx_report_output_generated_at', 'report_output', ['generated_at'], unique=False)
     op.drop_column('report_output', 'report_definition_id')
     op.drop_column('report_output', 'file_format')
-    op.drop_column('report_output', 'parameters_used')
     op.drop_column('report_output', 'file_url')
+    op.drop_column('report_output', 'parameters_used')
     op.alter_column('report_schedule', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5710,9 +5710,9 @@ def upgrade() -> None:
     op.create_index('idx_report_schedule_next_run', 'report_schedule', ['next_run_at'], unique=False)
     op.drop_constraint('fk_report_schedule_definition', 'report_schedule', type_='foreignkey')
     op.create_foreign_key(None, 'report_schedule', 'report_definition', ['definition_id'], ['id'])
-    op.drop_column('report_schedule', 'schedule_cron')
-    op.drop_column('report_schedule', 'legal_entity_id')
     op.drop_column('report_schedule', 'report_definition_id')
+    op.drop_column('report_schedule', 'legal_entity_id')
+    op.drop_column('report_schedule', 'schedule_cron')
     op.alter_column('retained_earnings_history', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5751,12 +5751,12 @@ def upgrade() -> None:
                server_default='now()',
                type_=sa.DateTime(),
                existing_nullable=True)
-    op.drop_column('retained_earnings_history', 'opening_balance')
-    op.drop_column('retained_earnings_history', 'is_closed')
+    op.drop_column('retained_earnings_history', 'dividends_declared')
     op.drop_column('retained_earnings_history', 'version')
     op.drop_column('retained_earnings_history', 'closed_at')
+    op.drop_column('retained_earnings_history', 'opening_balance')
     op.drop_column('retained_earnings_history', 'closing_balance')
-    op.drop_column('retained_earnings_history', 'dividends_declared')
+    op.drop_column('retained_earnings_history', 'is_closed')
     op.alter_column('retainer_contract', 'contract_name',
                existing_type=sa.VARCHAR(length=200),
                nullable=False)
@@ -5827,8 +5827,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_retainer_contract_legal_entity_id'), 'retainer_contract', ['legal_entity_id'], unique=False)
     op.create_unique_constraint('uq_retainer_contract_number_legal_entity', 'retainer_contract', ['contract_number', 'legal_entity_id'])
     op.drop_constraint('fk_retainer_customer', 'retainer_contract', type_='foreignkey')
-    op.create_foreign_key(None, 'retainer_contract', 'customer', ['customer_id'], ['id'], ondelete='RESTRICT')
     op.create_foreign_key(None, 'retainer_contract', 'project', ['project_id'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key(None, 'retainer_contract', 'customer', ['customer_id'], ['id'], ondelete='RESTRICT')
     op.create_foreign_key(None, 'retainer_contract', 'legal_entity', ['legal_entity_id'], ['id'])
     op.drop_column('retainer_contract', 'monthly_fee')
     op.drop_column('retainer_contract', 'updated_by')
@@ -5879,9 +5879,9 @@ def upgrade() -> None:
     op.create_index('idx_revaluation_date', 'revaluation', ['revaluation_date'], unique=False)
     op.drop_constraint('fk_revaluation_asset', 'revaluation', type_='foreignkey')
     op.create_foreign_key(None, 'revaluation', 'fixed_asset', ['asset_id'], ['id'], ondelete='CASCADE')
-    op.drop_column('revaluation', 'new_value')
     op.drop_column('revaluation', 'old_value')
     op.drop_column('revaluation', 'legal_entity_id')
+    op.drop_column('revaluation', 'new_value')
     op.drop_column('revaluation', 'revaluation_surplus')
     op.alter_column('routing', 'id',
                existing_type=sa.UUID(),
@@ -5908,10 +5908,10 @@ def upgrade() -> None:
     op.drop_constraint('uq_routing_code_legal_entity', 'routing', type_='unique')
     op.create_unique_constraint(None, 'routing', ['routing_code'])
     op.drop_constraint('fk_routing_legal_entity', 'routing', type_='foreignkey')
-    op.drop_column('routing', 'effective_date')
-    op.drop_column('routing', 'routing_version')
     op.drop_column('routing', 'expiry_date')
+    op.drop_column('routing', 'routing_version')
     op.drop_column('routing', 'deleted_at')
+    op.drop_column('routing', 'effective_date')
     op.alter_column('routing_step', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -5985,16 +5985,16 @@ def upgrade() -> None:
     op.create_unique_constraint('uq_routing_step_sequence', 'routing_step', ['routing_id', 'step_sequence'])
     op.drop_constraint('fk_routing_step_legal_entity', 'routing_step', type_='foreignkey')
     op.create_foreign_key(None, 'routing_step', 'machine', ['machine_id'], ['id'], ondelete='SET NULL')
-    op.drop_column('routing_step', 'labor_hours')
-    op.drop_column('routing_step', 'legal_entity_id')
-    op.drop_column('routing_step', 'queue_time_hours')
     op.drop_column('routing_step', 'setup_time_hours')
-    op.drop_column('routing_step', 'step_number')
     op.drop_column('routing_step', 'run_time_hours')
     op.drop_column('routing_step', 'work_center')
+    op.drop_column('routing_step', 'step_number')
+    op.drop_column('routing_step', 'queue_time_hours')
     op.drop_column('routing_step', 'move_time_hours')
+    op.drop_column('routing_step', 'legal_entity_id')
     op.drop_column('routing_step', 'machine_hours')
     op.drop_column('routing_step', 'deleted_at')
+    op.drop_column('routing_step', 'labor_hours')
     op.alter_column('saga_event', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -6130,13 +6130,13 @@ def upgrade() -> None:
     op.create_index('idx_saga_state_type', 'saga_state', ['saga_type'], unique=False)
     op.create_unique_constraint('uq_saga_state_saga_id', 'saga_state', ['saga_id'])
     op.create_unique_constraint('uq_saga_type_correlation', 'saga_state', ['saga_type', 'correlation_id'])
-    op.drop_column('saga_state', 'version')
-    op.drop_column('saga_state', 'last_heartbeat_at')
-    op.drop_column('saga_state', 'timeout_at')
     op.drop_column('saga_state', 'failed_at')
-    op.drop_column('saga_state', 'saga_data')
-    op.drop_column('saga_state', 'updated_by')
+    op.drop_column('saga_state', 'version')
     op.drop_column('saga_state', 'compensation_data')
+    op.drop_column('saga_state', 'updated_by')
+    op.drop_column('saga_state', 'last_heartbeat_at')
+    op.drop_column('saga_state', 'saga_data')
+    op.drop_column('saga_state', 'timeout_at')
     op.alter_column('saga_step_log', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -6158,12 +6158,12 @@ def upgrade() -> None:
                type_=sa.DateTime(),
                existing_nullable=True)
     op.drop_index('ix_saga_step_log_instance', table_name='saga_step_log')
-    op.drop_column('saga_step_log', 'action_type')
-    op.drop_column('saga_step_log', 'saga_instance_id')
-    op.drop_column('saga_step_log', 'retry_count')
-    op.drop_column('saga_step_log', 'output_payload')
-    op.drop_column('saga_step_log', 'input_payload')
     op.drop_column('saga_step_log', 'duration_ms')
+    op.drop_column('saga_step_log', 'action_type')
+    op.drop_column('saga_step_log', 'retry_count')
+    op.drop_column('saga_step_log', 'saga_instance_id')
+    op.drop_column('saga_step_log', 'input_payload')
+    op.drop_column('saga_step_log', 'output_payload')
     op.alter_column('salary_component', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -6219,9 +6219,9 @@ def upgrade() -> None:
     op.drop_constraint('uq_salary_structure_code_legal_entity', 'salary_structure', type_='unique')
     op.create_unique_constraint(None, 'salary_structure', ['structure_code'])
     op.drop_constraint('fk_salary_structure_legal_entity', 'salary_structure', type_='foreignkey')
-    op.drop_column('salary_structure', 'deleted_at')
-    op.drop_column('salary_structure', 'status')
     op.drop_column('salary_structure', 'is_default')
+    op.drop_column('salary_structure', 'status')
+    op.drop_column('salary_structure', 'deleted_at')
     op.alter_column('sales_invoice', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -6316,11 +6316,11 @@ def upgrade() -> None:
                server_default=None,
                existing_nullable=False)
     op.create_index(op.f('ix_sales_order_legal_entity_id'), 'sales_order', ['legal_entity_id'], unique=False)
-    op.drop_constraint('fk_sales_order_approved_by', 'sales_order', type_='foreignkey')
-    op.drop_constraint('fk_sales_order_legal_entity', 'sales_order', type_='foreignkey')
     op.drop_constraint('fk_sales_order_customer', 'sales_order', type_='foreignkey')
-    op.create_foreign_key(None, 'sales_order', 'legal_entity', ['legal_entity_id'], ['id'])
+    op.drop_constraint('fk_sales_order_legal_entity', 'sales_order', type_='foreignkey')
+    op.drop_constraint('fk_sales_order_approved_by', 'sales_order', type_='foreignkey')
     op.create_foreign_key(None, 'sales_order', 'customer', ['customer_id'], ['id'], ondelete='RESTRICT')
+    op.create_foreign_key(None, 'sales_order', 'legal_entity', ['legal_entity_id'], ['id'])
     op.alter_column('sales_order_line', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -6370,9 +6370,9 @@ def upgrade() -> None:
     op.drop_index('idx_so_line_item', table_name='sales_order_line')
     op.drop_index('idx_so_line_number', table_name='sales_order_line')
     op.drop_index('idx_so_line_so', table_name='sales_order_line')
+    op.drop_constraint('fk_so_line_so', 'sales_order_line', type_='foreignkey')
     op.drop_constraint('fk_so_line_item', 'sales_order_line', type_='foreignkey')
     op.drop_constraint('fk_so_line_legal_entity', 'sales_order_line', type_='foreignkey')
-    op.drop_constraint('fk_so_line_so', 'sales_order_line', type_='foreignkey')
     op.drop_column('sales_order_line', 'deleted_at')
     op.alter_column('sales_order_lines', 'item_code',
                existing_type=sa.VARCHAR(length=30),
@@ -6611,8 +6611,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_stock_opname_line_product_id'), 'stock_opname_line', ['product_id'], unique=False)
     op.create_index(op.f('ix_stock_opname_line_stock_opname_id'), 'stock_opname_line', ['stock_opname_id'], unique=False)
     op.create_foreign_key(None, 'stock_opname_line', 'stock_opname', ['stock_opname_id'], ['id'], ondelete='CASCADE')
-    op.drop_column('stock_opname_line', 'opname_id')
     op.drop_column('stock_opname_line', 'variance')
+    op.drop_column('stock_opname_line', 'opname_id')
     op.drop_column('stock_opname_line', 'item_id')
     op.alter_column('stock_opname_lines', 'system_quantity',
                existing_type=sa.NUMERIC(precision=20, scale=2),
@@ -6844,13 +6844,13 @@ def upgrade() -> None:
     op.drop_constraint('fk_time_entry_project', 'time_entry', type_='foreignkey')
     op.drop_constraint('fk_time_entry_employee', 'time_entry', type_='foreignkey')
     op.create_foreign_key(None, 'time_entry', 'employee', ['employee_id'], ['id'], ondelete='RESTRICT')
-    op.create_foreign_key(None, 'time_entry', 'legal_entity', ['legal_entity_id'], ['id'])
     op.create_foreign_key(None, 'time_entry', 'project', ['project_id'], ['id'], ondelete='SET NULL')
-    op.drop_column('time_entry', 'billed_invoice_id')
-    op.drop_column('time_entry', 'is_billed')
+    op.create_foreign_key(None, 'time_entry', 'legal_entity', ['legal_entity_id'], ['id'])
     op.drop_column('time_entry', 'work_date')
-    op.drop_column('time_entry', 'total_amount')
+    op.drop_column('time_entry', 'is_billed')
     op.drop_column('time_entry', 'updated_by')
+    op.drop_column('time_entry', 'billed_invoice_id')
+    op.drop_column('time_entry', 'total_amount')
     op.alter_column('umkm_business_profile', 'business_type',
                existing_type=sa.VARCHAR(length=50),
                type_=sa.String(length=255),
@@ -6988,13 +6988,13 @@ def upgrade() -> None:
     op.create_index(op.f('ix_umkm_transaction_profile_id'), 'umkm_transaction', ['profile_id'], unique=False)
     op.create_unique_constraint(None, 'umkm_transaction', ['transaction_number'])
     op.drop_constraint('fk_umkm_transaction_legal_entity', 'umkm_transaction', type_='foreignkey')
+    op.drop_column('umkm_transaction', 'version')
+    op.drop_column('umkm_transaction', 'credit_account_code')
+    op.drop_column('umkm_transaction', 'debit_account_code')
+    op.drop_column('umkm_transaction', 'updated_by')
     op.drop_column('umkm_transaction', 'legal_entity_id')
     op.drop_column('umkm_transaction', 'attachment_url')
     op.drop_column('umkm_transaction', 'tax_id')
-    op.drop_column('umkm_transaction', 'version')
-    op.drop_column('umkm_transaction', 'debit_account_code')
-    op.drop_column('umkm_transaction', 'credit_account_code')
-    op.drop_column('umkm_transaction', 'updated_by')
     op.alter_column('warehouse', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -7046,8 +7046,8 @@ def upgrade() -> None:
     op.create_unique_constraint('uq_warehouse_code_entity', 'warehouse', ['warehouse_code', 'legal_entity_id'])
     op.create_unique_constraint('uq_warehouse_name_entity', 'warehouse', ['name', 'legal_entity_id'])
     op.create_foreign_key(None, 'warehouse', 'legal_entity', ['legal_entity_id'], ['id'])
-    op.drop_column('warehouse', 'updated_by')
     op.drop_column('warehouse', 'warehouse_name')
+    op.drop_column('warehouse', 'updated_by')
     op.alter_column('work_in_process', 'id',
                existing_type=sa.UUID(),
                server_default=None,
@@ -7117,12 +7117,12 @@ def upgrade() -> None:
                existing_server_default=sa.text('now()'))
     op.drop_index('idx_wip_product', table_name='work_in_process')
     op.drop_index('idx_wip_work_order', table_name='work_in_process')
-    op.drop_constraint('fk_wip_legal_entity', 'work_in_process', type_='foreignkey')
     op.drop_constraint('fk_wip_work_order', 'work_in_process', type_='foreignkey')
-    op.drop_column('work_in_process', 'start_date')
+    op.drop_constraint('fk_wip_legal_entity', 'work_in_process', type_='foreignkey')
     op.drop_column('work_in_process', 'expected_completion_date')
-    op.drop_column('work_in_process', 'quantity_remaining')
     op.drop_column('work_in_process', 'version')
+    op.drop_column('work_in_process', 'start_date')
+    op.drop_column('work_in_process', 'quantity_remaining')
     op.drop_column('work_in_process', 'deleted_at')
     op.alter_column('work_order', 'id',
                existing_type=sa.UUID(),
@@ -7153,8 +7153,8 @@ def upgrade() -> None:
                server_default=None,
                existing_nullable=False)
     op.create_index(op.f('ix_work_order_legal_entity_id'), 'work_order', ['legal_entity_id'], unique=False)
-    op.drop_constraint('fk_work_order_bom', 'work_order', type_='foreignkey')
     op.drop_constraint('fk_work_order_legal_entity', 'work_order', type_='foreignkey')
+    op.drop_constraint('fk_work_order_bom', 'work_order', type_='foreignkey')
     op.drop_constraint('fk_work_order_routing', 'work_order', type_='foreignkey')
     op.create_foreign_key(None, 'work_order', 'bill_of_materials', ['bom_id'], ['id'])
     op.create_foreign_key(None, 'work_order', 'legal_entity', ['legal_entity_id'], ['id'])
@@ -7166,8 +7166,8 @@ def downgrade() -> None:
     op.drop_constraint(None, 'work_order', type_='foreignkey')
     op.drop_constraint(None, 'work_order', type_='foreignkey')
     op.create_foreign_key('fk_work_order_routing', 'work_order', 'routing', ['routing_id'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key('fk_work_order_legal_entity', 'work_order', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_work_order_bom', 'work_order', 'bill_of_materials', ['bom_id'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key('fk_work_order_legal_entity', 'work_order', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_work_order_legal_entity_id'), table_name='work_order')
     op.alter_column('work_order', 'version',
                existing_type=sa.INTEGER(),
@@ -7198,12 +7198,12 @@ def downgrade() -> None:
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
     op.add_column('work_in_process', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('work_in_process', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.add_column('work_in_process', sa.Column('quantity_remaining', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
-    op.add_column('work_in_process', sa.Column('expected_completion_date', sa.DATE(), autoincrement=False, nullable=True))
     op.add_column('work_in_process', sa.Column('start_date', sa.DATE(), autoincrement=False, nullable=False))
-    op.create_foreign_key('fk_wip_work_order', 'work_in_process', 'work_order', ['work_order_id'], ['id'], ondelete='CASCADE')
+    op.add_column('work_in_process', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('work_in_process', sa.Column('expected_completion_date', sa.DATE(), autoincrement=False, nullable=True))
     op.create_foreign_key('fk_wip_legal_entity', 'work_in_process', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_wip_work_order', 'work_in_process', 'work_order', ['work_order_id'], ['id'], ondelete='CASCADE')
     op.create_index('idx_wip_work_order', 'work_in_process', ['work_order_id'], unique=False)
     op.create_index('idx_wip_product', 'work_in_process', ['product_id'], unique=False)
     op.alter_column('work_in_process', 'updated_at',
@@ -7273,8 +7273,8 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('warehouse', sa.Column('warehouse_name', sa.VARCHAR(length=100), autoincrement=False, nullable=False))
     op.add_column('warehouse', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('warehouse', sa.Column('warehouse_name', sa.VARCHAR(length=100), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'warehouse', type_='foreignkey')
     op.drop_constraint('uq_warehouse_name_entity', 'warehouse', type_='unique')
     op.drop_constraint('uq_warehouse_code_entity', 'warehouse', type_='unique')
@@ -7326,13 +7326,13 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('umkm_transaction', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('umkm_transaction', sa.Column('credit_account_code', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
-    op.add_column('umkm_transaction', sa.Column('debit_account_code', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
-    op.add_column('umkm_transaction', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.add_column('umkm_transaction', sa.Column('tax_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('umkm_transaction', sa.Column('attachment_url', sa.VARCHAR(length=500), autoincrement=False, nullable=True))
     op.add_column('umkm_transaction', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('umkm_transaction', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('umkm_transaction', sa.Column('debit_account_code', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
+    op.add_column('umkm_transaction', sa.Column('credit_account_code', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
+    op.add_column('umkm_transaction', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.create_foreign_key('fk_umkm_transaction_legal_entity', 'umkm_transaction', 'legal_entity', ['legal_entity_id'], ['id'])
     op.drop_constraint(None, 'umkm_transaction', type_='unique')
     op.drop_index(op.f('ix_umkm_transaction_profile_id'), table_name='umkm_transaction')
@@ -7470,11 +7470,11 @@ def downgrade() -> None:
                existing_type=sa.String(length=255),
                type_=sa.VARCHAR(length=50),
                existing_nullable=False)
-    op.add_column('time_entry', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('time_entry', sa.Column('total_amount', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
-    op.add_column('time_entry', sa.Column('work_date', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('time_entry', sa.Column('is_billed', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
     op.add_column('time_entry', sa.Column('billed_invoice_id', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('time_entry', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('time_entry', sa.Column('is_billed', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
+    op.add_column('time_entry', sa.Column('work_date', sa.DATE(), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'time_entry', type_='foreignkey')
     op.drop_constraint(None, 'time_entry', type_='foreignkey')
     op.drop_constraint(None, 'time_entry', type_='foreignkey')
@@ -7708,8 +7708,8 @@ def downgrade() -> None:
                type_=sa.NUMERIC(precision=20, scale=2),
                existing_nullable=False)
     op.add_column('stock_opname_line', sa.Column('item_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('stock_opname_line', sa.Column('variance', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.add_column('stock_opname_line', sa.Column('opname_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('stock_opname_line', sa.Column('variance', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'stock_opname_line', type_='foreignkey')
     op.drop_index(op.f('ix_stock_opname_line_stock_opname_id'), table_name='stock_opname_line')
     op.drop_index(op.f('ix_stock_opname_line_product_id'), table_name='stock_opname_line')
@@ -7948,9 +7948,9 @@ def downgrade() -> None:
                type_=sa.VARCHAR(length=30),
                existing_nullable=False)
     op.add_column('sales_order_line', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.create_foreign_key('fk_so_line_so', 'sales_order_line', 'sales_order', ['sales_order_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_so_line_legal_entity', 'sales_order_line', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_so_line_item', 'sales_order_line', 'inventory_item', ['item_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_so_line_so', 'sales_order_line', 'sales_order', ['sales_order_id'], ['id'], ondelete='CASCADE')
     op.create_index('idx_so_line_so', 'sales_order_line', ['sales_order_id'], unique=False)
     op.create_index('idx_so_line_number', 'sales_order_line', ['sales_order_id', 'line_number'], unique=False)
     op.create_index('idx_so_line_item', 'sales_order_line', ['item_id'], unique=False)
@@ -8002,9 +8002,9 @@ def downgrade() -> None:
                existing_nullable=False)
     op.drop_constraint(None, 'sales_order', type_='foreignkey')
     op.drop_constraint(None, 'sales_order', type_='foreignkey')
-    op.create_foreign_key('fk_sales_order_customer', 'sales_order', 'customer', ['customer_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key('fk_sales_order_legal_entity', 'sales_order', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_sales_order_approved_by', 'sales_order', 'iam_user', ['approved_by'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key('fk_sales_order_legal_entity', 'sales_order', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_sales_order_customer', 'sales_order', 'customer', ['customer_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_sales_order_legal_entity_id'), table_name='sales_order')
     op.alter_column('sales_order', 'version',
                existing_type=sa.INTEGER(),
@@ -8099,9 +8099,9 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('salary_structure', sa.Column('is_default', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
-    op.add_column('salary_structure', sa.Column('status', sa.VARCHAR(length=20), server_default=sa.text("'active'::character varying"), autoincrement=False, nullable=False))
     op.add_column('salary_structure', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('salary_structure', sa.Column('status', sa.VARCHAR(length=20), server_default=sa.text("'active'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('salary_structure', sa.Column('is_default', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
     op.create_foreign_key('fk_salary_structure_legal_entity', 'salary_structure', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_constraint(None, 'salary_structure', type_='unique')
     op.create_unique_constraint('uq_salary_structure_code_legal_entity', 'salary_structure', ['structure_code', 'legal_entity_id'])
@@ -8157,12 +8157,12 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('saga_step_log', sa.Column('duration_ms', sa.INTEGER(), autoincrement=False, nullable=True))
-    op.add_column('saga_step_log', sa.Column('input_payload', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
     op.add_column('saga_step_log', sa.Column('output_payload', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
-    op.add_column('saga_step_log', sa.Column('retry_count', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('saga_step_log', sa.Column('input_payload', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
     op.add_column('saga_step_log', sa.Column('saga_instance_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('saga_step_log', sa.Column('retry_count', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.add_column('saga_step_log', sa.Column('action_type', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
+    op.add_column('saga_step_log', sa.Column('duration_ms', sa.INTEGER(), autoincrement=False, nullable=True))
     op.create_index('ix_saga_step_log_instance', 'saga_step_log', ['saga_instance_id', 'step_index'], unique=False)
     op.alter_column('saga_step_log', 'completed_at',
                existing_type=sa.DateTime(),
@@ -8184,13 +8184,13 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('saga_state', sa.Column('compensation_data', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
-    op.add_column('saga_state', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('saga_state', sa.Column('saga_data', postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), autoincrement=False, nullable=False))
-    op.add_column('saga_state', sa.Column('failed_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
     op.add_column('saga_state', sa.Column('timeout_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('saga_state', sa.Column('saga_data', postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), autoincrement=False, nullable=False))
     op.add_column('saga_state', sa.Column('last_heartbeat_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('saga_state', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('saga_state', sa.Column('compensation_data', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
     op.add_column('saga_state', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('saga_state', sa.Column('failed_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
     op.drop_constraint('uq_saga_type_correlation', 'saga_state', type_='unique')
     op.drop_constraint('uq_saga_state_saga_id', 'saga_state', type_='unique')
     op.drop_index('idx_saga_state_type', table_name='saga_state')
@@ -8326,16 +8326,16 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
+    op.add_column('routing_step', sa.Column('labor_hours', sa.NUMERIC(precision=10, scale=2), autoincrement=False, nullable=False))
     op.add_column('routing_step', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
     op.add_column('routing_step', sa.Column('machine_hours', sa.NUMERIC(precision=10, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('routing_step', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('routing_step', sa.Column('move_time_hours', sa.NUMERIC(precision=10, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('routing_step', sa.Column('queue_time_hours', sa.NUMERIC(precision=10, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('routing_step', sa.Column('step_number', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('routing_step', sa.Column('work_center', sa.VARCHAR(length=100), autoincrement=False, nullable=False))
     op.add_column('routing_step', sa.Column('run_time_hours', sa.NUMERIC(precision=10, scale=2), autoincrement=False, nullable=False))
-    op.add_column('routing_step', sa.Column('step_number', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('routing_step', sa.Column('setup_time_hours', sa.NUMERIC(precision=10, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('routing_step', sa.Column('queue_time_hours', sa.NUMERIC(precision=10, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('routing_step', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('routing_step', sa.Column('labor_hours', sa.NUMERIC(precision=10, scale=2), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'routing_step', type_='foreignkey')
     op.create_foreign_key('fk_routing_step_legal_entity', 'routing_step', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_constraint('uq_routing_step_sequence', 'routing_step', type_='unique')
@@ -8423,10 +8423,10 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('routing', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('routing', sa.Column('expiry_date', sa.DATE(), autoincrement=False, nullable=True))
-    op.add_column('routing', sa.Column('routing_version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.add_column('routing', sa.Column('effective_date', sa.DATE(), autoincrement=False, nullable=False))
+    op.add_column('routing', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('routing', sa.Column('routing_version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('routing', sa.Column('expiry_date', sa.DATE(), autoincrement=False, nullable=True))
     op.create_foreign_key('fk_routing_legal_entity', 'routing', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_constraint(None, 'routing', type_='unique')
     op.create_unique_constraint('uq_routing_code_legal_entity', 'routing', ['routing_code', 'legal_entity_id'])
@@ -8453,9 +8453,9 @@ def downgrade() -> None:
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
     op.add_column('revaluation', sa.Column('revaluation_surplus', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('revaluation', sa.Column('new_value', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.add_column('revaluation', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('revaluation', sa.Column('old_value', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
-    op.add_column('revaluation', sa.Column('new_value', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'revaluation', type_='foreignkey')
     op.create_foreign_key('fk_revaluation_asset', 'revaluation', 'fixed_asset', ['asset_id'], ['id'])
     op.drop_index('idx_revaluation_date', table_name='revaluation')
@@ -8578,12 +8578,12 @@ def downgrade() -> None:
     op.alter_column('retainer_contract', 'contract_name',
                existing_type=sa.VARCHAR(length=200),
                nullable=True)
-    op.add_column('retained_earnings_history', sa.Column('dividends_declared', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
+    op.add_column('retained_earnings_history', sa.Column('is_closed', sa.BOOLEAN(), autoincrement=False, nullable=True))
     op.add_column('retained_earnings_history', sa.Column('closing_balance', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
+    op.add_column('retained_earnings_history', sa.Column('opening_balance', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
     op.add_column('retained_earnings_history', sa.Column('closed_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
     op.add_column('retained_earnings_history', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=True))
-    op.add_column('retained_earnings_history', sa.Column('is_closed', sa.BOOLEAN(), autoincrement=False, nullable=True))
-    op.add_column('retained_earnings_history', sa.Column('opening_balance', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
+    op.add_column('retained_earnings_history', sa.Column('dividends_declared', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
     op.alter_column('retained_earnings_history', 'updated_at',
                existing_type=sa.DateTime(),
                server_default=None,
@@ -8622,9 +8622,9 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('report_schedule', sa.Column('report_definition_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('report_schedule', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('report_schedule', sa.Column('schedule_cron', sa.VARCHAR(length=100), autoincrement=False, nullable=False))
+    op.add_column('report_schedule', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('report_schedule', sa.Column('report_definition_id', sa.UUID(), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'report_schedule', type_='foreignkey')
     op.create_foreign_key('fk_report_schedule_definition', 'report_schedule', 'report_definition', ['report_definition_id'], ['id'])
     op.drop_index('idx_report_schedule_next_run', table_name='report_schedule')
@@ -8658,8 +8658,8 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('report_output', sa.Column('file_url', sa.VARCHAR(length=500), autoincrement=False, nullable=False))
     op.add_column('report_output', sa.Column('parameters_used', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=False))
+    op.add_column('report_output', sa.Column('file_url', sa.VARCHAR(length=500), autoincrement=False, nullable=False))
     op.add_column('report_output', sa.Column('file_format', sa.VARCHAR(length=10), autoincrement=False, nullable=False))
     op.add_column('report_output', sa.Column('report_definition_id', sa.UUID(), autoincrement=False, nullable=False))
     op.drop_index('idx_report_output_generated_at', table_name='report_output')
@@ -8686,8 +8686,8 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('report_definition', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('report_definition', sa.Column('query_definition', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=False))
+    op.add_column('report_definition', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('report_definition', sa.Column('report_type', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'report_definition', type_='foreignkey')
     op.drop_index(op.f('ix_report_definition_legal_entity_id'), table_name='report_definition')
@@ -8753,17 +8753,17 @@ def downgrade() -> None:
                existing_type=sa.String(length=255),
                type_=sa.VARCHAR(length=30),
                existing_nullable=False)
-    op.add_column('purchase_order_line', sa.Column('discount_percent', sa.NUMERIC(precision=5, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('purchase_order_line', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('purchase_order_line', sa.Column('item_code', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
-    op.add_column('purchase_order_line', sa.Column('total_amount', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
-    op.add_column('purchase_order_line', sa.Column('expected_delivery_date', sa.DATE(), autoincrement=False, nullable=True))
-    op.add_column('purchase_order_line', sa.Column('tax_rate', sa.NUMERIC(precision=5, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('purchase_order_line', sa.Column('item_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('purchase_order_line', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('purchase_order_line', sa.Column('total_amount', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.add_column('purchase_order_line', sa.Column('purchase_order_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('purchase_order_line', sa.Column('expected_delivery_date', sa.DATE(), autoincrement=False, nullable=True))
+    op.add_column('purchase_order_line', sa.Column('discount_percent', sa.NUMERIC(precision=5, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('purchase_order_line', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('purchase_order_line', sa.Column('item_code', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
+    op.add_column('purchase_order_line', sa.Column('tax_rate', sa.NUMERIC(precision=5, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('purchase_order_line', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.add_column('purchase_order_line', sa.Column('item_name', sa.VARCHAR(length=200), autoincrement=False, nullable=True))
-    op.add_column('purchase_order_line', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'purchase_order_line', type_='foreignkey')
     op.create_foreign_key('fk_po_line_item', 'purchase_order_line', 'inventory_item', ['item_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_po_line_po', 'purchase_order_line', 'purchase_order', ['purchase_order_id'], ['id'], ondelete='CASCADE')
@@ -8808,10 +8808,10 @@ def downgrade() -> None:
                existing_nullable=False)
     op.drop_constraint(None, 'purchase_order', type_='foreignkey')
     op.drop_constraint(None, 'purchase_order', type_='foreignkey')
-    op.create_foreign_key('fk_purchase_order_supplier', 'purchase_order', 'supplier', ['supplier_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_purchase_order_requested_by', 'purchase_order', 'iam_user', ['requested_by'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key('fk_purchase_order_approved_by', 'purchase_order', 'iam_user', ['approved_by'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_purchase_order_legal_entity', 'purchase_order', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_purchase_order_approved_by', 'purchase_order', 'iam_user', ['approved_by'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key('fk_purchase_order_supplier', 'purchase_order', 'supplier', ['supplier_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_purchase_order_legal_entity_id'), table_name='purchase_order')
     op.alter_column('purchase_order', 'version',
                existing_type=sa.INTEGER(),
@@ -8859,8 +8859,8 @@ def downgrade() -> None:
                existing_nullable=False)
     op.add_column('projection_variance_analysis', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
     op.add_column('projection_variance_analysis', sa.Column('fiscal_year', sa.INTEGER(), autoincrement=False, nullable=False))
-    op.add_column('projection_variance_analysis', sa.Column('variance_percentage', sa.NUMERIC(precision=10, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_variance_analysis', sa.Column('last_updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('projection_variance_analysis', sa.Column('variance_percentage', sa.NUMERIC(precision=10, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.create_index('ix_variance_entity_account_year_period', 'projection_variance_analysis', ['legal_entity_id', 'account_id', 'fiscal_year', 'period'], unique=True)
     op.alter_column('projection_variance_analysis', 'created_at',
                existing_type=sa.DateTime(),
@@ -8902,10 +8902,10 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('projection_trial_balance', sa.Column('as_of_date', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('projection_trial_balance', sa.Column('credit_balance', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
     op.add_column('projection_trial_balance', sa.Column('debit_balance', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
     op.add_column('projection_trial_balance', sa.Column('is_adjusted', sa.BOOLEAN(), autoincrement=False, nullable=True))
+    op.add_column('projection_trial_balance', sa.Column('as_of_date', sa.DATE(), autoincrement=False, nullable=False))
+    op.add_column('projection_trial_balance', sa.Column('credit_balance', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
     op.alter_column('projection_trial_balance', 'created_at',
                existing_type=sa.DateTime(),
                server_default=None,
@@ -8957,21 +8957,21 @@ def downgrade() -> None:
     op.alter_column('projection_trial_balance', 'account_id',
                existing_type=sa.UUID(),
                nullable=True)
-    op.add_column('projection_trend_12month', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
-    op.add_column('projection_trend_12month', sa.Column('month_12', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_trend_12month', sa.Column('account_code', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
+    op.add_column('projection_trend_12month', sa.Column('month_8', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_trend_12month', sa.Column('month_6', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_trend_12month', sa.Column('month_11', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_trend_12month', sa.Column('month_1', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_trend_12month', sa.Column('ytd_total', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_trend_12month', sa.Column('month_3', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_trend_12month', sa.Column('month_5', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_trend_12month', sa.Column('month_7', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_trend_12month', sa.Column('account_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('projection_trend_12month', sa.Column('month_10', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_trend_12month', sa.Column('account_code', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
-    op.add_column('projection_trend_12month', sa.Column('month_11', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_trend_12month', sa.Column('month_3', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_trend_12month', sa.Column('month_5', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_trend_12month', sa.Column('month_9', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_trend_12month', sa.Column('month_7', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_trend_12month', sa.Column('month_6', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_trend_12month', sa.Column('month_8', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_trend_12month', sa.Column('month_12', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_trend_12month', sa.Column('month_4', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_trend_12month', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('projection_trend_12month', sa.Column('ytd_total', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_trend_12month', sa.Column('month_2', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.create_index('ix_trend_12month_entity_account_year', 'projection_trend_12month', ['legal_entity_id', 'account_id', 'fiscal_year'], unique=True)
     op.alter_column('projection_trend_12month', 'created_at',
@@ -9004,14 +9004,14 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('projection_profitability_segment', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
-    op.add_column('projection_profitability_segment', sa.Column('net_profit', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_profitability_segment', sa.Column('gross_margin_percentage', sa.NUMERIC(precision=10, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_profitability_segment', sa.Column('indirect_cost_allocated', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_profitability_segment', sa.Column('operating_profit', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_profitability_segment', sa.Column('fiscal_year', sa.INTEGER(), autoincrement=False, nullable=False))
-    op.add_column('projection_profitability_segment', sa.Column('direct_cost', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_profitability_segment', sa.Column('gross_margin_percentage', sa.NUMERIC(precision=10, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_profitability_segment', sa.Column('net_profit', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_profitability_segment', sa.Column('operating_profit', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_profitability_segment', sa.Column('gross_profit', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_profitability_segment', sa.Column('direct_cost', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_profitability_segment', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('projection_profitability_segment', sa.Column('indirect_cost_allocated', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.create_index('ix_profitability_segment_entity_type_period', 'projection_profitability_segment', ['legal_entity_id', 'segment_type', 'segment_id', 'fiscal_year', 'period'], unique=True)
     op.alter_column('projection_profitability_segment', 'created_at',
                existing_type=sa.DateTime(),
@@ -9045,18 +9045,18 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('projection_ppn_settlement', sa.Column('coretax_submission_id', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('projection_ppn_settlement', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
-    op.add_column('projection_ppn_settlement', sa.Column('tax_period_month', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('projection_ppn_settlement', sa.Column('ppn_output', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_ppn_settlement', sa.Column('tax_period_year', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('projection_ppn_settlement', sa.Column('ppn_net', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_ppn_settlement', sa.Column('ppn_paid', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_ppn_settlement', sa.Column('tax_period_year', sa.INTEGER(), autoincrement=False, nullable=False))
+    op.add_column('projection_ppn_settlement', sa.Column('ppn_input', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_ppn_settlement', sa.Column('tax_period_month', sa.INTEGER(), autoincrement=False, nullable=False))
+    op.add_column('projection_ppn_settlement', sa.Column('coretax_submission_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('projection_ppn_settlement', sa.Column('spt_filed_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
     op.add_column('projection_ppn_settlement', sa.Column('ppn_due', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_ppn_settlement', sa.Column('spt_status', sa.VARCHAR(length=30), server_default=sa.text("'NOT_FILED'::character varying"), autoincrement=False, nullable=False))
     op.add_column('projection_ppn_settlement', sa.Column('last_updated_by', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('projection_ppn_settlement', sa.Column('ppn_input', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_ppn_settlement', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('projection_ppn_settlement', sa.Column('spt_status', sa.VARCHAR(length=30), server_default=sa.text("'NOT_FILED'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('projection_ppn_settlement', sa.Column('ppn_paid', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.create_index('ix_projection_ppn_settlement_entity_period', 'projection_ppn_settlement', ['legal_entity_id', 'tax_period_year', 'tax_period_month'], unique=True)
     op.alter_column('projection_ppn_settlement', 'updated_at',
                existing_type=sa.DateTime(),
@@ -9100,16 +9100,16 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('projection_pph_summary', sa.Column('coretax_submission_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('projection_pph_summary', sa.Column('amount_paid', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_pph_summary', sa.Column('tax_period_month', sa.INTEGER(), autoincrement=False, nullable=True))
     op.add_column('projection_pph_summary', sa.Column('tax_period_year', sa.INTEGER(), autoincrement=False, nullable=False))
-    op.add_column('projection_pph_summary', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('projection_pph_summary', sa.Column('tax_period_month', sa.INTEGER(), autoincrement=False, nullable=True))
+    op.add_column('projection_pph_summary', sa.Column('coretax_submission_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('projection_pph_summary', sa.Column('spt_filed_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('projection_pph_summary', sa.Column('amount_credit', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_pph_summary', sa.Column('spt_status', sa.VARCHAR(length=30), server_default=sa.text("'NOT_FILED'::character varying"), autoincrement=False, nullable=False))
-    op.add_column('projection_pph_summary', sa.Column('amount_due', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_pph_summary', sa.Column('last_updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('projection_pph_summary', sa.Column('amount_due', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_pph_summary', sa.Column('amount_credit', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_pph_summary', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('projection_pph_summary', sa.Column('spt_status', sa.VARCHAR(length=30), server_default=sa.text("'NOT_FILED'::character varying"), autoincrement=False, nullable=False))
     op.create_index('ix_projection_pph_summary_entity_period_type', 'projection_pph_summary', ['legal_entity_id', 'tax_period_year', 'tax_period_month', 'pph_type'], unique=True)
     op.alter_column('projection_pph_summary', 'updated_at',
                existing_type=sa.DateTime(),
@@ -9144,12 +9144,12 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('projection_kpi_alerter', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('projection_kpi_alerter', sa.Column('threshold_upper', sa.NUMERIC(precision=18, scale=4), autoincrement=False, nullable=True))
     op.add_column('projection_kpi_alerter', sa.Column('breach_status', sa.VARCHAR(length=20), server_default=sa.text("'NORMAL'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('projection_kpi_alerter', sa.Column('alert_sent_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('projection_kpi_alerter', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
     op.add_column('projection_kpi_alerter', sa.Column('breach_detected_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
     op.add_column('projection_kpi_alerter', sa.Column('threshold_lower', sa.NUMERIC(precision=18, scale=4), autoincrement=False, nullable=True))
-    op.add_column('projection_kpi_alerter', sa.Column('threshold_upper', sa.NUMERIC(precision=18, scale=4), autoincrement=False, nullable=True))
-    op.add_column('projection_kpi_alerter', sa.Column('alert_sent_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
     op.create_index('ix_kpi_alerter_entity_kpi', 'projection_kpi_alerter', ['legal_entity_id', 'kpi_name'], unique=True)
     op.alter_column('projection_kpi_alerter', 'resolved_at',
                existing_type=sa.DateTime(),
@@ -9178,13 +9178,13 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('projection_gl_ledger', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=True))
-    op.add_column('projection_gl_ledger', sa.Column('closing_balance', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_gl_ledger', sa.Column('credit_movement', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_gl_ledger', sa.Column('debit_movement', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_gl_ledger', sa.Column('closing_balance', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_gl_ledger', sa.Column('fiscal_year', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('projection_gl_ledger', sa.Column('opening_balance', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_gl_ledger', sa.Column('credit_movement', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_gl_ledger', sa.Column('last_updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('projection_gl_ledger', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=True))
     op.create_index('ix_projection_gl_ledger_entity_period', 'projection_gl_ledger', ['legal_entity_id', 'fiscal_year', 'period', 'account_id'], unique=True)
     op.alter_column('projection_gl_ledger', 'created_at',
                existing_type=sa.DateTime(),
@@ -9223,18 +9223,18 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('projection_financial_ratios', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
-    op.add_column('projection_financial_ratios', sa.Column('as_of_date', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('projection_financial_ratios', sa.Column('gross_margin', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_financial_ratios', sa.Column('payable_turnover', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_financial_ratios', sa.Column('receivable_turnover', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_financial_ratios', sa.Column('current_ratio', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_financial_ratios', sa.Column('net_margin', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_financial_ratios', sa.Column('current_ratio', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_financial_ratios', sa.Column('roe', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_financial_ratios', sa.Column('inventory_turnover', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_financial_ratios', sa.Column('roa', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_financial_ratios', sa.Column('debt_to_equity', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_financial_ratios', sa.Column('inventory_turnover', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_financial_ratios', sa.Column('as_of_date', sa.DATE(), autoincrement=False, nullable=False))
     op.add_column('projection_financial_ratios', sa.Column('quick_ratio', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_financial_ratios', sa.Column('receivable_turnover', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_financial_ratios', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('projection_financial_ratios', sa.Column('gross_margin', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_financial_ratios', sa.Column('debt_to_equity', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_financial_ratios', sa.Column('payable_turnover', sa.NUMERIC(precision=12, scale=4), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.create_index('ix_financial_ratios_entity_date', 'projection_financial_ratios', ['legal_entity_id', 'as_of_date'], unique=True)
     op.alter_column('projection_financial_ratios', 'created_at',
                existing_type=sa.DateTime(),
@@ -9267,16 +9267,16 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('projection_coretax_dashboard', sa.Column('total_spt_masa_pph_filed', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.add_column('projection_coretax_dashboard', sa.Column('total_faktur_masukan_dikreditkan', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('projection_coretax_dashboard', sa.Column('total_faktur_keluaran_submitted', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('projection_coretax_dashboard', sa.Column('total_faktur_keluaran_rejected', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('projection_coretax_dashboard', sa.Column('last_sync_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('projection_coretax_dashboard', sa.Column('last_updated_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('projection_coretax_dashboard', sa.Column('total_faktur_masukan_belum_kredit', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.add_column('projection_coretax_dashboard', sa.Column('total_spt_masa_ppn_filed', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('projection_coretax_dashboard', sa.Column('total_faktur_keluaran_submitted', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('projection_coretax_dashboard', sa.Column('last_sync_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
     op.add_column('projection_coretax_dashboard', sa.Column('total_faktur_keluaran_approved', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.add_column('projection_coretax_dashboard', sa.Column('total_faktur_keluaran_draft', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('projection_coretax_dashboard', sa.Column('total_faktur_keluaran_rejected', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('projection_coretax_dashboard', sa.Column('last_updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('projection_coretax_dashboard', sa.Column('total_spt_masa_pph_filed', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.create_index('ix_projection_coretax_dashboard_entity', 'projection_coretax_dashboard', ['legal_entity_id'], unique=True)
     op.alter_column('projection_coretax_dashboard', 'updated_at',
                existing_type=sa.DateTime(),
@@ -9322,8 +9322,8 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('projection_checkpoint', sa.Column('last_processed_event_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('projection_checkpoint', sa.Column('status', sa.VARCHAR(length=20), server_default=sa.text("'active'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('projection_checkpoint', sa.Column('last_processed_event_id', sa.UUID(), autoincrement=False, nullable=True))
     op.drop_constraint('uq_projection_checkpoint_name_legal_entity', 'projection_checkpoint', type_='unique')
     op.drop_index('idx_projection_checkpoint_name', table_name='projection_checkpoint')
     op.drop_index('idx_projection_checkpoint_legal_entity', table_name='projection_checkpoint')
@@ -9345,16 +9345,16 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('projection_ar_aging', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
-    op.add_column('projection_ar_aging', sa.Column('as_of_date', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('projection_ar_aging', sa.Column('expected_credit_loss', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_ar_aging', sa.Column('days_31_60', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_ar_aging', sa.Column('days_61_90', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_ar_aging', sa.Column('current_amount', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_ar_aging', sa.Column('expected_credit_loss', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_ar_aging', sa.Column('days_1_30', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_ar_aging', sa.Column('days_above_90', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_ar_aging', sa.Column('total_outstanding', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_ar_aging', sa.Column('last_updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('projection_ar_aging', sa.Column('as_of_date', sa.DATE(), autoincrement=False, nullable=False))
+    op.add_column('projection_ar_aging', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('projection_ar_aging', sa.Column('days_31_60', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_ar_aging', sa.Column('total_outstanding', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_ar_aging', sa.Column('current_amount', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.create_index('ix_projection_ar_aging_entity_customer', 'projection_ar_aging', ['legal_entity_id', 'customer_id', 'as_of_date'], unique=True)
     op.alter_column('projection_ar_aging', 'created_at',
                existing_type=sa.DateTime(),
@@ -9399,17 +9399,17 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('projection_ap_aging', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
-    op.add_column('projection_ap_aging', sa.Column('as_of_date', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('projection_ap_aging', sa.Column('supplier_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('projection_ap_aging', sa.Column('expected_credit_loss', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_ap_aging', sa.Column('days_31_60', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_ap_aging', sa.Column('days_61_90', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_ap_aging', sa.Column('current_amount', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_ap_aging', sa.Column('expected_credit_loss', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_ap_aging', sa.Column('days_1_30', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_ap_aging', sa.Column('supplier_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('projection_ap_aging', sa.Column('days_above_90', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('projection_ap_aging', sa.Column('total_outstanding', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('projection_ap_aging', sa.Column('last_updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('projection_ap_aging', sa.Column('as_of_date', sa.DATE(), autoincrement=False, nullable=False))
+    op.add_column('projection_ap_aging', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('projection_ap_aging', sa.Column('days_31_60', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_ap_aging', sa.Column('total_outstanding', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('projection_ap_aging', sa.Column('current_amount', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.create_index('ix_projection_ap_aging_entity_supplier', 'projection_ap_aging', ['legal_entity_id', 'supplier_id', 'as_of_date'], unique=True)
     op.alter_column('projection_ap_aging', 'created_at',
                existing_type=sa.DateTime(),
@@ -9457,14 +9457,14 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
+    op.add_column('project', sa.Column('contract_type', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
+    op.add_column('project', sa.Column('currency_code', sa.VARCHAR(length=3), server_default=sa.text("'IDR'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('project', sa.Column('revenue_to_date', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('project', sa.Column('manager_employee_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('project', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('project', sa.Column('budget_total', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('project', sa.Column('currency_code', sa.VARCHAR(length=3), server_default=sa.text("'IDR'::character varying"), autoincrement=False, nullable=False))
     op.add_column('project', sa.Column('cost_to_date', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('project', sa.Column('is_deleted', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
-    op.add_column('project', sa.Column('contract_type', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
-    op.add_column('project', sa.Column('manager_employee_id', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('project', sa.Column('revenue_to_date', sa.NUMERIC(precision=18, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'project', type_='foreignkey')
     op.drop_constraint(None, 'project', type_='foreignkey')
     op.create_foreign_key('fk_project_customer', 'project', 'customer', ['customer_id'], ['id'])
@@ -9543,25 +9543,25 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('ppn_settlement', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('ppn_settlement', sa.Column('payment_date', sa.DATE(), autoincrement=False, nullable=True))
-    op.add_column('ppn_settlement', sa.Column('total_ppn_keluaran', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('ppn_settlement', sa.Column('period_end', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('ppn_settlement', sa.Column('period_start', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('ppn_settlement', sa.Column('ppn_lebih_bayar', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('ppn_settlement', sa.Column('submitted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('ppn_settlement', sa.Column('tahun_pajak', sa.INTEGER(), autoincrement=False, nullable=False))
-    op.add_column('ppn_settlement', sa.Column('status_pembayaran', sa.VARCHAR(length=20), server_default=sa.text("'unpaid'::character varying"), autoincrement=False, nullable=False))
-    op.add_column('ppn_settlement', sa.Column('ppn_kurang_bayar', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('ppn_settlement', sa.Column('npwp', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
-    op.add_column('ppn_settlement', sa.Column('spt_number', sa.VARCHAR(length=50), autoincrement=False, nullable=True))
-    op.add_column('ppn_settlement', sa.Column('total_ppn_masukan', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('ppn_settlement', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.add_column('ppn_settlement', sa.Column('settlement_status', sa.VARCHAR(length=20), server_default=sa.text("'draft'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('ppn_settlement', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('ppn_settlement', sa.Column('npwp', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
+    op.add_column('ppn_settlement', sa.Column('ppn_kurang_bayar', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('ppn_settlement', sa.Column('period_start', sa.DATE(), autoincrement=False, nullable=False))
+    op.add_column('ppn_settlement', sa.Column('spt_number', sa.VARCHAR(length=50), autoincrement=False, nullable=True))
+    op.add_column('ppn_settlement', sa.Column('status_pembayaran', sa.VARCHAR(length=20), server_default=sa.text("'unpaid'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('ppn_settlement', sa.Column('total_ppn_masukan', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('ppn_settlement', sa.Column('period_end', sa.DATE(), autoincrement=False, nullable=False))
     op.add_column('ppn_settlement', sa.Column('masa_pajak', sa.INTEGER(), autoincrement=False, nullable=False))
+    op.add_column('ppn_settlement', sa.Column('total_ppn_keluaran', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('ppn_settlement', sa.Column('kompensasi_dari_sebelumnya', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.create_foreign_key('fk_ppn_settlement_created_by', 'ppn_settlement', 'iam_user', ['created_by'], ['id'], ondelete='SET NULL')
+    op.add_column('ppn_settlement', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('ppn_settlement', sa.Column('submitted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('ppn_settlement', sa.Column('payment_date', sa.DATE(), autoincrement=False, nullable=True))
+    op.add_column('ppn_settlement', sa.Column('tahun_pajak', sa.INTEGER(), autoincrement=False, nullable=False))
+    op.add_column('ppn_settlement', sa.Column('ppn_lebih_bayar', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.create_foreign_key('fk_ppn_settlement_legal_entity', 'ppn_settlement', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_ppn_settlement_created_by', 'ppn_settlement', 'iam_user', ['created_by'], ['id'], ondelete='SET NULL')
     op.create_unique_constraint('uq_ppn_settlement_npwp_period', 'ppn_settlement', ['npwp', 'tahun_pajak', 'masa_pajak', 'legal_entity_id'])
     op.create_index('idx_ppn_settlement_status', 'ppn_settlement', ['settlement_status'], unique=False)
     op.create_index('idx_ppn_settlement_period', 'ppn_settlement', ['tahun_pajak', 'masa_pajak'], unique=False)
@@ -9620,22 +9620,22 @@ def downgrade() -> None:
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
     op.add_column('pph_withholding_summary', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('pph_withholding_summary', sa.Column('npwp_pemotong', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
     op.add_column('pph_withholding_summary', sa.Column('bupot_count', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('pph_withholding_summary', sa.Column('payment_status', sa.VARCHAR(length=20), server_default=sa.text("'unpaid'::character varying"), autoincrement=False, nullable=False))
-    op.add_column('pph_withholding_summary', sa.Column('payment_date', sa.DATE(), autoincrement=False, nullable=True))
-    op.add_column('pph_withholding_summary', sa.Column('total_pph_dipotong', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('pph_withholding_summary', sa.Column('period_start', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('pph_withholding_summary', sa.Column('period_end', sa.DATE(), autoincrement=False, nullable=False))
     op.add_column('pph_withholding_summary', sa.Column('total_dpp', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('pph_withholding_summary', sa.Column('lebih_bayar', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('pph_withholding_summary', sa.Column('tahun_pajak', sa.INTEGER(), autoincrement=False, nullable=False))
-    op.add_column('pph_withholding_summary', sa.Column('spt_status', sa.VARCHAR(length=20), server_default=sa.text("'draft'::character varying"), autoincrement=False, nullable=False))
-    op.add_column('pph_withholding_summary', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('pph_withholding_summary', sa.Column('payment_status', sa.VARCHAR(length=20), server_default=sa.text("'unpaid'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('pph_withholding_summary', sa.Column('kurang_bayar', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('pph_withholding_summary', sa.Column('period_start', sa.DATE(), autoincrement=False, nullable=False))
+    op.add_column('pph_withholding_summary', sa.Column('total_pph_dipotong', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('pph_withholding_summary', sa.Column('spt_number', sa.VARCHAR(length=50), autoincrement=False, nullable=True))
     op.add_column('pph_withholding_summary', sa.Column('kompensasi', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('pph_withholding_summary', sa.Column('kurang_bayar', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('pph_withholding_summary', sa.Column('npwp_pemotong', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
+    op.add_column('pph_withholding_summary', sa.Column('period_end', sa.DATE(), autoincrement=False, nullable=False))
+    op.add_column('pph_withholding_summary', sa.Column('lebih_bayar', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('pph_withholding_summary', sa.Column('masa_pajak', sa.INTEGER(), autoincrement=False, nullable=False))
+    op.add_column('pph_withholding_summary', sa.Column('spt_status', sa.VARCHAR(length=20), server_default=sa.text("'draft'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('pph_withholding_summary', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('pph_withholding_summary', sa.Column('payment_date', sa.DATE(), autoincrement=False, nullable=True))
+    op.add_column('pph_withholding_summary', sa.Column('tahun_pajak', sa.INTEGER(), autoincrement=False, nullable=False))
     op.create_foreign_key('fk_pph_summary_created_by', 'pph_withholding_summary', 'iam_user', ['created_by'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_pph_summary_legal_entity', 'pph_withholding_summary', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.create_unique_constraint('uq_pph_summary_npwp_period_type', 'pph_withholding_summary', ['npwp_pemotong', 'tahun_pajak', 'masa_pajak', 'pph_type', 'legal_entity_id'])
@@ -9690,8 +9690,8 @@ def downgrade() -> None:
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
     op.create_foreign_key('fk_petty_cash_custodian', 'petty_cash_fund', 'employee', ['custodian_id'], ['id'], ondelete='RESTRICT')
-    op.create_foreign_key('fk_petty_cash_legal_entity', 'petty_cash_fund', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_petty_cash_gl', 'petty_cash_fund', 'account', ['gl_account_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_petty_cash_legal_entity', 'petty_cash_fund', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.alter_column('petty_cash_fund', 'version',
                existing_type=sa.INTEGER(),
                server_default=sa.text('1'),
@@ -9716,9 +9716,9 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('payslip', sa.Column('period', sa.VARCHAR(length=7), autoincrement=False, nullable=False))
-    op.add_column('payslip', sa.Column('gross', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.add_column('payslip', sa.Column('net', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('payslip', sa.Column('gross', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('payslip', sa.Column('period', sa.VARCHAR(length=7), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'payslip', type_='foreignkey')
     op.drop_constraint(None, 'payslip', type_='foreignkey')
     op.drop_constraint(None, 'payslip', type_='foreignkey')
@@ -9838,8 +9838,8 @@ def downgrade() -> None:
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
     op.drop_constraint(None, 'payroll_run', type_='foreignkey')
-    op.create_foreign_key('fk_payroll_run_legal_entity', 'payroll_run', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_payroll_run_paid_by', 'payroll_run', 'iam_user', ['paid_by'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key('fk_payroll_run_legal_entity', 'payroll_run', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_payroll_run_approved_by', 'payroll_run', 'iam_user', ['approved_by'], ['id'], ondelete='SET NULL')
     op.drop_index(op.f('ix_payroll_run_legal_entity_id'), table_name='payroll_run')
     op.alter_column('payroll_run', 'version',
@@ -9895,22 +9895,22 @@ def downgrade() -> None:
                existing_type=sa.Numeric(precision=20, scale=6),
                type_=sa.NUMERIC(precision=20, scale=2),
                existing_nullable=False)
+    op.add_column('payroll_detail', sa.Column('tax_pph21', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('payroll_detail', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('payroll_detail', sa.Column('gross_income', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('payroll_detail', sa.Column('bpjs_kesehatan_employee', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('payroll_detail', sa.Column('overtime_pay', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('payroll_detail', sa.Column('employer_bpjs', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
     op.add_column('payroll_detail', sa.Column('deductions', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('payroll_detail', sa.Column('allowances', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('payroll_detail', sa.Column('employer_bpjs', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
-    op.add_column('payroll_detail', sa.Column('bpjs_jht_employee', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('payroll_detail', sa.Column('net_salary', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('payroll_detail', sa.Column('bonus', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('payroll_detail', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
-    op.add_column('payroll_detail', sa.Column('tax_pph21', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('payroll_detail', sa.Column('bpjs_kesehatan_employee', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('payroll_detail', sa.Column('net_salary', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('payroll_detail', sa.Column('gross_income', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('payroll_detail', sa.Column('bpjs_jht_employee', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('payroll_detail', sa.Column('basic_salary', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('payroll_detail', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('payroll_detail', sa.Column('overtime_pay', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.create_foreign_key('fk_payroll_detail_legal_entity', 'payroll_detail', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key('fk_payroll_detail_employee', 'payroll_detail', 'employee', ['employee_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_payroll_detail_run', 'payroll_detail', 'payroll_run', ['payroll_run_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_payroll_detail_employee', 'payroll_detail', 'employee', ['employee_id'], ['id'], ondelete='CASCADE')
     op.create_index('idx_payroll_detail_run', 'payroll_detail', ['payroll_run_id'], unique=False)
     op.create_index('idx_payroll_detail_employee', 'payroll_detail', ['employee_id'], unique=False)
     op.alter_column('payroll_detail', 'updated_at',
@@ -9944,10 +9944,10 @@ def downgrade() -> None:
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
     op.add_column('payroll_adjustment', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('payroll_adjustment', sa.Column('currency', sa.VARCHAR(length=3), server_default=sa.text("'IDR'::character varying"), autoincrement=False, nullable=False))
     op.add_column('payroll_adjustment', sa.Column('adjustment_date', sa.DATE(), autoincrement=False, nullable=False))
     op.add_column('payroll_adjustment', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.add_column('payroll_adjustment', sa.Column('journal_id', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('payroll_adjustment', sa.Column('currency', sa.VARCHAR(length=3), server_default=sa.text("'IDR'::character varying"), autoincrement=False, nullable=False))
     op.create_foreign_key('fk_payroll_adjustment_legal_entity', 'payroll_adjustment', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_payroll_adjustment_approved_by', 'payroll_adjustment', 'iam_user', ['approved_by'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_payroll_adjustment_employee', 'payroll_adjustment', 'employee', ['employee_id'], ['id'], ondelete='CASCADE')
@@ -10056,13 +10056,13 @@ def downgrade() -> None:
                existing_type=sa.String(length=255),
                type_=sa.VARCHAR(length=100),
                existing_nullable=False)
-    op.add_column('outbox_checkpoint', sa.Column('total_failed_count', sa.BIGINT(), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('outbox_checkpoint', sa.Column('last_error', sa.TEXT(), autoincrement=False, nullable=True))
-    op.add_column('outbox_checkpoint', sa.Column('processed_by', sa.VARCHAR(length=100), autoincrement=False, nullable=False))
-    op.add_column('outbox_checkpoint', sa.Column('consumer_group', sa.VARCHAR(length=200), autoincrement=False, nullable=False))
-    op.add_column('outbox_checkpoint', sa.Column('total_processed_count', sa.BIGINT(), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('outbox_checkpoint', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.add_column('outbox_checkpoint', sa.Column('last_processed_outbox_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('outbox_checkpoint', sa.Column('processed_by', sa.VARCHAR(length=100), autoincrement=False, nullable=False))
+    op.add_column('outbox_checkpoint', sa.Column('total_failed_count', sa.BIGINT(), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('outbox_checkpoint', sa.Column('total_processed_count', sa.BIGINT(), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('outbox_checkpoint', sa.Column('last_error', sa.TEXT(), autoincrement=False, nullable=True))
+    op.add_column('outbox_checkpoint', sa.Column('consumer_group', sa.VARCHAR(length=200), autoincrement=False, nullable=False))
+    op.add_column('outbox_checkpoint', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.drop_constraint('uq_outbox_checkpoint_relay', 'outbox_checkpoint', type_='unique')
     op.drop_index('idx_outbox_checkpoint_relay', table_name='outbox_checkpoint')
     op.drop_index('idx_outbox_checkpoint_last_processed', table_name='outbox_checkpoint')
@@ -10092,16 +10092,16 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('outbox', sa.Column('locked_until', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('outbox', sa.Column('kafka_key', sa.VARCHAR(length=200), autoincrement=False, nullable=True))
-    op.add_column('outbox', sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), autoincrement=False, nullable=False))
     op.add_column('outbox', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('outbox', sa.Column('kafka_partition', sa.INTEGER(), autoincrement=False, nullable=True))
+    op.add_column('outbox', sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), autoincrement=False, nullable=False))
     op.add_column('outbox', sa.Column('locked_by', sa.VARCHAR(length=100), autoincrement=False, nullable=True))
-    op.add_column('outbox', sa.Column('event_version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.add_column('outbox', sa.Column('kafka_topic', sa.VARCHAR(length=200), autoincrement=False, nullable=False))
-    op.add_column('outbox', sa.Column('extra_metadata', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
+    op.add_column('outbox', sa.Column('locked_until', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
     op.add_column('outbox', sa.Column('last_attempt_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('outbox', sa.Column('extra_metadata', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
+    op.add_column('outbox', sa.Column('kafka_key', sa.VARCHAR(length=200), autoincrement=False, nullable=True))
+    op.add_column('outbox', sa.Column('event_version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('outbox', sa.Column('kafka_partition', sa.INTEGER(), autoincrement=False, nullable=True))
     op.drop_index(op.f('ix_outbox_legal_entity_id'), table_name='outbox')
     op.drop_index('idx_outbox_updated_at', table_name='outbox')
     op.drop_index('idx_outbox_status', table_name='outbox')
@@ -10138,15 +10138,15 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('manufacturing_work_order', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('manufacturing_work_order', sa.Column('cost_center', sa.VARCHAR(length=20), autoincrement=False, nullable=True))
-    op.add_column('manufacturing_work_order', sa.Column('actual_cost', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('manufacturing_work_order', sa.Column('standard_cost', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('manufacturing_work_order', sa.Column('work_order_number', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
-    op.add_column('manufacturing_work_order', sa.Column('bom_id', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('manufacturing_work_order', sa.Column('routing_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('manufacturing_work_order', sa.Column('actual_end_date', sa.DATE(), autoincrement=False, nullable=True))
+    op.add_column('manufacturing_work_order', sa.Column('work_order_number', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
+    op.add_column('manufacturing_work_order', sa.Column('actual_cost', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('manufacturing_work_order', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('manufacturing_work_order', sa.Column('bom_id', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('manufacturing_work_order', sa.Column('standard_cost', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.add_column('manufacturing_work_order', sa.Column('planned_quantity', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('manufacturing_work_order', sa.Column('cost_center', sa.VARCHAR(length=20), autoincrement=False, nullable=True))
+    op.add_column('manufacturing_work_order', sa.Column('routing_id', sa.UUID(), autoincrement=False, nullable=True))
     op.drop_constraint(None, 'manufacturing_work_order', type_='foreignkey')
     op.drop_constraint('uq_wo_number_legal_entity', 'manufacturing_work_order', type_='unique')
     op.drop_index(op.f('ix_manufacturing_work_order_legal_entity_id'), table_name='manufacturing_work_order')
@@ -10223,22 +10223,22 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('manufacturing_cost_card', sa.Column('cost_card_version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
-    op.add_column('manufacturing_cost_card', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('manufacturing_cost_card', sa.Column('breakdown', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
-    op.add_column('manufacturing_cost_card', sa.Column('quantity_base', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('1'), autoincrement=False, nullable=False))
-    op.add_column('manufacturing_cost_card', sa.Column('effective_date', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('manufacturing_cost_card', sa.Column('product_name', sa.VARCHAR(length=200), autoincrement=False, nullable=True))
-    op.add_column('manufacturing_cost_card', sa.Column('is_active', sa.BOOLEAN(), server_default=sa.text('true'), autoincrement=False, nullable=False))
     op.add_column('manufacturing_cost_card', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('manufacturing_cost_card', sa.Column('cost_card_code', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
-    op.add_column('manufacturing_cost_card', sa.Column('other_cost', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('manufacturing_cost_card', sa.Column('unit_of_measure', sa.VARCHAR(length=10), server_default=sa.text("'pcs'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('manufacturing_cost_card', sa.Column('breakdown', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
     op.add_column('manufacturing_cost_card', sa.Column('notes', sa.VARCHAR(length=500), autoincrement=False, nullable=True))
     op.add_column('manufacturing_cost_card', sa.Column('expiry_date', sa.DATE(), autoincrement=False, nullable=True))
     op.add_column('manufacturing_cost_card', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('manufacturing_cost_card', sa.Column('status', sa.VARCHAR(length=20), server_default=sa.text("'draft'::character varying"), autoincrement=False, nullable=False))
     op.add_column('manufacturing_cost_card', sa.Column('currency', sa.VARCHAR(length=3), server_default=sa.text("'IDR'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('manufacturing_cost_card', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('manufacturing_cost_card', sa.Column('other_cost', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('manufacturing_cost_card', sa.Column('cost_card_code', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
+    op.add_column('manufacturing_cost_card', sa.Column('unit_of_measure', sa.VARCHAR(length=10), server_default=sa.text("'pcs'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('manufacturing_cost_card', sa.Column('status', sa.VARCHAR(length=20), server_default=sa.text("'draft'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('manufacturing_cost_card', sa.Column('effective_date', sa.DATE(), autoincrement=False, nullable=False))
+    op.add_column('manufacturing_cost_card', sa.Column('cost_card_version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('manufacturing_cost_card', sa.Column('is_active', sa.BOOLEAN(), server_default=sa.text('true'), autoincrement=False, nullable=False))
+    op.add_column('manufacturing_cost_card', sa.Column('product_name', sa.VARCHAR(length=200), autoincrement=False, nullable=True))
+    op.add_column('manufacturing_cost_card', sa.Column('quantity_base', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.drop_index('idx_cost_card_product', table_name='manufacturing_cost_card')
     op.drop_index('idx_cost_card_period', table_name='manufacturing_cost_card')
     op.create_index('ix_mfg_cost_card_product', 'manufacturing_cost_card', ['product_id'], unique=False)
@@ -10328,8 +10328,8 @@ def downgrade() -> None:
                existing_type=sa.String(length=255),
                type_=sa.VARCHAR(length=100),
                existing_nullable=False)
-    op.add_column('legal_entity_branch', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('legal_entity_branch', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('legal_entity_branch', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'legal_entity_branch', type_='foreignkey')
     op.drop_index(op.f('ix_legal_entity_branch_parent_entity_id'), table_name='legal_entity_branch')
     op.drop_index(op.f('ix_legal_entity_branch_branch_code'), table_name='legal_entity_branch')
@@ -10537,10 +10537,10 @@ def downgrade() -> None:
                type_=sa.VARCHAR(length=30),
                existing_nullable=False)
     op.drop_constraint(None, 'journal_line', type_='foreignkey')
-    op.drop_constraint(None, 'journal_line', type_='foreignkey')
     op.drop_constraint('fk_journal_line_account', 'journal_line', type_='foreignkey')
-    op.create_foreign_key('fk_journal_line_legal_entity', 'journal_line', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
+    op.drop_constraint(None, 'journal_line', type_='foreignkey')
     op.create_foreign_key('fk_journal_line_journal', 'journal_line', 'journal_header', ['journal_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_journal_line_legal_entity', 'journal_line', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_journal_line_legal_entity_id'), table_name='journal_line')
     op.alter_column('journal_line', 'version',
                existing_type=sa.INTEGER(),
@@ -10562,13 +10562,13 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.drop_constraint('fk_journal_header_reversed_journal', 'journal_header', type_='foreignkey')
     op.drop_constraint('fk_journal_header_original_journal', 'journal_header', type_='foreignkey')
+    op.drop_constraint('fk_journal_header_reversed_journal', 'journal_header', type_='foreignkey')
     op.drop_constraint(None, 'journal_header', type_='foreignkey')
     op.create_foreign_key('fk_journal_header_original', 'journal_header', 'journal_header', ['original_journal_id'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_journal_header_approved_by', 'journal_header', 'iam_user', ['approved_by'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key('fk_journal_header_posted_by', 'journal_header', 'iam_user', ['posted_by'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_journal_header_reversed', 'journal_header', 'journal_header', ['reversed_journal_id'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key('fk_journal_header_posted_by', 'journal_header', 'iam_user', ['posted_by'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_journal_header_period', 'journal_header', 'fiscal_period', ['period_id'], ['id'], ondelete='SET NULL')
     op.drop_index(op.f('ix_journal_header_reversed_journal_id'), table_name='journal_header')
     op.drop_index(op.f('ix_journal_header_original_journal_id'), table_name='journal_header')
@@ -10601,10 +10601,10 @@ def downgrade() -> None:
                existing_type=sa.NUMERIC(precision=20, scale=2),
                server_default=sa.text("'0'::numeric"),
                existing_nullable=False)
-    op.add_column('inventory_stock_card', sa.Column('reference_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('inventory_stock_card', sa.Column('transaction_date', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('inventory_stock_card', sa.Column('total_value', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('inventory_stock_card', sa.Column('reference_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('inventory_stock_card', sa.Column('reference_type', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
+    op.add_column('inventory_stock_card', sa.Column('total_value', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'inventory_stock_card', type_='foreignkey')
     op.create_foreign_key('fk_inventory_stock_card_item', 'inventory_stock_card', 'inventory_item', ['item_id'], ['id'])
     op.drop_constraint(None, 'inventory_stock_card', type_='unique')
@@ -10799,8 +10799,8 @@ def downgrade() -> None:
                existing_type=sa.String(length=255),
                type_=sa.VARCHAR(length=50),
                existing_nullable=False)
-    op.add_column('intangible_revaluation', sa.Column('old_value', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.add_column('intangible_revaluation', sa.Column('new_value', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('intangible_revaluation', sa.Column('old_value', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'intangible_revaluation', type_='foreignkey')
     op.drop_index('idx_intangible_reval_date', table_name='intangible_revaluation')
     op.drop_index('idx_intangible_reval_asset', table_name='intangible_revaluation')
@@ -10856,11 +10856,11 @@ def downgrade() -> None:
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
     op.add_column('intangible_asset', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('intangible_asset', sa.Column('current_period_amortization', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('intangible_asset', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.add_column('intangible_asset', sa.Column('amortization_rate', sa.NUMERIC(precision=5, scale=2), autoincrement=False, nullable=True))
-    op.add_column('intangible_asset', sa.Column('asset_category', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
+    op.add_column('intangible_asset', sa.Column('current_period_amortization', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('intangible_asset', sa.Column('status', sa.VARCHAR(length=20), server_default=sa.text("'active'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('intangible_asset', sa.Column('asset_category', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
+    op.add_column('intangible_asset', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'intangible_asset', type_='foreignkey')
     op.create_foreign_key('fk_intangible_asset_legal_entity', 'intangible_asset', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_index('ix_intangible_legal_entity', table_name='intangible_asset')
@@ -10945,8 +10945,8 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.create_foreign_key('fk_iam_user_role_user', 'iam_user_role', 'iam_user', ['user_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_iam_user_role_role', 'iam_user_role', 'iam_role', ['role_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_iam_user_role_user', 'iam_user_role', 'iam_user', ['user_id'], ['id'], ondelete='CASCADE')
     op.create_index('idx_iam_user_role_user', 'iam_user_role', ['user_id'], unique=False)
     op.create_index('idx_iam_user_role_role', 'iam_user_role', ['role_id'], unique=False)
     op.alter_column('iam_user_role', 'assigned_at',
@@ -11045,9 +11045,9 @@ def downgrade() -> None:
                existing_type=postgresql.TIMESTAMP(timezone=True),
                nullable=False,
                existing_server_default=sa.text('now()'))
-    op.add_column('iam_role', sa.Column('parent_role_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('iam_role', sa.Column('status', sa.VARCHAR(length=20), server_default=sa.text("'active'::character varying"), autoincrement=False, nullable=False))
     op.add_column('iam_role', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('iam_role', sa.Column('parent_role_id', sa.UUID(), autoincrement=False, nullable=True))
     op.create_foreign_key('iam_role_parent_role_id_fkey', 'iam_role', 'iam_role', ['parent_role_id'], ['id'])
     op.drop_constraint('uq_iam_role_name', 'iam_role', type_='unique')
     op.drop_index('idx_iam_role_is_active', table_name='iam_role')
@@ -11066,11 +11066,11 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('iam_permission', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('iam_permission', sa.Column('is_active', sa.BOOLEAN(), server_default=sa.text('true'), autoincrement=False, nullable=False))
     op.add_column('iam_permission', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('iam_permission', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('iam_permission', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
     op.add_column('iam_permission', sa.Column('is_system', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
+    op.add_column('iam_permission', sa.Column('is_active', sa.BOOLEAN(), server_default=sa.text('true'), autoincrement=False, nullable=False))
+    op.add_column('iam_permission', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.drop_constraint('uq_iam_permission_name', 'iam_permission', type_='unique')
     op.create_unique_constraint('uq_iam_permission_resource_action', 'iam_permission', ['resource', 'action'])
     op.create_unique_constraint('iam_permission_name_key', 'iam_permission', ['name'])
@@ -11154,8 +11154,8 @@ def downgrade() -> None:
                type_=sa.VARCHAR(length=30),
                existing_nullable=False)
     op.add_column('hedged_item', sa.Column('item_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('hedged_item', sa.Column('hedging_relationship_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('hedged_item', sa.Column('fair_value', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('hedged_item', sa.Column('hedging_relationship_id', sa.UUID(), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'hedged_item', type_='foreignkey')
     op.drop_index(op.f('ix_hedged_item_legal_entity_id'), table_name='hedged_item')
     op.drop_index('idx_hedged_item_type', table_name='hedged_item')
@@ -11197,17 +11197,17 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('hedge_instrument', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('hedge_instrument', sa.Column('settlement_date', sa.DATE(), autoincrement=False, nullable=True))
-    op.add_column('hedge_instrument', sa.Column('counterparty_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('hedge_instrument', sa.Column('hedging_relationship_id', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('hedge_instrument', sa.Column('fair_value_at_reporting', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('hedge_instrument', sa.Column('currency_code', sa.VARCHAR(length=3), autoincrement=False, nullable=False))
-    op.add_column('hedge_instrument', sa.Column('underlying_asset', sa.VARCHAR(length=100), autoincrement=False, nullable=False))
-    op.add_column('hedge_instrument', sa.Column('is_designated_hedge', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
     op.add_column('hedge_instrument', sa.Column('strike_price', sa.NUMERIC(precision=18, scale=6), autoincrement=False, nullable=True))
-    op.add_column('hedge_instrument', sa.Column('premium_paid', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('hedge_instrument', sa.Column('fair_value_at_reporting', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('hedge_instrument', sa.Column('underlying_asset', sa.VARCHAR(length=100), autoincrement=False, nullable=False))
+    op.add_column('hedge_instrument', sa.Column('counterparty_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('hedge_instrument', sa.Column('currency_code', sa.VARCHAR(length=3), autoincrement=False, nullable=False))
+    op.add_column('hedge_instrument', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('hedge_instrument', sa.Column('hedging_relationship_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('hedge_instrument', sa.Column('valuation_method', sa.VARCHAR(length=50), server_default=sa.text("'MARK_TO_MARKET'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('hedge_instrument', sa.Column('settlement_date', sa.DATE(), autoincrement=False, nullable=True))
+    op.add_column('hedge_instrument', sa.Column('premium_paid', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('hedge_instrument', sa.Column('is_designated_hedge', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
     op.drop_index(op.f('ix_hedge_instrument_legal_entity_id'), table_name='hedge_instrument')
     op.drop_index('idx_hedge_instrument_type', table_name='hedge_instrument')
     op.drop_index('idx_hedge_instrument_status', table_name='hedge_instrument')
@@ -11244,11 +11244,11 @@ def downgrade() -> None:
                existing_nullable=False)
     op.drop_column('hedge_instrument', 'fair_value')
     op.drop_column('hedge_instrument', 'start_date')
-    op.add_column('hedge_effectiveness_test', sa.Column('test_method', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
-    op.add_column('hedge_effectiveness_test', sa.Column('hedging_relationship_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('hedge_effectiveness_test', sa.Column('is_effective', sa.BOOLEAN(), autoincrement=False, nullable=False))
     op.add_column('hedge_effectiveness_test', sa.Column('test_details', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
     op.add_column('hedge_effectiveness_test', sa.Column('effectiveness_ratio', sa.NUMERIC(precision=10, scale=6), autoincrement=False, nullable=False))
+    op.add_column('hedge_effectiveness_test', sa.Column('is_effective', sa.BOOLEAN(), autoincrement=False, nullable=False))
+    op.add_column('hedge_effectiveness_test', sa.Column('hedging_relationship_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('hedge_effectiveness_test', sa.Column('test_method', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'hedge_effectiveness_test', type_='foreignkey')
     op.create_foreign_key('fk_effectiveness_hedge', 'hedge_effectiveness_test', 'hedging_relationship', ['hedging_relationship_id'], ['id'])
     op.drop_index(op.f('ix_hedge_effectiveness_test_legal_entity_id'), table_name='hedge_effectiveness_test')
@@ -11295,16 +11295,16 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('hash_chain', sa.Column('chain_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('hash_chain', sa.Column('signature', sa.VARCHAR(length=512), autoincrement=False, nullable=True))
-    op.add_column('hash_chain', sa.Column('prev_hash', sa.VARCHAR(length=128), autoincrement=False, nullable=True))
-    op.add_column('hash_chain', sa.Column('sequence', sa.BIGINT(), autoincrement=False, nullable=False))
-    op.add_column('hash_chain', sa.Column('chain_type', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
-    op.add_column('hash_chain', sa.Column('signer_cert_fingerprint', sa.VARCHAR(length=128), autoincrement=False, nullable=True))
-    op.add_column('hash_chain', sa.Column('current_hash', sa.VARCHAR(length=128), autoincrement=False, nullable=False))
     op.add_column('hash_chain', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('hash_chain', sa.Column('timestamp', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
     op.add_column('hash_chain', sa.Column('payload_hash', sa.VARCHAR(length=128), autoincrement=False, nullable=False))
+    op.add_column('hash_chain', sa.Column('timestamp', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('hash_chain', sa.Column('current_hash', sa.VARCHAR(length=128), autoincrement=False, nullable=False))
+    op.add_column('hash_chain', sa.Column('chain_type', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
+    op.add_column('hash_chain', sa.Column('signature', sa.VARCHAR(length=512), autoincrement=False, nullable=True))
+    op.add_column('hash_chain', sa.Column('sequence', sa.BIGINT(), autoincrement=False, nullable=False))
+    op.add_column('hash_chain', sa.Column('chain_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('hash_chain', sa.Column('signer_cert_fingerprint', sa.VARCHAR(length=128), autoincrement=False, nullable=True))
+    op.add_column('hash_chain', sa.Column('prev_hash', sa.VARCHAR(length=128), autoincrement=False, nullable=True))
     op.drop_constraint('uq_hash_chain_stream', 'hash_chain', type_='unique')
     op.drop_index('idx_hc_stream_name', table_name='hash_chain')
     op.drop_index('idx_hc_status', table_name='hash_chain')
@@ -11394,9 +11394,9 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('goodwill', sa.Column('accumulated_impairment', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.add_column('goodwill', sa.Column('net_book_value', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.add_column('goodwill', sa.Column('cost', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('goodwill', sa.Column('accumulated_impairment', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'goodwill', type_='foreignkey')
     op.drop_constraint('uq_goodwill_code_legal_entity', 'goodwill', type_='unique')
     op.drop_index(op.f('ix_goodwill_legal_entity_id'), table_name='goodwill')
@@ -11462,19 +11462,19 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('goods_receipt_note_lines', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('goods_receipt_note_lines', sa.Column('item_code', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
-    op.add_column('goods_receipt_note_lines', sa.Column('goods_receipt_note_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('goods_receipt_note_lines', sa.Column('quantity_received', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.add_column('goods_receipt_note_lines', sa.Column('item_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('goods_receipt_note_lines', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('goods_receipt_note_lines', sa.Column('batch_number', sa.VARCHAR(length=50), autoincrement=False, nullable=True))
+    op.add_column('goods_receipt_note_lines', sa.Column('expiry_date', sa.DATE(), autoincrement=False, nullable=True))
+    op.add_column('goods_receipt_note_lines', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('goods_receipt_note_lines', sa.Column('quantity_rejected', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('goods_receipt_note_lines', sa.Column('item_code', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
+    op.add_column('goods_receipt_note_lines', sa.Column('rejection_reason', sa.VARCHAR(length=500), autoincrement=False, nullable=True))
     op.add_column('goods_receipt_note_lines', sa.Column('quantity_accepted', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.add_column('goods_receipt_note_lines', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
-    op.add_column('goods_receipt_note_lines', sa.Column('rejection_reason', sa.VARCHAR(length=500), autoincrement=False, nullable=True))
+    op.add_column('goods_receipt_note_lines', sa.Column('quantity_received', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('goods_receipt_note_lines', sa.Column('goods_receipt_note_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('goods_receipt_note_lines', sa.Column('item_name', sa.VARCHAR(length=200), autoincrement=False, nullable=True))
-    op.add_column('goods_receipt_note_lines', sa.Column('expiry_date', sa.DATE(), autoincrement=False, nullable=True))
-    op.add_column('goods_receipt_note_lines', sa.Column('quantity_rejected', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('goods_receipt_note_lines', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('goods_receipt_note_lines', sa.Column('batch_number', sa.VARCHAR(length=50), autoincrement=False, nullable=True))
     op.drop_constraint(None, 'goods_receipt_note_lines', type_='foreignkey')
     op.create_foreign_key('fk_grn_lines_grn', 'goods_receipt_note_lines', 'goods_receipt_note', ['goods_receipt_note_id'], ['id'])
     op.drop_constraint('uq_grn_line_number', 'goods_receipt_note_lines', type_='unique')
@@ -11525,10 +11525,10 @@ def downgrade() -> None:
     op.drop_constraint(None, 'goods_receipt_note', type_='foreignkey')
     op.drop_constraint(None, 'goods_receipt_note', type_='foreignkey')
     op.drop_constraint(None, 'goods_receipt_note', type_='foreignkey')
+    op.create_foreign_key('fk_grn_po', 'goods_receipt_note', 'purchase_order', ['purchase_order_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_grn_received_by', 'goods_receipt_note', 'iam_user', ['received_by'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_grn_legal_entity', 'goods_receipt_note', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_grn_supplier', 'goods_receipt_note', 'supplier', ['supplier_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key('fk_grn_po', 'goods_receipt_note', 'purchase_order', ['purchase_order_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_goods_receipt_note_legal_entity_id'), table_name='goods_receipt_note')
     op.drop_index('idx_grn_legal_entity', table_name='goods_receipt_note')
     op.drop_index('idx_grn_date', table_name='goods_receipt_note')
@@ -11561,10 +11561,10 @@ def downgrade() -> None:
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
     op.add_column('goods_receipt_line', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.create_foreign_key('fk_grn_line_grn', 'goods_receipt_line', 'goods_receipt_note', ['goods_receipt_note_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key('fk_grn_line_legal_entity', 'goods_receipt_line', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key('fk_grn_line_item', 'goods_receipt_line', 'inventory_item', ['item_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_grn_line_po_line', 'goods_receipt_line', 'purchase_order_line', ['purchase_order_line_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_grn_line_item', 'goods_receipt_line', 'inventory_item', ['item_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_grn_line_legal_entity', 'goods_receipt_line', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_grn_line_grn', 'goods_receipt_line', 'goods_receipt_note', ['goods_receipt_note_id'], ['id'], ondelete='CASCADE')
     op.create_index('idx_grn_line_po_line', 'goods_receipt_line', ['purchase_order_line_id'], unique=False)
     op.create_index('idx_grn_line_number', 'goods_receipt_line', ['goods_receipt_note_id', 'line_number'], unique=False)
     op.create_index('idx_grn_line_item', 'goods_receipt_line', ['item_id'], unique=False)
@@ -11603,10 +11603,10 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('general_ledger', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('general_ledger', sa.Column('credit_amount', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('general_ledger', sa.Column('debit_amount', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.add_column('general_ledger', sa.Column('account_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('general_ledger', sa.Column('debit_amount', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('general_ledger', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=False))
     op.create_index('ix_general_ledger_legal_entity', 'general_ledger', ['legal_entity_id'], unique=False)
     op.create_index('ix_general_ledger_account', 'general_ledger', ['account_id'], unique=False)
     op.alter_column('general_ledger', 'version',
@@ -11640,10 +11640,10 @@ def downgrade() -> None:
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
     op.add_column('fixed_asset_schedule', sa.Column('fiscal_year', sa.INTEGER(), autoincrement=False, nullable=False))
-    op.add_column('fixed_asset_schedule', sa.Column('month', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('fixed_asset_schedule', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('fixed_asset_schedule', sa.Column('status', sa.VARCHAR(length=20), server_default=sa.text("'pending'::character varying"), autoincrement=False, nullable=False))
     op.add_column('fixed_asset_schedule', sa.Column('currency', sa.VARCHAR(length=3), server_default=sa.text("'IDR'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('fixed_asset_schedule', sa.Column('status', sa.VARCHAR(length=20), server_default=sa.text("'pending'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('fixed_asset_schedule', sa.Column('month', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('fixed_asset_schedule', sa.Column('posted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
     op.drop_constraint(None, 'fixed_asset_schedule', type_='foreignkey')
     op.drop_index('idx_fas_status', table_name='fixed_asset_schedule')
@@ -11800,17 +11800,17 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('event_store', sa.Column('recorded_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('event_store', sa.Column('event_data', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=False))
+    op.add_column('event_store', sa.Column('voided_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('event_store', sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), autoincrement=False, nullable=False))
+    op.add_column('event_store', sa.Column('void_reason', sa.TEXT(), autoincrement=False, nullable=True))
+    op.add_column('event_store', sa.Column('is_void', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
+    op.add_column('event_store', sa.Column('voided_by', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('event_store', sa.Column('hash_prev', sa.VARCHAR(length=128), autoincrement=False, nullable=True))
     op.add_column('event_store', sa.Column('hash_current', sa.VARCHAR(length=128), autoincrement=False, nullable=False))
-    op.add_column('event_store', sa.Column('voided_by', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('event_store', sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), autoincrement=False, nullable=False))
-    op.add_column('event_store', sa.Column('event_data', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=False))
-    op.add_column('event_store', sa.Column('void_reason', sa.TEXT(), autoincrement=False, nullable=True))
-    op.add_column('event_store', sa.Column('version', sa.BIGINT(), autoincrement=False, nullable=False))
-    op.add_column('event_store', sa.Column('is_void', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
+    op.add_column('event_store', sa.Column('recorded_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('event_store', sa.Column('recorded_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
-    op.add_column('event_store', sa.Column('voided_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('event_store', sa.Column('version', sa.BIGINT(), autoincrement=False, nullable=False))
     op.drop_constraint('uq_event_store_stream_sequence', 'event_store', type_='unique')
     op.drop_index('idx_es_timestamp', table_name='event_store')
     op.drop_index('idx_es_stream_sequence', table_name='event_store')
@@ -11870,8 +11870,8 @@ def downgrade() -> None:
     op.add_column('employee', sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
     op.drop_constraint(None, 'employee', type_='foreignkey')
     op.drop_constraint(None, 'employee', type_='foreignkey')
-    op.create_foreign_key('fk_employee_legal_entity', 'employee', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_employee_manager', 'employee', 'employee', ['manager_id'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key('fk_employee_legal_entity', 'employee', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_constraint('uq_employee_tax_id', 'employee', type_='unique')
     op.drop_constraint('uq_employee_nik', 'employee', type_='unique')
     op.drop_constraint('uq_employee_email', 'employee', type_='unique')
@@ -12105,9 +12105,9 @@ def downgrade() -> None:
                existing_nullable=False)
     op.drop_constraint(None, 'depreciation_schedule', type_='foreignkey')
     op.drop_constraint(None, 'depreciation_schedule', type_='foreignkey')
-    op.create_foreign_key('fk_depreciation_schedule_legal_entity', 'depreciation_schedule', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key('fk_depreciation_schedule_journal', 'depreciation_schedule', 'journal_header', ['journal_id'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_depreciation_schedule_asset', 'depreciation_schedule', 'fixed_asset', ['asset_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_depreciation_schedule_journal', 'depreciation_schedule', 'journal_header', ['journal_id'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key('fk_depreciation_schedule_legal_entity', 'depreciation_schedule', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_depreciation_schedule_legal_entity_id'), table_name='depreciation_schedule')
     op.alter_column('depreciation_schedule', 'version',
                existing_type=sa.INTEGER(),
@@ -12164,12 +12164,12 @@ def downgrade() -> None:
                type_=sa.VARCHAR(length=30),
                existing_nullable=False)
     op.add_column('delivery_order_line', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('delivery_order_line', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('delivery_order_line', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('delivery_order_line', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.create_foreign_key('fk_do_line_item', 'delivery_order_line', 'inventory_item', ['item_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_do_line_do', 'delivery_order_line', 'delivery_order', ['delivery_order_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_do_line_so_line', 'delivery_order_line', 'sales_order_line', ['sales_order_line_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_do_line_legal_entity', 'delivery_order_line', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key('fk_do_line_do', 'delivery_order_line', 'delivery_order', ['delivery_order_id'], ['id'], ondelete='CASCADE')
     op.create_index('idx_do_line_so_line', 'delivery_order_line', ['sales_order_line_id'], unique=False)
     op.create_index('idx_do_line_number', 'delivery_order_line', ['delivery_order_id', 'line_number'], unique=False)
     op.create_index('idx_do_line_item', 'delivery_order_line', ['item_id'], unique=False)
@@ -12211,13 +12211,13 @@ def downgrade() -> None:
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
     op.add_column('delivery_order', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('delivery_order', sa.Column('tracking_number', sa.VARCHAR(length=100), autoincrement=False, nullable=True))
-    op.add_column('delivery_order', sa.Column('do_number', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
     op.add_column('delivery_order', sa.Column('carrier', sa.VARCHAR(length=100), autoincrement=False, nullable=True))
+    op.add_column('delivery_order', sa.Column('tracking_number', sa.VARCHAR(length=100), autoincrement=False, nullable=True))
     op.add_column('delivery_order', sa.Column('do_date', sa.DATE(), autoincrement=False, nullable=False))
+    op.add_column('delivery_order', sa.Column('do_number', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
+    op.create_foreign_key('fk_delivery_order_so', 'delivery_order', 'sales_order', ['sales_order_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_delivery_order_shipped_by', 'delivery_order', 'iam_user', ['shipped_by'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_delivery_order_legal_entity', 'delivery_order', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key('fk_delivery_order_so', 'delivery_order', 'sales_order', ['sales_order_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_delivery_order_customer', 'delivery_order', 'customer', ['customer_id'], ['id'], ondelete='CASCADE')
     op.drop_constraint(None, 'delivery_order', type_='unique')
     op.create_unique_constraint('uq_do_number_legal_entity', 'delivery_order', ['do_number', 'legal_entity_id'])
@@ -12276,11 +12276,11 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('dead_letter_events', sa.Column('aggregate_type', sa.VARCHAR(length=100), autoincrement=False, nullable=False))
     op.add_column('dead_letter_events', sa.Column('error', sa.TEXT(), autoincrement=False, nullable=False))
     op.add_column('dead_letter_events', sa.Column('aggregate_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('dead_letter_events', sa.Column('failed_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('dead_letter_events', sa.Column('aggregate_type', sa.VARCHAR(length=100), autoincrement=False, nullable=False))
     op.add_column('dead_letter_events', sa.Column('status', sa.VARCHAR(length=20), server_default=sa.text("'pending'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('dead_letter_events', sa.Column('failed_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
     op.drop_index('idx_dle_retry_count', table_name='dead_letter_events')
     op.drop_index('idx_dle_resolved', table_name='dead_letter_events')
     op.drop_index('idx_dle_event_type', table_name='dead_letter_events')
@@ -12438,8 +12438,8 @@ def downgrade() -> None:
                type_=sa.VARCHAR(length=50),
                existing_nullable=False)
     op.add_column('coretax_submission_log', sa.Column('submission_type', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
-    op.add_column('coretax_submission_log', sa.Column('submission_payload', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=False))
     op.add_column('coretax_submission_log', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('coretax_submission_log', sa.Column('submission_payload', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=False))
     op.drop_index('idx_coretax_log_submission_id', table_name='coretax_submission_log')
     op.drop_index('idx_coretax_log_spt_type', table_name='coretax_submission_log')
     op.drop_index('idx_coretax_log_npwp', table_name='coretax_submission_log')
@@ -12511,8 +12511,8 @@ def downgrade() -> None:
                type_=sa.VARCHAR(length=20),
                existing_nullable=False)
     op.add_column('coretax_spt', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('coretax_spt', sa.Column('period_year', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('coretax_spt', sa.Column('period_month', sa.INTEGER(), autoincrement=False, nullable=True))
+    op.add_column('coretax_spt', sa.Column('period_year', sa.INTEGER(), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'coretax_spt', type_='unique')
     op.drop_index('idx_coretax_spt_status', table_name='coretax_spt')
     op.drop_index('idx_coretax_spt_npwp_tahun_bulan', table_name='coretax_spt')
@@ -12553,11 +12553,11 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('coretax_ntpn', sa.Column('tax_type', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
-    op.add_column('coretax_ntpn', sa.Column('period_month', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('coretax_ntpn', sa.Column('validation_status', sa.VARCHAR(length=20), server_default=sa.text("'pending'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('coretax_ntpn', sa.Column('tax_type', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
     op.add_column('coretax_ntpn', sa.Column('period_year', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('coretax_ntpn', sa.Column('payment_amount', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('coretax_ntpn', sa.Column('period_month', sa.INTEGER(), autoincrement=False, nullable=False))
     op.drop_constraint('uq_coretax_ntpn', 'coretax_ntpn', type_='unique')
     op.drop_index('idx_coretax_ntpn_payment_date', table_name='coretax_ntpn')
     op.drop_index('idx_coretax_ntpn_npwp', table_name='coretax_ntpn')
@@ -12592,11 +12592,11 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('coretax_nsfp', sa.Column('nsfp_range_end', sa.VARCHAR(length=16), autoincrement=False, nullable=False))
-    op.add_column('coretax_nsfp', sa.Column('nsfp_range_start', sa.VARCHAR(length=16), autoincrement=False, nullable=False))
-    op.add_column('coretax_nsfp', sa.Column('current_sequence', sa.VARCHAR(length=16), autoincrement=False, nullable=False))
     op.add_column('coretax_nsfp', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('coretax_nsfp', sa.Column('current_sequence', sa.VARCHAR(length=16), autoincrement=False, nullable=False))
+    op.add_column('coretax_nsfp', sa.Column('nsfp_range_start', sa.VARCHAR(length=16), autoincrement=False, nullable=False))
     op.add_column('coretax_nsfp', sa.Column('request_date', sa.DATE(), autoincrement=False, nullable=False))
+    op.add_column('coretax_nsfp', sa.Column('nsfp_range_end', sa.VARCHAR(length=16), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'coretax_nsfp', type_='foreignkey')
     op.drop_constraint('uq_nsfp_legal_start', 'coretax_nsfp', type_='unique')
     op.drop_index('ix_nsfp_legal_status', table_name='coretax_nsfp')
@@ -12634,17 +12634,17 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('coretax_faktur_masukan', sa.Column('tarif_ppn', sa.NUMERIC(precision=5, scale=2), server_default=sa.text('11.00'), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur_masukan', sa.Column('posted_to_journal_id', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur_masukan', sa.Column('supplier_npwp', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_masukan', sa.Column('dpp_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
     op.add_column('coretax_faktur_masukan', sa.Column('supplier_name', sa.VARCHAR(length=200), autoincrement=False, nullable=False))
     op.add_column('coretax_faktur_masukan', sa.Column('credit_period_year', sa.INTEGER(), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur_masukan', sa.Column('ppnbm_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur_masukan', sa.Column('faktur_date', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur_masukan', sa.Column('status_pengkreditan', sa.VARCHAR(length=20), server_default=sa.text("'BELUM_KREDIT'::character varying"), autoincrement=False, nullable=False))
     op.add_column('coretax_faktur_masukan', sa.Column('credit_period_month', sa.INTEGER(), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur_masukan', sa.Column('supplier_npwp', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_masukan', sa.Column('ppnbm_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=True))
     op.add_column('coretax_faktur_masukan', sa.Column('ppn_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur_masukan', sa.Column('dpp_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_masukan', sa.Column('status_pengkreditan', sa.VARCHAR(length=20), server_default=sa.text("'BELUM_KREDIT'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_masukan', sa.Column('posted_to_journal_id', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur_masukan', sa.Column('tarif_ppn', sa.NUMERIC(precision=5, scale=2), server_default=sa.text('11.00'), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_masukan', sa.Column('faktur_date', sa.DATE(), autoincrement=False, nullable=False))
     op.create_index('ix_coretax_faktur_masukan_supplier', 'coretax_faktur_masukan', ['supplier_npwp'], unique=False)
     op.create_index('ix_coretax_faktur_masukan_legal_entity', 'coretax_faktur_masukan', ['legal_entity_id'], unique=False)
     op.create_index('ix_coretax_faktur_masukan_date', 'coretax_faktur_masukan', ['faktur_date'], unique=False)
@@ -12728,8 +12728,8 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('coretax_faktur_line', sa.Column('ppn', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.add_column('coretax_faktur_line', sa.Column('dpp', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_line', sa.Column('ppn', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'coretax_faktur_line', type_='foreignkey')
     op.drop_constraint(None, 'coretax_faktur_line', type_='foreignkey')
     op.create_foreign_key('fk_coretax_faktur_line_faktur', 'coretax_faktur_line', 'coretax_faktur_keluaran', ['faktur_id'], ['id'])
@@ -12765,25 +12765,25 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('coretax_faktur_keluaran', sa.Column('validation_token', sa.VARCHAR(length=200), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur_keluaran', sa.Column('nsfp', sa.VARCHAR(length=16), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur_keluaran', sa.Column('last_sync_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur_keluaran', sa.Column('previous_version_id', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur_keluaran', sa.Column('qr_code_url', sa.VARCHAR(length=500), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur_keluaran', sa.Column('source_document_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur_keluaran', sa.Column('submitted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur_keluaran', sa.Column('faktur_date', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur_keluaran', sa.Column('ppn_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur_keluaran', sa.Column('prepopulated_data', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur_keluaran', sa.Column('sync_attempts', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur_keluaran', sa.Column('source_document_type', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
     op.add_column('coretax_faktur_keluaran', sa.Column('dpp_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur_keluaran', sa.Column('tarif_ppn', sa.NUMERIC(precision=5, scale=2), server_default=sa.text('11.00'), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_keluaran', sa.Column('sync_attempts', sa.INTEGER(), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.add_column('coretax_faktur_keluaran', sa.Column('original_faktur_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('coretax_faktur_keluaran', sa.Column('ppnbm_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur_keluaran', sa.Column('signature_djp', sa.VARCHAR(length=512), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur_keluaran', sa.Column('is_latest_version', sa.BOOLEAN(), server_default=sa.text('true'), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_keluaran', sa.Column('source_document_type', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
     op.add_column('coretax_faktur_keluaran', sa.Column('approved_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur_keluaran', sa.Column('previous_version_id', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur_keluaran', sa.Column('source_document_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_keluaran', sa.Column('qr_code_url', sa.VARCHAR(length=500), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur_keluaran', sa.Column('is_latest_version', sa.BOOLEAN(), server_default=sa.text('true'), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_keluaran', sa.Column('ppn_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_keluaran', sa.Column('validation_token', sa.VARCHAR(length=200), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur_keluaran', sa.Column('submitted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur_keluaran', sa.Column('tarif_ppn', sa.NUMERIC(precision=5, scale=2), server_default=sa.text('11.00'), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_keluaran', sa.Column('faktur_date', sa.DATE(), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_keluaran', sa.Column('last_sync_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur_keluaran', sa.Column('prepopulated_data', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur_keluaran', sa.Column('nsfp', sa.VARCHAR(length=16), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur_keluaran', sa.Column('signature_djp', sa.VARCHAR(length=512), autoincrement=False, nullable=True))
     op.create_index('ix_coretax_faktur_keluaran_sync', 'coretax_faktur_keluaran', ['sync_attempts', 'last_sync_at'], unique=False)
     op.create_index('ix_coretax_faktur_keluaran_status', 'coretax_faktur_keluaran', ['status'], unique=False)
     op.create_index('ix_coretax_faktur_keluaran_source', 'coretax_faktur_keluaran', ['source_document_type', 'source_document_id'], unique=False)
@@ -12873,20 +12873,20 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
+    op.add_column('coretax_faktur', sa.Column('counterparty_npwp', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur', sa.Column('voided_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur', sa.Column('source_document_id', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur', sa.Column('dpp_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
     op.add_column('coretax_faktur', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur', sa.Column('ppnbm_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur', sa.Column('ppn_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur', sa.Column('counterparty_name', sa.VARCHAR(length=200), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur', sa.Column('approved_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('coretax_faktur', sa.Column('source_document_type', sa.VARCHAR(length=50), autoincrement=False, nullable=True))
     op.add_column('coretax_faktur', sa.Column('hash_link', sa.VARCHAR(length=128), autoincrement=False, nullable=True))
     op.add_column('coretax_faktur', sa.Column('tarif_ppn', sa.NUMERIC(precision=5, scale=2), server_default=sa.text('11.00'), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur', sa.Column('counterparty_npwp', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur', sa.Column('source_document_type', sa.VARCHAR(length=50), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur', sa.Column('is_deleted', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
     op.add_column('coretax_faktur', sa.Column('submitted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur', sa.Column('ppnbm_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur', sa.Column('counterparty_name', sa.VARCHAR(length=200), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur', sa.Column('source_document_id', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur', sa.Column('voided_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur', sa.Column('ppn_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
-    op.add_column('coretax_faktur', sa.Column('approved_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('coretax_faktur', sa.Column('dpp_total', sa.NUMERIC(precision=18, scale=2), autoincrement=False, nullable=False))
+    op.add_column('coretax_faktur', sa.Column('is_deleted', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
     op.drop_constraint('uq_coretax_faktur_number', 'coretax_faktur', type_='unique')
     op.drop_index(op.f('ix_coretax_faktur_legal_entity_id'), table_name='coretax_faktur')
     op.drop_index('idx_cf_status', table_name='coretax_faktur')
@@ -12961,8 +12961,8 @@ def downgrade() -> None:
                existing_nullable=False)
     op.drop_column('coretax_faktur', 'nsfp_used')
     op.add_column('coretax_emeterai', sa.Column('purchased_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=False))
-    op.add_column('coretax_emeterai', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('coretax_emeterai', sa.Column('document_reference', sa.VARCHAR(length=200), autoincrement=False, nullable=True))
+    op.add_column('coretax_emeterai', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'coretax_emeterai', type_='unique')
     op.drop_constraint('uq_coretax_emeterai_code', 'coretax_emeterai', type_='unique')
     op.drop_index('idx_coretax_emeterai_status', table_name='coretax_emeterai')
@@ -12990,13 +12990,13 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('coretax_bupot', sa.Column('pph_type', sa.VARCHAR(length=10), autoincrement=False, nullable=False))
-    op.add_column('coretax_bupot', sa.Column('counterparty_npwp', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
-    op.add_column('coretax_bupot', sa.Column('pph_amount', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
-    op.add_column('coretax_bupot', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('coretax_bupot', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('coretax_bupot', sa.Column('bupot_date', sa.DATE(), autoincrement=False, nullable=False))
     op.add_column('coretax_bupot', sa.Column('dpp', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('coretax_bupot', sa.Column('counterparty_npwp', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
+    op.add_column('coretax_bupot', sa.Column('bupot_date', sa.DATE(), autoincrement=False, nullable=False))
+    op.add_column('coretax_bupot', sa.Column('pph_type', sa.VARCHAR(length=10), autoincrement=False, nullable=False))
+    op.add_column('coretax_bupot', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('coretax_bupot', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('coretax_bupot', sa.Column('pph_amount', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'coretax_bupot', type_='foreignkey')
     op.drop_constraint(None, 'coretax_bupot', type_='foreignkey')
     op.drop_constraint(None, 'coretax_bupot', type_='foreignkey')
@@ -13094,8 +13094,8 @@ def downgrade() -> None:
                type_=sa.VARCHAR(length=200),
                existing_nullable=False)
     op.add_column('consolidation_group_member', sa.Column('effective_date', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('consolidation_group_member', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('consolidation_group_member', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('consolidation_group_member', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'consolidation_group_member', type_='foreignkey')
     op.drop_constraint(None, 'consolidation_group_member', type_='foreignkey')
     op.drop_constraint('uq_group_entity', 'consolidation_group_member', type_='unique')
@@ -13117,9 +13117,9 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('consolidation_group', sa.Column('group_code', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
-    op.add_column('consolidation_group', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('consolidation_group', sa.Column('parent_legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('consolidation_group', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('consolidation_group', sa.Column('group_code', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
     op.drop_index(op.f('ix_consolidation_group_group_name'), table_name='consolidation_group')
     op.drop_index('idx_cons_group_name', table_name='consolidation_group')
     op.create_index('ix_consolidation_group_parent', 'consolidation_group', ['parent_legal_entity_id'], unique=False)
@@ -13133,10 +13133,10 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('company_entity', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('company_entity', sa.Column('entity_name', sa.VARCHAR(length=200), autoincrement=False, nullable=False))
     op.add_column('company_entity', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('company_entity', sa.Column('parent_entity_id', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('company_entity', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('company_entity', sa.Column('entity_name', sa.VARCHAR(length=200), autoincrement=False, nullable=False))
     op.add_column('company_entity', sa.Column('entity_code', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
     op.create_index('ix_company_entity_legal_entity', 'company_entity', ['legal_entity_id'], unique=False)
     op.alter_column('company_entity', 'version',
@@ -13185,8 +13185,8 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('capital_contribution', sa.Column('journal_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('capital_contribution', sa.Column('currency_code', sa.VARCHAR(length=3), server_default=sa.text("'IDR'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('capital_contribution', sa.Column('journal_id', sa.UUID(), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'capital_contribution', type_='unique')
     op.alter_column('capital_contribution', 'created_by',
                existing_type=sa.UUID(),
@@ -13224,13 +13224,13 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('budget_actual', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
-    op.add_column('budget_actual', sa.Column('actual_amount', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('budget_actual', sa.Column('period', sa.INTEGER(), autoincrement=False, nullable=False))
-    op.add_column('budget_actual', sa.Column('variance_percent', sa.NUMERIC(precision=10, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('budget_actual', sa.Column('fiscal_year', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('budget_actual', sa.Column('account_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('budget_actual', sa.Column('budget_amount', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
-    op.add_column('budget_actual', sa.Column('fiscal_year', sa.INTEGER(), autoincrement=False, nullable=False))
+    op.add_column('budget_actual', sa.Column('period', sa.INTEGER(), autoincrement=False, nullable=False))
+    op.add_column('budget_actual', sa.Column('variance_percent', sa.NUMERIC(precision=10, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
+    op.add_column('budget_actual', sa.Column('last_updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('budget_actual', sa.Column('actual_amount', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.add_column('budget_actual', sa.Column('variance', sa.NUMERIC(precision=20, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'budget_actual', type_='foreignkey')
     op.drop_constraint(None, 'budget_actual', type_='foreignkey')
@@ -13333,10 +13333,10 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('bill_of_materials_line', sa.Column('component_name', sa.VARCHAR(length=200), autoincrement=False, nullable=True))
-    op.add_column('bill_of_materials_line', sa.Column('component_item_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('bill_of_materials_line', sa.Column('component_code', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
+    op.add_column('bill_of_materials_line', sa.Column('component_name', sa.VARCHAR(length=200), autoincrement=False, nullable=True))
     op.add_column('bill_of_materials_line', sa.Column('scrap_percent', sa.NUMERIC(precision=5, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('bill_of_materials_line', sa.Column('component_item_id', sa.UUID(), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'bill_of_materials_line', type_='foreignkey')
     op.create_foreign_key('fk_bom_line_component', 'bill_of_materials_line', 'inventory_item', ['component_item_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_bom_line_legal_entity', 'bill_of_materials_line', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
@@ -13405,8 +13405,8 @@ def downgrade() -> None:
     op.add_column('bank_transaction', sa.Column('is_reconciled', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'bank_transaction', type_='foreignkey')
     op.drop_constraint(None, 'bank_transaction', type_='foreignkey')
-    op.create_foreign_key('fk_bank_tx_account', 'bank_transaction', 'bank_account', ['bank_account_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_bank_tx_legal_entity', 'bank_transaction', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_bank_tx_account', 'bank_transaction', 'bank_account', ['bank_account_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_bank_transaction_legal_entity_id'), table_name='bank_transaction')
     op.alter_column('bank_transaction', 'version',
                existing_type=sa.INTEGER(),
@@ -13424,10 +13424,10 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('bank_reconciliations', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('bank_reconciliations', sa.Column('reconciliation_date', sa.DATE(), autoincrement=False, nullable=False))
-    op.add_column('bank_reconciliations', sa.Column('book_balance', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.add_column('bank_reconciliations', sa.Column('is_reconciled', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
+    op.add_column('bank_reconciliations', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('bank_reconciliations', sa.Column('book_balance', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
+    op.add_column('bank_reconciliations', sa.Column('reconciliation_date', sa.DATE(), autoincrement=False, nullable=False))
     op.add_column('bank_reconciliations', sa.Column('statement_balance', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'bank_reconciliations', type_='foreignkey')
     op.drop_index('idx_bank_recon_status', table_name='bank_reconciliations')
@@ -13463,10 +13463,10 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('bank_reconciliation_items', sa.Column('bank_transaction_id', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('bank_reconciliation_items', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('bank_reconciliation_items', sa.Column('match_status', sa.VARCHAR(length=20), server_default=sa.text("'pending'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('bank_reconciliation_items', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('bank_reconciliation_items', sa.Column('statement_line_id', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('bank_reconciliation_items', sa.Column('bank_transaction_id', sa.UUID(), autoincrement=False, nullable=True))
     op.drop_constraint(None, 'bank_reconciliation_items', type_='foreignkey')
     op.drop_index('idx_bank_recon_item_type', table_name='bank_reconciliation_items')
     op.drop_index('idx_bank_recon_item_transaction', table_name='bank_reconciliation_items')
@@ -13644,11 +13644,11 @@ def downgrade() -> None:
                existing_type=sa.String(length=255),
                type_=sa.VARCHAR(length=30),
                existing_nullable=False)
+    op.add_column('asset_categories', sa.Column('depreciation_method', sa.VARCHAR(length=25), autoincrement=False, nullable=False))
+    op.add_column('asset_categories', sa.Column('useful_life_years', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('asset_categories', sa.Column('salvage_value_percent', sa.NUMERIC(precision=5, scale=2), server_default=sa.text('0'), autoincrement=False, nullable=False))
     op.add_column('asset_categories', sa.Column('category_name', sa.VARCHAR(length=200), autoincrement=False, nullable=False))
-    op.add_column('asset_categories', sa.Column('depreciation_method', sa.VARCHAR(length=25), autoincrement=False, nullable=False))
     op.add_column('asset_categories', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('asset_categories', sa.Column('useful_life_years', sa.INTEGER(), autoincrement=False, nullable=False))
     op.add_column('asset_categories', sa.Column('category_code', sa.VARCHAR(length=30), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'asset_categories', type_='unique')
     op.drop_index('idx_asset_cat_legal_entity', table_name='asset_categories')
@@ -13680,9 +13680,9 @@ def downgrade() -> None:
     op.add_column('ar_payment', sa.Column('bank_account_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('ar_payment', sa.Column('customer_id', sa.UUID(), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'ar_payment', type_='foreignkey')
+    op.create_foreign_key('fk_ar_payment_bank_account', 'ar_payment', 'bank_account', ['bank_account_id'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_ar_payment_customer', 'ar_payment', 'customer', ['customer_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_ar_payment_legal_entity', 'ar_payment', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key('fk_ar_payment_bank_account', 'ar_payment', 'bank_account', ['bank_account_id'], ['id'], ondelete='SET NULL')
     op.drop_index(op.f('ix_ar_payment_legal_entity_id'), table_name='ar_payment')
     op.drop_index('idx_ar_payment_legal_entity', table_name='ar_payment')
     op.create_index('idx_ar_payment_reference', 'ar_payment', ['reference_number'], unique=False)
@@ -13707,10 +13707,10 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('ar_invoice_line', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('ar_invoice_line', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('ar_invoice_line', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.add_column('ar_invoice_line', sa.Column('tax_amount', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('ar_invoice_line', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('ar_invoice_line', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
+    op.add_column('ar_invoice_line', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.create_foreign_key('fk_ar_invoice_line_legal_entity', 'ar_invoice_line', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.create_index('idx_ar_invoice_line_number', 'ar_invoice_line', ['invoice_id', 'line_number'], unique=False)
     op.alter_column('ar_invoice_line', 'currency',
@@ -13752,8 +13752,8 @@ def downgrade() -> None:
     op.drop_constraint(None, 'ar_invoice', type_='foreignkey')
     op.drop_constraint(None, 'ar_invoice', type_='foreignkey')
     op.create_foreign_key('fk_ar_invoice_legal_entity', 'ar_invoice', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key('fk_ar_invoice_customer', 'ar_invoice', 'customer', ['customer_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_ar_invoice_approved_by', 'ar_invoice', 'iam_user', ['approved_by'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key('fk_ar_invoice_customer', 'ar_invoice', 'customer', ['customer_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_ar_invoice_legal_entity_id'), table_name='ar_invoice')
     op.alter_column('ar_invoice', 'version',
                existing_type=sa.INTEGER(),
@@ -13787,8 +13787,8 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('ar_credit_note', sa.Column('reason', sa.TEXT(), autoincrement=False, nullable=False))
     op.add_column('ar_credit_note', sa.Column('reference_number', sa.VARCHAR(length=100), autoincrement=False, nullable=True))
+    op.add_column('ar_credit_note', sa.Column('reason', sa.TEXT(), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'ar_credit_note', type_='foreignkey')
     op.drop_constraint(None, 'ar_credit_note', type_='foreignkey')
     op.create_foreign_key('fk_ar_credit_note_applied_by', 'ar_credit_note', 'iam_user', ['applied_by'], ['id'], ondelete='SET NULL')
@@ -13815,8 +13815,8 @@ def downgrade() -> None:
                existing_type=sa.VARCHAR(length=3),
                server_default=sa.text("'IDR'::character varying"),
                existing_nullable=False)
-    op.add_column('approval_rule', sa.Column('approver_role_ids', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=False))
     op.add_column('approval_rule', sa.Column('requires_second_approval', sa.BOOLEAN(), server_default=sa.text('false'), autoincrement=False, nullable=False))
+    op.add_column('approval_rule', sa.Column('approver_role_ids', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'approval_rule', type_='foreignkey')
     op.drop_constraint('uq_approval_rule_code_legal_entity', 'approval_rule', type_='unique')
     op.drop_index(op.f('ix_approval_rule_legal_entity_id'), table_name='approval_rule')
@@ -13873,12 +13873,12 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('approval_request', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('approval_request', sa.Column('request_type', sa.VARCHAR(length=50), autoincrement=False, nullable=False))
-    op.add_column('approval_request', sa.Column('submitted_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
+    op.add_column('approval_request', sa.Column('updated_by', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('approval_request', sa.Column('submitted_by', sa.UUID(), autoincrement=False, nullable=False))
-    op.add_column('approval_request', sa.Column('request_data', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=False))
     op.add_column('approval_request', sa.Column('rejection_reason', sa.TEXT(), autoincrement=False, nullable=True))
+    op.add_column('approval_request', sa.Column('request_data', postgresql.JSONB(astext_type=sa.Text()), autoincrement=False, nullable=False))
+    op.add_column('approval_request', sa.Column('submitted_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), autoincrement=False, nullable=False))
     op.drop_constraint('uq_approval_request_number_legal_entity', 'approval_request', type_='unique')
     op.drop_index(op.f('ix_approval_request_legal_entity_id'), table_name='approval_request')
     op.drop_index('idx_approval_status', table_name='approval_request')
@@ -13924,16 +13924,16 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('ap_payment', sa.Column('amount', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
-    op.add_column('ap_payment', sa.Column('notes', sa.VARCHAR(length=500), autoincrement=False, nullable=True))
     op.add_column('ap_payment', sa.Column('bank_account_id', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('ap_payment', sa.Column('notes', sa.VARCHAR(length=500), autoincrement=False, nullable=True))
+    op.add_column('ap_payment', sa.Column('amount', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'ap_payment', type_='foreignkey')
     op.drop_constraint(None, 'ap_payment', type_='foreignkey')
     op.drop_constraint(None, 'ap_payment', type_='foreignkey')
-    op.create_foreign_key('fk_ap_payment_legal_entity', 'ap_payment', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_ap_payment_supplier', 'ap_payment', 'supplier', ['supplier_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_ap_payment_bank_account', 'ap_payment', 'bank_account', ['bank_account_id'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_ap_payment_invoice', 'ap_payment', 'ap_invoice', ['invoice_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key('fk_ap_payment_supplier', 'ap_payment', 'supplier', ['supplier_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_ap_payment_legal_entity', 'ap_payment', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_ap_payment_legal_entity_id'), table_name='ap_payment')
     op.drop_index('idx_ap_payment_legal_entity', table_name='ap_payment')
     op.create_index('idx_ap_payment_reference', 'ap_payment', ['reference_number'], unique=False)
@@ -13963,13 +13963,13 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('ap_invoice_line', sa.Column('discount_percent', sa.NUMERIC(precision=5, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('ap_invoice_line', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
-    op.add_column('ap_invoice_line', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
-    op.add_column('ap_invoice_line', sa.Column('goods_receipt_line_id', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('ap_invoice_line', sa.Column('purchase_order_line_id', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('ap_invoice_line', sa.Column('discount_percent', sa.NUMERIC(precision=5, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('ap_invoice_line', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('ap_invoice_line', sa.Column('currency', sa.VARCHAR(length=3), server_default=sa.text("'IDR'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('ap_invoice_line', sa.Column('goods_receipt_line_id', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('ap_invoice_line', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.create_foreign_key('fk_ap_invoice_line_legal_entity', 'ap_invoice_line', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_ap_invoice_line_invoice_id'), table_name='ap_invoice_line')
     op.drop_index('idx_ap_invoice_line_account', table_name='ap_invoice_line')
@@ -14013,8 +14013,8 @@ def downgrade() -> None:
     op.drop_constraint(None, 'ap_invoice', type_='foreignkey')
     op.drop_constraint(None, 'ap_invoice', type_='foreignkey')
     op.create_foreign_key('fk_ap_invoice_approved_by', 'ap_invoice', 'iam_user', ['approved_by'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key('fk_ap_invoice_legal_entity', 'ap_invoice', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.create_foreign_key('fk_ap_invoice_vendor', 'ap_invoice', 'supplier', ['vendor_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_ap_invoice_legal_entity', 'ap_invoice', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_ap_invoice_legal_entity_id'), table_name='ap_invoice')
     op.alter_column('ap_invoice', 'version',
                existing_type=sa.INTEGER(),
@@ -14054,9 +14054,9 @@ def downgrade() -> None:
                existing_nullable=False)
     op.drop_constraint(None, 'ap_credit_note', type_='foreignkey')
     op.drop_constraint(None, 'ap_credit_note', type_='foreignkey')
-    op.create_foreign_key('fk_ap_credit_note_legal_entity', 'ap_credit_note', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
-    op.create_foreign_key('fk_ap_credit_note_applied_by', 'ap_credit_note', 'iam_user', ['applied_by'], ['id'], ondelete='SET NULL')
     op.create_foreign_key('fk_ap_credit_note_invoice', 'ap_credit_note', 'ap_invoice', ['invoice_id'], ['id'], ondelete='CASCADE')
+    op.create_foreign_key('fk_ap_credit_note_applied_by', 'ap_credit_note', 'iam_user', ['applied_by'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key('fk_ap_credit_note_legal_entity', 'ap_credit_note', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_ap_credit_note_legal_entity_id'), table_name='ap_credit_note')
     op.alter_column('ap_credit_note', 'version',
                existing_type=sa.INTEGER(),
@@ -14074,16 +14074,16 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
+    op.add_column('amortization_schedule', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=True))
     op.add_column('amortization_schedule', sa.Column('deleted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('amortization_schedule', sa.Column('accumulated_amortization', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
+    op.add_column('amortization_schedule', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
+    op.add_column('amortization_schedule', sa.Column('net_book_value', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('amortization_schedule', sa.Column('amortization_amount', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('amortization_schedule', sa.Column('period', sa.INTEGER(), autoincrement=False, nullable=False))
-    op.add_column('amortization_schedule', sa.Column('net_book_value', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
-    op.add_column('amortization_schedule', sa.Column('accumulated_amortization', sa.NUMERIC(precision=20, scale=2), server_default=sa.text("'0'::numeric"), autoincrement=False, nullable=False))
     op.add_column('amortization_schedule', sa.Column('month', sa.INTEGER(), autoincrement=False, nullable=False))
-    op.add_column('amortization_schedule', sa.Column('created_by', sa.UUID(), autoincrement=False, nullable=True))
-    op.add_column('amortization_schedule', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
-    op.add_column('amortization_schedule', sa.Column('legal_entity_id', sa.UUID(), autoincrement=False, nullable=False))
     op.add_column('amortization_schedule', sa.Column('posted_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=True))
+    op.add_column('amortization_schedule', sa.Column('version', sa.INTEGER(), server_default=sa.text('1'), autoincrement=False, nullable=False))
     op.create_foreign_key('fk_amortization_schedule_legal_entity', 'amortization_schedule', 'legal_entity', ['legal_entity_id'], ['id'], ondelete='CASCADE')
     op.drop_index(op.f('ix_amortization_schedule_status'), table_name='amortization_schedule')
     op.drop_index(op.f('ix_amortization_schedule_asset_id'), table_name='amortization_schedule')
@@ -14121,9 +14121,9 @@ def downgrade() -> None:
     op.alter_column('amortization_schedule', 'period_date',
                existing_type=sa.DATE(),
                nullable=True)
-    op.add_column('aml_suspicious_transaction', sa.Column('amount', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
-    op.add_column('aml_suspicious_transaction', sa.Column('reason', sa.TEXT(), autoincrement=False, nullable=False))
     op.add_column('aml_suspicious_transaction', sa.Column('review_status', sa.VARCHAR(length=20), server_default=sa.text("'pending'::character varying"), autoincrement=False, nullable=False))
+    op.add_column('aml_suspicious_transaction', sa.Column('reason', sa.TEXT(), autoincrement=False, nullable=False))
+    op.add_column('aml_suspicious_transaction', sa.Column('amount', sa.NUMERIC(precision=20, scale=2), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'aml_suspicious_transaction', type_='foreignkey')
     op.drop_index(op.f('ix_aml_suspicious_transaction_transaction_id'), table_name='aml_suspicious_transaction')
     op.drop_index(op.f('ix_aml_suspicious_transaction_legal_entity_id'), table_name='aml_suspicious_transaction')
@@ -14191,8 +14191,8 @@ def downgrade() -> None:
                existing_type=sa.UUID(),
                server_default=sa.text('gen_random_uuid()'),
                existing_nullable=False)
-    op.add_column('aml_risk_score', sa.Column('risk_level', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
     op.add_column('aml_risk_score', sa.Column('supplier_id', sa.UUID(), autoincrement=False, nullable=True))
+    op.add_column('aml_risk_score', sa.Column('risk_level', sa.VARCHAR(length=20), autoincrement=False, nullable=False))
     op.drop_constraint(None, 'aml_risk_score', type_='foreignkey')
     op.drop_constraint('uq_aml_risk_customer_legal', 'aml_risk_score', type_='unique')
     op.drop_index(op.f('ix_aml_risk_score_legal_entity_id'), table_name='aml_risk_score')

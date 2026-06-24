@@ -90,12 +90,6 @@ class HandlerEntry:
                 f"Handler must be callable, got {type(self.handler)}"
             )
 
-    def record_execution(self, duration_ms: float, error: str | None = None) -> None:
-        """Record handler execution metrics (mutable, but we create a new instance)."""
-        # Since this is frozen, we need to use object.__setattr__ or return new instance
-        # For simplicity in registry, we'll handle metrics separately
-        pass
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -146,25 +140,13 @@ class EventHandlerRegistry:
                 self._handler_metrics: dict[str, dict[str, Any]] = {}
                 self._initialized = True
                 logger.info("EventHandlerRegistry initialized (singleton)")
-
                 # =============================================================
-                # 🔥 REGISTRASI SEMUA EVENT HANDLER DARI all_event_handlers.py
+                # TIDAK ADA REGISTRASI OTOMATIS DI SINI
+                # Registrasi dilakukan secara eksplisit dari luar
+                # (misal dari checker_event_handler.py atau startup)
                 # =============================================================
-                try:
-                    from application.events.all_event_handlers import register_all_handlers
-                    register_all_handlers(self)
-                    logger.info(
-                        "Successfully registered all event handlers from all_event_handlers.py"
-                    )
-                except ImportError as e:
-                    logger.warning(
-                        f"all_event_handlers.py not found or not importable: {e}. "
-                        "Run generate_all_handlers.py to create it."
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to register all event handlers: {e}")
 
-    # ===== REGISTER METHODS (existing) =====
+    # ===== REGISTER METHODS =====
 
     def register(
         self,
