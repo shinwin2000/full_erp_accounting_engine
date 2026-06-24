@@ -33,13 +33,13 @@ class ARInvoiceLineTable(Base, TimestampMixin):
             name="ck_ar_invoice_line_discount_range",
         ),
         Index("idx_ar_invoice_line_invoice", "invoice_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     invoice_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.ar_invoice.id", ondelete="CASCADE"),
+        ForeignKey("ar_invoice.id", ondelete="CASCADE"),
         nullable=False,
     )
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)

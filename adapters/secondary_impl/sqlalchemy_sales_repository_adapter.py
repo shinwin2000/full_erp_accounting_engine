@@ -7,124 +7,117 @@ Responsibility: Real SQLAlchemy implementation of SalesRepositoryPort.
 
 from __future__ import annotations
 
-import uuid
 import logging
-from datetime import datetime
-from typing import Any
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any, List, Optional
+from uuid import UUID
 
-from sqlalchemy import Column, DateTime, String, Numeric, JSON, select, delete
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import declarative_base
+
+from ports.primary.sales_repository_port import SalesRepositoryPort
+from adapters.secondary_impl.sqlalchemy_sales_order_repository_impl import (
+    SQLAlchemySalesOrderRepository,
+    SalesOrderEntity,
+)
 
 logger = logging.getLogger(__name__)
 
-Base = declarative_base()
 
+class SQLAlchemySalesRepositoryAdapter(SalesRepositoryPort):
+    """
+    Adapter untuk SalesRepositoryPort yang menggunakan SQLAlchemySalesOrderRepository.
+    """
 
-class SalesOrderTable(Base):
-    __tablename__ = "sales_orders"
-    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    order_number = Column(String(50), nullable=False, unique=True)
-    customer_id = Column(PGUUID(as_uuid=True), nullable=False)
-    order_date = Column(DateTime(timezone=True), nullable=False)
-    total_amount = Column(Numeric(18, 2), nullable=False)
-    currency = Column(String(3), nullable=False, default="IDR")
-    status = Column(String(50), nullable=False, default="draft")
-    extra_data = Column(JSON, nullable=True)  # renamed from 'metadata'
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=datetime.utcnow)
-
-
-class SQLAlchemySalesRepositoryAdapter:
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
+        self._repo = SQLAlchemySalesOrderRepository(session)
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
             from infrastructure.database.session_factory_sqlalchemy import get_async_session
             self._session = await get_async_session()
+            self._repo._session = self._session
         return self._session
 
-    async def get_sales_orders(self, legal_entity_id: uuid.UUID | None = None) -> list[dict[str, Any]]:
-        session = await self._get_session()
-        stmt = select(SalesOrderTable)
-        if legal_entity_id is not None:
-            stmt = stmt.where(SalesOrderTable.legal_entity_id == legal_entity_id)
-        stmt = stmt.order_by(SalesOrderTable.order_date.desc())
-        result = await session.execute(stmt)
-        rows = result.scalars().all()
-        return [
-            {
-                "id": str(row.id),
-                "order_number": row.order_number,
-                "customer_id": str(row.customer_id),
-                "order_date": row.order_date.isoformat(),
-                "total_amount": float(row.total_amount),
-                "currency": row.currency,
-                "status": row.status,
-                "extra_data": row.extra_data,
-                "created_at": row.created_at.isoformat(),
-                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-            }
-            for row in rows
-        ]
+    # ========================================================================
+    # METODE DARI SalesRepositoryPort
+    # ========================================================================
 
-    async def create_sales_order(self, data: dict[str, Any]) -> dict[str, Any]:
-        session = await self._get_session()
-        order = SalesOrderTable(
-            id=uuid.uuid4(),
-            legal_entity_id=data["legal_entity_id"],
-            order_number=data["order_number"],
-            customer_id=data["customer_id"],
-            order_date=data.get("order_date", datetime.utcnow()),
-            total_amount=data["total_amount"],
-            currency=data.get("currency", "IDR"),
-            status=data.get("status", "draft"),
-            extra_data=data.get("extra_data"),
-        )
-        session.add(order)
-        await session.flush()
-        return {
-            "id": str(order.id),
-            "order_number": order.order_number,
-            "customer_id": str(order.customer_id),
-            "order_date": order.order_date.isoformat(),
-            "total_amount": float(order.total_amount),
-            "currency": order.currency,
-            "status": order.status,
-            "extra_data": order.extra_data,
-            "created_at": order.created_at.isoformat(),
-            "updated_at": order.updated_at.isoformat() if order.updated_at else None,
-        }
+    async def save_transaction(self, transaction: Any) -> None:
+        await self._get_session()
+        await self._repo.save(transaction)
 
-    async def get_order_by_number(self, order_number: str) -> dict[str, Any] | None:
-        session = await self._get_session()
-        stmt = select(SalesOrderTable).where(SalesOrderTable.order_number == order_number)
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-        if not row:
-            return None
-        return {
-            "id": str(row.id),
-            "order_number": row.order_number,
-            "customer_id": str(row.customer_id),
-            "order_date": row.order_date.isoformat(),
-            "total_amount": float(row.total_amount),
-            "currency": row.currency,
-            "status": row.status,
-            "extra_data": row.extra_data,
-            "created_at": row.created_at.isoformat(),
-            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-        }
+    async def get_last_transaction_number(self, legal_entity_id: UUID) -> str | None:
+        await self._get_session()
+        return await self._repo.get_last_so_number(legal_entity_id)
 
-    async def delete_order(self, order_id: uuid.UUID) -> bool:
-        session = await self._get_session()
-        stmt = delete(SalesOrderTable).where(SalesOrderTable.id == order_id)
-        result = await session.execute(stmt)
-        await session.flush()
-        return result.rowcount > 0
+    async def exists(self, transaction_id: UUID) -> bool:
+        await self._get_session()
+        existing = await self._repo.get_by_id(transaction_id)
+        return existing is not None
+
+    async def delete_transaction(self, transaction_id: UUID) -> None:
+        await self._get_session()
+        await self._repo.delete(transaction_id)
+
+    async def count_by_period(
+        self, legal_entity_id: UUID, start_date: date, end_date: date
+    ) -> int:
+        await self._get_session()
+        return await self._repo.count_by_period(legal_entity_id, start_date, end_date)
+
+    async def get_total_by_period(
+        self, legal_entity_id: UUID, start_date: date, end_date: date
+    ) -> Decimal:
+        await self._get_session()
+        return await self._repo.get_total_by_period(legal_entity_id, start_date, end_date)
+
+    async def list_by_period(
+        self,
+        legal_entity_id: UUID,
+        start_date: date,
+        end_date: date,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Any]:
+        await self._get_session()
+        return await self._repo.list_by_period(legal_entity_id, start_date, end_date, limit, offset)
+
+    async def search(
+        self,
+        query: str,
+        legal_entity_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Any]:
+        await self._get_session()
+        return await self._repo.search(query, legal_entity_id, limit, offset)
+
+    # ========================================================================
+    # METODE YANG HILANG (dari dashboard)
+    # ========================================================================
+
+    async def get_by_id(self, transaction_id: UUID) -> SalesOrderEntity | None:
+        await self._get_session()
+        return await self._repo.get_by_id(transaction_id)
+
+    async def get_by_number(self, order_number: str, legal_entity_id: UUID) -> SalesOrderEntity | None:
+        await self._get_session()
+        entity = await self._repo.get_by_number(order_number)
+        if entity and entity.legal_entity_id == legal_entity_id:
+            return entity
+        return None
+
+    async def list_by_customer(
+        self,
+        customer_id: UUID,
+        legal_entity_id: UUID,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[SalesOrderEntity]:
+        await self._get_session()
+        return await self._repo.list_by_customer(customer_id, legal_entity_id, limit, offset)
 
 
-__all__ = ["SalesOrderTable", "SQLAlchemySalesRepositoryAdapter"]
+__all__ = ["SQLAlchemySalesRepositoryAdapter"]

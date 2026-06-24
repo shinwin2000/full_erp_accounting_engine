@@ -29,12 +29,12 @@ class IntangibleRevaluationTable(Base, TimestampMixin, SoftDeleteMixin):
         CheckConstraint("surplus_deficit IS NOT NULL", name="ck_intangible_reval_surplus"),
         Index("idx_intangible_reval_asset", "asset_id"),
         Index("idx_intangible_reval_date", "revaluation_date"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("public.intangible_asset.id"), nullable=False
+        PGUUID(as_uuid=True), ForeignKey("intangible_asset.id"), nullable=False
     )
     revaluation_date: Mapped[date] = mapped_column(Date, nullable=False)
 

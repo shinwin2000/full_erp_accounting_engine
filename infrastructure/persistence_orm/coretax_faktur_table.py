@@ -57,7 +57,7 @@ class CoretaxFakturTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         Index("idx_cf_faktur_date", "faktur_date"),
         Index("idx_cf_reference", "reference_type", "reference_id"),
         Index("idx_cf_legal_entity", "legal_entity_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

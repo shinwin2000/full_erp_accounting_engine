@@ -56,7 +56,7 @@ class WarehouseTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_warehouse_status", "status"),
         Index("idx_warehouse_type", "warehouse_type"),
         Index("idx_warehouse_location", "location_code"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

@@ -38,13 +38,13 @@ class CoretaxFakturLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
         CheckConstraint("tax_amount >= 0", name="ck_cfl_tax_amount_nonneg"),
         Index("idx_cfl_faktur", "faktur_id"),
         Index("idx_cfl_line_number", "faktur_id", "line_number"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     faktur_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.coretax_faktur.id", ondelete="CASCADE"),
+        ForeignKey("coretax_faktur.id", ondelete="CASCADE"),
         nullable=False,
     )
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)

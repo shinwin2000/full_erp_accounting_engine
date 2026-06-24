@@ -80,7 +80,7 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         Index("idx_employee_department", "department"),
         Index("idx_employee_position", "position"),
         Index("idx_employee_ptkp_status", "ptkp_status"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -126,7 +126,7 @@ class EmployeeTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
 
     # Manager hierarchy
     manager_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("public.employee.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("employee.id"), nullable=True
     )
 
     # Payroll data

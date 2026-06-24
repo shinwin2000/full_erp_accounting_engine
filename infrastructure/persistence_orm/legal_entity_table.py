@@ -54,7 +54,7 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         Index("idx_legal_entity_parent", "parent_company_id"),
         Index("idx_legal_entity_consolidation", "consolidation_group_id"),
         # HAPUS SCHEMA "public" agar FK bisa merujuk tanpa prefix
-        # {"schema": "public", "extend_existing": True},  # <-- HAPUS
+        # {"extend_existing": True},  # <-- HAPUS
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -116,10 +116,8 @@ class LegalEntityTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
 
     branches: Mapped[list[LegalEntityBranchTable]] = relationship(
         "LegalEntityBranchTable",
-        backref="parent_entity",
+        back_populates="parent_entity",
         cascade="all, delete-orphan",
-        primaryjoin="LegalEntityTable.id == LegalEntityBranchTable.parent_entity_id",
-        foreign_keys="LegalEntityBranchTable.parent_entity_id",
     )
 
     accounts: Mapped[list[AccountTable]] = relationship(

@@ -62,7 +62,7 @@ class SalesOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         Index("idx_so_legal_entity", "legal_entity_id"),
         Index("idx_so_expected_ship_date", "expected_ship_date"),
         Index("idx_so_approved_by", "approved_by"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -72,7 +72,7 @@ class SalesOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     so_date: Mapped[date] = mapped_column(Date, nullable=False)
     customer_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.customer.id", ondelete="RESTRICT"),
+        ForeignKey("customer.id", ondelete="RESTRICT"),
         nullable=False,
     )
 

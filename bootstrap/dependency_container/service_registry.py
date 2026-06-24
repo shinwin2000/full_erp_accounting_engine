@@ -2,11 +2,13 @@
 """
 Module: service_registry.py
 Layer: Bootstrap (Dependency Container)
-Responsibility: Registry untuk service layer (use cases, services, repositories).
+Responsibility: Registry khusus untuk APPLICATION SERVICES (use cases, command/query bus, kernel singletons).
+               TIDAK menangani repository atau adapter (sudah di-handle oleh adapter_registry + auto_register_ports).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, TypeVar
 
@@ -19,7 +21,7 @@ T = TypeVar("T")
 
 class ServiceRegistry:
     """
-    Registry untuk service layer.
+    Registry untuk application services.
     """
 
     def __init__(self, container: IoCContainer | None = None):
@@ -114,191 +116,119 @@ def service(
 
 
 class ServiceRegistrar:
-    """Utility to register all services at once."""
+    """
+    Registrasi semua application services.
+    HANYA untuk services, BUKAN repository (repository sudah di-handle oleh adapter_registry).
+    """
 
     @staticmethod
     async def register_all() -> None:
         container = get_container()
 
-        # ==================== CORE SERVICES ====================
-        from application.service_layer.service_ap import APService
-        from application.service_layer.service_ar import ARService
-        from application.service_layer.service_bank_cash import BankCashService
-        from application.service_layer.service_coa import COAService
-        from application.service_layer.service_coretax import CoretaxService
-        from application.service_layer.service_fixed_asset import FixedAssetService
-        from application.service_layer.service_inventory import InventoryService
-        from application.service_layer.service_journal import JournalService
-        from application.service_layer.service_ledger import LedgerService
-        from application.service_layer.service_manufacturing import ManufacturingService
-        from application.service_layer.service_payroll import PayrollService
-        from application.service_layer.service_report import ReportService
-        from application.service_layer.service_tax import TaxService
+        # ==================== APPLICATION SERVICES (USE CASES) ====================
+        try:
+            from application.service_layer.service_coa import COAService
+            from application.service_layer.service_journal import JournalService
+            from application.service_layer.service_ledger import LedgerService
+            from application.service_layer.service_ar import ARService
+            from application.service_layer.service_ap import APService
+            from application.service_layer.service_inventory import InventoryService
+            from application.service_layer.service_fixed_asset import FixedAssetService
+            from application.service_layer.service_bank_cash import BankCashService
+            from application.service_layer.service_tax import TaxService
+            from application.service_layer.service_coretax import CoretaxService
+            from application.service_layer.service_payroll import PayrollService
+            from application.service_layer.service_manufacturing import ManufacturingService
+            from application.service_layer.service_report import ReportService
+            # Tambahkan jika ada
+            # from application.service_layer.service_consolidation import ConsolidationService
+            # from application.service_layer.service_forex import ForexService
+            # from application.service_layer.service_hedge import HedgeService
 
-        container.register_singleton(JournalService, JournalService)
-        container.register_singleton(LedgerService, LedgerService)
-        container.register_singleton(COAService, COAService)
-        container.register_singleton(ARService, ARService)
-        container.register_singleton(APService, APService)
-        container.register_singleton(InventoryService, InventoryService)
-        container.register_singleton(FixedAssetService, FixedAssetService)
-        container.register_singleton(BankCashService, BankCashService)
-        container.register_singleton(TaxService, TaxService)
-        container.register_singleton(CoretaxService, CoretaxService)
-        container.register_singleton(PayrollService, PayrollService)
-        container.register_singleton(ManufacturingService, ManufacturingService)
-        container.register_singleton(ReportService, ReportService)
-
-        # ==================== REPOSITORY IMPLEMENTATIONS ====================
-        from adapters.secondary_impl.kafka_event_publisher_impl import KafkaEventPublisherImpl
-        from adapters.secondary_impl.sqlalchemy_account_repository_impl import (
-            SQLAlchemyAccountRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_ap_repository_impl import SQLAlchemyAPRepository
-        from adapters.secondary_impl.sqlalchemy_ar_repository_impl import SQLAlchemyARRepository
-        from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import (
-            SQLAlchemyBankCashRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_consolidation_repository_impl import (
-            SQLAlchemyConsolidationRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import (
-            SQLAlchemyFixedAssetRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_forex_repository_impl import (
-            SQLAlchemyForexRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_hedge_repository_impl import (
-            SQLAlchemyHedgeRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import (
-            SQLAlchemyIAMUserRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import (
-            SQLAlchemyInventoryRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import (
-            SQLAlchemyJournalRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_ledger_repository_impl import (
-            SQLAlchemyLedgerRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_legal_entity_repository_impl import (
-            SQLAlchemyLegalEntityRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_manufacturing_repository_impl import (
-            SQLAlchemyManufacturingRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_outbox_repository_impl import (
-            SQLAlchemyOutboxRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_payroll_repository_impl import (
-            SQLAlchemyPayrollRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_system_setting_repository_impl import (
-            SQLAlchemySystemSettingRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_tax_repository_impl import SQLAlchemyTaxRepository
-        from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SQLAlchemyUnitOfWork
-        from adapters.secondary_impl.tax_authority_coretax_impl import CoretaxAuthorityAdapter
-
-        # ==================== PORT INTERFACES ====================
-        from ports.primary.account_repository_port import AccountRepositoryPort
-        from ports.primary.ap_repository_port import APRepositoryPort
-        from ports.primary.ar_repository_port import ARRepositoryPort
-        from ports.primary.bank_cash_repository_port import BankCashRepositoryPort
-        from ports.primary.consolidation_repository_port import ConsolidationRepositoryPort
-        from ports.primary.event_publisher_port import EventPublisherPort
-        from ports.primary.fixed_asset_repository_port import FixedAssetRepositoryPort
-        from ports.primary.forex_repository_port import ForexRepositoryPort
-        from ports.primary.hedge_repository_port import HedgeRepositoryPort
-        from ports.primary.iam_user_repository_port import IAMUserRepositoryPort
-        from ports.primary.inventory_repository_port import InventoryRepositoryPort
-        from ports.primary.journal_repository_port import JournalRepositoryPort
-        from ports.primary.ledger_repository_port import LedgerRepositoryPort
-        from ports.primary.legal_entity_repository_port import LegalEntityRepositoryPort
-        from ports.primary.manufacturing_repository_port import ManufacturingRepositoryPort
-        from ports.primary.outbox_repository_port import OutboxRepositoryPort
-        from ports.primary.payroll_repository_port import PayrollRepositoryPort
-        from ports.primary.system_setting_repository_port import SystemSettingRepositoryPort
-        from ports.primary.tax_authority_coretax_port import CoreTaxPort
-        from ports.primary.tax_repository_port import TaxRepositoryPort
-        from ports.primary.unit_of_work_port import UnitOfWorkPort
-
-        # ==================== REGISTER REPOSITORIES ====================
-        container.register_singleton(JournalRepositoryPort, SQLAlchemyJournalRepository)
-        container.register_singleton(LedgerRepositoryPort, SQLAlchemyLedgerRepository)
-        container.register_singleton(AccountRepositoryPort, SQLAlchemyAccountRepository)
-        container.register_singleton(ARRepositoryPort, SQLAlchemyARRepository)
-        container.register_singleton(APRepositoryPort, SQLAlchemyAPRepository)
-        container.register_singleton(InventoryRepositoryPort, SQLAlchemyInventoryRepository)
-        container.register_singleton(FixedAssetRepositoryPort, SQLAlchemyFixedAssetRepository)
-        container.register_singleton(BankCashRepositoryPort, SQLAlchemyBankCashRepository)
-        container.register_singleton(TaxRepositoryPort, SQLAlchemyTaxRepository)
-        container.register_singleton(LegalEntityRepositoryPort, SQLAlchemyLegalEntityRepository)
-        container.register_singleton(IAMUserRepositoryPort, SQLAlchemyIAMUserRepository)
-        container.register_singleton(SystemSettingRepositoryPort, SQLAlchemySystemSettingRepository)
-        container.register_singleton(OutboxRepositoryPort, SQLAlchemyOutboxRepository)
-        container.register_singleton(PayrollRepositoryPort, SQLAlchemyPayrollRepository)
-        container.register_singleton(ManufacturingRepositoryPort, SQLAlchemyManufacturingRepository)
-        container.register_singleton(ConsolidationRepositoryPort, SQLAlchemyConsolidationRepository)
-        container.register_singleton(ForexRepositoryPort, SQLAlchemyForexRepository)
-        container.register_singleton(HedgeRepositoryPort, SQLAlchemyHedgeRepository)
-        container.register_singleton(UnitOfWorkPort, SQLAlchemyUnitOfWork)
-        container.register_singleton(EventPublisherPort, KafkaEventPublisherImpl)
-        container.register_singleton(CoreTaxPort, CoretaxAuthorityAdapter)
-
-        # ==================== ALIAS UNTUK P55 ====================
-        registry = ServiceRegistry()
-        registry.register_alias("IJournalRepository", "JournalRepositoryPort")
-        registry.register_alias("IUnitOfWork", "UnitOfWorkPort")
-        registry.register_alias("IEventPublisher", "EventPublisherPort")
-        registry.register_alias("ITaxAuthorityPort", "CoreTaxPort")
-        registry.register_alias("IUserRepository", "IAMUserRepositoryPort")
-        registry.register_alias("IAccountRepository", "AccountRepositoryPort")
-        registry.register_alias("IArRepository", "ARRepositoryPort")
-        registry.register_alias("IApRepository", "APRepositoryPort")
-        registry.register_alias("IInventoryRepository", "InventoryRepositoryPort")
-        registry.register_alias("IFixedAssetRepository", "FixedAssetRepositoryPort")
-        registry.register_alias("IPayrollRepository", "PayrollRepositoryPort")
-        registry.register_alias("IManufacturingRepository", "ManufacturingRepositoryPort")
-        registry.register_alias("IConsolidationRepository", "ConsolidationRepositoryPort")
-        registry.register_alias("IForexRepository", "ForexRepositoryPort")
-        registry.register_alias("IHedgeRepository", "HedgeRepositoryPort")
+            container.register_singleton(COAService, COAService)
+            container.register_singleton(JournalService, JournalService)
+            container.register_singleton(LedgerService, LedgerService)
+            container.register_singleton(ARService, ARService)
+            container.register_singleton(APService, APService)
+            container.register_singleton(InventoryService, InventoryService)
+            container.register_singleton(FixedAssetService, FixedAssetService)
+            container.register_singleton(BankCashService, BankCashService)
+            container.register_singleton(TaxService, TaxService)
+            container.register_singleton(CoretaxService, CoretaxService)
+            container.register_singleton(PayrollService, PayrollService)
+            container.register_singleton(ManufacturingService, ManufacturingService)
+            container.register_singleton(ReportService, ReportService)
+            logger.info("Application services registered")
+        except ImportError as e:
+            logger.warning(f"Some application services could not be imported: {e}")
 
         # ==================== COMMAND & QUERY BUS ====================
-        from application.commands_cqrs.command_bus_unified import CommandBusUnified
-        from application.commands_cqrs.query_bus_unified import QueryBusUnified
+        try:
+            from application.commands_cqrs.command_bus_unified import CommandBusUnified
+            from application.commands_cqrs.query_bus_unified import QueryBusUnified
+            container.register_singleton(CommandBusUnified, CommandBusUnified)
+            container.register_singleton(QueryBusUnified, QueryBusUnified)
+            logger.info("Command/Query buses registered")
+        except ImportError as e:
+            logger.warning(f"CQRS buses not available: {e}")
 
-        container.register_singleton(CommandBusUnified, CommandBusUnified)
-        container.register_singleton(QueryBusUnified, QueryBusUnified)
+        # ==================== KERNEL SINGLETONS ====================
+        try:
+            from kernel.sealed_gate import SealedGate, get_sealed_gate
+            container.register_singleton(SealedGate, factory=get_sealed_gate)
+            logger.info("Kernel singletons registered")
+        except ImportError as e:
+            logger.warning(f"Kernel singletons not available: {e}")
 
-        # ==================== KERNEL ====================
-        from kernel.sealed_gate import SealedGate, get_sealed_gate
-        container.register_singleton(SealedGate, factory=get_sealed_gate)
+        # ==================== INFRASTRUCTURE FACTORIES ====================
+        try:
+            from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import get_uow_factory
+            container.register_singleton("UoWFactory", factory=get_uow_factory)
+        except ImportError:
+            pass
 
-        # ==================== INFRASTRUCTURE ====================
-        from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import get_uow_factory
-        container.register_singleton("UoWFactory", factory=get_uow_factory)
+        try:
+            from infrastructure.caching.redis_manager import get_redis_manager
+            container.register_singleton("RedisManager", factory=get_redis_manager)
+        except ImportError:
+            pass
 
-        from infrastructure.caching.redis_manager import get_redis_manager
-        container.register_singleton("RedisManager", factory=get_redis_manager)
+        try:
+            from event_gateway.event_gate_singleton import get_event_gate
+            container.register_singleton("EventGate", factory=get_event_gate)
+        except ImportError:
+            pass
 
-        from event_gateway.event_gate_singleton import get_event_gate
-        container.register_singleton("EventGate", factory=get_event_gate)
+        try:
+            from infrastructure.message_broker.kafka_producer_wrapper import get_kafka_producer
+            container.register_singleton("KafkaProducer", factory=get_kafka_producer)
+        except ImportError:
+            pass
 
-        from infrastructure.message_broker.kafka_producer_wrapper import get_kafka_producer
-        container.register_singleton("KafkaProducer", factory=get_kafka_producer)
+        try:
+            from infrastructure.message_broker.transactional_outbox_poller import get_outbox_poller
+            container.register_singleton("OutboxPoller", factory=get_outbox_poller)
+        except ImportError:
+            pass
 
-        # ==================== OUTBOX & MESSAGE BROKER ====================
-        container.register_singleton("outbox_repository", SQLAlchemyOutboxRepository)
-        container.register_singleton("message_broker", factory=get_kafka_producer)
+        logger.info("All application services registered to IoC container")
 
-        from infrastructure.message_broker.transactional_outbox_poller import get_outbox_poller
-        container.register_singleton("OutboxPoller", factory=get_outbox_poller)
+    @staticmethod
+    def register_all_sync() -> None:
+        """Synchronous wrapper for register_all()."""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(ServiceRegistrar.register_all())
+            loop.close()
+        except Exception as e:
+            logger.error(f"Service registration failed: {e}")
+            raise
 
-        logger.info("All services registered to IoC container")
 
+# ============================================================================
+# SINGLETON INSTANCE
+# ============================================================================
 
 _service_registry: ServiceRegistry | None = None
 

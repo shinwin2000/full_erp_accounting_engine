@@ -3,10 +3,13 @@
 Module: handlers.py
 Layer: Application / Use Cases
 Responsibility: Alias untuk use case classes dan REAL handler untuk base classes.
+                Menggunakan Module-Level __getattr__ untuk memutus rantai circular import
+                secara bersih tanpa mematikan visibilitas error (No Silent Exception).
 """
 
 from __future__ import annotations
 
+from typing import Any
 from application.commands_cqrs.command_bus_unified import BaseCommand
 from application.commands_cqrs.command_result_envelope import CommandResult
 from application.commands_cqrs.query_bus_unified import BaseQuery
@@ -38,7 +41,7 @@ class BaseQueryHandler:
 
 
 # ============================================================================
-# ALIAS UNTUK USE CASE HANDLERS
+# ALIAS UNTUK USE CASE HANDLERS (STATIC IMPORTS)
 # ============================================================================
 
 from .aml_screening_transaction import AMLScreeningUseCase
@@ -56,17 +59,6 @@ from .financial_statement_generation import FinancialStatementGenerationUseCase
 from .fiscal_reconciliation import FiscalReconciliationUseCase
 from .forex_revaluation import ForexRevaluationUseCase
 from .hedge_accounting_execution import HedgeAccountingUseCase
-
-# PERBAIKAN: Pastikan file ini ada dan class-nya bernama HppManufacturingCloseUseCase
-# Jika tidak, comment dulu atau buat dummy
-try:
-    from .hpp_manufacturing_close import HppManufacturingCloseUseCase
-except ImportError:
-    # Fallback: buat dummy class jika file tidak ada
-    class HppManufacturingCloseUseCase:
-        pass
-    print("Warning: HppManufacturingCloseUseCase not found, using dummy")
-
 from .impairment_testing_annual import ImpairmentTestingUseCase
 from .intercompany_elimination import IntercompanyEliminationUseCase
 from .payroll_monthly_run import PayrollMonthlyRunUseCase
@@ -96,7 +88,6 @@ FinancialStatementGenerationHandler = FinancialStatementGenerationUseCase
 FiscalReconciliationHandler = FiscalReconciliationUseCase
 ForexRevaluationHandler = ForexRevaluationUseCase
 HedgeAccountingExecutionHandler = HedgeAccountingUseCase
-HppManufacturingCloseHandler = HppManufacturingCloseUseCase
 ImpairmentTestingAnnualHandler = ImpairmentTestingUseCase
 IntercompanyEliminationHandler = IntercompanyEliminationUseCase
 PayrollMonthlyRunHandler = PayrollMonthlyRunUseCase
@@ -109,6 +100,22 @@ ReverseJournalHandler = ReverseJournalUseCase
 StockOpnameCycleHandler = StockOpnameCycleUseCase
 TaxFilingSubmissionHandler = TaxFilingSubmissionUseCase
 YearEndClosingHandler = YearEndClosingUseCase
+
+
+# ============================================================================
+# DEFERRED DYNAMIC RESOLUTION (Anti-Circular Loop Guard)
+# Memutus siklus dependensi inisialisasi tanpa menutup-nutupi error internal.
+# ============================================================================
+
+def __getattr__(name: str) -> Any:
+    """Meresolusi komponen HPP Manufacturing secara malas (lazy loading) saat diakses."""
+    if name in ("HppManufacturingCloseUseCase", "HppManufacturingCloseHandler"):
+        # Import dijalankan di sini secara transparan tanpa try-except block.
+        # Jika file bermasalah atau hilang, Python akan langsung melempar full traceback.
+        from .hpp_manufacturing_close_use_case import HPPManufacturingCloseUseCase
+        return HPPManufacturingCloseUseCase
+        
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [
@@ -130,6 +137,7 @@ __all__ = [
     "ForexRevaluationHandler",
     "HedgeAccountingExecutionHandler",
     "HppManufacturingCloseHandler",
+    "HppManufacturingCloseUseCase",  
     "ImpairmentTestingAnnualHandler",
     "IntercompanyEliminationHandler",
     "PayrollMonthlyRunHandler",

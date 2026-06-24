@@ -1,11 +1,8 @@
-# iam_user_repository_port.py - sanitized logging (P19)
-# All logs use generic terms. No mention of admin, credentials, password, token, session.
-
 #!/usr/bin/env python3
 """
 Module: iam_user_repository_port.py
 Layer: Ports (Primary)
-Responsibility: In-memory IAM repository with audit, MFA simulation, import/export.
+Responsibility: IAM user repository port interface dengan implementasi in-memory.
 """
 
 from __future__ import annotations
@@ -27,7 +24,6 @@ try:
     HAS_BCRYPT = True
 except ImportError:
     HAS_BCRYPT = False
-    import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +198,11 @@ class LoginAttempt:
 
 
 class IAMUserRepositoryPort:
+    """
+    IAM User Repository Port — in-memory implementation.
+    Menyediakan metode CRUD, autentikasi, role, session, MFA, import/export.
+    """
+
     def __init__(self):
         self._users: dict[UUID, User] = {}
         self._username_index: dict[tuple[str, UUID], User] = {}
@@ -325,15 +326,13 @@ class IAMUserRepositoryPort:
                     self._roles[role.id] = role
                     self._role_code_index[role.role_code] = role
 
-                # Generate default user record
                 default_secret = os.getenv("DEFAULT_ADMIN_PASSWORD")
                 if not default_secret:
                     default_secret = secrets.token_urlsafe(16)
                     self._admin_credential_store = default_secret
-                    # P19: sanitized - no "admin", "credentials"
                     logger.warning(
-                        "Default user record not configured. Auto-generated record is in-memory only. "
-                        "Please set environment variable for persistence."
+                        "Default admin password not configured. Auto-generated credentials are in-memory only. "
+                        "Please set DEFAULT_ADMIN_PASSWORD environment variable for persistence."
                     )
                 else:
                     self._admin_credential_store = default_secret
@@ -342,7 +341,7 @@ class IAMUserRepositoryPort:
                 superuser = User(
                     id=uuid4(),
                     username="admin",
-                    email="admin@erp.com",
+                    email="admin@erp.local",
                     password_hash=password_hash,
                     full_name="System Administrator",
                     legal_entity_id=UUID("11111111-1111-1111-1111-111111111111"),
@@ -360,9 +359,7 @@ class IAMUserRepositoryPort:
                 self._username_index[username_key] = superuser
                 self._email_index[superuser.email] = superuser
 
-                logger.info("Default roles and initial user record created")
-                # P19: sanitized - no "admin", "credentials"
-                logger.info("Initial user record created successfully with auto-generated record.")
+                logger.info("Default roles and initial admin user created")
 
         self._default_roles_created = True
 
@@ -378,8 +375,7 @@ class IAMUserRepositoryPort:
             "details": details,
         }
         self._audit_log.append(entry)
-        # P19: sanitized
-        logger.info(f"Audit entry recorded: {action}")
+        logger.info(f"Audit entry: {action}")
 
     # ==================== ROLE MANAGEMENT ====================
 
@@ -456,9 +452,17 @@ class IAMUserRepositoryPort:
     async def list_roles(self) -> list[Role]:
         return list(self._roles.values())
 
-    # ==================== USER CRUD ====================
+    # ==================== USER CRUD (KONTRAK) ====================
+
+    async def save(self, user: User) -> None:
+        """Simpan user baru atau update user yang sudah ada."""
+        if user.id in self._users:
+            await self.update(user)
+        else:
+            await self.add(user)
 
     async def add(self, user: User) -> None:
+        """Tambah user baru."""
         if user.id in self._users:
             raise ValueError(f"User {user.id} already exists")
         username_key = (user.username, user.legal_entity_id)
@@ -475,25 +479,8 @@ class IAMUserRepositoryPort:
             self._email_index[user.email] = user
         await self._log_audit("ADD_USER", user.created_by, user.id, {"username": user.username})
 
-    async def get_by_id(self, user_id: UUID) -> User | None:
-        user = self._users.get(user_id)
-        if user and user.deleted_at is not None:
-            return None
-        return user
-
-    async def get_by_username(self, username: str, legal_entity_id: UUID) -> User | None:
-        user = self._username_index.get((username, legal_entity_id))
-        if user and user.deleted_at is not None:
-            return None
-        return user
-
-    async def get_by_email(self, email: str) -> User | None:
-        user = self._email_index.get(email)
-        if user and user.deleted_at is not None:
-            return None
-        return user
-
     async def update(self, user: User) -> None:
+        """Update user yang sudah ada."""
         if user.id not in self._users:
             raise ValueError(f"User {user.id} not found")
         old = self._users[user.id]
@@ -518,14 +505,41 @@ class IAMUserRepositoryPort:
         self._users[user.id] = user
         await self._log_audit("UPDATE_USER", user.updated_by, user.id, {"username": user.username})
 
+    async def find_by_id(self, user_id: UUID) -> User | None:
+        """Cari user berdasarkan ID (alias get_by_id)."""
+        return await self.get_by_id(user_id)
+
+    async def get_by_id(self, user_id: UUID) -> User | None:
+        user = self._users.get(user_id)
+        if user and user.deleted_at is not None:
+            return None
+        return user
+
+    async def find_by_username(self, username: str, legal_entity_id: UUID) -> User | None:
+        """Cari user berdasarkan username dan legal_entity_id (alias get_by_username)."""
+        return await self.get_by_username(username, legal_entity_id)
+
+    async def get_by_username(self, username: str, legal_entity_id: UUID) -> User | None:
+        user = self._username_index.get((username, legal_entity_id))
+        if user and user.deleted_at is not None:
+            return None
+        return user
+
+    async def get_by_email(self, email: str) -> User | None:
+        user = self._email_index.get(email)
+        if user and user.deleted_at is not None:
+            return None
+        return user
+
     async def delete(self, user_id: UUID, user_id_actor: UUID, permanent: bool = False) -> bool:
         user = self._users.get(user_id)
         if not user:
             return False
         if permanent:
-            del self._users[user_id]
-            del self._username_index[(user.username, user.legal_entity_id)]
-            del self._email_index[user.email]
+            async with self._lock:
+                del self._users[user_id]
+                del self._username_index[(user.username, user.legal_entity_id)]
+                del self._email_index[user.email]
             await self._log_audit("DELETE_USER_PERMANENT", user_id_actor, user_id, {})
         else:
             user.deleted_at = datetime.now(UTC)
@@ -582,8 +596,7 @@ class IAMUserRepositoryPort:
             failure_reason=failure_reason,
         )
         self._login_attempts.append(attempt)
-        # P19: sanitized
-        logger.info(f"Login attempt recorded for target: {username}")
+        logger.info(f"Login attempt recorded for username: {username}")
 
     async def change_password(
         self, user_id: UUID, old_password: str, new_password: str, user_id_actor: UUID
@@ -721,6 +734,10 @@ class IAMUserRepositoryPort:
                     result.append(user)
         return result
 
+    async def find_all(self, legal_entity_id: UUID, limit: int = 100, offset: int = 0) -> list[User]:
+        """Alias untuk get_all_users dengan pagination."""
+        return await self.get_all_users(legal_entity_id, include_inactive=False, limit=limit, offset=offset)
+
     async def get_all_users(
         self,
         legal_entity_id: UUID,
@@ -755,7 +772,7 @@ class IAMUserRepositoryPort:
         await self._log_audit("UNLOCK_USER", actor_id, user_id, {})
         return True
 
-    # ==================== MFA (Simulasi) ====================
+    # ==================== MFA ====================
 
     async def enable_mfa(
         self, user_id: UUID, mfa_type: MFAType, secret: str | None = None, actor_id: UUID = None
@@ -777,6 +794,7 @@ class IAMUserRepositoryPort:
         if not user or user.mfa_type == MFAType.NONE:
             return True
         if user.mfa_type == MFAType.TOTP and user.mfa_secret:
+            # Simulasi: kode TOTP dianggap valid jika == "123456"
             return code == "123456"
         return False
 
@@ -811,7 +829,6 @@ class IAMUserRepositoryPort:
             try:
                 password_plain = row.get("password")
                 if not password_plain:
-                    logger.error("Import failed: missing required field for user")
                     continue
                 password_hash = await self._hash_password(password_plain)
                 roles = []
@@ -824,7 +841,6 @@ class IAMUserRepositoryPort:
                 email = row.get("email")
                 full_name = row.get("full_name", username)
                 if not username or not email:
-                    logger.error("Import failed: username or email missing")
                     continue
                 user = User(
                     id=uuid4(),
@@ -843,7 +859,7 @@ class IAMUserRepositoryPort:
                 await self.add(user)
                 count += 1
             except Exception as e:
-                logger.warning(f"Import user failed: {type(e).__name__}")
+                logger.warning(f"Import user failed: {e}")
         return count
 
     # ==================== STATISTICS & AUDIT ====================

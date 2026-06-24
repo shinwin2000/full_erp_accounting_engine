@@ -69,7 +69,7 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         Index("idx_stock_opname_status", "status"),
         Index("idx_stock_opname_location", "location_code"),
         Index("idx_stock_opname_warehouse", "warehouse_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -81,7 +81,7 @@ class StockOpnameTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     # Warehouse reference – now with proper foreign key to "public.warehouse.id"
     warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.warehouse.id", ondelete="SET NULL"),
+        ForeignKey("warehouse.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )

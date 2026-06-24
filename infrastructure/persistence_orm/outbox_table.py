@@ -51,7 +51,7 @@ class OutboxTable(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_outbox_deleted_at", "deleted_at"),
         Index("idx_outbox_next_retry", "next_retry_at"),
         Index("idx_outbox_legal_entity", "legal_entity_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -60,7 +60,7 @@ class OutboxTable(Base, TimestampMixin, SoftDeleteMixin):
     aggregate_type: Mapped[str] = mapped_column(String(100), nullable=False)
     payload: Mapped[str] = mapped_column(Text, nullable=False)  # JSON string
 
-    # extra_metadata dihapus – tidak ada di database
+    # extra_metadata dihapus ï¿½ tidak ada di database
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

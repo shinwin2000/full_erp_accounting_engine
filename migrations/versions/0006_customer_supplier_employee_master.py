@@ -9,8 +9,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID, JSONB, NUMERIC
 
-revision: str = '0006'
-down_revision = '0005'
+revision: str = '0006abcd'
+down_revision = '0005abcd'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

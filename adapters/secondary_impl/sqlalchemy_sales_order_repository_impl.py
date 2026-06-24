@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -23,6 +24,8 @@ from sqlalchemy import (
     delete,
     select,
     update,
+    func,
+    or_,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,6 +75,8 @@ class SQLAlchemySalesOrderRepository(SalesOrderRepositoryPort):
             from infrastructure.database.session_factory_sqlalchemy import get_async_session
             self._session = await get_async_session()
         return self._session
+
+    # ========== Existing methods ==========
 
     async def save(self, so: SalesOrderEntity) -> None:
         session = await self._get_session()
@@ -206,6 +211,119 @@ class SQLAlchemySalesOrderRepository(SalesOrderRepositoryPort):
         session = await self._get_session()
         async with session.begin():
             await session.execute(delete(SalesOrderTable).where(SalesOrderTable.id == so_id))
+
+    # ========== New methods required by SalesRepositoryPort ==========
+
+    async def count_by_period(
+        self, legal_entity_id: UUID, start_date: date, end_date: date
+    ) -> int:
+        """Count sales orders within a date range."""
+        session = await self._get_session()
+        stmt = (
+            select(func.count())
+            .select_from(SalesOrderTable)
+            .where(
+                SalesOrderTable.legal_entity_id == legal_entity_id,
+                SalesOrderTable.order_date.between(start_date, end_date),
+            )
+        )
+        result = await session.execute(stmt)
+        return result.scalar() or 0
+
+    async def delete_transaction(self, transaction_id: UUID) -> None:
+        """Delete a transaction/sales order by ID."""
+        # Reuse delete method but we need to ensure it matches signature.
+        # We'll just call delete with the same ID.
+        await self.delete(transaction_id)
+
+    async def exists(self, transaction_id: UUID) -> bool:
+        """Check if a sales order exists by ID."""
+        session = await self._get_session()
+        stmt = select(func.count()).select_from(SalesOrderTable).where(SalesOrderTable.id == transaction_id)
+        result = await session.execute(stmt)
+        return result.scalar() > 0
+
+    async def get_last_transaction_number(self, legal_entity_id: UUID) -> str | None:
+        """Get the last transaction/sales order number for the legal entity."""
+        # Reuse get_last_so_number
+        return await self.get_last_so_number(legal_entity_id)
+
+    async def get_total_by_period(
+        self, legal_entity_id: UUID, start_date: date, end_date: date
+    ) -> Decimal:
+        """Sum total_amount for sales orders in date range."""
+        session = await self._get_session()
+        stmt = (
+            select(func.sum(SalesOrderTable.total_amount))
+            .where(
+                SalesOrderTable.legal_entity_id == legal_entity_id,
+                SalesOrderTable.order_date.between(start_date, end_date),
+            )
+        )
+        result = await session.execute(stmt)
+        total = result.scalar()
+        return total if total is not None else Decimal("0.00")
+
+    async def list_by_period(
+        self,
+        legal_entity_id: UUID,
+        start_date: date,
+        end_date: date,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[SalesOrderEntity]:
+        """List sales orders within a date range with pagination."""
+        session = await self._get_session()
+        stmt = (
+            select(SalesOrderTable)
+            .where(
+                SalesOrderTable.legal_entity_id == legal_entity_id,
+                SalesOrderTable.order_date.between(start_date, end_date),
+            )
+            .order_by(SalesOrderTable.order_date.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_entity(row) for row in rows]
+
+    async def save_transaction(self, transaction: SalesOrderEntity) -> None:
+        """Save a transaction (same as save)."""
+        await self.save(transaction)
+
+    async def search(
+        self,
+        query: str,
+        legal_entity_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[SalesOrderEntity]:
+        """
+        Search sales orders by so_number or customer_name (case-insensitive).
+        Optionally filter by legal_entity_id.
+        """
+        session = await self._get_session()
+        stmt = select(SalesOrderTable)
+        conditions = []
+        if legal_entity_id:
+            conditions.append(SalesOrderTable.legal_entity_id == legal_entity_id)
+
+        # Search in so_number and customer_name
+        search_pattern = f"%{query}%"
+        conditions.append(
+            or_(
+                SalesOrderTable.so_number.ilike(search_pattern),
+                SalesOrderTable.customer_name.ilike(search_pattern),
+            )
+        )
+        stmt = stmt.where(*conditions)
+        stmt = stmt.order_by(SalesOrderTable.created_at.desc()).offset(offset).limit(limit)
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_entity(row) for row in rows]
+
+    # ========== Helper ==========
 
     def _to_entity(self, row):
         items = row.items if isinstance(row.items, list) else []

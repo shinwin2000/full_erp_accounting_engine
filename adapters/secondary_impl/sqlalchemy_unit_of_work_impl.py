@@ -9,7 +9,9 @@ Responsibility: Implementasi konkret dari UnitOfWorkPort menggunakan SQLAlchemy
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Callable, Dict, List, Optional, AsyncContextManager
+from uuid import uuid4
+from datetime import datetime  
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -52,6 +54,12 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
         "_session",
         "_session_factory",
         "_transaction_manager",
+        "_before_commit_hooks",
+        "_after_commit_hooks",
+        "_after_rollback_hooks",
+        "_change_log",
+        "_transaction_id",
+        "_is_active",
     )
 
     def __init__(
@@ -64,6 +72,13 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
         self._transaction_manager: TransactionManager | None = None
         self._savepoint_depth: int = 0
         self._is_period_closing = is_period_closing
+        # Hooks
+        self._before_commit_hooks: List[Callable] = []
+        self._after_commit_hooks: List[Callable] = []
+        self._after_rollback_hooks: List[Callable] = []
+        self._change_log: List[Dict[str, Any]] = []
+        self._transaction_id: Optional[str] = None
+        self._is_active: bool = False
         self._init_repositories()
 
     def _init_repositories(self):
@@ -118,7 +133,10 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
 
     def _attach_session_to_repositories(self):
         for repo in self._repositories.values():
-            repo.session = self._session
+            if hasattr(repo, "_session"):
+                repo._session = self._session
+            elif hasattr(repo, "session"):
+                repo.session = self._session
 
     async def __aenter__(self) -> SQLAlchemyUnitOfWork:
         if self._session_factory is None:
@@ -133,6 +151,8 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
         self._transaction_manager = TransactionManager(self._session)
         await self._transaction_manager.begin()
         self._attach_session_to_repositories()
+        self._transaction_id = str(uuid4())
+        self._is_active = True
 
         logger.debug(f"UoW started, session id: {id(self._session)}")
         return self
@@ -152,6 +172,7 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
                 await self._session.close()
                 logger.debug(f"UoW session closed, session id: {id(self._session)}")
             self._session = None
+            self._is_active = False
 
     # ========================================================================
     # METODE YANG DIBUTUHKAN OLEH UnitOfWorkPort (P55 CONTRACT)
@@ -170,6 +191,8 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
             self._transaction_manager = TransactionManager(self._session)
             await self._transaction_manager.begin(isolation_level=isolation_level)
             self._attach_session_to_repositories()
+            self._transaction_id = str(uuid4())
+            self._is_active = True
         else:
             logger.debug("Transaction already begun, ignoring begin() call")
 
@@ -185,7 +208,7 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
             logger.debug("Read-only transaction begun")
 
     # ========================================================================
-    # METODE LAINNYA (commit, rollback, flush, dll)
+    # METODE COMMIT & ROLLBACK
     # ========================================================================
 
     async def commit(self) -> None:
@@ -193,9 +216,21 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
             raise UnitOfWorkError("UoW not started, use async context manager")
 
         try:
+            # Execute before commit hooks
+            for hook in self._before_commit_hooks:
+                if callable(hook):
+                    await hook() if hasattr(hook, "__await__") else hook()
+
             await self._session.flush()
             await self._transaction_manager.commit()
             await self._publish_events()
+
+            # Execute after commit hooks
+            for hook in self._after_commit_hooks:
+                if callable(hook):
+                    await hook() if hasattr(hook, "__await__") else hook()
+
+            self._is_active = False
             logger.info("UoW committed successfully")
         except IntegrityError as e:
             await self.rollback()
@@ -216,6 +251,11 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
 
         try:
             await self._transaction_manager.rollback()
+            # Execute after rollback hooks
+            for hook in self._after_rollback_hooks:
+                if callable(hook):
+                    await hook() if hasattr(hook, "__await__") else hook()
+            self._is_active = False
             logger.info("UoW rolled back")
         except Exception as e:
             logger.error(f"Error during rollback: {e}")
@@ -232,6 +272,10 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
         if not self._session:
             raise UnitOfWorkError("UoW not started")
         return await self._session.execute(statement, params or {})
+
+    # ========================================================================
+    # SAVEPOINT METHODS (with context manager)
+    # ========================================================================
 
     async def create_savepoint(self, name: str) -> None:
         if not self._session:
@@ -250,10 +294,105 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
         await self._session.execute(f"RELEASE SAVEPOINT {name}")
         self._savepoint_depth -= 1
 
+    @asynccontextmanager
+    async def savepoint(self, name: str) -> AsyncContextManager:
+        """
+        Context manager for savepoint. Required by UnitOfWorkPort.
+        """
+        if not self._session:
+            raise UnitOfWorkError("UoW not started")
+        await self.create_savepoint(name)
+        try:
+            yield
+            await self.release_savepoint(name)
+        except Exception:
+            await self.rollback_to_savepoint(name)
+            raise
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncContextManager:
+        """
+        Context manager for nested transaction. Required by UnitOfWorkPort.
+        """
+        if not self._session:
+            raise UnitOfWorkError("UoW not started")
+        # For nested transaction, use savepoint mechanism
+        sp_name = f"sp_{uuid4().hex[:8]}"
+        async with self.savepoint(sp_name):
+            yield
+
+    # ========================================================================
+    # HOOKS
+    # ========================================================================
+
+    def add_before_commit_hook(self, hook: Callable) -> None:
+        """Add a hook to be executed before commit. Required by UnitOfWorkPort."""
+        if callable(hook):
+            self._before_commit_hooks.append(hook)
+
+    def add_after_commit_hook(self, hook: Callable) -> None:
+        """Add a hook to be executed after commit. Required by UnitOfWorkPort."""
+        if callable(hook):
+            self._after_commit_hooks.append(hook)
+
+    def add_after_rollback_hook(self, hook: Callable) -> None:
+        """Add a hook to be executed after rollback. Required by UnitOfWorkPort."""
+        if callable(hook):
+            self._after_rollback_hooks.append(hook)
+
+    # ========================================================================
+    # TRANSACTION INFO
+    # ========================================================================
+
+    def get_transaction_id(self) -> Optional[str]:
+        """Get current transaction ID. Required by UnitOfWorkPort."""
+        return self._transaction_id
+
+    def get_isolation_level(self) -> str:
+        """Get current isolation level. Required by UnitOfWorkPort."""
+        if not self._session:
+            return "UNKNOWN"
+        # Try to get from session info
+        try:
+            # PostgreSQL example
+            result = self._session.execute("SHOW transaction_isolation")
+            level = result.scalar()
+            return level
+        except Exception:
+            return "READ_COMMITTED"  # default
+
+    def is_active(self) -> bool:
+        """Check if transaction is active. Required by UnitOfWorkPort."""
+        return self._is_active and self._session is not None
+
+    # ========================================================================
+    # CHANGE LOGGING
+    # ========================================================================
+
+    def record_change(self, entity: Any, change_type: str) -> None:
+        """
+        Record a change to an entity. Required by UnitOfWorkPort.
+        """
+        self._change_log.append({
+            "entity": str(entity),
+            "change_type": change_type,
+            "timestamp": str(datetime.utcnow()),
+        })
+        # Limit log size
+        if len(self._change_log) > 1000:
+            self._change_log = self._change_log[-500:]
+
+    # ========================================================================
+    # REPOSITORY MANAGEMENT
+    # ========================================================================
+
     def register_repository(self, name: str, repository: Any) -> None:
         self._repositories[name] = repository
         if self._session:
-            repository.session = self._session
+            if hasattr(repository, "_session"):
+                repository._session = self._session
+            elif hasattr(repository, "session"):
+                repository.session = self._session
 
     def get_repository(self, name: str) -> Any:
         if name not in self._repositories:
@@ -274,7 +413,7 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
         self._event_collector.clear()
 
     # ========================================================================
-    # RepositoryProvider interface
+    # RepositoryProvider interface (convenience accessors)
     # ========================================================================
 
     def journals(self): return self.get_repository("journal")

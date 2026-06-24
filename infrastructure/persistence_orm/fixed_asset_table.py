@@ -77,7 +77,7 @@ class FixedAssetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         Index("idx_fixed_asset_acquisition_date", "acquisition_date"),
         Index("idx_fixed_asset_supplier", "supplier_id"),
         Index("idx_fixed_asset_is_active", "is_active"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -109,7 +109,7 @@ class FixedAssetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
     responsible_party: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     supplier_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("public.supplier.id"), nullable=True
+        PGUUID(as_uuid=True), ForeignKey("supplier.id"), nullable=True
     )
     purchase_order_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     invoice_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)

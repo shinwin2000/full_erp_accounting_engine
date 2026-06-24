@@ -29,13 +29,13 @@ class StockOpnameLineTable(Base, TimestampMixin):
         CheckConstraint("difference_quantity IS NOT NULL", name="ck_sol_diff_not_null"),
         Index("idx_sol_opname", "stock_opname_id"),
         Index("idx_sol_product", "product_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     stock_opname_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.stock_opname.id", ondelete="CASCADE"),
+        ForeignKey("stock_opname.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

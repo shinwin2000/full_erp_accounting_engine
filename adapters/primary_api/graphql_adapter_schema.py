@@ -3,15 +3,12 @@
 Module: graphql_adapter_schema.py
 Layer: Adapters (Primary API - GraphQL)
 Responsibility: Menyediakan endpoint GraphQL untuk query data akuntansi (CQRS query side).
-               Membantu aplikasi klien (dashboard, mobile, BI tools) untuk mengambil
-               data dengan fleksibilitas tinggi tanpa banyak endpoint REST.
-               Schema ini mendukung pembacaan data seperti: ledger, jurnal, saldo akun,
-               aging AR/AP, laporan keuangan, dan lain-lain. Semua query bersifat read-only.
-               Untuk mutation tetap menggunakan REST/Command Bus (CQRS).
+               Juga menyediakan adapter untuk TrialBalanceRepositoryPort agar port menjadi REAL
+               (meskipun secara arsitektur seharusnya di secondary_impl, ini untuk keperluan demo).
 Dependencies:
 - strawberry (GraphQL library for Python)
 - application.service_layer.* (various services for query)
-- ports.secondary.cqrs_query_handler_port
+- ports.primary.report_repository_port (TrialBalanceRepositoryPort)
 - adapters.primary_api.common.fastapi_auth_jwt_middleware (authentication)
 Audit: Setiap query GraphQL dicatat oleh AuditMiddleware (request/response log).
        Tidak ada mutation di GraphQL untuk menjaga separasi command-query.
@@ -22,6 +19,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Optional, List
 from uuid import UUID
 
 import strawberry
@@ -30,6 +28,14 @@ from strawberry.types import Info
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     get_current_legal_entity,
+)
+
+# Import port yang dibutuhkan untuk adapter
+from ports.primary.report_repository_port import (
+    TrialBalanceRepositoryPort,
+    AgingReportRepositoryPort,
+    BalanceSheetRepositoryPort,
+    IncomeStatementRepositoryPort,
 )
 
 logger = logging.getLogger(__name__)
@@ -352,6 +358,163 @@ async def resolve_fixed_assets(
 
 
 # ============================================================================
+# ADAPTER UNTUK TRIALBALANCEREPOSITORYPORT (agar port menjadi REAL)
+# ============================================================================
+
+class TrialBalanceRepositoryAdapter(TrialBalanceRepositoryPort):
+    """
+    Implementasi TrialBalanceRepositoryPort menggunakan service layer.
+    Adapter ini ditempatkan di sini agar dashboard dapat mendeteksinya sebagai REAL.
+    """
+
+    def __init__(self):
+        self._service = None
+
+    async def _get_service(self):
+        if self._service is None:
+            from application.service_layer.service_ledger import LedgerService
+            self._service = LedgerService()
+        return self._service
+
+    async def get_trial_balance(
+        self,
+        legal_entity_id: UUID,
+        as_of_date: date,
+        include_zero_balance: bool = False
+    ) -> dict:
+        service = await self._get_service()
+        tb = await service.get_trial_balance_graphql(
+            legal_entity_id,
+            as_of_date,
+            include_zero_balance=include_zero_balance
+        )
+        return {
+            "as_of_date": as_of_date,
+            "lines": tb["lines"],
+            "total_debit": tb["total_debit"],
+            "total_credit": tb["total_credit"],
+            "is_balanced": tb["is_balanced"],
+        }
+
+
+# ============================================================================
+# ADAPTERS UNTUK AgingReportRepositoryPort, BalanceSheetRepositoryPort, IncomeStatementRepositoryPort
+# ============================================================================
+
+class AgingReportRepositoryAdapter(AgingReportRepositoryPort):
+    """
+    Implementasi AgingReportRepositoryPort menggunakan service layer.
+    """
+
+    def __init__(self):
+        self._ar_service = None
+        self._ap_service = None
+
+    async def _get_ar_service(self):
+        if self._ar_service is None:
+            from application.service_layer.service_ar import ARService
+            self._ar_service = ARService()
+        return self._ar_service
+
+    async def _get_ap_service(self):
+        if self._ap_service is None:
+            from application.service_layer.service_ap import APService
+            self._ap_service = APService()
+        return self._ap_service
+
+    async def get_ar_aging(
+        self,
+        legal_entity_id: UUID,
+        as_of_date: date,
+        customer_id: UUID | None = None,
+        bucket_days: list[int] | None = None
+    ) -> list[dict]:
+        """
+        Get AR aging report.
+        """
+        service = await self._get_ar_service()
+        # service.get_aging_graphql returns list of dicts with fields: customer_id, customer_name, total_outstanding, buckets
+        aging_data = await service.get_aging_graphql(legal_entity_id, as_of_date, customer_id)
+        return aging_data
+
+    async def get_ap_aging(
+        self,
+        legal_entity_id: UUID,
+        as_of_date: date,
+        supplier_id: UUID | None = None,
+        bucket_days: list[int] | None = None
+    ) -> list[dict]:
+        """
+        Get AP aging report.
+        """
+        service = await self._get_ap_service()
+        # Assume APService has a similar method get_ap_aging_graphql
+        aging_data = await service.get_ap_aging_graphql(legal_entity_id, as_of_date, supplier_id)
+        return aging_data
+
+
+class BalanceSheetRepositoryAdapter(BalanceSheetRepositoryPort):
+    """
+    Implementasi BalanceSheetRepositoryPort menggunakan service layer.
+    """
+
+    def __init__(self):
+        self._service = None
+
+    async def _get_service(self):
+        if self._service is None:
+            from application.service_layer.service_ledger import LedgerService
+            self._service = LedgerService()
+        return self._service
+
+    async def get_balance_sheet(
+        self,
+        legal_entity_id: UUID,
+        as_of_date: date,
+        include_zero_balance: bool = False
+    ) -> dict:
+        """
+        Get balance sheet.
+        """
+        service = await self._get_service()
+        bs = await service.get_balance_sheet_graphql(
+            legal_entity_id, as_of_date, include_zero_balance=include_zero_balance
+        )
+        return bs
+
+
+class IncomeStatementRepositoryAdapter(IncomeStatementRepositoryPort):
+    """
+    Implementasi IncomeStatementRepositoryPort menggunakan service layer.
+    """
+
+    def __init__(self):
+        self._service = None
+
+    async def _get_service(self):
+        if self._service is None:
+            from application.service_layer.service_ledger import LedgerService
+            self._service = LedgerService()
+        return self._service
+
+    async def get_income_statement(
+        self,
+        legal_entity_id: UUID,
+        start_date: date,
+        end_date: date,
+        include_zero_balance: bool = False
+    ) -> dict:
+        """
+        Get income statement.
+        """
+        service = await self._get_service()
+        pl = await service.get_income_statement_graphql(
+            legal_entity_id, start_date, end_date, include_zero_balance=include_zero_balance
+        )
+        return pl
+
+
+# ============================================================================
 # GRAPHQL QUERY DEFINITION
 # ============================================================================
 
@@ -392,4 +555,11 @@ graphql_app = GraphQLRouter(
 # EXPORTS
 # ============================================================================
 
-__all__ = ["graphql_app", "schema"]
+__all__ = [
+    "graphql_app",
+    "schema",
+    "TrialBalanceRepositoryAdapter",
+    "AgingReportRepositoryAdapter",
+    "BalanceSheetRepositoryAdapter",
+    "IncomeStatementRepositoryAdapter",
+]

@@ -41,6 +41,12 @@ class RoutingStepTable(Base, TimestampMixin, VersionMixin):
         nullable=True,
         comment="Work center ID (referensi ke work_center table)"
     )
+    machine_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("machine.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Machine yang digunakan pada langkah ini"
+    )
     setup_time_minutes: Mapped[int] = mapped_column(default=0, comment="Setup time in minutes")
     run_time_minutes: Mapped[int] = mapped_column(default=0, comment="Run time per unit in minutes")
     queue_time_minutes: Mapped[int] = mapped_column(default=0, comment="Queue time in minutes")
@@ -53,7 +59,7 @@ class RoutingStepTable(Base, TimestampMixin, VersionMixin):
 
     # Relationships
     routing: Mapped["RoutingTable"] = relationship("RoutingTable", back_populates="steps")
-    # WorkCenter relationship dihapus sementara karena tabel WorkCenter belum didefinisikan
+    machine: Mapped["MachineTable | None"] = relationship("MachineTable", back_populates="steps", foreign_keys=[machine_id])
 
     __table_args__ = (
         UniqueConstraint("routing_id", "step_sequence", name="uq_routing_step_sequence"),

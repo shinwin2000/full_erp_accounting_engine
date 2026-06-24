@@ -80,7 +80,7 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_ar_invoice_legal_entity", "legal_entity_id"),
         Index("idx_ar_invoice_sales_order", "sales_order_id"),
         Index("idx_ar_invoice_outstanding", "total_amount", "paid_amount"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -93,7 +93,7 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # Customer (foreign key with schema)
     customer_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.customer.id", ondelete="RESTRICT"),
+        ForeignKey("customer.id", ondelete="RESTRICT"),
         nullable=False,
     )
 
@@ -114,7 +114,7 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     sales_order_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.sales_order.id", ondelete="SET NULL"),
+        ForeignKey("sales_order.id", ondelete="SET NULL"),
         nullable=True,
     )
 
@@ -169,7 +169,7 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     )
 
     # ========================================================================
-    # Bupots (Coretax) – ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
+    # Bupots (Coretax) ï¿½ ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
     # ========================================================================
     bupots: Mapped[list["CoretaxBupotTable"]] = relationship(
         "CoretaxBupotTable",

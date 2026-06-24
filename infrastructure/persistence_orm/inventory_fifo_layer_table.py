@@ -41,7 +41,7 @@ class InventoryFIFOLayerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixi
         Index("idx_inventory_fifo_layer_movement", "movement_id"),
         Index("idx_inventory_fifo_layer_legal_entity", "legal_entity_id"),
         Index("idx_inventory_fifo_layer_remaining_only", "remaining_quantity", "item_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -49,7 +49,7 @@ class InventoryFIFOLayerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixi
     # Foreign key ke inventory_item (relasi via backref dari InventoryItemTable)
     item_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.inventory_item.id", ondelete="CASCADE"),
+        ForeignKey("inventory_item.id", ondelete="CASCADE"),
         nullable=False,
     )
 
@@ -62,7 +62,7 @@ class InventoryFIFOLayerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixi
 
     movement_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.inventory_movement.id", ondelete="SET NULL"),
+        ForeignKey("inventory_movement.id", ondelete="SET NULL"),
         nullable=True,
     )
 

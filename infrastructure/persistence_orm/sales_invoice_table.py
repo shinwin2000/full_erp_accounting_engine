@@ -61,7 +61,7 @@ class SalesInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         Index("idx_si_due_date", "due_date"),
         Index("idx_si_status", "status"),
         Index("idx_si_so", "sales_order_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -74,12 +74,12 @@ class SalesInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     # Foreign keys dengan skema public
     customer_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.customer.id", ondelete="RESTRICT"),
+        ForeignKey("customer.id", ondelete="RESTRICT"),
         nullable=False,
     )
     sales_order_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.sales_order.id", ondelete="SET NULL"),
+        ForeignKey("sales_order.id", ondelete="SET NULL"),
         nullable=True,
     )
 

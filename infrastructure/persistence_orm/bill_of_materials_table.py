@@ -53,7 +53,7 @@ class BillOfMaterialsTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
         Index("idx_bom_product", "product_id"),
         Index("idx_bom_status", "status"),
         Index("idx_bom_legal_entity", "legal_entity_id"),
-        {"schema": "public", "extend_existing": True}
+        {"extend_existing": True}
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

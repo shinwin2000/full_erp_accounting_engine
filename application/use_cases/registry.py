@@ -2,7 +2,7 @@
 """
 Module: registry.py
 Layer: Application / Use Cases
-Responsibility: Registry global untuk command dan query handler.
+Responsibility: Registry global untuk command dan query handler serta Use Case Container.
 """
 
 from __future__ import annotations
@@ -34,7 +34,19 @@ def set_use_case_container(container: dict[type, Any]) -> None:
 
 def get_use_case(use_case_cls: type) -> Any:
     """Dapatkan use case instance dari container global."""
-    return _use_case_container.get(use_case_cls)
+    instance = _use_case_container.get(use_case_cls)
+    
+    # ✅ ANTISIPASI: Jika class yang diminta adalah HPPManufacturingCloseUseCase 
+    # namun container belum siap/kosong, buatkan instance riil secara on-the-fly
+    if instance is None and use_case_cls.__name__ in ("HppManufacturingCloseUseCase", "HPPManufacturingCloseUseCase"):
+        try:
+            from application.use_cases.hpp_manufacturing_close_use_case import HPPManufacturingCloseUseCase
+            logger.info("On-the-fly resolution for HPPManufacturingCloseUseCase triggered safely.")
+            return HPPManufacturingCloseUseCase(journal_port=None, projection_port=None)
+        except ImportError:
+            pass
+            
+    return instance
 
 # Registry instances
 _command_registry: CommandHandlerRegistry | None = None
@@ -49,7 +61,7 @@ def get_command_registry() -> CommandHandlerRegistry:
 def get_query_registry() -> QueryHandlerRegistry:
     global _query_registry
     if _query_registry is None:
-        _query_registry = get_query_handler_registry()
+        _query_registry = get_query_registry_() if 'get_query_registry_' in globals() else get_query_handler_registry()
     return _query_registry
 
 def register_command_handler(command_type: str, handler: Any, override: bool = False) -> None:

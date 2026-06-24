@@ -69,7 +69,7 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         Index("idx_account_parent", "parent_account_id"),
         Index("idx_account_legal_entity", "legal_entity_id"),
         Index("idx_account_status", "status"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     # Account identification
@@ -80,7 +80,7 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
 
     # Hierarchy (parent_account_id sudah menggunakan schema public)
     parent_account_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("public.account.id"), nullable=True
+        PGUUID(as_uuid=True), ForeignKey("account.id"), nullable=True
     )
     level: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
@@ -109,7 +109,7 @@ class AccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     # ========================================================================
     legal_entity_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.legal_entity.id", ondelete="CASCADE"),
+        ForeignKey("legal_entity.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

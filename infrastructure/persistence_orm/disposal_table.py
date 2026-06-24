@@ -32,13 +32,13 @@ class DisposalTable(Base, TimestampMixin, SoftDeleteMixin):
         CheckConstraint("nbv_at_disposal >= 0", name="ck_disposal_nbv_nonneg"),
         Index("idx_disposal_asset", "asset_id"),
         Index("idx_disposal_date", "disposal_date"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.fixed_asset.id", ondelete="CASCADE"),
+        ForeignKey("fixed_asset.id", ondelete="CASCADE"),
         nullable=False,
     )
     disposal_date: Mapped[date] = mapped_column(Date, nullable=False)

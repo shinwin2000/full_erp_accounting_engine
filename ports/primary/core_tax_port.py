@@ -7,12 +7,46 @@ Responsibility: Port untuk Core Tax Authority (API pajak pemerintah).
 
 from abc import ABC, abstractmethod
 from typing import Any
+from uuid import UUID
 
 
 class CoreTaxPort(ABC):
     """
     Port untuk berkomunikasi dengan otoritas pajak (Core Tax).
+    Method yang wajib diimplementasikan oleh adapter:
+    - submit_tax()
+    - get_status()
+    - calculate_tax()
+    - validate_tax_id()
+    - get_tax_rate()
     """
+
+    @abstractmethod
+    async def submit_tax(self, data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Submit data pajak ke otoritas pajak.
+
+        Args:
+            data: Dict berisi data pajak (jenis pajak, periode, jumlah, NPWP, dll).
+
+        Returns:
+            Dict berisi response dari otoritas pajak (status, id_submission, dll).
+        """
+        pass
+
+    @abstractmethod
+    async def get_status(self, submission_id: str) -> dict[str, Any]:
+        """
+        Mendapatkan status submission pajak.
+
+        Args:
+            submission_id: ID submission dari otoritas pajak.
+
+        Returns:
+            Dict berisi status (pending, approved, rejected, dll) dan detail.
+        """
+        pass
+
     @abstractmethod
     async def calculate_tax(self, data: dict[str, Any]) -> dict[str, Any]:
         """

@@ -59,7 +59,7 @@ class IntangibleAssetTable(Base, TimestampMixin):
         Index("ix_intangible_legal_entity", "legal_entity_id"),
         Index("ix_intangible_active", "is_active"),
         Index("ix_intangible_asset_code", "asset_code"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -68,7 +68,7 @@ class IntangibleAssetTable(Base, TimestampMixin):
     asset_type: Mapped[IntangibleAssetType] = mapped_column(Enum(IntangibleAssetType), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text)
     legal_entity_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("public.legal_entity.id"), nullable=False
+        PGUUID(as_uuid=True), ForeignKey("legal_entity.id"), nullable=False
     )
     acquisition_date: Mapped[date] = mapped_column(Date, nullable=False)
     acquisition_cost: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
@@ -89,19 +89,13 @@ class IntangibleAssetTable(Base, TimestampMixin):
     supporting_document_url: Mapped[str | None] = mapped_column(String(500))
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    # =========================================================================
-    # RELATIONSHIPS – defined only on this side using backref.
-    # Child tables (IntangibleRevaluationTable, AmortizationScheduleTable)
-    # will automatically get an 'asset' attribute.
-    # No explicit import of child classes is needed at runtime.
-    # =========================================================================
-    amortization_schedules: Mapped[list[AmortizationScheduleTable]] = relationship(
+    amortization_schedules: Mapped[list["AmortizationScheduleTable"]] = relationship(
         "AmortizationScheduleTable",
         backref="asset",
         cascade="all, delete-orphan",
     )
 
-    revaluations: Mapped[list[IntangibleRevaluationTable]] = relationship(
+    revaluations: Mapped[list["IntangibleRevaluationTable"]] = relationship(
         "IntangibleRevaluationTable",
         backref="asset",
         cascade="all, delete-orphan",

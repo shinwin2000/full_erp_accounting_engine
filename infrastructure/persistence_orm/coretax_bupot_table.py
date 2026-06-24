@@ -61,7 +61,7 @@ class CoretaxBupotTable(Base, UUIDMixin, TimestampMixin):
         CheckConstraint("tax_rate >= 0 AND tax_rate <= 100", name="ck_bupot_tax_rate"),
         CheckConstraint("tax_amount >= 0", name="ck_bupot_tax_amount"),
         UniqueConstraint("bupot_number", name="uq_bupot_number"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -96,65 +96,46 @@ class CoretaxBupotTable(Base, UUIDMixin, TimestampMixin):
 
     void_reason: Mapped[str | None] = mapped_column(Text)
 
-    # Foreign key ke IAMUser (hanya kolom, tanpa relasi untuk menghindari error mapper)
     void_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.iam_user.id", ondelete="SET NULL"),
+        ForeignKey("iam_user.id", ondelete="SET NULL"),
         nullable=True,
     )
     void_at: Mapped[datetime | None] = mapped_column(DateTime)
 
-    # Foreign keys dengan skema public
     invoice_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.ar_invoice.id", ondelete="SET NULL"),
+        ForeignKey("ar_invoice.id", ondelete="SET NULL"),
         nullable=True,
     )
     purchase_invoice_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.ap_invoice.id", ondelete="SET NULL"),
+        ForeignKey("ap_invoice.id", ondelete="SET NULL"),
         nullable=True,
     )
     payment_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.ap_payment.id", ondelete="SET NULL"),
+        ForeignKey("ap_payment.id", ondelete="SET NULL"),
         nullable=True,
     )
 
-    # =========================================================================
-    # RELATIONSHIPS
-    # =========================================================================
-
-    # Relasi ke AR Invoice (back_populates="bupots" sudah ditambahkan di ARInvoiceTable)
-    invoice: Mapped[ARInvoiceTable | None] = relationship(
+    invoice: Mapped["ARInvoiceTable | None"] = relationship(
         "ARInvoiceTable",
         foreign_keys=[invoice_id],
         back_populates="bupots",
     )
 
-    # Relasi ke AP Invoice (back_populates="bupots" sudah ditambahkan di APInvoiceTable)
-    purchase_invoice: Mapped[APInvoiceTable | None] = relationship(
+    purchase_invoice: Mapped["APInvoiceTable | None"] = relationship(
         "APInvoiceTable",
         foreign_keys=[purchase_invoice_id],
         back_populates="bupots",
     )
 
-    # Relasi ke AP Payment (back_populates="bupots" sudah ditambahkan di APPaymentTable)
-    payment: Mapped[APPaymentTable | None] = relationship(
+    payment: Mapped["APPaymentTable | None"] = relationship(
         "APPaymentTable",
         foreign_keys=[payment_id],
         back_populates="bupots",
     )
-
-    # =========================================================================
-    # RELASI void_by_user DIHAPUS untuk menghindari error mapper
-    # Akses user void melalui query terpisah atau tambahkan relasi nanti
-    # jika IAMUserTable sudah terdefinisi dengan baik.
-    # =========================================================================
-
-    # =========================================================================
-    # BUSINESS METHODS
-    # =========================================================================
 
     def mark_submitted(self, submission_id: str, response: dict) -> None:
         self.status = BupotStatus.SUBMITTED
@@ -185,10 +166,6 @@ class CoretaxBupotTable(Base, UUIDMixin, TimestampMixin):
         self.void_at = datetime.utcnow()
         if hasattr(self, "increment_version"):
             self.increment_version()
-
-    # =========================================================================
-    # SERIALIZATION
-    # =========================================================================
 
     def to_dict(self) -> dict[str, Any]:
         return {

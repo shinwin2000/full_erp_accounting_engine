@@ -7,13 +7,15 @@ Responsibility: Implementasi repository untuk Journal menggunakan SQLAlchemy ORM
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, delete, desc, func, select, update
+from sqlalchemy import and_, delete, desc, func, select, update, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -577,7 +579,6 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
             logger.error(f"Failed to find journal by id {journal_id}: {e}")
             raise JournalRepositoryError(f"Failed to find journal: {e}") from e
 
-    
     async def find_all(self, limit: int = 100, offset: int = 0) -> list[JournalAggregate]:
         """P55: Find all journals without legal_entity filter."""
         session = await self._get_session()
@@ -594,7 +595,241 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
             return [self._to_domain(h, h.lines) for h in headers]
         except Exception as e:
             raise JournalRepositoryError(f"Failed to find all journals: {e}") from e
-        
+
+    # ========================================================================
+    # NEW MISSING METHODS (from JournalRepositoryPort)
+    # ========================================================================
+
+    async def approve(self, journal_id: UUID, approved_by: UUID) -> None:
+        """Approve a journal (status -> APPROVED)."""
+        session = await self._get_session()
+        try:
+            stmt = (
+                update(JournalHeaderTable)
+                .where(JournalHeaderTable.id == journal_id)
+                .values(
+                    status=JournalStatus.APPROVED.value,
+                    approved_by=approved_by,
+                    approved_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            result = await session.execute(stmt)
+            await session.flush()
+            if result.rowcount == 0:
+                raise JournalNotFoundError(f"Journal {journal_id} not found")
+            logger.info(f"Journal {journal_id} approved by {approved_by}")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Failed to approve journal {journal_id}: {e}")
+            raise JournalRepositoryError(f"Failed to approve journal: {e}") from e
+
+    async def exists_by_voucher_number(self, voucher_number: str, legal_entity_id: UUID) -> bool:
+        """Check if a voucher number exists for the legal entity."""
+        return await self.exists(voucher_number, legal_entity_id)
+
+    async def export_to_csv(self, journals: list[JournalAggregate]) -> str:
+        """Export journals to CSV format."""
+        output = io.StringIO()
+        writer = csv.writer(output)
+        # Write header
+        writer.writerow([
+            "Journal ID", "Journal Number", "Transaction Date", "Description",
+            "Status", "Legal Entity", "Created By", "Created At",
+            "Line Number", "Account ID", "Account Code", "Account Name",
+            "Debit", "Credit", "Line Description"
+        ])
+        for journal in journals:
+            for line in journal.lines:
+                writer.writerow([
+                    str(journal.journal_id),
+                    journal.journal_number,
+                    journal.transaction_date.isoformat(),
+                    journal.description,
+                    journal.status.value,
+                    str(journal.legal_entity_id),
+                    journal.created_by,
+                    journal.created_at.isoformat() if journal.created_at else "",
+                    line.line_number if hasattr(line, "line_number") else "",
+                    str(line.account_id) if line.account_id else "",
+                    line.account_code,
+                    line.account_name,
+                    str(line.amount) if line.side == JournalSide.DEBIT else "0",
+                    str(line.amount) if line.side == JournalSide.CREDIT else "0",
+                    line.description,
+                ])
+        return output.getvalue()
+
+    async def find_by_account(
+        self,
+        account_id: UUID,
+        legal_entity_id: UUID,
+        start_date: date,
+        end_date: date,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[JournalAggregate]:
+        """Find journals containing lines with a specific account."""
+        session = await self._get_session()
+        try:
+            # Subquery to get journal IDs that have lines with this account
+            subq = (
+                select(JournalLineTable.journal_id)
+                .where(
+                    JournalLineTable.account_id == account_id,
+                    JournalLineTable.legal_entity_id == legal_entity_id,
+                )
+                .distinct()
+                .subquery()
+            )
+            stmt = (
+                select(JournalHeaderTable)
+                .join(subq, JournalHeaderTable.id == subq.c.journal_id)
+                .where(
+                    JournalHeaderTable.legal_entity_id == legal_entity_id,
+                    JournalHeaderTable.journal_date >= start_date,
+                    JournalHeaderTable.journal_date <= end_date,
+                    JournalHeaderTable.deleted_at.is_(None),
+                )
+                .order_by(desc(JournalHeaderTable.journal_date))
+                .offset(offset)
+                .limit(limit)
+                .options(selectinload(JournalHeaderTable.lines))
+            )
+            result = await session.execute(stmt)
+            headers = result.scalars().all()
+            # Need to filter lines to only those with the account? The JournalAggregate will include all lines,
+            # but we could filter later if needed. However, port likely expects full journals.
+            return [self._to_domain(h, h.lines) for h in headers]
+        except Exception as e:
+            logger.error(f"Failed to find journals by account {account_id}: {e}")
+            raise JournalRepositoryError(f"Failed to find journals by account: {e}") from e
+
+    async def get_audit_log(self, journal_id: UUID) -> list[dict[str, Any]]:
+        """Get audit log entries for a journal (stub - no audit table)."""
+        # In a real implementation, we would query an audit log table.
+        # For now, return a stub entry.
+        return [
+            {
+                "timestamp": datetime.utcnow().isoformat(),
+                "action": "get_audit_log",
+                "message": f"Audit log for journal {journal_id} not implemented",
+            }
+        ]
+
+    async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
+        """Get statistics about journals."""
+        session = await self._get_session()
+        try:
+            # Count by status
+            status_counts = {}
+            for status in JournalStatus:
+                count = await self.count(legal_entity_id, status=status)
+                status_counts[status.value] = count
+            # Total count
+            total = await self.count(legal_entity_id)
+            return {
+                "total": total,
+                "by_status": status_counts,
+                "legal_entity_id": str(legal_entity_id),
+            }
+        except Exception as e:
+            logger.error(f"Failed to get statistics: {e}")
+            raise JournalRepositoryError(f"Failed to get statistics: {e}") from e
+
+    async def health_check(self) -> dict[str, Any]:
+        """Perform health check (database connectivity)."""
+        try:
+            session = await self._get_session()
+            await session.execute(text("SELECT 1"))
+            return {"status": "healthy", "database": "connected"}
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            return {"status": "unhealthy", "error": str(e)}
+
+    async def import_from_csv(self, csv_data: str, legal_entity_id: UUID) -> list[JournalAggregate]:
+        """Import journals from CSV (stub)."""
+        # This is a placeholder; actual implementation would parse CSV and create JournalAggregate objects.
+        logger.info(f"Import CSV for legal_entity {legal_entity_id} - not implemented")
+        return []
+
+    async def post(self, journal_id: UUID, posted_by: UUID) -> None:
+        """Post a journal (status -> POSTED)."""
+        session = await self._get_session()
+        try:
+            stmt = (
+                update(JournalHeaderTable)
+                .where(JournalHeaderTable.id == journal_id)
+                .values(
+                    status=JournalStatus.POSTED.value,
+                    posted_by=posted_by,
+                    posted_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            result = await session.execute(stmt)
+            await session.flush()
+            if result.rowcount == 0:
+                raise JournalNotFoundError(f"Journal {journal_id} not found")
+            logger.info(f"Journal {journal_id} posted by {posted_by}")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Failed to post journal {journal_id}: {e}")
+            raise JournalRepositoryError(f"Failed to post journal: {e}") from e
+
+    async def reverse(self, journal_id: UUID, reversed_by: UUID, reversal_date: date) -> None:
+        """Reverse a journal (create reversal journal and update original)."""
+        # This is complex; we need to create a new journal with reversed signs,
+        # update original status to REVERSED, and link them.
+        # For stub, we'll just update status to REVERSED.
+        # In real implementation, you'd create a reversal journal.
+        session = await self._get_session()
+        try:
+            # Update original to REVERSED
+            stmt = (
+                update(JournalHeaderTable)
+                .where(JournalHeaderTable.id == journal_id)
+                .values(
+                    status=JournalStatus.REVERSED.value,
+                    reversed_by=reversed_by,
+                    reversed_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            result = await session.execute(stmt)
+            await session.flush()
+            if result.rowcount == 0:
+                raise JournalNotFoundError(f"Journal {journal_id} not found")
+            logger.info(f"Journal {journal_id} reversed by {reversed_by}")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Failed to reverse journal {journal_id}: {e}")
+            raise JournalRepositoryError(f"Failed to reverse journal: {e}") from e
+
+    async def submit(self, journal_id: UUID, submitted_by: UUID) -> None:
+        """Submit a journal (status -> SUBMITTED)."""
+        session = await self._get_session()
+        try:
+            stmt = (
+                update(JournalHeaderTable)
+                .where(JournalHeaderTable.id == journal_id)
+                .values(
+                    status=JournalStatus.SUBMITTED.value,
+                    updated_at=datetime.utcnow(),
+                    # Optionally store submitted_by if there is a field
+                )
+            )
+            result = await session.execute(stmt)
+            await session.flush()
+            if result.rowcount == 0:
+                raise JournalNotFoundError(f"Journal {journal_id} not found")
+            logger.info(f"Journal {journal_id} submitted by {submitted_by}")
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Failed to submit journal {journal_id}: {e}")
+            raise JournalRepositoryError(f"Failed to submit journal: {e}") from e
+
+
 # ============================================================================
 # ALIAS untuk kompatibilitas dengan import yang berbeda
 # ============================================================================

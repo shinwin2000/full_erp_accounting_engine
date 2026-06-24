@@ -63,7 +63,7 @@ class APPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_ap_payment_status", "status"),
         Index("idx_ap_payment_legal_entity", "legal_entity_id"),
         Index("idx_ap_payment_run", "payment_run_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -71,12 +71,12 @@ class APPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
     supplier_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.supplier.id", ondelete="RESTRICT"),
+        ForeignKey("supplier.id", ondelete="RESTRICT"),
         nullable=False,
     )
     invoice_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.ap_invoice.id", ondelete="RESTRICT"),
+        ForeignKey("ap_invoice.id", ondelete="RESTRICT"),
         nullable=False,
     )
     total_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=0)

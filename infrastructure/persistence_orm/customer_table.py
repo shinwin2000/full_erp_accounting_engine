@@ -68,7 +68,7 @@ class CustomerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         Index("idx_customer_legal_entity", "legal_entity_id"),
         Index("idx_customer_category", "category"),
         Index("idx_customer_sales_person", "sales_person_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

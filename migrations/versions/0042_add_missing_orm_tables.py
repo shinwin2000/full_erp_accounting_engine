@@ -8,13 +8,27 @@ Create Date: 2026-06-20 00:00:00.000000
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 # revision identifiers, used by Alembic.
-revision = '0042'
-down_revision = '0041'
+revision = '0042abcd'
+down_revision = '0041abcd'
 branch_labels = None
 depends_on = None
+
+
+
+def _table_exists_mig(table_name: str) -> bool:
+    """Check if table exists - idempotency guard."""
+    try:
+        bind = op.get_bind()
+        result = bind.execute(text(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=:t"
+        ), {"t": table_name})
+        return result.fetchone() is not None
+    except Exception:
+        return False
 
 
 def upgrade() -> None:
@@ -23,7 +37,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # audit_event
-    op.create_table('audit_event',
+    if not _table_exists_mig('audit_event'):
+        op.create_table('audit_event',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('event_id', sa.String(100), nullable=False),
         sa.Column('event_type', sa.String(50), nullable=False),
@@ -39,7 +54,8 @@ def upgrade() -> None:
     )
 
     # event_store
-    op.create_table('event_store',
+    if not _table_exists_mig('event_store'):
+        op.create_table('event_store',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('stream_name', sa.String(255), nullable=False),
         sa.Column('stream_id', UUID(as_uuid=True), nullable=False),
@@ -52,7 +68,8 @@ def upgrade() -> None:
     )
 
     # hash_chain
-    op.create_table('hash_chain',
+    if not _table_exists_mig('hash_chain'):
+        op.create_table('hash_chain',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('chain_name', sa.String(100), nullable=False),
         sa.Column('entity_id', UUID(as_uuid=True), nullable=False),
@@ -64,7 +81,8 @@ def upgrade() -> None:
     )
 
     # snapshot_store
-    op.create_table('snapshot_store',
+    if not _table_exists_mig('snapshot_store'):
+        op.create_table('snapshot_store',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('aggregate_id', UUID(as_uuid=True), nullable=False),
         sa.Column('aggregate_type', sa.String(100), nullable=False),
@@ -75,7 +93,8 @@ def upgrade() -> None:
     )
 
     # outbox
-    op.create_table('outbox',
+    if not _table_exists_mig('outbox'):
+        op.create_table('outbox',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('aggregate_id', UUID(as_uuid=True), nullable=True),
         sa.Column('aggregate_type', sa.String(100), nullable=True),
@@ -91,7 +110,8 @@ def upgrade() -> None:
     )
 
     # outbox_checkpoint
-    op.create_table('outbox_checkpoint',
+    if not _table_exists_mig('outbox_checkpoint'):
+        op.create_table('outbox_checkpoint',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('consumer_group', sa.String(100), nullable=False),
         sa.Column('last_processed_id', UUID(as_uuid=True), nullable=True),
@@ -101,7 +121,8 @@ def upgrade() -> None:
     )
 
     # dead_letter_events
-    op.create_table('dead_letter_events',
+    if not _table_exists_mig('dead_letter_events'):
+        op.create_table('dead_letter_events',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('topic', sa.String(100), nullable=False),
         sa.Column('key', sa.String(255), nullable=True),
@@ -118,7 +139,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # budget
-    op.create_table('budget',
+    if not _table_exists_mig('budget'):
+        op.create_table('budget',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('budget_code', sa.String(50), nullable=False),
         sa.Column('budget_name', sa.String(200), nullable=False),
@@ -147,7 +169,8 @@ def upgrade() -> None:
     )
 
     # budget_actual
-    op.create_table('budget_actual',
+    if not _table_exists_mig('budget_actual'):
+        op.create_table('budget_actual',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('budget_id', UUID(as_uuid=True), nullable=False),
         sa.Column('account_id', UUID(as_uuid=True), nullable=False),
@@ -165,7 +188,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # consolidation_group
-    op.create_table('consolidation_group',
+    if not _table_exists_mig('consolidation_group'):
+        op.create_table('consolidation_group',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('group_code', sa.String(50), nullable=False),
         sa.Column('group_name', sa.String(200), nullable=False),
@@ -179,7 +203,8 @@ def upgrade() -> None:
     )
 
     # consolidation_group_member
-    op.create_table('consolidation_group_member',
+    if not _table_exists_mig('consolidation_group_member'):
+        op.create_table('consolidation_group_member',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('group_id', UUID(as_uuid=True), nullable=False),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
@@ -195,7 +220,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # coretax_faktur
-    op.create_table('coretax_faktur',
+    if not _table_exists_mig('coretax_faktur'):
+        op.create_table('coretax_faktur',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('faktur_number', sa.String(30), nullable=False),
         sa.Column('faktur_code', sa.String(3), nullable=False),
@@ -220,7 +246,8 @@ def upgrade() -> None:
     )
 
     # coretax_faktur_line
-    op.create_table('coretax_faktur_line',
+    if not _table_exists_mig('coretax_faktur_line'):
+        op.create_table('coretax_faktur_line',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('faktur_id', UUID(as_uuid=True), nullable=False),
         sa.Column('item_description', sa.String(500), nullable=False),
@@ -231,7 +258,8 @@ def upgrade() -> None:
     )
 
     # coretax_bupot
-    op.create_table('coretax_bupot',
+    if not _table_exists_mig('coretax_bupot'):
+        op.create_table('coretax_bupot',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('bupot_number', sa.String(30), nullable=False),
         sa.Column('bupot_type', sa.String(10), nullable=False),
@@ -255,7 +283,8 @@ def upgrade() -> None:
     )
 
     # coretax_spt
-    op.create_table('coretax_spt',
+    if not _table_exists_mig('coretax_spt'):
+        op.create_table('coretax_spt',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('spt_number', sa.String(30), nullable=False),
         sa.Column('spt_type', sa.String(20), nullable=False),
@@ -274,7 +303,8 @@ def upgrade() -> None:
     )
 
     # coretax_ntpn
-    op.create_table('coretax_ntpn',
+    if not _table_exists_mig('coretax_ntpn'):
+        op.create_table('coretax_ntpn',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('ntpn', sa.String(16), nullable=False),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
@@ -291,7 +321,8 @@ def upgrade() -> None:
     )
 
     # coretax_nsfp
-    op.create_table('coretax_nsfp',
+    if not _table_exists_mig('coretax_nsfp'):
+        op.create_table('coretax_nsfp',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('tahun', sa.Integer(), nullable=False),
@@ -306,7 +337,8 @@ def upgrade() -> None:
     )
 
     # coretax_emeterai
-    op.create_table('coretax_emeterai',
+    if not _table_exists_mig('coretax_emeterai'):
+        op.create_table('coretax_emeterai',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('meterai_number', sa.String(30), nullable=False),
@@ -323,7 +355,8 @@ def upgrade() -> None:
     )
 
     # coretax_submission_log
-    op.create_table('coretax_submission_log',
+    if not _table_exists_mig('coretax_submission_log'):
+        op.create_table('coretax_submission_log',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('submission_type', sa.String(50), nullable=False),
@@ -343,7 +376,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # fixed_asset_schedule
-    op.create_table('fixed_asset_schedule',
+    if not _table_exists_mig('fixed_asset_schedule'):
+        op.create_table('fixed_asset_schedule',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('asset_id', UUID(as_uuid=True), nullable=False),
         sa.Column('period', sa.Integer(), nullable=False),
@@ -361,7 +395,8 @@ def upgrade() -> None:
     )
 
     # impairment_test
-    op.create_table('impairment_test',
+    if not _table_exists_mig('impairment_test'):
+        op.create_table('impairment_test',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('asset_id', UUID(as_uuid=True), nullable=False),
         sa.Column('asset_type', sa.String(20), nullable=False),
@@ -380,7 +415,8 @@ def upgrade() -> None:
     )
 
     # revaluation
-    op.create_table('revaluation',
+    if not _table_exists_mig('revaluation'):
+        op.create_table('revaluation',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('asset_id', UUID(as_uuid=True), nullable=False),
         sa.Column('asset_type', sa.String(20), nullable=False),
@@ -403,7 +439,8 @@ def upgrade() -> None:
     )
 
     # disposal
-    op.create_table('disposal',
+    if not _table_exists_mig('disposal'):
+        op.create_table('disposal',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('asset_id', UUID(as_uuid=True), nullable=False),
         sa.Column('asset_type', sa.String(20), nullable=False),
@@ -424,7 +461,8 @@ def upgrade() -> None:
     )
 
     # intangible_revaluation
-    op.create_table('intangible_revaluation',
+    if not _table_exists_mig('intangible_revaluation'):
+        op.create_table('intangible_revaluation',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('asset_id', UUID(as_uuid=True), nullable=False),
         sa.Column('revaluation_date', sa.Date(), nullable=False),
@@ -448,7 +486,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # goodwill
-    op.create_table('goodwill',
+    if not _table_exists_mig('goodwill'):
+        op.create_table('goodwill',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('goodwill_code', sa.String(50), nullable=False),
@@ -468,7 +507,8 @@ def upgrade() -> None:
     )
 
     # goodwill_impairment
-    op.create_table('goodwill_impairment',
+    if not _table_exists_mig('goodwill_impairment'):
+        op.create_table('goodwill_impairment',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('goodwill_id', UUID(as_uuid=True), nullable=False),
         sa.Column('impairment_date', sa.Date(), nullable=False),
@@ -489,7 +529,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # hedge_instrument
-    op.create_table('hedge_instrument',
+    if not _table_exists_mig('hedge_instrument'):
+        op.create_table('hedge_instrument',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('instrument_code', sa.String(50), nullable=False),
@@ -508,7 +549,8 @@ def upgrade() -> None:
     )
 
     # hedged_item
-    op.create_table('hedged_item',
+    if not _table_exists_mig('hedged_item'):
+        op.create_table('hedged_item',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('hedge_relationship_id', UUID(as_uuid=True), nullable=False),
@@ -524,7 +566,8 @@ def upgrade() -> None:
     )
 
     # hedge_effectiveness_test
-    op.create_table('hedge_effectiveness_test',
+    if not _table_exists_mig('hedge_effectiveness_test'):
+        op.create_table('hedge_effectiveness_test',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('hedge_relationship_id', UUID(as_uuid=True), nullable=False),
         sa.Column('test_date', sa.Date(), nullable=False),
@@ -541,7 +584,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # inventory_stock_card
-    op.create_table('inventory_stock_card',
+    if not _table_exists_mig('inventory_stock_card'):
+        op.create_table('inventory_stock_card',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('item_id', UUID(as_uuid=True), nullable=False),
         sa.Column('warehouse_id', UUID(as_uuid=True), nullable=False),
@@ -560,7 +604,8 @@ def upgrade() -> None:
     )
 
     # stock_card (alias untuk inventory_stock_card)
-    op.create_table('stock_card',
+    if not _table_exists_mig('stock_card'):
+        op.create_table('stock_card',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('item_id', UUID(as_uuid=True), nullable=False),
         sa.Column('warehouse_id', UUID(as_uuid=True), nullable=False),
@@ -579,7 +624,8 @@ def upgrade() -> None:
     )
 
     # stock_opname
-    op.create_table('stock_opname',
+    if not _table_exists_mig('stock_opname'):
+        op.create_table('stock_opname',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('warehouse_id', UUID(as_uuid=True), nullable=False),
@@ -595,7 +641,8 @@ def upgrade() -> None:
     )
 
     # stock_opname_line
-    op.create_table('stock_opname_line',
+    if not _table_exists_mig('stock_opname_line'):
+        op.create_table('stock_opname_line',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('opname_id', UUID(as_uuid=True), nullable=False),
         sa.Column('item_id', UUID(as_uuid=True), nullable=False),
@@ -614,7 +661,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # legal_entity_branch
-    op.create_table('legal_entity_branch',
+    if not _table_exists_mig('legal_entity_branch'):
+        op.create_table('legal_entity_branch',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('branch_code', sa.String(50), nullable=False),
@@ -632,7 +680,8 @@ def upgrade() -> None:
     )
 
     # company_entity (alias untuk legal_entity)
-    op.create_table('company_entity',
+    if not _table_exists_mig('company_entity'):
+        op.create_table('company_entity',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('company_code', sa.String(50), nullable=False),
@@ -655,7 +704,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # report_definition
-    op.create_table('report_definition',
+    if not _table_exists_mig('report_definition'):
+        op.create_table('report_definition',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('report_code', sa.String(50), nullable=False),
@@ -670,7 +720,8 @@ def upgrade() -> None:
     )
 
     # report_output
-    op.create_table('report_output',
+    if not _table_exists_mig('report_output'):
+        op.create_table('report_output',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('report_definition_id', UUID(as_uuid=True), nullable=False),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
@@ -687,7 +738,8 @@ def upgrade() -> None:
     )
 
     # report_schedule
-    op.create_table('report_schedule',
+    if not _table_exists_mig('report_schedule'):
+        op.create_table('report_schedule',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('report_definition_id', UUID(as_uuid=True), nullable=False),
         sa.Column('schedule_type', sa.String(20), nullable=False),
@@ -706,7 +758,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # manufacturing_work_order
-    op.create_table('manufacturing_work_order',
+    if not _table_exists_mig('manufacturing_work_order'):
+        op.create_table('manufacturing_work_order',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('work_order_number', sa.String(50), nullable=False),
@@ -730,7 +783,8 @@ def upgrade() -> None:
     )
 
     # manufacturing_cost_card
-    op.create_table('manufacturing_cost_card',
+    if not _table_exists_mig('manufacturing_cost_card'):
+        op.create_table('manufacturing_cost_card',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('work_order_id', UUID(as_uuid=True), nullable=False),
         sa.Column('product_id', UUID(as_uuid=True), nullable=False),
@@ -749,7 +803,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # sales_invoice
-    op.create_table('sales_invoice',
+    if not _table_exists_mig('sales_invoice'):
+        op.create_table('sales_invoice',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('invoice_number', sa.String(50), nullable=False),
@@ -779,7 +834,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # bank_reconciliations
-    op.create_table('bank_reconciliations',
+    if not _table_exists_mig('bank_reconciliations'):
+        op.create_table('bank_reconciliations',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('bank_account_id', UUID(as_uuid=True), nullable=False),
@@ -797,7 +853,8 @@ def upgrade() -> None:
     )
 
     # bank_reconciliation_items
-    op.create_table('bank_reconciliation_items',
+    if not _table_exists_mig('bank_reconciliation_items'):
+        op.create_table('bank_reconciliation_items',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('reconciliation_id', UUID(as_uuid=True), nullable=False),
         sa.Column('transaction_id', UUID(as_uuid=True), nullable=False),
@@ -815,7 +872,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # approval_request
-    op.create_table('approval_request',
+    if not _table_exists_mig('approval_request'):
+        op.create_table('approval_request',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('entity_type', sa.String(50), nullable=False),
@@ -836,7 +894,8 @@ def upgrade() -> None:
     )
 
     # approval_rule
-    op.create_table('approval_rule',
+    if not _table_exists_mig('approval_rule'):
+        op.create_table('approval_rule',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('entity_type', sa.String(50), nullable=False),
@@ -855,7 +914,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # projection_checkpoint
-    op.create_table('projection_checkpoint',
+    if not _table_exists_mig('projection_checkpoint'):
+        op.create_table('projection_checkpoint',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('projection_name', sa.String(100), nullable=False),
         sa.Column('last_position', sa.BigInteger(), nullable=False),
@@ -869,7 +929,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # general_ledger
-    op.create_table('general_ledger',
+    if not _table_exists_mig('general_ledger'):
+        op.create_table('general_ledger',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('account_id', UUID(as_uuid=True), nullable=False),
@@ -888,7 +949,8 @@ def upgrade() -> None:
     )
 
     # ledger_entry
-    op.create_table('ledger_entry',
+    if not _table_exists_mig('ledger_entry'):
+        op.create_table('ledger_entry',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('journal_id', UUID(as_uuid=True), nullable=False),
@@ -909,7 +971,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # aml_risk_score
-    op.create_table('aml_risk_score',
+    if not _table_exists_mig('aml_risk_score'):
+        op.create_table('aml_risk_score',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('entity_type', sa.String(50), nullable=False),
@@ -926,7 +989,8 @@ def upgrade() -> None:
     )
 
     # aml_suspicious_transaction
-    op.create_table('aml_suspicious_transaction',
+    if not _table_exists_mig('aml_suspicious_transaction'):
+        op.create_table('aml_suspicious_transaction',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('transaction_id', UUID(as_uuid=True), nullable=False),
@@ -947,7 +1011,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # umkm_profile
-    op.create_table('umkm_profile',
+    if not _table_exists_mig('umkm_profile'):
+        op.create_table('umkm_profile',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('business_name', sa.String(200), nullable=False),
@@ -968,7 +1033,8 @@ def upgrade() -> None:
     )
 
     # umkm_transaction
-    op.create_table('umkm_transaction',
+    if not _table_exists_mig('umkm_transaction'):
+        op.create_table('umkm_transaction',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('umkm_profile_id', UUID(as_uuid=True), nullable=False),
@@ -989,7 +1055,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # saga_state
-    op.create_table('saga_state',
+    if not _table_exists_mig('saga_state'):
+        op.create_table('saga_state',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('saga_id', UUID(as_uuid=True), nullable=False),
         sa.Column('saga_type', sa.String(100), nullable=False),
@@ -1008,7 +1075,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # exchange_rate
-    op.create_table('exchange_rate',
+    if not _table_exists_mig('exchange_rate'):
+        op.create_table('exchange_rate',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('currency_from', sa.String(3), nullable=False),
@@ -1027,7 +1095,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # asset_categories
-    op.create_table('asset_categories',
+    if not _table_exists_mig('asset_categories'):
+        op.create_table('asset_categories',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('category_code', sa.String(50), nullable=False),
@@ -1048,7 +1117,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # goods_receipt_note_lines
-    op.create_table('goods_receipt_note_lines',
+    if not _table_exists_mig('goods_receipt_note_lines'):
+        op.create_table('goods_receipt_note_lines',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('goods_receipt_note_id', UUID(as_uuid=True), nullable=False),
         sa.Column('purchase_order_line_id', UUID(as_uuid=True), nullable=True),
@@ -1074,7 +1144,8 @@ def upgrade() -> None:
     # ========================================================================
 
     # payslip
-    op.create_table('payslip',
+    if not _table_exists_mig('payslip'):
+        op.create_table('payslip',
         sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
         sa.Column('legal_entity_id', UUID(as_uuid=True), nullable=False),
         sa.Column('employee_id', UUID(as_uuid=True), nullable=False),

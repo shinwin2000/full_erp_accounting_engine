@@ -4,10 +4,9 @@ from __future__ import annotations
 app/main.py
 ===========
 Sovereign ERP Accounting Engine — FastAPI Entry Point
-REAL MODE: Kafka, MinIO, Jaeger enabled by default (unless .env overrides).
-No mocks, no fallbacks. All services must be available at startup.
-
-SECURITY: No hardcoded secrets. All credentials from environment variables.
+REAL MODE with graceful degradation: Kafka, MinIO, Jaeger are optional.
+PostgreSQL and Redis are mandatory (core infrastructure).
+All credentials from environment variables.
 """
 
 import logging
@@ -21,7 +20,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import redis.asyncio as aioredis
-from aiokafka import AIOKafkaProducer
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -215,20 +213,25 @@ JOURNAL_POST_TOTAL = Counter(
 
 
 # ============================================================
-# OPENTELEMETRY
+# OPENTELEMETRY (Graceful)
 # ============================================================
 def _setup_tracing() -> None:
     if not settings.enable_jaeger:
         logger.info("Tracing disabled (ENABLE_JAEGER=false)")
         return
-    resource = Resource(attributes={SERVICE_NAME: "erp-accounting-engine"})
-    provider = TracerProvider(resource=resource)
-    otlp_endpoint = f"http://{settings.jaeger_host}:{settings.jaeger_otlp_port}"
-    exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
-    provider.add_span_processor(BatchSpanProcessor(exporter))
-    trace.set_tracer_provider(provider)
-    RedisInstrumentor().instrument()
-    logger.info(f"OpenTelemetry → Jaeger OTLP @ {otlp_endpoint}")
+    try:
+        resource = Resource(attributes={SERVICE_NAME: "erp-accounting-engine"})
+        provider = TracerProvider(resource=resource)
+        otlp_endpoint = f"http://{settings.jaeger_host}:{settings.jaeger_otlp_port}"
+        exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+        trace.set_tracer_provider(provider)
+        RedisInstrumentor().instrument()
+        logger.info(f"OpenTelemetry → Jaeger OTLP @ {otlp_endpoint}")
+    except Exception as e:
+        logger.warning(f"Failed to setup OpenTelemetry (Jaeger): {e}. Tracing disabled.")
+        # Set dummy tracer provider to avoid errors
+        trace.set_tracer_provider(TracerProvider(resource=Resource(attributes={})))
 
 
 # ============================================================
@@ -276,33 +279,129 @@ def get_redis() -> Redis:
 
 
 # ============================================================
-# KAFKA
+# KAFKA (Graceful - optional)
 # ============================================================
-_kafka_producer: AIOKafkaProducer | None = None
+_kafka_producer = None
+_kafka_available = False
 
 
-def get_kafka_producer() -> AIOKafkaProducer:
+def get_kafka_producer():
     if _kafka_producer is None:
         raise RuntimeError("Kafka producer not initialized")
     return _kafka_producer
 
 
+def is_kafka_available() -> bool:
+    return _kafka_available
+
+
 async def kafka_publish(topic: str, value: bytes, key: bytes | None = None) -> None:
+    if not _kafka_available:
+        logger.warning(f"Kafka not available, message to {topic} dropped")
+        return
     producer = get_kafka_producer()
     await producer.send_and_wait(topic, value=value, key=key)
     KAFKA_PUBLISH_TOTAL.labels(topic=topic).inc()
 
 
+async def _init_kafka() -> None:
+    global _kafka_producer, _kafka_available
+    if not settings.enable_kafka:
+        logger.info("Kafka disabled by configuration (ENABLE_KAFKA=false)")
+        _kafka_available = False
+        return
+
+    try:
+        from aiokafka import AIOKafkaProducer
+        logger.info(f"Connecting to Kafka @ {settings.kafka_bootstrap_servers} ...")
+        _kafka_producer = AIOKafkaProducer(
+            bootstrap_servers=settings.kafka_bootstrap_servers,
+            client_id=settings.kafka_client_id,
+            acks="all",
+            enable_idempotence=True,
+            compression_type="gzip",
+            max_batch_size=65536,
+            linger_ms=5,
+            request_timeout_ms=30_000,
+            retry_backoff_ms=500,
+        )
+        await _kafka_producer.start()
+        _kafka_available = True
+        logger.info("Kafka producer started ✓")
+    except Exception as e:
+        logger.warning(f"Failed to start Kafka producer: {e}. Kafka will be disabled.")
+        # Tutup producer jika sudah terlanjur dibuat
+        if _kafka_producer is not None:
+            try:
+                await _kafka_producer.stop()
+            except Exception:
+                pass
+        _kafka_producer = None
+        _kafka_available = False
+
+
+async def _stop_kafka() -> None:
+    global _kafka_producer, _kafka_available
+    if _kafka_producer is not None:
+        try:
+            await _kafka_producer.stop()
+            logger.info("Kafka producer stopped")
+        except Exception as e:
+            logger.error(f"Error stopping Kafka producer: {e}")
+    _kafka_producer = None
+    _kafka_available = False
+
+
 # ============================================================
-# MINIO
+# MINIO (Graceful - optional)
 # ============================================================
 _minio_client: Minio | None = None
+_minio_available = False
 
 
 def get_minio() -> Minio:
     if _minio_client is None:
         raise RuntimeError("MinIO client not initialized")
     return _minio_client
+
+
+def is_minio_available() -> bool:
+    return _minio_available
+
+
+async def _init_minio() -> None:
+    global _minio_client, _minio_available
+    if not settings.enable_minio:
+        logger.info("MinIO disabled by configuration (ENABLE_MINIO=false)")
+        _minio_available = False
+        return
+
+    minio_access = settings.minio_access_key.get_secret_value()
+    minio_secret = settings.minio_secret_key.get_secret_value()
+    if not minio_access or not minio_secret:
+        logger.warning("MinIO credentials missing. MinIO will be disabled.")
+        _minio_available = False
+        return
+
+    try:
+        logger.info(f"Connecting to MinIO @ {settings.minio_endpoint} ...")
+        _minio_client = Minio(
+            settings.minio_endpoint,
+            access_key=minio_access,
+            secret_key=minio_secret,
+            secure=settings.minio_secure,
+        )
+        bucket = settings.minio_bucket
+        if not _minio_client.bucket_exists(bucket):
+            _minio_client.make_bucket(bucket)
+            logger.info(f"MinIO bucket '{bucket}' created ✓")
+        else:
+            logger.info(f"MinIO bucket '{bucket}' exists ✓")
+        _minio_available = True
+    except Exception as e:
+        logger.warning(f"Failed to initialize MinIO: {e}. MinIO will be disabled.")
+        _minio_client = None
+        _minio_available = False
 
 
 # ============================================================
@@ -331,76 +430,48 @@ class AppWrapper:
 # ============================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    # 1. OpenTelemetry
+    # 1. OpenTelemetry (graceful)
     _setup_tracing()
-    SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
-    logger.info("OpenTelemetry configured ✓")
+    try:
+        SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
+        logger.info("OpenTelemetry configured ✓")
+    except Exception as e:
+        logger.warning(f"OpenTelemetry SQLAlchemy instrumentation failed: {e}")
 
-    # 2. PostgreSQL
+    # 2. PostgreSQL (mandatory)
     logger.info("Connecting to PostgreSQL...")
-    async with engine.connect() as conn:
-        result = await conn.execute(sa_text("SELECT version()"))
-        pg_version = result.scalar()
-    logger.info(f"PostgreSQL connected ✓  {str(pg_version)[:80]}")
-    DB_POOL_CHECKEDOUT.set(engine.pool.checkedout())
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(sa_text("SELECT version()"))
+            pg_version = result.scalar()
+        logger.info(f"PostgreSQL connected ✓  {str(pg_version)[:80]}")
+        DB_POOL_CHECKEDOUT.set(engine.pool.checkedout())
+    except Exception as e:
+        logger.error(f"PostgreSQL connection failed: {e}")
+        raise RuntimeError("PostgreSQL is required but not available") from e
 
-    # 3. Redis
+    # 3. Redis (mandatory)
     global _redis_client
     logger.info(f"Connecting to Redis @ {settings.redis_url} ...")
-    _redis_client = aioredis.from_url(
-        settings.redis_url,
-        socket_timeout=5.0,
-        socket_connect_timeout=5.0,
-        max_connections=50,
-        decode_responses=False,
-    )
-    await _redis_client.ping()
-    logger.info("Redis connected ✓")
-
-    # 4. Kafka
-    if settings.enable_kafka:
-        global _kafka_producer
-        logger.info(f"Starting Kafka producer @ {settings.kafka_bootstrap_servers} ...")
-        _kafka_producer = AIOKafkaProducer(
-            bootstrap_servers=settings.kafka_bootstrap_servers,
-            client_id=settings.kafka_client_id,
-            acks="all",
-            enable_idempotence=True,
-            compression_type="gzip",
-            max_batch_size=65536,
-            linger_ms=5,
-            request_timeout_ms=30_000,
-            retry_backoff_ms=500,
+    try:
+        _redis_client = aioredis.from_url(
+            settings.redis_url,
+            socket_timeout=5.0,
+            socket_connect_timeout=5.0,
+            max_connections=50,
+            decode_responses=False,
         )
-        await _kafka_producer.start()
-        logger.info("Kafka producer started ✓")
-    else:
-        logger.warning("Kafka disabled (ENABLE_KAFKA=false). Outbox will not work.")
+        await _redis_client.ping()
+        logger.info("Redis connected ✓")
+    except Exception as e:
+        logger.error(f"Redis connection failed: {e}")
+        raise RuntimeError("Redis is required but not available") from e
 
-    # 5. MinIO
-    if settings.enable_minio:
-        global _minio_client
-        minio_access = settings.minio_access_key.get_secret_value()
-        minio_secret = settings.minio_secret_key.get_secret_value()
-        if not minio_access or not minio_secret:
-            raise RuntimeError(
-                "MinIO credentials missing. Set MINIO_ACCESS_KEY and MINIO_SECRET_KEY."
-            )
-        logger.info(f"Connecting to MinIO @ {settings.minio_endpoint} ...")
-        _minio_client = Minio(
-            settings.minio_endpoint,
-            access_key=minio_access,
-            secret_key=minio_secret,
-            secure=settings.minio_secure,
-        )
-        bucket = settings.minio_bucket
-        if not _minio_client.bucket_exists(bucket):
-            _minio_client.make_bucket(bucket)
-            logger.info(f"MinIO bucket '{bucket}' created ✓")
-        else:
-            logger.info(f"MinIO bucket '{bucket}' exists ✓")
-    else:
-        logger.warning("MinIO disabled (ENABLE_MINIO=false). Evidence storage will not work.")
+    # 4. Kafka (graceful)
+    await _init_kafka()
+
+    # 5. MinIO (graceful)
+    await _init_minio()
 
     # 6. IoC Container
     app.state.container = get_container()
@@ -408,10 +479,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     docs_url = f"http://localhost:{settings.port}/docs"
     logger.info("=" * 60)
-    logger.info("🚀 ERP Accounting Engine READY (REAL MODE)")
+    logger.info("🚀 ERP Accounting Engine READY")
     logger.info(f"   ENV={settings.app_env}  LOG={settings.log_level}")
     logger.info(
-        f"   Kafka={settings.enable_kafka}  MinIO={settings.enable_minio}  Jaeger={settings.enable_jaeger}"
+        f"   Kafka={'✓' if _kafka_available else '✗'}  "
+        f"MinIO={'✓' if _minio_available else '✗'}  "
+        f"Jaeger={settings.enable_jaeger}"
     )
     logger.info(f"   Docs: {docs_url}")
     logger.info("=" * 60)
@@ -420,9 +493,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Shutdown
     logger.info("Shutting down...")
-    if _kafka_producer:
-        await _kafka_producer.stop()
-        logger.info("Kafka producer stopped")
+    await _stop_kafka()
     if _redis_client:
         await _redis_client.aclose()
         logger.info("Redis closed")
@@ -509,7 +580,7 @@ def _build_internal_router() -> APIRouter:
         except Exception as exc:
             result["components"]["redis"] = {"status": "disconnected", "error": str(exc)}
             result["status"] = "degraded"
-        if settings.enable_kafka:
+        if _kafka_available:
             try:
                 producer = get_kafka_producer()
                 await producer.client.force_metadata_update()
@@ -519,7 +590,7 @@ def _build_internal_router() -> APIRouter:
                 result["status"] = "degraded"
         else:
             result["components"]["kafka"] = {"status": "disabled"}
-        if settings.enable_minio:
+        if _minio_available:
             try:
                 exists = get_minio().bucket_exists(settings.minio_bucket)
                 result["components"]["minio"] = {
@@ -716,7 +787,11 @@ def create_app() -> FastAPI:
     _app.include_router(_unversioned_router)
     _register_v1_routers(_app)
 
-    FastAPIInstrumentor.instrument_app(_app)
+    try:
+        FastAPIInstrumentor.instrument_app(_app)
+    except Exception as e:
+        logger.warning(f"Failed to instrument app with OpenTelemetry: {e}")
+
     return _app
 
 
@@ -733,7 +808,6 @@ app = AppWrapper(_fastapi_app)
 if __name__ == "__main__":
     import uvicorn
 
-    # Jalankan dengan FastAPI instance asli (bukan wrapper)
     uvicorn.run(
         _fastapi_app,
         host="0.0.0.0",

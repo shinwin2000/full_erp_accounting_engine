@@ -1,147 +1,154 @@
+--- .gitignore (原始)
 # ============================================================
-# .gitignore — ERP Accounting Engine
+# PYTHON
 # ============================================================
 
-# ── Python ───────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
-eggs/
-parts/
-var/
-sdist/
-develop-eggs/
-.installed.cfg
-lib/
-lib64/
-MANIFEST
 
-# ── Virtual Environments ─────────────────────────────────────
+# ============================================================
+# VIRTUAL ENVIRONMENT
+# ============================================================
+
 .venv/
 venv/
 env/
 ENV/
-.env.local
-.env.*.local
 
-# ── Environment & Secrets (JANGAN PERNAH COMMIT!) ────────────
-.env
-.env.production
-.env.staging
-.env.development
-*.pem
-*.key
-*.p12
-*.pfx
-*.jks
-secrets/
-vault_token
+# ============================================================
+# TESTING
+# ============================================================
 
-# ── Test & Coverage ──────────────────────────────────────────
 .pytest_cache/
 .coverage
-coverage.xml
 htmlcov/
 .tox/
-nosetests.xml
-test-results/
-junit*.xml
+.nox/
 
-# ── Type Checking ────────────────────────────────────────────
+# ============================================================
+# TYPE CHECKERS
+# ============================================================
+
 .mypy_cache/
-.dmypy.json
-dmypy.json
 .pyre/
 .pytype/
 
-# ── Linting & Formatting ─────────────────────────────────────
-.ruff_cache/
-.flake8
+# ============================================================
+# LINTERS
+# ============================================================
 
-# ── IDE / Editor ─────────────────────────────────────────────
+.ruff_cache/
+
+# ============================================================
+# BUILD ARTIFACTS
+# ============================================================
+
+build/
+dist/
+site/
+
+*.egg
+*.egg-info/
+
+pip-wheel-metadata/
+
+# ============================================================
+# LOG FILES
+# ============================================================
+
+*.log
+logs/*.log
+
+# ============================================================
+# DATABASE
+# ============================================================
+
+*.sqlite
+*.sqlite3
+
+# ============================================================
+# BACKUPS
+# ============================================================
+
+*.bak
+*.backup
+*.old
+*.orig
+
+# ============================================================
+# OS FILES
+# ============================================================
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================================
+# IDE
+# ============================================================
+
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-.DS_Store
-Thumbs.db
-.project
-.classpath
-.settings/
-*.iml
-*.ipr
-*.iws
 
-# ── Docker ───────────────────────────────────────────────────
-.dockerignore.local
+# ============================================================
+# AUDIT OUTPUT
+# ============================================================
 
-# ── Logs ─────────────────────────────────────────────────────
-*.log
-logs/
-*.log.*
+audit.txt
+audit.log
+checker.log
 
-# ── Database ─────────────────────────────────────────────────
-*.db
-*.sqlite3
-*.sqlite
-dump.sql
-*.dump
+# ============================================================
+# SECURITY SCAN OUTPUT
+# ============================================================
 
-# ── Alembic Generated ────────────────────────────────────────
-# Versi migrasi dibuat otomatis tetap di-track, tapi bukan ini
-migrations/versions/__pycache__/
+bandit-report.json
+safety-report.json
 
-# ── Dokumentasi Build ────────────────────────────────────────
-site/
-docs/_build/
+# ============================================================
+# TEMP FILES
+# ============================================================
 
-# ── Report Artifacts ─────────────────────────────────────────
-reports/generated/
-*.pdf
-*.xlsx
-!docs/**/*.pdf
-
-# ── Jupyter ──────────────────────────────────────────────────
-.ipynb_checkpoints/
-*.ipynb
-
-# ── Profiling ────────────────────────────────────────────────
-*.prof
-*.lprof
-memray-*.bin
-
-# ── OS ───────────────────────────────────────────────────────
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-Desktop.ini
-
-# ── Terraform ────────────────────────────────────────────────
-deployment/terraform/.terraform/
-deployment/terraform/*.tfstate
-deployment/terraform/*.tfstate.backup
-deployment/terraform/.terraform.lock.hcl
-
-# ── Helm ─────────────────────────────────────────────────────
-deployment/helm/**/*.tgz
-
-# ── Local Config Override ────────────────────────────────────
-config_files/local_*.yaml
-config_files/*.local.yaml
-
-# ── Temporary ────────────────────────────────────────────────
 tmp/
 temp/
-*.tmp
-*.bak
-*.orig
+
+# ============================================================
+# JUPYTER
+# ============================================================
+
+.ipynb_checkpoints/
+
+# ============================================================
+# PYTHON VERSION
+# ============================================================
+
+.python-version
+
+# ============================================================
+# LOCAL ENVIRONMENT
+# ============================================================
+
+.env
+.env.*
+
++++ .gitignore (修改后)
+```gitignore
+# Python compiled files
+*.pyc
+__pycache__/
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+*.env.*
+
+# Dependencies (if any virtual env directories are present)
+venv/
+.venv/
+.env/
+```

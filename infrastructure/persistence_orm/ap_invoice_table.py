@@ -71,7 +71,7 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_ap_invoice_grn", "goods_receipt_note_id"),
         Index("idx_ap_invoice_3way_status", "three_way_match_status"),
         Index("idx_ap_invoice_vendor_number", "invoice_number_vendor"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -83,7 +83,7 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # Foreign key ke supplier (dengan skema public)
     vendor_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.supplier.id", ondelete="RESTRICT"),
+        ForeignKey("supplier.id", ondelete="RESTRICT"),
         nullable=False,
     )
 
@@ -99,12 +99,12 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # Foreign keys dengan skema public
     purchase_order_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.purchase_order.id", ondelete="SET NULL"),
+        ForeignKey("purchase_order.id", ondelete="SET NULL"),
         nullable=True,
     )
     goods_receipt_note_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.goods_receipt_note.id", ondelete="SET NULL"),
+        ForeignKey("goods_receipt_note.id", ondelete="SET NULL"),
         nullable=True,
     )
 
@@ -159,7 +159,7 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     )
 
     # =========================================================================
-    # Bupots (Coretax) – ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
+    # Bupots (Coretax) ï¿½ ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
     # =========================================================================
     bupots: Mapped[list["CoretaxBupotTable"]] = relationship(
         "CoretaxBupotTable",

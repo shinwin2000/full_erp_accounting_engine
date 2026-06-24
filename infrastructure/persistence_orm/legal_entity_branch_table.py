@@ -7,13 +7,15 @@ Responsibility: SQLAlchemy ORM model untuk tabel legal_entity_branch.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import uuid
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import Base
 
@@ -23,13 +25,13 @@ class LegalEntityBranchTable(Base):
     __table_args__ = (
         Index("idx_leb_parent", "parent_entity_id"),
         Index("idx_leb_code", "branch_code"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     parent_entity_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.legal_entity.id", ondelete="CASCADE"),
+        ForeignKey("legal_entity.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -49,9 +51,11 @@ class LegalEntityBranchTable(Base):
 
     # =========================================================================
     # RELATIONSHIP
-    # parent_entity disediakan oleh backref dari LegalEntityTable.branches
-    # Tidak perlu mendefinisikan relationship di sini.
-    # =========================================================================
+    # parent_entity: explicit relationship with back_populates
+    parent_entity: Mapped["LegalEntityTable"] = relationship(
+        "LegalEntityTable",
+        back_populates="branches",
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -43,7 +43,7 @@ class ARPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_ar_payment_date", "payment_date"),
         Index("idx_ar_payment_status", "status"),
         Index("idx_ar_payment_legal_entity", "legal_entity_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -51,7 +51,7 @@ class ARPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
     invoice_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.ar_invoice.id", ondelete="CASCADE"),
+        ForeignKey("ar_invoice.id", ondelete="CASCADE"),
         nullable=False,
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False)

@@ -58,7 +58,7 @@ class TimeEntryTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         Index("idx_time_entry_status", "status"),
         Index("idx_time_entry_legal_entity", "legal_entity_id"),
         Index("idx_time_entry_approved_by", "approved_by"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -66,12 +66,12 @@ class TimeEntryTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # Employee and project
     employee_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.employee.id", ondelete="RESTRICT"),
+        ForeignKey("employee.id", ondelete="RESTRICT"),
         nullable=False,
     )
     project_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.project.id", ondelete="SET NULL"),
+        ForeignKey("project.id", ondelete="SET NULL"),
         nullable=True,
     )
     work_order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)

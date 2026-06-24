@@ -84,7 +84,7 @@ class SupplierTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
         Index("idx_supplier_legal_entity", "legal_entity_id"),
         Index("idx_supplier_category", "category"),
         Index("idx_supplier_withholding", "withholding_category"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

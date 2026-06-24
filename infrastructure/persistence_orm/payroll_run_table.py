@@ -46,7 +46,7 @@ class PayrollRunTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
         Index("idx_payroll_run_period", "period_year", "period_month"),
         Index("idx_payroll_run_status", "status"),
         Index("idx_payroll_run_number", "run_number"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

@@ -61,7 +61,7 @@ class FiscalPeriodTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         Index("idx_fiscal_period_dates", "start_date", "end_date"),
         Index("idx_fiscal_period_status", "status"),
         Index("idx_fiscal_period_year", "fiscal_year"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     # Period identification
@@ -96,7 +96,7 @@ class FiscalPeriodTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     # Relationship to JournalHeaderTable is REMOVED because there is no
     # foreign key in journal_header referencing fiscal_period.id.
     # To add it later, ensure JournalHeaderTable has a period_id column
-    # with ForeignKey("public.fiscal_period.id") and define the relationship
+    # with ForeignKey("fiscal_period.id") and define the relationship
     # there with back_populates="period".
     # ========================================================================
 

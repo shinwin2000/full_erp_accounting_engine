@@ -77,7 +77,7 @@ class InventoryItemTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         Index("idx_inventory_item_valuation", "valuation_method"),
         Index("idx_inventory_item_stock_status", "current_stock", "reorder_point"),
         Index("idx_inventory_item_is_active", "is_active"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -118,7 +118,7 @@ class InventoryItemTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     # Warehouse (foreign key with schema)
     warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.warehouse.id", ondelete="SET NULL"),
+        ForeignKey("warehouse.id", ondelete="SET NULL"),
         nullable=True,
     )
 

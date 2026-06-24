@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from sqlalchemy import inspect, text
 from calendar import monthrange
 
-revision: str = '0037'
-down_revision = '0036'
+revision: str = '0037abcd'
+down_revision = '0036abcd'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -64,6 +64,10 @@ def upgrade() -> None:
     if _is_dry_run(bind):
         print("Dry-run: skipping seed data for 0037")
         return
+
+    # Bypass RLS for seed data (superuser context)
+    bind.execute(text("SET LOCAL row_security = off"))
+    bind.execute(text("SET LOCAL app.is_superuser = 'true'"))
 
     # Seed legal entity
     if _table_exists('legal_entity'):

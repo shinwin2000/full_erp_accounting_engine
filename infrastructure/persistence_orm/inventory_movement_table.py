@@ -66,7 +66,7 @@ class InventoryMovementTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
         Index("idx_inventory_movement_reference", "reference_type", "reference_id"),
         Index("idx_inventory_movement_batch", "batch_number"),
         Index("idx_inventory_movement_legal_entity", "legal_entity_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -77,7 +77,7 @@ class InventoryMovementTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
     # Foreign key ke inventory_item (tanpa relasi, karena backref dari InventoryItemTable)
     item_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.inventory_item.id", ondelete="CASCADE"),
+        ForeignKey("inventory_item.id", ondelete="CASCADE"),
         nullable=False,
     )
 
@@ -96,12 +96,12 @@ class InventoryMovementTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
     # Foreign keys to warehouse
     warehouse_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.warehouse.id", ondelete="CASCADE"),
+        ForeignKey("warehouse.id", ondelete="CASCADE"),
         nullable=False,
     )
     to_warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.warehouse.id", ondelete="CASCADE"),
+        ForeignKey("warehouse.id", ondelete="CASCADE"),
         nullable=True,
     )
 

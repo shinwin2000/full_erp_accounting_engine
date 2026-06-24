@@ -60,7 +60,7 @@ class APCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         Index("idx_ap_credit_note_invoice", "invoice_id"),
         Index("idx_ap_credit_note_date", "credit_note_date"),
         Index("idx_ap_credit_note_status", "status"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -70,7 +70,7 @@ class APCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
 
     invoice_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.ap_invoice.id", ondelete="RESTRICT"),
+        ForeignKey("ap_invoice.id", ondelete="RESTRICT"),
         nullable=False,
     )
 

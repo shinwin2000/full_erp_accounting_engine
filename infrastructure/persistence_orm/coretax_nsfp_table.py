@@ -51,7 +51,7 @@ class CoretaxNSFPTable(Base, UUIDMixin, TimestampMixin):
         UniqueConstraint(
             "legal_entity_id", "start_number", name="uq_nsfp_legal_start"
         ),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -69,7 +69,7 @@ class CoretaxNSFPTable(Base, UUIDMixin, TimestampMixin):
     expiry_date: Mapped[date | None] = mapped_column(Date)
     legal_entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.legal_entity.id", ondelete="CASCADE"),
+        ForeignKey("legal_entity.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -80,14 +80,6 @@ class CoretaxNSFPTable(Base, UUIDMixin, TimestampMixin):
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancellation_reason: Mapped[str | None] = mapped_column(String(200))
 
-    # =========================================================================
-    # RELATIONSHIPS DIHAPUS – navigasi ke LegalEntityTable disediakan oleh backref
-    # dari LegalEntityTable.nsfp_ranges (backref="legal_entity").
-    # =========================================================================
-
-    # =========================================================================
-    # PROPERTIES
-    # =========================================================================
     @property
     def remaining(self) -> int:
         return self.end_number - self.current_number

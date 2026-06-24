@@ -10,8 +10,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = '0010'
-down_revision: Union[str, None] = '0009'
+revision: str = '0010abcd'
+down_revision: Union[str, None] = '0009abcd'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -81,29 +81,30 @@ def upgrade() -> None:
         $$ LANGUAGE plpgsql
     """)
 
-    # Create triggers - SPLIT: DROP dan CREATE harus terpisah
-    op.execute("DROP TRIGGER IF EXISTS trigger_prevent_update ON event_store")
+    # Create triggers on event_store only if table exists (created in migration 0030)
     op.execute("""
-        CREATE TRIGGER trigger_prevent_update
-            BEFORE UPDATE ON event_store
-            FOR EACH ROW
-            EXECUTE FUNCTION prevent_event_store_modification()
-    """)
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'event_store' AND table_schema = 'public') THEN
+                DROP TRIGGER IF EXISTS trigger_prevent_update ON event_store;
+                CREATE TRIGGER trigger_prevent_update
+                    BEFORE UPDATE ON event_store
+                    FOR EACH ROW
+                    EXECUTE FUNCTION prevent_event_store_modification();
 
-    op.execute("DROP TRIGGER IF EXISTS trigger_prevent_delete ON event_store")
-    op.execute("""
-        CREATE TRIGGER trigger_prevent_delete
-            BEFORE DELETE ON event_store
-            FOR EACH ROW
-            EXECUTE FUNCTION prevent_event_store_modification()
-    """)
+                DROP TRIGGER IF EXISTS trigger_prevent_delete ON event_store;
+                CREATE TRIGGER trigger_prevent_delete
+                    BEFORE DELETE ON event_store
+                    FOR EACH ROW
+                    EXECUTE FUNCTION prevent_event_store_modification();
 
-    op.execute("DROP TRIGGER IF EXISTS trigger_log_modification ON event_store")
-    op.execute("""
-        CREATE TRIGGER trigger_log_modification
-            BEFORE UPDATE OR DELETE ON event_store
-            FOR EACH ROW
-            EXECUTE FUNCTION log_modification_attempt()
+                DROP TRIGGER IF EXISTS trigger_log_modification ON event_store;
+                CREATE TRIGGER trigger_log_modification
+                    BEFORE UPDATE OR DELETE ON event_store
+                    FOR EACH ROW
+                    EXECUTE FUNCTION log_modification_attempt();
+            END IF;
+        END $$;
     """)
 
 

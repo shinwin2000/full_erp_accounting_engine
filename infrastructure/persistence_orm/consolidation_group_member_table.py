@@ -31,7 +31,7 @@ class ConsolidationGroupMemberTable(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "consolidation_group_member"
     __table_args__ = (
         UniqueConstraint("group_id", "entity_id", name="uq_group_entity"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -39,13 +39,13 @@ class ConsolidationGroupMemberTable(Base, TimestampMixin, SoftDeleteMixin):
     # Foreign keys dengan skema public
     group_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.consolidation_group.id", ondelete="CASCADE"),
+        ForeignKey("consolidation_group.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     entity_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.legal_entity.id", ondelete="CASCADE"),
+        ForeignKey("legal_entity.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

@@ -25,7 +25,7 @@ class OutboxCheckpointTable(Base, TimestampMixin):
         CheckConstraint("relay_id IS NOT NULL AND relay_id != ''", name="ck_outbox_checkpoint_relay_id"),
         Index("idx_outbox_checkpoint_relay", "relay_id"),
         Index("idx_outbox_checkpoint_last_processed", "last_processed_at"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

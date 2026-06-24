@@ -51,18 +51,18 @@ class SalaryComponentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
         Index("idx_salary_component_employee", "employee_id"),
         Index("idx_salary_component_payroll_run", "payroll_run_id"),
         Index("idx_salary_component_type", "component_type"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     employee_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.employee.id", ondelete="CASCADE"),
+        ForeignKey("employee.id", ondelete="CASCADE"),
         nullable=False,
     )
     payroll_run_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.payroll_run.id", ondelete="CASCADE"),
+        ForeignKey("payroll_run.id", ondelete="CASCADE"),
         nullable=False,
     )
     component_name: Mapped[str] = mapped_column(String(100), nullable=False)

@@ -63,7 +63,7 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         Index("idx_po_legal_entity", "legal_entity_id"),
         Index("idx_po_expected_date", "expected_delivery_date"),
         Index("idx_po_approved_by", "approved_by"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -71,7 +71,7 @@ class PurchaseOrderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     po_date: Mapped[date] = mapped_column(Date, nullable=False)
     supplier_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.supplier.id", ondelete="RESTRICT"),
+        ForeignKey("supplier.id", ondelete="RESTRICT"),
         nullable=False,
     )
     total_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), nullable=False, default=Decimal("0.00"))
@@ -282,13 +282,13 @@ class PurchaseOrderLineTable(Base, TimestampMixin):
         CheckConstraint("unit_price >= 0", name="ck_po_line_unit_price_nonneg"),
         Index("idx_po_line_po", "po_id"),
         Index("idx_po_line_product", "product_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     po_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.purchase_order.id", ondelete="CASCADE"),
+        ForeignKey("purchase_order.id", ondelete="CASCADE"),
         nullable=False,
     )
     line_number: Mapped[int] = mapped_column(nullable=False)

@@ -15,6 +15,9 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Alembic imports
 from alembic import context
 
@@ -107,10 +110,31 @@ if target_metadata is not None:
         "infrastructure.persistence_orm.work_order_table",
     ]
     for mod in orm_modules:
-        try:
-            importlib.import_module(mod)
-        except ImportError:
-            pass
+        # Menghapus safe-import siling agar traceback asli muncul secara transparan saat terjadi eror
+        importlib.import_module(mod)
+
+
+# ============================================================================
+# OBJECT FILTER HOOK (Mencegah modifikasi tabel & indeks partisi dinamis)
+# ============================================================================
+
+def include_object(object, name, type_, reflected, compare_to):
+    """Filter out dynamically generated child partition tables and their indexes."""
+    if type_ == "table":
+        # Abaikan tabel anak dari klaster ledger atau journal terpartisi
+        if ("ledger_entry_" in name and name != "ledger_entry_partitioned") or \
+           ("journal_line_" in name and name != "journal_line_partitioned"):
+            return False
+    elif type_ == "index":
+        # Abaikan indeks yang melekat pada partisi dinamis berdasarkan nama indeks atau relasi tabel
+        if name and ("ledger_entry_20" in name or "journal_line_20" in name):
+            return False
+        if hasattr(object, "table") and object.table is not None:
+            tname = object.table.name
+            if ("ledger_entry_" in tname and tname != "ledger_entry_partitioned") or \
+               ("journal_line_" in tname and tname != "journal_line_partitioned"):
+                return False
+    return True
 
 
 # ============================================================================
@@ -128,6 +152,7 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
         compare_server_default=True,
+        include_object=include_object,  # Pemasangan filter pada offline context
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -140,6 +165,7 @@ def do_run_migrations(connection: Connection) -> None:
         target_metadata=target_metadata,
         compare_type=True,
         compare_server_default=True,
+        include_object=include_object,  # Pemasangan filter pada online context
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -168,8 +194,7 @@ def run_migrations_online() -> None:
 # ============================================================================
 
 # Alembic sets 'context' environment only when running migrations.
-# We check if context has the required attributes before proceeding.
-if hasattr(context, 'config') and context.config is not None:
+if hasattr(context, "config") and context.config is not None:
     # Override database URL from environment if needed
     db_url = os.environ.get("DATABASE_URL")
     if db_url:

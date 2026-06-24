@@ -30,7 +30,7 @@ class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "consolidation_group"
     __table_args__ = (
         Index("idx_cons_group_name", "group_name", unique=True),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -40,7 +40,7 @@ class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
     # =========================================================================
-    # RELATIONSHIPS – menggunakan string reference
+    # RELATIONSHIPS ï¿½ menggunakan string reference
     # =========================================================================
     members: Mapped[list["ConsolidationGroupMemberTable"]] = relationship(
         "ConsolidationGroupMemberTable",

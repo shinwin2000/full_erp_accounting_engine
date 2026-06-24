@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,40 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # ENUMS & DATA CLASSES (shared between port and implementations)
 # ============================================================================
+
+class TaxSubmissionType(str, Enum):
+    """Jenis submission ke Coretax DJP."""
+    SPT_MASA_PPN = "spt_masa_ppn"
+    SPT_MASA_PPH_21 = "spt_masa_pph21"
+    SPT_MASA_PPH_23 = "spt_masa_pph23"
+    SPT_TAHUNAN_BADAN = "spt_tahunan_badan"
+    FAKTUR_PAJAK = "faktur_pajak"
+    BUPOT = "bupot"
+    SPT_PEMBETULAN = "spt_pembetulan"
+    # Tambahkan sesuai kebutuhan
+
+
+class TaxStatus(str, Enum):
+    """Status submission di Coretax."""
+    PENDING = "pending"
+    SUBMITTED = "submitted"
+    PROCESSING = "processing"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    FAILED = "failed"
+    VOID = "void"
+
+
+@dataclass
+class SubmissionResponse:
+    """Response standar untuk submission ke Coretax."""
+    submission_id: str
+    status: TaxStatus
+    reference_number: Optional[str] = None
+    message: Optional[str] = None
+    timestamp: Optional[datetime] = None
+    additional_data: Optional[Any] = None
+
 
 class CoretaxEndpoint(Enum):
     """Endpoint Coretax DJP."""
@@ -1014,4 +1048,7 @@ __all__ = [
     "SPTPResponse",
     "SPTStatus",
     "TaxAuthorityCoretaxPort",
+    "TaxSubmissionType",     
+    "TaxStatus",              
+    "SubmissionResponse",
 ]

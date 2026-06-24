@@ -57,20 +57,20 @@ class GoodsReceiptNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin,
         Index("idx_grn_date", "receipt_date"),
         Index("idx_grn_status", "status"),
         Index("idx_grn_supplier", "supplier_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     grn_number: Mapped[str] = mapped_column(String(50), nullable=False)
     purchase_order_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.purchase_order.id", ondelete="RESTRICT"),
+        ForeignKey("purchase_order.id", ondelete="RESTRICT"),
         nullable=False,
     )
     receipt_date: Mapped[date] = mapped_column(Date, nullable=False)
     supplier_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.supplier.id", ondelete="RESTRICT"),
+        ForeignKey("supplier.id", ondelete="RESTRICT"),
         nullable=False,
     )
     supplier_name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -180,13 +180,13 @@ class GoodsReceiptNoteLineTable(Base, TimestampMixin):
         Index("idx_grn_line_grn", "grn_id"),
         Index("idx_grn_line_po_line", "purchase_order_line_id"),
         Index("idx_grn_line_product", "product_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     grn_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.goods_receipt_note.id", ondelete="CASCADE"),
+        ForeignKey("goods_receipt_note.id", ondelete="CASCADE"),
         nullable=False,
     )
     purchase_order_line_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)

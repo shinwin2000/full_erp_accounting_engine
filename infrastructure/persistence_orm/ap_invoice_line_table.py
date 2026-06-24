@@ -30,13 +30,13 @@ class APInvoiceLineTable(Base, TimestampMixin):
         CheckConstraint("amount >= 0", name="ck_ap_invoice_line_amount_nonneg"),
         Index("idx_ap_invoice_line_invoice", "invoice_id"),
         Index("idx_ap_invoice_line_account", "account_code"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     invoice_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.ap_invoice.id", ondelete="CASCADE"),
+        ForeignKey("ap_invoice.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

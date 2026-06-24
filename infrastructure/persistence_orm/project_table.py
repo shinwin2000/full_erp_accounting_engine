@@ -63,7 +63,7 @@ class ProjectTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         Index("idx_project_start_date", "start_date"),
         Index("idx_project_end_date", "end_date"),
         Index("idx_project_manager", "project_manager_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -73,7 +73,7 @@ class ProjectTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     project_name: Mapped[str] = mapped_column(String(200), nullable=False)
     customer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.customer.id", ondelete="SET NULL"),
+        ForeignKey("customer.id", ondelete="SET NULL"),
         nullable=True,
     )
     customer_name: Mapped[str | None] = mapped_column(String(200), nullable=True)

@@ -424,7 +424,7 @@ class AnomalyLoginDetector:
             try:
                 self._geoip_reader = geoip2.database.Reader("/usr/share/GeoIP/GeoLite2-City.mmdb")
             except Exception as e:
-                logger.warning(f"GeoIP database not loaded: {e}")
+                logger.warning("GeoIP database not loaded: %s", e)
 
     def _take_snapshot(self):
         self._snapshots.append(
@@ -478,7 +478,7 @@ class AnomalyLoginDetector:
     # Attempt Recording
     # ------------------------------------------------------------------------
     def _clean_old_attempts(self):
-        cutoff = datetime.utcnow() - timedelta(days=1)
+        cutoff = datetime.now(UTC) - timedelta(days=1)
         with self._lock:
             self._attempts = [a for a in self._attempts if a.timestamp > cutoff]
             for user_id in list(self._user_failures.keys()):
@@ -503,7 +503,7 @@ class AnomalyLoginDetector:
         country, city, lat, lon = self._get_location(source_ip)
         attempt = LoginAttempt(
             user_id=user_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             source_ip=source_ip,
             user_agent=user_agent,
             success=success,
@@ -526,7 +526,7 @@ class AnomalyLoginDetector:
     # Detection Rules
     # ------------------------------------------------------------------------
     def _detect_brute_force(self, user_id: str) -> AnomalyAlert | None:
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         minute_ago = now - timedelta(minutes=1)
         hour_ago = now - timedelta(hours=1)
         day_ago = now - timedelta(days=1)
@@ -553,7 +553,7 @@ class AnomalyLoginDetector:
                 if minute_failures >= self.max_failures_per_minute
                 else AnomalySeverity.HIGH,
                 description=f"Brute force detected: {reason}",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 evidence={
                     "failure_counts": {
                         "minute": minute_failures,
@@ -565,7 +565,7 @@ class AnomalyLoginDetector:
         return None
 
     def _detect_high_velocity(self, user_id: str) -> AnomalyAlert | None:
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         window_start = now - timedelta(seconds=self.velocity_window)
         with self._lock:
             total_attempts = sum(
@@ -578,7 +578,7 @@ class AnomalyLoginDetector:
                 anomaly_type=AnomalyType.HIGH_VELOCITY,
                 severity=AnomalySeverity.HIGH,
                 description=f"High login velocity: {total_attempts} attempts in {self.velocity_window}s",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 evidence={"attempts": total_attempts, "window_seconds": self.velocity_window},
             )
         return None
@@ -593,7 +593,7 @@ class AnomalyLoginDetector:
                 anomaly_type=AnomalyType.UNUSUAL_LOCATION,
                 severity=AnomalySeverity.MEDIUM,
                 description=f"Login from unusual country: {attempt.country} (IP: {attempt.source_ip})",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 evidence={"country": attempt.country, "ip": attempt.source_ip},
             )
         return None
@@ -606,7 +606,7 @@ class AnomalyLoginDetector:
                 anomaly_type=AnomalyType.UNUSUAL_DEVICE,
                 severity=AnomalySeverity.LOW,
                 description=f"Login from unknown user agent: {attempt.user_agent[:50]}",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 evidence={"user_agent": attempt.user_agent},
             )
         if (
@@ -620,7 +620,7 @@ class AnomalyLoginDetector:
                 anomaly_type=AnomalyType.UNUSUAL_DEVICE,
                 severity=AnomalySeverity.MEDIUM,
                 description="Login from unrecognized device",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 evidence={"fingerprint": attempt.device_fingerprint},
             )
         return None
@@ -634,7 +634,7 @@ class AnomalyLoginDetector:
                 anomaly_type=AnomalyType.UNUSUAL_TIME,
                 severity=AnomalySeverity.LOW,
                 description=f"Login outside normal hours: {hour}:00",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 evidence={"hour": hour},
             )
         return None
@@ -647,7 +647,7 @@ class AnomalyLoginDetector:
                 anomaly_type=AnomalyType.BLACKLISTED_IP,
                 severity=AnomalySeverity.HIGH,
                 description=f"Login from blacklisted IP: {attempt.source_ip}",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 evidence={"ip": attempt.source_ip},
             )
         return None
@@ -660,7 +660,7 @@ class AnomalyLoginDetector:
                 anomaly_type=AnomalyType.TOR_EXIT_NODE,
                 severity=AnomalySeverity.MEDIUM,
                 description=f"Login from Tor exit node: {attempt.source_ip}",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 evidence={"ip": attempt.source_ip},
             )
         return None
@@ -673,7 +673,7 @@ class AnomalyLoginDetector:
                 anomaly_type=AnomalyType.DATACENTER_IP,
                 severity=AnomalySeverity.LOW,
                 description=f"Login from datacenter IP: {attempt.source_ip}",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
                 evidence={"ip": attempt.source_ip},
             )
         return None
@@ -709,7 +709,7 @@ class AnomalyLoginDetector:
                     anomaly_type=AnomalyType.IMPOSSIBLE_TRAVEL,
                     severity=AnomalySeverity.CRITICAL,
                     description=f"Impossible travel detected: {distance:.0f} km in {time_diff:.1f} hours (speed {speed:.0f} km/h)",
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(UTC),
                     evidence={
                         "distance_km": distance,
                         "time_hours": time_diff,
@@ -771,7 +771,7 @@ class AnomalyLoginDetector:
     def pre_login_check(self, user_id: str, source_ip: str, user_agent: str) -> AnomalyAlert | None:
         temp_attempt = LoginAttempt(
             user_id=user_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             source_ip=source_ip,
             user_agent=user_agent,
             success=False,
@@ -786,7 +786,7 @@ class AnomalyLoginDetector:
     ) -> list[AnomalyAlert]:
         attempt = LoginAttempt(
             user_id=user_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             source_ip=source_ip,
             user_agent=user_agent,
             success=success,

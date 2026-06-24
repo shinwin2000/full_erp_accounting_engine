@@ -43,6 +43,9 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     require_permission,
 )
 
+# Import port yang dibutuhkan untuk adapter
+from ports.primary.report_repository_port import InventoryValuationRepositoryPort
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -541,7 +544,7 @@ class WarehouseResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_inventory_service(request: Request, ) -> Any:
+async def get_inventory_service(request: Request) -> Any:
     """Get Inventory Service instance."""
 
     from application.service_layer.service_inventory import InventoryService
@@ -1326,7 +1329,7 @@ async def create_stock_opname(
         dto = StockOpnameRequest(
             warehouse_id=request.warehouse_id,
             opname_date=request.opname_date,
-            lines=[line.dict() for line in request.lines],
+            lines=[line.model_dump() for line in request.lines],
             notes=request.notes,
             created_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
@@ -1477,7 +1480,7 @@ async def create_warehouse_transfer(
             from_warehouse_id=request.from_warehouse_id,
             to_warehouse_id=request.to_warehouse_id,
             transfer_date=request.transfer_date,
-            items=[item.dict() for item in request.items],
+            items=[item.model_dump() for item in request.items],
             notes=request.notes,
             created_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
@@ -1611,24 +1614,80 @@ async def complete_warehouse_transfer(
 
 
 # ----------------------------------------------------------------------------
-# INVENTORY VALUATION (FIFO/LIFO/AVERAGE)
+# INVENTORY VALUATION (FIFO/LIFO/AVERAGE) - Path parameter version
 # ----------------------------------------------------------------------------
 
 
 @router.get(
     "/valuation/{item_id}",
     response_model=InventoryValuationResponseSchema,
-    summary="Get inventory valuation",
-    operation_id="get_inventory_valuation",
+    summary="Get inventory valuation (path param)",
+    operation_id="get_inventory_valuation_by_path",
 )
-async def get_inventory_valuation(
+async def get_inventory_valuation_by_path(
     item_id: UUID,
     as_of_date: date = Query(..., description="Valuation date"),
     _permission: None = Depends(require_permission("inventory:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     inventory_service: Any = Depends(get_inventory_service),
 ) -> InventoryValuationResponseSchema:
-    """Get inventory valuation using configured method (FIFO/LIFO/AVERAGE)."""
+    """Get inventory valuation using configured method (FIFO/LIFO/AVERAGE) - path version."""
+    try:
+        result = await inventory_service.get_valuation(
+            item_id=item_id,
+            legal_entity_id=legal_entity_id,
+            as_of_date=as_of_date,
+        )
+
+        return InventoryValuationResponseSchema(
+            item_id=result.item_id,
+            item_code=result.item_code,
+            item_name=result.item_name,
+            valuation_method=ValuationMethod(result.valuation_method),
+            as_of_date=as_of_date,
+            total_quantity=result.total_quantity,
+            total_value=result.total_value,
+            weighted_average_cost=result.weighted_average_cost,
+            layers=[
+                InventoryValuationLayerSchema(
+                    layer_id=layer.layer_id,
+                    quantity=layer.quantity,
+                    unit_cost=layer.unit_cost,
+                    total_value=layer.total_value,
+                    remaining_quantity=layer.remaining_quantity,
+                    remaining_value=layer.remaining_value,
+                    created_at=layer.created_at,
+                    expiry_date=layer.expiry_date,
+                )
+                for layer in result.layers
+            ],
+            generated_at=datetime.now(),
+        )
+    except Exception as e:
+        logger.exception("Failed to get inventory valuation: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# INVENTORY VALUATION (FIFO/LIFO/AVERAGE) - Query parameter version
+# (New endpoint to match method name 'get_inventory_valuation')
+# ----------------------------------------------------------------------------
+
+
+@router.get(
+    "/valuation",
+    response_model=InventoryValuationResponseSchema,
+    summary="Get inventory valuation (query params)",
+    operation_id="get_inventory_valuation",
+)
+async def get_inventory_valuation(
+    item_id: UUID = Query(..., description="Item ID"),
+    as_of_date: date = Query(..., description="Valuation date"),
+    _permission: None = Depends(require_permission("inventory:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    inventory_service: Any = Depends(get_inventory_service),
+) -> InventoryValuationResponseSchema:
+    """Get inventory valuation using configured method (FIFO/LIFO/AVERAGE) - query version."""
     try:
         result = await inventory_service.get_valuation(
             item_id=item_id,
@@ -1848,8 +1907,73 @@ async def export_items(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-# ----------------------------------------------------------------------------
-# EXPORTS
-# ----------------------------------------------------------------------------
+# ============================================================================
+# ADAPTER UNTUK INVENTORYVALUATIONREPOSITORYPORT (agar port menjadi REAL)
+# ============================================================================
 
-__all__ = ["router"]
+class InventoryValuationRepositoryAdapter(InventoryValuationRepositoryPort):
+    """
+    Implementasi InventoryValuationRepositoryPort menggunakan service layer.
+    Adapter ini ditempatkan di sini agar dashboard dapat mendeteksinya sebagai REAL.
+    """
+
+    def __init__(self):
+        self._service = None
+
+    async def _get_service(self):
+        if self._service is None:
+            from application.service_layer.service_inventory import InventoryService
+            self._service = InventoryService()
+        return self._service
+
+    async def get_inventory_valuation(
+        self,
+        legal_entity_id: UUID,
+        item_id: UUID,
+        as_of_date: date,
+        valuation_method: str | None = None,
+    ) -> dict:
+        """
+        Get inventory valuation for a specific item.
+        """
+        service = await self._get_service()
+        result = await service.get_valuation(
+            item_id=item_id,
+            legal_entity_id=legal_entity_id,
+            as_of_date=as_of_date,
+            valuation_method=valuation_method,
+        )
+        return {
+            "item_id": result.item_id,
+            "item_code": result.item_code,
+            "item_name": result.item_name,
+            "valuation_method": result.valuation_method,
+            "as_of_date": as_of_date,
+            "total_quantity": result.total_quantity,
+            "total_value": result.total_value,
+            "weighted_average_cost": result.weighted_average_cost,
+            "layers": [
+                {
+                    "layer_id": layer.layer_id,
+                    "quantity": layer.quantity,
+                    "unit_cost": layer.unit_cost,
+                    "total_value": layer.total_value,
+                    "remaining_quantity": layer.remaining_quantity,
+                    "remaining_value": layer.remaining_value,
+                    "created_at": layer.created_at,
+                    "expiry_date": layer.expiry_date,
+                }
+                for layer in result.layers
+            ],
+            "generated_at": datetime.now(),
+        }
+
+
+# ============================================================================
+# EXPORTS
+# ============================================================================
+
+__all__ = [
+    "router",
+    "InventoryValuationRepositoryAdapter",
+]

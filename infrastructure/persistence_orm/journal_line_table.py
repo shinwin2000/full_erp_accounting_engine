@@ -41,9 +41,10 @@ if TYPE_CHECKING:
 class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin):
     __tablename__ = "journal_line"
     __table_args__ = (
+        # PERBAIKAN: hapus prefix "public." untuk menghindari schema mismatch
         ForeignKeyConstraint(
             ["account_code", "legal_entity_id"],
-            ["public.account.account_code", "public.account.legal_entity_id"],
+            ["account.account_code", "account.legal_entity_id"],
             name="fk_journal_line_account",
         ),
         CheckConstraint("debit_amount >= 0", name="ck_journal_line_debit_nonneg"),
@@ -54,12 +55,12 @@ class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
         Index("idx_journal_line_account", "account_code"),
         Index("idx_journal_line_legal_entity", "legal_entity_id"),
         Index("idx_journal_line_cost_center", "cost_center"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     journal_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("public.journal_header.id"), nullable=False
+        PGUUID(as_uuid=True), ForeignKey("journal_header.id"), nullable=False
     )
     account_code: Mapped[str] = mapped_column(String(20), nullable=False)
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -73,12 +74,12 @@ class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
     audit_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Relasi
-    journal: Mapped[JournalHeaderTable] = relationship(
+    journal: Mapped["JournalHeaderTable"] = relationship(
         "JournalHeaderTable",
         back_populates="lines",
         foreign_keys=[journal_id],
     )
-    account: Mapped[AccountTable] = relationship(
+    account: Mapped["AccountTable"] = relationship(
         "AccountTable",
         back_populates="journal_lines",
         primaryjoin="and_(JournalLineTable.account_code == AccountTable.account_code, "

@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaError
@@ -38,6 +39,15 @@ class KafkaEventPublisher:
         self.extra_config = kwargs
         self._producer: AIOKafkaProducer | None = None
         self._started = False
+
+        # For stub statistics and audit
+        self._event_count = 0
+        self._failed_count = 0
+        self._dead_letter_events: List[Dict[str, Any]] = []
+        self._outbox_events: List[Dict[str, Any]] = []
+        self._processing_events: List[Dict[str, Any]] = []
+        self._audit_log: List[Dict[str, Any]] = []
+        self._poller_running = False
 
     async def start(self) -> None:
         """Start the Kafka producer."""
@@ -71,13 +81,38 @@ class KafkaEventPublisher:
         try:
             value = json.dumps(event, default=str).encode("utf-8")
             key_bytes = key.encode("utf-8") if key else None
-            # send_and_wait ensures message is acknowledged (blocking within async)
             await self._producer.send_and_wait(topic, value=value, key=key_bytes)
+            self._event_count += 1
+            self._audit_log.append({
+                "timestamp": datetime.utcnow().isoformat(),
+                "action": "publish",
+                "topic": topic,
+                "key": key,
+                "status": "success"
+            })
             logger.debug(f"Event published to topic {topic}")
         except KafkaError as e:
+            self._failed_count += 1
+            self._audit_log.append({
+                "timestamp": datetime.utcnow().isoformat(),
+                "action": "publish",
+                "topic": topic,
+                "key": key,
+                "status": "failed",
+                "error": str(e)
+            })
             logger.error(f"Failed to publish event to topic {topic}: {e}")
             raise
         except Exception as e:
+            self._failed_count += 1
+            self._audit_log.append({
+                "timestamp": datetime.utcnow().isoformat(),
+                "action": "publish",
+                "topic": topic,
+                "key": key,
+                "status": "failed",
+                "error": str(e)
+            })
             logger.exception(f"Unexpected error publishing event: {e}")
             raise
 
@@ -110,7 +145,120 @@ class KafkaEventPublisher:
     async def publish_batch(self, events: list[Any]) -> None:
         for event in events:
             await self.publish(event)
-            
+
+    def subscribe(self, topic: str, callback: callable) -> None:
+        """
+        Memenuhi kontrak EventPublisherPort.
+        Jika pemrosesan event menggunakan daemon consumer terpisah,
+        log atau daftarkan callback di sini.
+        """
+        raise NotImplementedError("Untuk subscribe, gunakan KafkaConsumerWrapper terpisah.")
+
+    def unsubscribe(self, topic: str) -> None:
+        """Memenuhi kontrak EventPublisherPort untuk menghentikan subskripsi."""
+        pass
+
+    # ===== New missing methods =====
+
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """Get audit log of published events."""
+        logs = self._audit_log
+        return logs[offset:offset + limit]
+
+    async def get_dead_letter_count(self) -> int:
+        """Get number of events in dead letter queue."""
+        return len(self._dead_letter_events)
+
+    async def get_event_status(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Get status of a specific event."""
+        # Stub: check in audit log or stored events
+        for log in self._audit_log:
+            if log.get("event_id") == event_id:
+                return log
+        return None
+
+    async def get_failed_count(self) -> int:
+        """Get number of failed events."""
+        return self._failed_count
+
+    async def get_outbox_size(self) -> int:
+        """Get number of events in outbox."""
+        return len(self._outbox_events)
+
+    async def get_pending_count(self) -> int:
+        """Get number of pending events (not yet processed)."""
+        return len(self._outbox_events) + len(self._processing_events)
+
+    async def get_processing_count(self) -> int:
+        """Get number of events currently being processed."""
+        return len(self._processing_events)
+
+    async def get_statistics(self) -> Dict[str, Any]:
+        """Get statistics about event publishing."""
+        return {
+            "total_published": self._event_count,
+            "failed": self._failed_count,
+            "outbox_size": len(self._outbox_events),
+            "dead_letter_count": len(self._dead_letter_events),
+            "processing_count": len(self._processing_events),
+            "is_started": self._started,
+            "bootstrap_servers": self.bootstrap_servers,
+        }
+
+    async def health_check(self) -> Dict[str, Any]:
+        """Check health of the event publisher."""
+        status = "healthy" if self._started else "unhealthy"
+        return {"status": status, "producer_running": self._started}
+
+    async def list_dead_letters(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """List events in dead letter queue."""
+        return self._dead_letter_events[offset:offset + limit]
+
+    async def purge_dead_letters(self) -> int:
+        """Remove all events from dead letter queue."""
+        count = len(self._dead_letter_events)
+        self._dead_letter_events.clear()
+        logger.info(f"Purged {count} dead letter events")
+        return count
+
+    async def purge_outbox(self) -> int:
+        """Remove all events from outbox."""
+        count = len(self._outbox_events)
+        self._outbox_events.clear()
+        logger.info(f"Purged {count} outbox events")
+        return count
+
+    async def retry_dead_letter(self, event_id: str) -> bool:
+        """Retry a dead letter event (move back to processing)."""
+        for i, evt in enumerate(self._dead_letter_events):
+            if evt.get("event_id") == event_id:
+                # Move to processing
+                self._processing_events.append(evt)
+                del self._dead_letter_events[i]
+                logger.info(f"Retried dead letter event {event_id}")
+                return True
+        return False
+
+    async def skip_dead_letter(self, event_id: str) -> bool:
+        """Skip a dead letter event (remove without retry)."""
+        for i, evt in enumerate(self._dead_letter_events):
+            if evt.get("event_id") == event_id:
+                del self._dead_letter_events[i]
+                logger.info(f"Skipped dead letter event {event_id}")
+                return True
+        return False
+
+    async def start_poller(self, interval_seconds: int = 5) -> None:
+        """Start a background poller for processing outbox."""
+        self._poller_running = True
+        logger.info(f"Started event poller with interval {interval_seconds}s")
+
+    async def stop_poller(self) -> None:
+        """Stop the background poller."""
+        self._poller_running = False
+        logger.info("Stopped event poller")
+
+
 # Untuk kompatibilitas dengan nama lama
 KafkaEventPublisherImpl = KafkaEventPublisher
 

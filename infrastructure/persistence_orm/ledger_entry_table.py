@@ -52,15 +52,15 @@ class LedgerEntryTable(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_ledger_entry_legal_entity", "legal_entity_id"),
         Index("idx_ledger_entry_cost_center", "cost_center"),
         Index("idx_ledger_entry_period", "fiscal_year", "period_month"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     journal_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("public.journal_header.id"), nullable=False
+        PGUUID(as_uuid=True), ForeignKey("journal_header.id"), nullable=False
     )
     account_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("public.account.id"), nullable=False
+        PGUUID(as_uuid=True), ForeignKey("account.id"), nullable=False
     )
     account_code: Mapped[str] = mapped_column(String(20), nullable=False)
     line_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

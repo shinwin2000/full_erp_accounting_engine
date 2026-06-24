@@ -56,13 +56,13 @@ class BillOfMaterialsLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMix
         CheckConstraint("total_cost >= 0", name="ck_bom_line_total_cost_nonneg"),
         Index("idx_bom_line_bom", "bom_id"),
         Index("idx_bom_line_component", "component_product_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     bom_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.bill_of_materials.id", ondelete="CASCADE"),  # schema explicitly added
+        ForeignKey("bill_of_materials.id", ondelete="CASCADE"),  # schema explicitly added
         nullable=False,
     )
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)

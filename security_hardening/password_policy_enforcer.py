@@ -426,8 +426,7 @@ class PasswordPolicyEnforcer:
                 if self._hasher.verify(new_password, old_hash):
                     return True
         except Exception as e:
-            # FIX: Hindari kata "password" di log
-            logger.error(f"Failed to check history: {type(e).__name__}")
+            logger.warning("History check failed: %s", type(e).__name__)
         return False
 
     def _store_password_history(self, user_id: str, password_hash: str) -> None:
@@ -437,8 +436,7 @@ class PasswordPolicyEnforcer:
                     user_id, password_hash, self.policy.password_history_count
                 )
             except Exception as e:
-                # FIX: Hindari kata "password" di log
-                logger.error(f"Failed to store history: {type(e).__name__}")
+                logger.warning("History storage failed: %s", type(e).__name__)
 
     # ========================================================================
     # Password Expiry
@@ -446,11 +444,11 @@ class PasswordPolicyEnforcer:
     def is_password_expired(self, last_changed_date: datetime) -> bool:
         if not last_changed_date:
             return True
-        return datetime.utcnow() - last_changed_date > timedelta(days=self.policy.max_age_days)
+        return datetime.now(UTC) - last_changed_date > timedelta(days=self.policy.max_age_days)
 
     def get_days_until_expiry(self, last_changed_date: datetime) -> int:
         expiry_date = last_changed_date + timedelta(days=self.policy.max_age_days)
-        days_left = (expiry_date - datetime.utcnow()).days
+        days_left = (expiry_date - datetime.now(UTC)).days
         return max(0, days_left)
 
     # ========================================================================
@@ -471,8 +469,7 @@ class PasswordPolicyEnforcer:
         hashed = self._hasher.hash(new_password)
         self._store_password_history(user_id, hashed)
         self._record_audit("ENFORCE_NEW_PASSWORD", user_id, {})
-        # FIX: Hindari kata "password" di log
-        logger.info(f"Credential updated for user {user_id}")
+        logger.info("Security credential updated for user %s", user_id)
         return hashed
 
     # ========================================================================
@@ -487,7 +484,7 @@ class PasswordPolicyEnforcer:
             return self._failed_attempts.get(user_id, [])
 
     def _add_failed_attempt(self, user_id: str) -> None:
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         if self.redis:
             key = f"login_failures:{user_id}"
             self.redis.lpush(key, now.timestamp())
@@ -529,7 +526,7 @@ class PasswordPolicyEnforcer:
         if len(attempts) < self.policy.max_login_attempts:
             return 0
         latest = max(attempts)
-        elapsed = (datetime.utcnow() - latest).total_seconds()
+        elapsed = (datetime.now(UTC) - latest).total_seconds()
         remaining = max(0, self.policy.lockout_duration_minutes * 60 - elapsed)
         return int(remaining)
 

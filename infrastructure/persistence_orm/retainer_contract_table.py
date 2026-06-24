@@ -74,7 +74,7 @@ class RetainerContractTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin,
         Index("idx_retainer_next_billing_date", "next_billing_date"),
         Index("idx_retainer_project", "project_id"),
         Index("idx_retainer_legal_entity", "legal_entity_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     # Contract identification
@@ -82,12 +82,12 @@ class RetainerContractTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin,
     contract_name: Mapped[str] = mapped_column(String(200), nullable=False)
     customer_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.customer.id", ondelete="RESTRICT"),
+        ForeignKey("customer.id", ondelete="RESTRICT"),
         nullable=False,
     )
     project_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.project.id", ondelete="SET NULL"),
+        ForeignKey("project.id", ondelete="SET NULL"),
         nullable=True,
     )
 

@@ -68,7 +68,7 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
         Index("idx_journal_header_created_by", "created_by"),
         Index("idx_journal_header_approved_by", "approved_by"),
         Index("idx_journal_header_posted_by", "posted_by"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     # Journal identification
@@ -97,13 +97,13 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reversed_journal_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.journal_header.id", name="fk_journal_header_reversed_journal"),
+        ForeignKey("journal_header.id", name="fk_journal_header_reversed_journal"),
         nullable=True,
         index=True,
     )
     original_journal_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.journal_header.id", name="fk_journal_header_original_journal"),
+        ForeignKey("journal_header.id", name="fk_journal_header_original_journal"),
         nullable=True,
         index=True,
     )
@@ -115,7 +115,7 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
 
     # Period association (foreign key only – relationship removed to avoid mapper conflict)
     period_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("public.fiscal_period.id"), nullable=True
+        PGUUID(as_uuid=True), ForeignKey("fiscal_period.id"), nullable=True
     )
 
     # Audit
@@ -126,7 +126,7 @@ class JournalHeaderTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
     # ========================================================================
     legal_entity_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.legal_entity.id", ondelete="CASCADE"),
+        ForeignKey("legal_entity.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

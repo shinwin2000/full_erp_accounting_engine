@@ -7,8 +7,8 @@ Create Date: 2026-05-30 14:30:00.000000
 from typing import Sequence, Union
 from alembic import op
 
-revision: str = '0034'
-down_revision = '0033'
+revision: str = '0034abcd'
+down_revision = '0033abcd'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

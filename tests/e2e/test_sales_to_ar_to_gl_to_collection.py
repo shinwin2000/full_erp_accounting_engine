@@ -166,7 +166,7 @@ def test_sales_to_ar_collection():
 # OPSIONAL: Jika real modules tersedia, gunakan yang real
 # ============================================================================
 try:
-    from domain.revenue.revenue_recognizer import RevenueRecognizer
+    #from domain.revenue.revenue_recognizer import RevenueRecognizer
 
     from application.use_cases.ar_collection_workflow import ArCollectionWorkflow
     from domain.purchase_sales.sales_invoice_entity import SalesInvoice

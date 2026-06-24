@@ -65,12 +65,12 @@ class DepreciationScheduleTable(
         Index("idx_depreciation_schedule_period", "fiscal_year", "month"),
         Index("idx_depreciation_schedule_status", "status"),
         Index("idx_depreciation_schedule_legal_entity", "legal_entity_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("public.fixed_asset.id"), nullable=False
+        PGUUID(as_uuid=True), ForeignKey("fixed_asset.id"), nullable=False
     )
     period: Mapped[int] = mapped_column(Integer, nullable=False)
     fiscal_year: Mapped[int] = mapped_column(Integer, nullable=False)

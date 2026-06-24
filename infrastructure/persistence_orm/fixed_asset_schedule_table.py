@@ -30,12 +30,12 @@ class FixedAssetScheduleTable(Base, TimestampMixin):
         CheckConstraint("depreciation_amount >= 0", name="ck_fas_amount_nonneg"),
         CheckConstraint("accumulated_depreciation >= 0", name="ck_fas_accum_nonneg"),
         CheckConstraint("net_book_value >= 0", name="ck_fas_nbv_nonneg"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("public.fixed_asset.id"), nullable=False
+        PGUUID(as_uuid=True), ForeignKey("fixed_asset.id"), nullable=False
     )
     period: Mapped[str] = mapped_column(String(20), nullable=False)
     depreciation_amount: Mapped[Decimal] = mapped_column(Numeric(20, 2), default=Decimal(0))

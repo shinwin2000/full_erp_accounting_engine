@@ -71,7 +71,7 @@ class ARCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         Index("idx_ar_credit_note_date", "credit_note_date"),
         Index("idx_ar_credit_note_status", "status"),
         Index("idx_ar_credit_note_legal_entity", "legal_entity_id"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     # Credit Note Identification
@@ -81,7 +81,7 @@ class ARCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
     # Reference to Invoice Header (with schema)
     invoice_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("public.ar_invoice.id", ondelete="RESTRICT"),
+        ForeignKey("ar_invoice.id", ondelete="RESTRICT"),
         nullable=False,
     )
 

@@ -33,6 +33,29 @@ class CoretaxAuthorityAdapter(CoreTaxPort):
     async def get_tax_rate(self, tax_code: str, date: str) -> float:
         return 0.11
 
+    async def get_status(self, submission_id: str) -> dict[str, Any]:
+        """
+        Get the status of a tax submission.
+        """
+        return {
+            "submission_id": submission_id,
+            "status": "processed",
+            "message": "Stub: submission processed successfully",
+            "processed_at": "2026-06-23T10:00:00Z"
+        }
+
+    async def submit_tax(self, data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Submit tax data to the Core Tax system.
+        """
+        return {
+            "submission_id": "stub-submission-123",
+            "status": "submitted",
+            "message": "Stub: tax submitted",
+            "submitted_at": "2026-06-23T10:00:00Z",
+            "data_received": data
+        }
+
 
 # Alias yang digunakan oleh ioc_container.py
 CoreTaxImpl = CoretaxAuthorityAdapter

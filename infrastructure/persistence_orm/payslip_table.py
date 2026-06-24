@@ -80,7 +80,7 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
         Index("idx_payslip_period", "period_year", "period_month"),
         Index("idx_payslip_payment_date", "payment_date"),
         Index("idx_payslip_net_pay", "net_pay"),
-        {"schema": "public", "extend_existing": True},
+        {"extend_existing": True},
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -95,7 +95,7 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     # Employee (denormalized for read performance)
     employee_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.employee.id", ondelete="RESTRICT"),
+        ForeignKey("employee.id", ondelete="RESTRICT"),
         nullable=False,
     )
     employee_code: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -107,7 +107,7 @@ class PayslipTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnt
     # Payroll run reference
     payroll_run_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("public.payroll_run.id", ondelete="RESTRICT"),
+        ForeignKey("payroll_run.id", ondelete="RESTRICT"),
         nullable=False,
     )
 
