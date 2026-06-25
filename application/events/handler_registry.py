@@ -90,6 +90,12 @@ class HandlerEntry:
                 f"Handler must be callable, got {type(self.handler)}"
             )
 
+    def record_execution(self, duration_ms: float, error: str | None = None) -> None:
+        """Record handler execution metrics (mutable, but we create a new instance)."""
+        # Since this is frozen, we need to use object.__setattr__ or return new instance
+        # For simplicity in registry, we'll handle metrics separately
+        pass
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -140,11 +146,29 @@ class EventHandlerRegistry:
                 self._handler_metrics: dict[str, dict[str, Any]] = {}
                 self._initialized = True
                 logger.info("EventHandlerRegistry initialized (singleton)")
+
                 # =============================================================
-                # TIDAK ADA REGISTRASI OTOMATIS DI SINI
+                # REGISTRASI DINONAKTIFKAN DI SINI
+                # =============================================================
                 # Registrasi dilakukan secara eksplisit dari luar
-                # (misal dari checker_event_handler.py atau startup)
+                # (misal di checker_event_handler.py atau startup)
+                # untuk menghindari circular import dan error dependency.
+                # 
+                # Jika Anda ingin registrasi otomatis, aktifkan kembali
+                # dengan membuka komentar di bawah, pastikan tidak ada circular import.
                 # =============================================================
+                # try:
+                #     from application.events.all_event_handlers import register_all_handlers
+                #     register_all_handlers(self)
+                # except Exception as e:
+                #     logger.warning(f"Failed to register specific handlers: {e}")
+                # 
+                # try:
+                #     from application.events.global_event_subscribers import register_all_subscribers
+                #     register_all_subscribers(self)
+                # except Exception as e:
+                #     logger.warning(f"Failed to register generic subscribers: {e}")
+                pass
 
     # ===== REGISTER METHODS =====
 

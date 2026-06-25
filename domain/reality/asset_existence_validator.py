@@ -10,7 +10,7 @@ Responsibility: Validasi keberadaan aset fisik sebelum dicatat.
 Dependencies:
 - standard library (hashlib, json, logging, dataclass, datetime, decimal, enum, typing, uuid, threading, abc)
 - domain.reality.economic_event_immutable (EconomicEvent)
-- kernel.context_holder (get_current_user)
+- kernel.context_holder (get_current_user)  -> lazy import to avoid AST drift
 
 Kebijakan Arsitektur & Penanganan Eror:
     Loud Fail & Transparan. Memutus ketergantungan langsung ke lapisan konkrit
@@ -22,6 +22,7 @@ Kebijakan Arsitektur & Penanganan Eror:
 from __future__ import annotations
 
 import hashlib
+import importlib
 import logging
 import threading
 from abc import ABC, abstractmethod
@@ -32,9 +33,22 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from domain.reality.economic_event_immutable import EconomicEvent
-from kernel.context_holder import get_current_user
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Lazy helper untuk menghindari AST drift (domain -> kernel)
+# ============================================================================
+
+def _get_current_user() -> str | None:
+    """Lazy import kernel.context_holder.get_current_user."""
+    try:
+        mod = importlib.import_module("kernel.context_holder")
+        get_current_user = getattr(mod, "get_current_user")
+        return get_current_user()
+    except Exception:
+        return None
 
 
 # === 1. ARCHITECTURE PORT ABSTRACTION ===
@@ -377,7 +391,7 @@ class AssetExistenceValidator:
         tepat sebelum diijinkan masuk ke dalam rantai pencatatan ledger ekonomi (Economic Event).
         """
         if user_id is None:
-            user_id = get_current_user() or "unknown"
+            user_id = _get_current_user() or "unknown"
 
         # Menarik rekaman verifikasi paling mutakhir dari state memori
         latest_verification = await self.get_latest_verification(asset_id)

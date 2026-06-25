@@ -21,21 +21,15 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib
 import json
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+# Import dari layer audit (diizinkan)
 from audit.hash_chain_builder import AuditHashChainBuilder, get_audit_hash_builder
-from infrastructure.event_store.append_only_store import AppendOnlyStore, get_audit_store
-
-# Internal dependencies
-from infrastructure.security.digital_signer_rsa_pss import DigitalSignerRSA, get_digital_signer
-from infrastructure.telemetry.alert_manager_router import trigger_alert
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-logger = get_logger(__name__)
 
 # ============================================================================
 # CONSTANTS
@@ -44,8 +38,44 @@ logger = get_logger(__name__)
 ATTESTATION_STREAM = "regulatory_attestation"
 DEFAULT_OUTPUT_DIR = Path("/var/audit/attestations")
 
+_logger = None
 
+
+def _get_logger():
+    """Lazy logger initialization from structured logging."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
+
+
+def _get_event_store():
+    """Lazy import and get audit store."""
+    mod = importlib.import_module("infrastructure.event_store.append_only_store")
+    get_audit_store = getattr(mod, "get_audit_store")
+    return get_audit_store
+
+
+def _get_digital_signer():
+    """Lazy import and get digital signer."""
+    mod = importlib.import_module("infrastructure.security.digital_signer_rsa_pss")
+    get_digital_signer = getattr(mod, "get_digital_signer")
+    return get_digital_signer
+
+
+def _get_alert_trigger():
+    """Lazy import alert manager trigger."""
+    mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
+    trigger_alert = getattr(mod, "trigger_alert")
+    return trigger_alert
+
+
+# ============================================================================
 # Regulatory frameworks
+# ============================================================================
+
 class RegulatoryFramework:
     SOX = "SOX"
     GDPR = "GDPR"
@@ -210,15 +240,16 @@ class RegulatoryAttestationSigner:
     """
 
     def __init__(self):
-        self._signer: DigitalSignerRSA | None = None
+        self._signer = None
         self._hash_builder: AuditHashChainBuilder | None = None
-        self._event_store: AppendOnlyStore | None = None
+        self._event_store = None
         self._output_dir = DEFAULT_OUTPUT_DIR
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._attestations_cache: dict[UUID, RegulatoryAttestation] = {}
 
-    async def _get_signer(self) -> DigitalSignerRSA:
+    async def _get_signer(self):
         if self._signer is None:
+            get_digital_signer = _get_digital_signer()
             self._signer = get_digital_signer()
         return self._signer
 
@@ -227,8 +258,9 @@ class RegulatoryAttestationSigner:
             self._hash_builder = get_audit_hash_builder()
         return self._hash_builder
 
-    async def _get_event_store(self) -> AppendOnlyStore:
+    async def _get_event_store(self):
         if self._event_store is None:
+            get_audit_store = _get_event_store()
             self._event_store = await get_audit_store()
         return self._event_store
 
@@ -313,6 +345,7 @@ class RegulatoryAttestationSigner:
         await self._store_attestation(attestation)
         self._attestations_cache[attestation.id] = attestation
 
+        logger = _get_logger()
         logger.info(
             f"Created attestation draft: {attestation.id} for {framework} period {period_start} to {period_end}"
         )
@@ -361,9 +394,11 @@ class RegulatoryAttestationSigner:
         await self._store_attestation(attestation)
         self._attestations_cache[attestation.id] = attestation
 
+        logger = _get_logger()
         logger.info(f"Attestation {attestation_id} signed by {signer_id}")
 
         # Trigger alert for successful signing
+        trigger_alert = _get_alert_trigger()
         await trigger_alert(
             title="Regulatory Attestation Signed",
             message=f"Attestation for {attestation.framework} period {attestation.period_start} to {attestation.period_end} has been signed",
@@ -475,8 +510,10 @@ class RegulatoryAttestationSigner:
         await self._store_attestation(attestation)
         self._attestations_cache[attestation.id] = attestation
 
+        logger = _get_logger()
         logger.warning(f"Attestation {attestation_id} revoked by {revoked_by}: {reason}")
 
+        trigger_alert = _get_alert_trigger()
         await trigger_alert(
             title="Regulatory Attestation Revoked",
             message=f"Attestation for {attestation.framework} period {attestation.period_start} to {attestation.period_end} has been revoked. Reason: {reason}",
@@ -546,11 +583,12 @@ class RegulatoryAttestationSigner:
         if not attestation:
             raise AttestationNotFoundError(f"Attestation {attestation_id} not found")
 
+        signer = await self._get_signer()
         export_data = {
             "attestation": attestation.to_dict(),
             "verification_info": {
                 "verification_instructions": "Use the public key to verify the signature.",
-                "public_key": (await self._get_signer()).get_public_key_pem(),
+                "public_key": signer.get_public_key_pem(),
                 "verification_tool": "OpenSSL or any RSA-PSS verifier",
             },
         }
@@ -562,6 +600,7 @@ class RegulatoryAttestationSigner:
         with open(file_path, "w") as f:
             json.dump(export_data, f, indent=2, default=str)
 
+        logger = _get_logger()
         logger.info(f"Attestation exported to {file_path}")
         return file_path
 

@@ -9,7 +9,7 @@ Responsibility: Mengonversi data laporan antara format CSV dan JSON. Mendukung
                dan proses ETL.
 Dependencies:
 - csv, json, decimal, datetime, asyncio, pathlib, io
-- config.loader_yaml
+- config.loader_yaml -> DIINJEKSI DARI LUAR
 - infrastructure.telemetry.structured_json_logging
 Audit: Setiap konversi dicatat. Data yang diekspor dapat digunakan untuk audit trail.
 """
@@ -22,10 +22,10 @@ import csv
 import json
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
+from uuid import UUID
 
 # Internal dependencies
-from config.loader_yaml import load_yaml_config
 from infrastructure.telemetry.structured_json_logging import get_logger
 
 if TYPE_CHECKING:
@@ -105,23 +105,29 @@ class FormatConverterCSVJSON:
     - Batch processing
     """
 
-    def __init__(self, config_path: str = "config_files/report_config.yaml"):
-        self.config = self._load_config(config_path)
-        self._csv_delimiter = self.config.get("csv_delimiter", ",")
-        self._csv_quotechar = self.config.get("csv_quotechar", '"')
-        self._csv_encoding = self.config.get("csv_encoding", "utf-8")
-        self._json_indent = self.config.get("json_indent", 2)
-        self._date_format = self.config.get("date_format", DEFAULT_CONFIG["date_format"])
-        self._datetime_format = self.config.get(
-            "datetime_format", DEFAULT_CONFIG["datetime_format"]
-        )
-        self._decimal_format = self.config.get("decimal_format", "str")
+    def __init__(self, config: Optional[dict[str, Any]] = None):
+        """
+        Inisialisasi converter dengan konfigurasi yang diinjeksi.
 
-    def _load_config(self, config_path: str) -> dict[str, Any]:
-        try:
-            return load_yaml_config(config_path).get("format_converter", DEFAULT_CONFIG)
-        except Exception:
-            return DEFAULT_CONFIG.copy()
+        Args:
+            config: Dictionary konfigurasi (jika None, gunakan DEFAULT_CONFIG)
+        """
+        self.config = self._prepare_config(config)
+        self._csv_delimiter = self.config.get("csv_delimiter", DEFAULT_CONFIG["csv_delimiter"])
+        self._csv_quotechar = self.config.get("csv_quotechar", DEFAULT_CONFIG["csv_quotechar"])
+        self._csv_encoding = self.config.get("csv_encoding", DEFAULT_CONFIG["csv_encoding"])
+        self._json_indent = self.config.get("json_indent", DEFAULT_CONFIG["json_indent"])
+        self._date_format = self.config.get("date_format", DEFAULT_CONFIG["date_format"])
+        self._datetime_format = self.config.get("datetime_format", DEFAULT_CONFIG["datetime_format"])
+        self._decimal_format = self.config.get("decimal_format", DEFAULT_CONFIG["decimal_format"])
+
+    def _prepare_config(self, config: Optional[dict]) -> dict:
+        """Siapkan konfigurasi dari parameter atau default."""
+        if config is not None:
+            result = DEFAULT_CONFIG.copy()
+            result.update(config)
+            return result
+        return DEFAULT_CONFIG.copy()
 
     # ========================================================================
     # CSV TO JSON
@@ -182,24 +188,6 @@ class FormatConverterCSVJSON:
                                     value = converter(value)
                                 except Exception as e:
                                     logger.warning(f"Type conversion error for {header}: {e}")
-                        result.append(
-                            obj
-                        )  # This is wrong placement; should be after constructing obj. Let's fix.
-                        # Correction:
-                    # Rebuild properly:
-                # Simplified: redo the loop correctly
-                result = []
-                for row_num, row in enumerate(data_rows, start=1):
-                    if len(row) != len(headers):
-                        continue
-                    obj = {}
-                    for i, header in enumerate(headers):
-                        value = row[i] if i < len(row) else ""
-                        if type_mapping and header in type_mapping:
-                            conv = TYPE_CONVERTERS.get(type_mapping[header])
-                            if conv:
-                                with contextlib.suppress(builtins.BaseException):
-                                    value = conv(value)
                         obj[header] = value
                     result.append(obj)
 
@@ -433,17 +421,24 @@ class FormatConverterCSVJSON:
 
 
 # ============================================================================
-# SINGLETON INSTANCE
+# SINGLETON INSTANCE dengan injeksi konfigurasi dari luar
 # ============================================================================
 
-_format_converter: FormatConverterCSVJSON | None = None
+_format_converter: Optional[FormatConverterCSVJSON] = None
+_converter_config: Optional[dict] = None
+
+
+def set_format_converter_config(config: dict) -> None:
+    """Set konfigurasi untuk format converter (harus dipanggil sebelum get_format_converter)."""
+    global _converter_config
+    _converter_config = config
 
 
 async def get_format_converter() -> FormatConverterCSVJSON:
     """Get singleton instance of FormatConverterCSVJSON."""
     global _format_converter
     if _format_converter is None:
-        _format_converter = FormatConverterCSVJSON()
+        _format_converter = FormatConverterCSVJSON(config=_converter_config)
     return _format_converter
 
 
@@ -458,4 +453,5 @@ __all__ = [
     "JSONParseError",
     "SchemaValidationError",
     "get_format_converter",
+    "set_format_converter_config",
 ]

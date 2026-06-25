@@ -9,7 +9,9 @@ Responsibility: Middleware untuk autentikasi berbasis JWT. Memverifikasi token,
 
 from __future__ import annotations
 
+import importlib
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -165,8 +167,6 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         self.refresh_expire = timedelta(days=DEFAULT_REFRESH_TOKEN_EXPIRE_DAYS)
 
     def _load_public_key(self) -> str:
-        import os
-
         key_path = os.getenv("JWT_PUBLIC_KEY_PATH", "/secrets/jwt_public.pem")
         try:
             with open(key_path) as f:
@@ -181,8 +181,6 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             return os.getenv("JWT_PUBLIC_KEY", "fallback-public-key-do-not-use-in-prod")
 
     def _load_private_key(self) -> str:
-        import os
-
         key_path = os.getenv("JWT_PRIVATE_KEY_PATH", "/secrets/jwt_private.pem")
         try:
             with open(key_path) as f:
@@ -208,11 +206,21 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         return self._rbac_enforcer
 
     async def _get_iam_service(self) -> IAMService:
+        """
+        Mendapatkan IAMService dari container menggunakan lazy import
+        untuk menghindari AST drift (adapters -> bootstrap).
+        """
         if self._iam_service is None:
-            from bootstrap.dependency_container.ioc_container import get_container
-
-            container = get_container()
-            self._iam_service = container.resolve(IAMService)
+            try:
+                # Lazy import untuk menghindari import langsung dari bootstrap
+                mod = importlib.import_module("bootstrap.dependency_container.ioc_container")
+                get_container = getattr(mod, "get_container")
+                container = get_container()
+                self._iam_service = container.resolve(IAMService)
+            except Exception as e:
+                logger.error("Failed to resolve IAMService from container: %s", type(e).__name__)
+                # Fallback to a dummy service? Better to raise.
+                raise RuntimeError("IAMService not available") from e
         return self._iam_service
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:

@@ -19,21 +19,16 @@ Audit: Setiap deteksi tampering dicatat dengan detail. Alert dikirim ke channel
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 from datetime import UTC, datetime
 from typing import Any
 
-# Internal dependencies
+# Internal audit imports (allowed, same layer)
 from audit.hash_chain_builder import (
     AuditHashChainBuilder,
     get_audit_hash_builder,
 )
-from config.loader_yaml import load_yaml_config
-from infrastructure.event_store.append_only_store import AppendOnlyStore, get_audit_store
-from infrastructure.telemetry.alert_manager_router import trigger_alert
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-logger = get_logger(__name__)
 
 # ============================================================================
 # CONSTANTS
@@ -47,6 +42,19 @@ DEFAULT_CONFIG = {
     "alert_on_first_failure": True,
     "auto_repair": False,  # If True, attempt to repair broken chain (not recommended)
 }
+
+_logger = None
+
+
+def _get_logger():
+    """Lazy logger initialization."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -88,13 +96,16 @@ class TamperAlertTrigger:
         self._auto_repair = self.config.get("auto_repair", False)
 
         self._hash_builder: AuditHashChainBuilder | None = None
-        self._event_store: AppendOnlyStore | None = None
+        self._event_store = None
         self._last_alert_time: dict[str, datetime] = {}
         self._monitor_task: asyncio.Task | None = None
         self._running = False
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
+            # Lazy import config loader
+            mod = importlib.import_module("config.loader_yaml")
+            load_yaml_config = getattr(mod, "load_yaml_config")
             config = load_yaml_config(config_path)
             tamper_config = config.get("tamper_alert", {})
             result = DEFAULT_CONFIG.copy()
@@ -108,8 +119,10 @@ class TamperAlertTrigger:
             self._hash_builder = get_audit_hash_builder()
         return self._hash_builder
 
-    async def _get_event_store(self) -> AppendOnlyStore:
+    async def _get_event_store(self):
         if self._event_store is None:
+            mod = importlib.import_module("infrastructure.event_store.append_only_store")
+            get_audit_store = getattr(mod, "get_audit_store")
             self._event_store = await get_audit_store()
         return self._event_store
 
@@ -138,6 +151,7 @@ class TamperAlertTrigger:
             result["records_checked"] = len(events)
 
             if not events:
+                logger = _get_logger()
                 logger.debug(f"No events found in stream {stream_name}, skipping integrity check")
                 return result
 
@@ -148,6 +162,7 @@ class TamperAlertTrigger:
 
             if not is_valid:
                 result["error"] = error
+                logger = _get_logger()
                 logger.error(f"Tampering detected in stream {stream_name}: {error}")
 
                 # Send alert if cooldown passed
@@ -160,6 +175,7 @@ class TamperAlertTrigger:
         except Exception as e:
             result["is_valid"] = False
             result["error"] = str(e)
+            logger = _get_logger()
             logger.error(f"Failed to check integrity for stream {stream_name}: {e}")
 
         return result
@@ -172,6 +188,7 @@ class TamperAlertTrigger:
         last_alert = self._last_alert_time.get(stream_name)
 
         if last_alert and (now - last_alert).total_seconds() < self._alert_cooldown:
+            logger = _get_logger()
             logger.info(f"Alert cooldown active for stream {stream_name}, skipping alert")
             return
 
@@ -186,6 +203,10 @@ class TamperAlertTrigger:
             f"Timestamp: {result['timestamp']}\n\n"
             f"This indicates potential unauthorized modification of audit data."
         )
+
+        # Lazy import alert manager
+        alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
+        trigger_alert = getattr(alert_mod, "trigger_alert")
 
         await trigger_alert(
             title=title,
@@ -209,6 +230,7 @@ class TamperAlertTrigger:
         """
         Attempt to repair broken hash chain (not recommended, but available).
         """
+        logger = _get_logger()
         logger.warning(
             f"Attempting to repair hash chain for stream {stream_name} from index {broken_at}"
         )
@@ -222,6 +244,10 @@ class TamperAlertTrigger:
             # In production, this would require careful handling
             # For now, just log
             logger.warning(f"Hash chain repaired for stream {stream_name}. Please verify manually.")
+
+            # Lazy import alert manager
+            alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
+            trigger_alert = getattr(alert_mod, "trigger_alert")
 
             await trigger_alert(
                 title=f"Audit Hash Chain Repaired for {stream_name}",
@@ -247,6 +273,7 @@ class TamperAlertTrigger:
 
             # If first failure and we should stop, break
             if not result["is_valid"] and self._alert_on_first_failure:
+                logger = _get_logger()
                 logger.warning(f"Tampering detected in {stream_name}, stopping further checks")
                 break
 
@@ -255,10 +282,12 @@ class TamperAlertTrigger:
     async def start_periodic_monitoring(self) -> None:
         """Start periodic tamper monitoring."""
         if not self._enabled:
+            logger = _get_logger()
             logger.info("Tamper alert trigger is disabled")
             return
 
         if self._running:
+            logger = _get_logger()
             logger.warning("Tamper monitoring already running")
             return
 
@@ -272,10 +301,12 @@ class TamperAlertTrigger:
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
+                    logger = _get_logger()
                     logger.error(f"Tamper monitoring error: {e}")
                     await asyncio.sleep(60)
 
         self._monitor_task = asyncio.create_task(_monitor_loop())
+        logger = _get_logger()
         logger.info(f"Tamper alert trigger started (interval: {self._check_interval}s)")
 
     async def stop_periodic_monitoring(self) -> None:
@@ -288,6 +319,7 @@ class TamperAlertTrigger:
             except asyncio.CancelledError:
                 pass
             self._monitor_task = None
+        logger = _get_logger()
         logger.info("Tamper alert trigger stopped")
 
     async def run_manual_check(self) -> list[dict[str, Any]]:

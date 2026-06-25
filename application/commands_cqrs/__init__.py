@@ -1,214 +1,111 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Module: application.commands_cqrs.__init__
+
+Layer: Application / Commands & Queries (CQRS)
+
+Ekspor komponen inti untuk command-query separation:
+- Command bus, query bus
+- Registri handler
+- Executor dengan audit
+- Validator
+- Envelope hasil (result envelope)
+
+Tidak ada ketergantungan pada event_gateway – semua event handling dilakukan
+melalui dependency injection dan port abstraksi.
+"""
+
 from __future__ import annotations
 
-"""
-Event Gateway Package
-=====================
-Pusat routing event dari domain ke seluruh sistem.
-
-Event Gateway adalah komponen inti yang bertanggung jawab untuk:
-- Menerima event dari berbagai sumber (domain, API, eksternal)
-- Memvalidasi event terhadap skema
-- Menormalisasi event ke format kanonik
-- Mendeteksi dan mencegah duplikasi event (idempotensi)
-- Mengirim event ke transformer yang terdaftar
-- Mengelola Dead Letter Queue untuk event yang gagal
-- Menyediakan audit trail dan hash chaining untuk integritas
-
-Semua komponen telah dilengkapi dengan metode entity dasar:
-- validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch
-"""
-
-# Event Envelope
-# Dead Letter Queue
+# Command & Query Buses
 from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
 from application.commands_cqrs.query_bus_unified import UnifiedQueryBus
-from event_gateway.event_dead_letter_queue_manager import (
-    DeadLetterQueueManager,
-    DLQItem,
+
+# Command & Query Handler Registries
+from application.commands_cqrs.command_handler_registry import (
+    CommandHandlerRegistry,
+    command_handler_registry,
+    get_command_handler,
+    register_command_handler,
+    unregister_command_handler,
+)
+from application.commands_cqrs.query_handler_registry import (
+    QueryHandlerRegistry,
+    query_handler_registry,
+    get_query_handler,
+    register_query_handler,
+    unregister_query_handler,
 )
 
-# Deduplicator & Idempotency
-from event_gateway.event_deduplicator_idempotency import (
-    DuplicateEventError,
-    EventDeduplicator,
-    IdempotencyKeyError,
-    idempotent,
+# Command Executor with Audit
+from application.commands_cqrs.command_executor_with_audit import (
+    CommandExecutorWithAudit,
+    CommandExecutionError,
+    CommandExecutionResult,
 )
 
-# Event Enricher Context
-from event_gateway.event_enricher_context import (
-    EnrichmentContext,
-    EventContextEnricher,
-    EventEnrichmentError,
-    add_environment_enricher,
-    add_timestamp_enricher,
-    add_trace_parent_enricher,
-)
-from event_gateway.event_envelope import EventEnvelope, EventPriority, EventStatus
-
-# Event Gate Singleton
-from event_gateway.event_gate_singleton import (
-    EventGate,
-    EventGateError,
-    EventGateShutdownError,
-    EventProcessingError,
-    get_event_gate,
-    get_instance,
-    shutdown,
-    shutdown_event_gate,
+# Query Executor (read‑only)
+from application.commands_cqrs.query_executor_readonly import (
+    QueryExecutorReadOnly,
+    QueryExecutionError,
+    QueryExecutionResult,
 )
 
-# Event Normalizer
-from event_gateway.event_normalizer_canonical import (
-    CanonicalEvent,
-    EventNormalizer,
-    extract_metadata,
-    extract_payload,
-    is_canonical,
+# Command Validator
+from application.commands_cqrs.command_validator import (
+    CommandValidator,
+    ValidationError,
 )
 
-# Event Router & Transformer Registry
-from event_gateway.event_router_to_transformer import (
-    EventRouter,
-    QueueFullError,
-    TransformerExecutionError,
-    TransformerNotFoundError,
-    TransformerRegistry,
+# Command Result Envelope
+from application.commands_cqrs.command_result_envelope import (
+    CommandResultEnvelope,
+    CommandStatus,
 )
 
-# Event Schema Validator
-from event_gateway.event_schema_validator import (
-    EventSchemaValidator,
-    SchemaLoadError,
-    SchemaNotFoundError,
-    SchemaValidationError,
-)
+# ============================================================================
+# BACKWARD COMPATIBILITY ALIASES
+# ============================================================================
 
-# Event Source Authenticator
-from event_gateway.event_source_authenticator import (
-    AuthenticatedSource,
-    AuthMethod,
-    EventAuthenticationError,
-    EventSourceAuthenticator,
-)
-
-# Gateway Exceptions
-from event_gateway.gateway_exceptions import (
-    DeadLetterQueueError,
-    DLQFullError,
-    DLQItemNotFoundError,
-    DLQReplayError,
-    EventGatewayException,
-    NormalizationError,
-    RoutingError,
-    TransformerError,
-    UnsupportedFieldTypeError,
-)
-from event_gateway.gateway_exceptions import (
-    DuplicateEventError as GatewayDuplicateEventError,
-)
-from event_gateway.gateway_exceptions import (
-    EventGateError as GatewayEventGateError,
-)
-from event_gateway.gateway_exceptions import (
-    EventGateShutdownError as GatewayEventGateShutdownError,
-)
-from event_gateway.gateway_exceptions import (
-    EventProcessingError as GatewayEventProcessingError,
-)
-from event_gateway.gateway_exceptions import (
-    IdempotencyKeyError as GatewayIdempotencyKeyError,
-)
-from event_gateway.gateway_exceptions import (
-    QueueFullError as GatewayQueueFullError,
-)
-from event_gateway.gateway_exceptions import (
-    SchemaNotFoundError as GatewaySchemaNotFoundError,
-)
-from event_gateway.gateway_exceptions import (
-    SchemaValidationError as GatewaySchemaValidationError,
-)
-from event_gateway.gateway_exceptions import (
-    TransformerExecutionError as GatewayTransformerExecutionError,
-)
-from event_gateway.gateway_exceptions import (
-    TransformerNotFoundError as GatewayTransformerNotFoundError,
-)
-
+# Alias untuk nama yang digunakan oleh router
 CommandBusUnified = UnifiedCommandBus
 QueryBusUnified = UnifiedQueryBus
 
 
+# ============================================================================
+# EKSPOR SEMUA KOMPONEN
+# ============================================================================
+
 __all__ = [
-    # Event Envelope
-    "EventEnvelope",
-    "EventPriority",
-    "EventStatus",
-    # Event Gate
-    "EventGate",
-    "EventGateError",
-    "EventGateShutdownError",
-    "EventProcessingError",
-    "get_event_gate",
-    "get_instance",
-    "shutdown",
-    "shutdown_event_gate",
-    # Dead Letter Queue
-    "DeadLetterQueueManager",
-    "DLQItem",
-    # Deduplicator
-    "DuplicateEventError",
-    "EventDeduplicator",
-    "IdempotencyKeyError",
-    "idempotent",
-    # Enricher
-    "EnrichmentContext",
-    "EventContextEnricher",
-    "EventEnrichmentError",
-    "add_environment_enricher",
-    "add_timestamp_enricher",
-    "add_trace_parent_enricher",
-    # Normalizer
-    "CanonicalEvent",
-    "EventNormalizer",
-    "extract_metadata",
-    "extract_payload",
-    "is_canonical",
-    # Router
-    "EventRouter",
-    "QueueFullError",
-    "TransformerExecutionError",
-    "TransformerNotFoundError",
-    "TransformerRegistry",
-    # Schema Validator
-    "EventSchemaValidator",
-    "SchemaLoadError",
-    "SchemaNotFoundError",
-    "SchemaValidationError",
-    # Authenticator
-    "AuthMethod",
-    "AuthenticatedSource",
-    "EventAuthenticationError",
-    "EventSourceAuthenticator",
-    # Exceptions (dengan alias untuk backward compatibility)
-    "DLQFullError",
-    "DLQItemNotFoundError",
-    "DLQReplayError",
-    "DeadLetterQueueError",
-    "GatewayDuplicateEventError",
-    "GatewayEventGateError",
-    "GatewayEventGateShutdownError",
-    "EventGatewayException",
-    "GatewayEventProcessingError",
-    "GatewayIdempotencyKeyError",
-    "NormalizationError",
-    "GatewayQueueFullError",
-    "RoutingError",
-    "GatewaySchemaNotFoundError",
-    "GatewaySchemaValidationError",
-    "TransformerError",
-    "GatewayTransformerExecutionError",
-    "GatewayTransformerNotFoundError",
-    "UnsupportedFieldTypeError",
+    # Buses
+    "UnifiedCommandBus",
+    "UnifiedQueryBus",
+    "CommandBusUnified",          
+    "QueryBusUnified",            
+    # Registries
+    "CommandHandlerRegistry",
+    "command_handler_registry",
+    "get_command_handler",
+    "register_command_handler",
+    "unregister_command_handler",
+    "QueryHandlerRegistry",
+    "query_handler_registry",
+    "get_query_handler",
+    "register_query_handler",
+    "unregister_query_handler",
+    # Executors
+    "CommandExecutorWithAudit",
+    "CommandExecutionError",
+    "CommandExecutionResult",
+    "QueryExecutorReadOnly",
+    "QueryExecutionError",
+    "QueryExecutionResult",
+    # Validator
+    "CommandValidator",
+    "ValidationError",
+    # Result Envelope
+    "CommandResultEnvelope",
+    "CommandStatus",
 ]

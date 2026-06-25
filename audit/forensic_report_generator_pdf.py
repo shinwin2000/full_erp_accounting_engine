@@ -19,17 +19,16 @@ Audit: Setiap laporan forensik yang dihasilkan dicatat.
 from __future__ import annotations
 
 import asyncio
+import importlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+# Import dari layer audit (diizinkan)
 from audit.duplicate_detector_fuzzy import DuplicateDetectorFuzzy, get_duplicate_detector
-
-# Internal dependencies
 from audit.forensic_replayer import ForensicReplayer, get_forensic_replayer
 from audit.gap_detector import GapDetector, get_gap_detector
 from audit.tamper_alert_trigger import TamperAlertTrigger, get_tamper_alert_trigger
-from infrastructure.telemetry.structured_json_logging import get_logger
 
 # Try to import reportlab for PDF generation
 try:
@@ -52,10 +51,20 @@ try:
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
-    logger = get_logger(__name__)
-    logger.warning("ReportLab not available, PDF generation will be disabled")
 
-logger = get_logger(__name__)
+# Lazy logger
+_logger = None
+
+
+def _get_logger():
+    """Lazy logger initialization from structured logging."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
+
 
 # ============================================================================
 # CONSTANTS
@@ -116,8 +125,9 @@ class ForensicReportGeneratorPDF:
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
-            from config.loader_yaml import load_yaml_config
-
+            # Lazy import config loader
+            mod = importlib.import_module("config.loader_yaml")
+            load_yaml_config = getattr(mod, "load_yaml_config")
             config = load_yaml_config(config_path)
             report_config = config.get("forensic_report", {})
             result = DEFAULT_CONFIG.copy()
@@ -473,6 +483,7 @@ class ForensicReportGeneratorPDF:
         # Build PDF
         doc.build(story)
 
+        logger = _get_logger()
         logger.info(f"Forensic report generated: {output_path}")
         return output_path
 

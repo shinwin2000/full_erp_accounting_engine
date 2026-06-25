@@ -1,0 +1,17 @@
+{
+  "invariant_id": "INV-001",
+  "name": "Conservation of Value",
+  "invariant_type": "CONSERVATION_OF_VALUE",
+  "description": "Value cannot be created or destroyed, only transferred",
+  "enforcement_level": "ABSOLUTE",
+  "violation_action": "SYSTEM_PANIC",
+  "validator": "ConservationOfValueValidator",
+  "version": 2,
+  "created_at": "2026-06-24T15:58:29.699344",
+  "updated_at": "2026-06-24T15:58:29.699344",
+  "is_active": true,
+  "metadata": {
+    "accounting_standard": "GAAP",
+    "tolerance": "0.01"
+  }
+}

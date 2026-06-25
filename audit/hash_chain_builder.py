@@ -17,19 +17,28 @@ Audit: Hash chain digunakan untuk deteksi tampering audit trail.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 from typing import Any
-
-# Internal dependencies
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-logger = get_logger(__name__)
 
 # ============================================================================
 # CONSTANTS
 # ============================================================================
 
 GENESIS_HASH = hashlib.sha256(b"AUDIT_TRAIL_GENESIS_2025").hexdigest()
+
+_logger = None
+
+
+def _get_logger():
+    """Lazy logger initialization from structured logging."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -181,6 +190,7 @@ class AuditHashChainBuilder:
             # Check if previous_hash matches the computed last_hash
             if previous_hash != last_hash:
                 error_msg = f"Hash chain broken at index {i}: expected previous_hash {last_hash[:16]}..., got {previous_hash[:16]}..."
+                logger = _get_logger()
                 logger.error(error_msg)
                 return False, i, error_msg
 
@@ -188,6 +198,7 @@ class AuditHashChainBuilder:
             recomputed = self.compute_record_hash(record, previous_hash)
             if record_hash != recomputed:
                 error_msg = f"Hash mismatch at index {i}: stored {record_hash[:16]}..., computed {recomputed[:16]}..."
+                logger = _get_logger()
                 logger.error(error_msg)
                 return False, i, error_msg
 
@@ -197,6 +208,7 @@ class AuditHashChainBuilder:
         if stream_name:
             self._cache[stream_name] = last_hash
 
+        logger = _get_logger()
         logger.info(f"Hash chain verified successfully: {len(records)} records")
         return True, None, None
 
@@ -257,6 +269,7 @@ class AuditHashChainBuilder:
             last_hash = record["hash"]
             records[i] = record
 
+        logger = _get_logger()
         logger.warning(f"Hash chain repaired from index {start_index}")
         return records
 
@@ -305,6 +318,7 @@ class AuditHashChainBuilder:
             self._cache.pop(stream_name, None)
         else:
             self._cache.clear()
+        logger = _get_logger()
         logger.info("Hash chain cache cleared")
 
 

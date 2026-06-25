@@ -8,6 +8,7 @@ Responsibility: Menulis event audit secara immutable ke event store.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import logging
 import uuid
@@ -22,18 +23,42 @@ from audit.event_types_catalog import (
     EventTypeCatalog,
 )
 from audit.hash_chain_builder import GENESIS_HASH, AuditHashChainBuilder, get_audit_hash_builder
-from infrastructure.event_store.append_only_store import AppendOnlyStore, get_audit_store
-from infrastructure.telemetry.correlation_id_injector import get_current_correlation_id
-from infrastructure.telemetry.structured_json_logging import get_logger
 
-logger = get_logger(__name__)
+# ============================================================================
+# CONSTANTS
+# ============================================================================
 
-# Constants
 AUDIT_STREAM_NAME = "audit"
 SECURITY_AUDIT_STREAM = "security_audit"
 
+_logger = None
 
-# Exceptions
+
+def _get_logger():
+    """Lazy logger initialization from structured logging."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
+
+
+def _get_current_correlation_id() -> str | None:
+    """Lazy import correlation_id_injector and get current correlation id."""
+    try:
+        mod = importlib.import_module("infrastructure.telemetry.correlation_id_injector")
+        get_correlation_id = getattr(mod, "get_current_correlation_id")
+        return get_correlation_id()
+    except Exception:
+        return None
+
+
+# ============================================================================
+# EXCEPTIONS
+# ============================================================================
+
+
 class ImmutableEventWriterError(Exception):
     pass
 
@@ -46,14 +71,21 @@ class MissingRequiredFieldError(ImmutableEventWriterError):
     pass
 
 
+# ============================================================================
+# IMMUTABLE EVENT WRITER
+# ============================================================================
+
+
 class ImmutableEventWriter:
     def __init__(self):
-        self._store: AppendOnlyStore | None = None
-        self._hash_builder: AuditHashChainBuilder | None = None
+        self._store = None
+        self._hash_builder = None
         self._write_count = 0
 
-    async def _get_store(self) -> AppendOnlyStore:
+    async def _get_store(self):
         if self._store is None:
+            mod = importlib.import_module("infrastructure.event_store.append_only_store")
+            get_audit_store = getattr(mod, "get_audit_store")
             self._store = await get_audit_store()
         return self._store
 
@@ -98,7 +130,7 @@ class ImmutableEventWriter:
     ) -> dict[str, Any]:
         event_id = str(uuid.uuid4())
         timestamp = datetime.now(UTC)
-        correlation_id = get_current_correlation_id() or str(uuid.uuid4())
+        correlation_id = _get_current_correlation_id() or str(uuid.uuid4())
         enriched_data = data.copy()
         if "timestamp" not in enriched_data:
             enriched_data["timestamp"] = timestamp.isoformat()
@@ -164,6 +196,7 @@ class ImmutableEventWriter:
             metadata={"original_event_type": event_type},
         )
         self._write_count += 1
+        logger = _get_logger()
         logger.debug(f"Audit event written: {event_type} (id={event_id})")
         if stream_name == SECURITY_AUDIT_STREAM:
             security_logger = logging.getLogger("security")
@@ -311,14 +344,11 @@ class ImmutableEventWriter:
         self,
         journal_id: str,
         voucher_number: str,
-        total_amount: Decimal,  # <--- Ubah float menjadi Decimal di sini
+        total_amount: Decimal,
         lines_count: int,
         posted_by: str | None = None,
         legal_entity_id: str | None = None,
     ) -> str:
-        # Jika dictionary data ini akan di-serialize ke JSON, pastikan serializer Anda
-        # mendukung tipe Decimal, atau konversi ke string/float saat dimasukkan ke dict
-        # tergantung kebutuhan backend audit Anda. Namun untuk type hint wajib Decimal.
         data = {
             "journal_id": journal_id,
             "voucher_number": voucher_number,
@@ -336,7 +366,10 @@ class ImmutableEventWriter:
         }
 
 
-# Singleton
+# ============================================================================
+# SINGLETON INSTANCE
+# ============================================================================
+
 _immutable_event_writer: ImmutableEventWriter | None = None
 
 
@@ -347,7 +380,10 @@ async def get_immutable_event_writer() -> ImmutableEventWriter:
     return _immutable_event_writer
 
 
-# Decorator
+# ============================================================================
+# DECORATOR
+# ============================================================================
+
 def audit_log(event_type: str):
     def decorator(func):
         async def wrapper(*args, **kwargs):
@@ -370,6 +406,10 @@ def audit_log(event_type: str):
 
     return decorator
 
+
+# ============================================================================
+# EXPORTS
+# ============================================================================
 
 __all__ = [
     "ImmutableEventWriter",

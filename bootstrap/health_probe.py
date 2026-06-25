@@ -8,6 +8,7 @@ Responsibility: Probe kesehatan awal sebelum sistem menerima beban.
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import time
 from dataclasses import dataclass, field
@@ -359,10 +360,11 @@ class HealthProbe:
                     response_time_ms=0,
                 )
             )
-        # Constitution
+        # Constitution (lazy import)
         try:
-            from constitution.supreme_law import get_supreme_law
-
+            # Lazy import constitution.supreme_law
+            supreme_law_mod = importlib.import_module("constitution.supreme_law")
+            get_supreme_law = getattr(supreme_law_mod, "get_supreme_law")
             supreme_law = get_supreme_law()
             integrity = supreme_law.verify_integrity()
             if integrity.get("is_valid"):
@@ -524,8 +526,9 @@ class HealthProbe:
     async def _check_kernel(self) -> ComponentHealth:
         start = time.time()
         try:
-            from kernel.sealed_gate import get_sealed_gate
-
+            # Lazy import kernel.sealed_gate
+            gate_mod = importlib.import_module("kernel.sealed_gate")
+            get_sealed_gate = getattr(gate_mod, "get_sealed_gate")
             gate = get_sealed_gate()
             response_time = (time.time() - start) * 1000
             is_healthy = gate is not None
@@ -615,8 +618,9 @@ class HealthProbe:
     async def _check_migrations(self) -> ComponentHealth:
         start = time.time()
         try:
-            from infrastructure.database.migration_manager_alembic import get_migration_manager
-
+            # Lazy import migration manager
+            mig_mod = importlib.import_module("infrastructure.database.migration_manager_alembic")
+            get_migration_manager = getattr(mig_mod, "get_migration_manager")
             manager = get_migration_manager()
             current_rev = manager.get_current_revision()
             head_rev = manager.get_head_revision()

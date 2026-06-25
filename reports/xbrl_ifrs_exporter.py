@@ -12,7 +12,7 @@ Dependencies:
 - infrastructure.persistence_orm.ledger_entry_table
 - projections.ledger.balance_sheet_snapshot
 - projections.ledger.income_statement_period
-- config.loader_yaml
+- config.loader_yaml -> DIINJEKSI DARI LUAR (tidak diimpor langsung)
 - infrastructure.telemetry.structured_json_logging
 Audit: Setiap ekspor XBRL dicatat. File XBRL disimpan sebagai bukti pelaporan.
 """
@@ -23,9 +23,7 @@ import xml.etree.ElementTree as ET
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-from config.loader_yaml import load_yaml_config
+from typing import TYPE_CHECKING, Any, Optional
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -121,8 +119,8 @@ class XBRLIFRSExporter:
     - Validasi terhadap taxonomy
     """
 
-    def __init__(self, config_path: str = "config_files/report_config.yaml"):
-        self.config = self._load_config(config_path)
+    def __init__(self, config: Optional[dict[str, Any]] = None):
+        self.config = self._prepare_config(config)
         self._output_dir = Path(self.config.get("output_dir", "/var/reports/xbrl"))
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._taxonomy_url = self.config.get(
@@ -131,15 +129,20 @@ class XBRLIFRSExporter:
         self._company_identifier_scheme = self.config.get(
             "company_identifier_scheme", "http://www.oecd.org/documentation/lei"
         )
-        self._balance_sheet: BalanceSheetSnapshot | None = None
-        self._income_statement: IncomeStatementPeriod | None = None
-        self._cash_flow: CashFlowIndirect | None = None
+        self._balance_sheet: Optional[BalanceSheetSnapshot] = None
+        self._income_statement: Optional[IncomeStatementPeriod] = None
+        self._cash_flow: Optional[CashFlowIndirect] = None
 
-    def _load_config(self, config_path: str) -> dict[str, Any]:
-        try:
-            return load_yaml_config(config_path).get("xbrl", DEFAULT_CONFIG)
-        except Exception:
-            return DEFAULT_CONFIG.copy()
+    def _prepare_config(self, config: Optional[dict]) -> dict:
+        if config is not None:
+            result = DEFAULT_CONFIG.copy()
+            for key, value in config.items():
+                if key in result and isinstance(value, dict):
+                    result[key].update(value)
+                else:
+                    result[key] = value
+            return result
+        return DEFAULT_CONFIG.copy()
 
     async def _get_balance_sheet(self) -> BalanceSheetSnapshot:
         if self._balance_sheet is None:
@@ -288,7 +291,7 @@ class XBRLIFRSExporter:
         period_id: UUID,
         entity_identifier: str,
         currency: str = "IDR",
-        output_filename: str | None = None,
+        output_filename: Optional[str] = None,
     ) -> Path:
         """
         Mengekspor laporan keuangan ke file XBRL.
@@ -305,6 +308,7 @@ class XBRLIFRSExporter:
         """
         # Get period info
         from infrastructure.persistence_orm.fiscal_period_table import FiscalPeriodTable
+        from sqlalchemy import select
 
         async with await get_session_factory() as session:
             period_stmt = select(FiscalPeriodTable).where(FiscalPeriodTable.id == period_id)
@@ -362,17 +366,24 @@ class XBRLIFRSExporter:
 
 
 # ============================================================================
-# SINGLETON INSTANCE
+# SINGLETON INSTANCE dengan injeksi konfigurasi
 # ============================================================================
 
-_xbrl_exporter: XBRLIFRSExporter | None = None
+_xbrl_exporter: Optional[XBRLIFRSExporter] = None
+_xbrl_config: Optional[dict] = None
+
+
+def set_xbrl_exporter_config(config: dict) -> None:
+    """Set konfigurasi untuk XBRLIFRSExporter (harus dipanggil sebelum get_xbrl_exporter)."""
+    global _xbrl_config
+    _xbrl_config = config
 
 
 async def get_xbrl_exporter() -> XBRLIFRSExporter:
     """Get singleton instance of XBRLIFRSExporter."""
     global _xbrl_exporter
     if _xbrl_exporter is None:
-        _xbrl_exporter = XBRLIFRSExporter()
+        _xbrl_exporter = XBRLIFRSExporter(config=_xbrl_config)
     return _xbrl_exporter
 
 
@@ -380,4 +391,9 @@ async def get_xbrl_exporter() -> XBRLIFRSExporter:
 # EXPORTS
 # ============================================================================
 
-__all__ = ["XBRLExportError", "XBRLIFRSExporter", "get_xbrl_exporter"]
+__all__ = [
+    "XBRLExportError",
+    "XBRLIFRSExporter",
+    "get_xbrl_exporter",
+    "set_xbrl_exporter_config",
+]

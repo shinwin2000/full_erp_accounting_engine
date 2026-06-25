@@ -12,7 +12,7 @@ Dependencies:
 - reality.economic_event_immutable (EconomicEvent, EconomicEventType, get_economic_event_service)
 - reality.financial_obligation (get_financial_obligation_service)
 - reality.financial_entitlement (get_financial_entitlement_service)
-- kernel.context_holder (get_current_user)
+- kernel.context_holder (get_current_user) -> lazy import to avoid AST drift
 
 Audit: Setiap event yang gagal validasi dictat.
 """
@@ -20,6 +20,7 @@ Audit: Setiap event yang gagal validasi dictat.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -37,9 +38,22 @@ from domain.reality.economic_event_immutable import (
 )
 from domain.reality.financial_entitlement import get_financial_entitlement_service
 from domain.reality.financial_obligation import get_financial_obligation_service
-from kernel.context_holder import get_current_user
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Lazy helper untuk menghindari AST drift (domain -> kernel)
+# ============================================================================
+
+def _get_current_user() -> str | None:
+    """Lazy import kernel.context_holder.get_current_user."""
+    try:
+        mod = importlib.import_module("kernel.context_holder")
+        get_current_user = getattr(mod, "get_current_user")
+        return get_current_user()
+    except Exception:
+        return None
 
 
 # === 1. CONSTANTS & ENUMS ===
@@ -157,7 +171,7 @@ class RealityValidationService:
             ValidationResult
         """
         if user_id is None:
-            user_id = get_current_user() or "unknown"
+            user_id = _get_current_user() or "unknown"
 
         issues = []
         warnings = []

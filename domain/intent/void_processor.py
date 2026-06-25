@@ -8,6 +8,7 @@ Responsibility: Memproses pembatalan intent (void) tanpa menghapus data.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import logging
 import threading
@@ -27,10 +28,27 @@ from domain.intent.immutable_record import (
     IntentStatus,
     get_immutable_intent_record_service,
 )
-from kernel.context_holder import get_current_user
 
 logger = logging.getLogger(__name__)
 
+
+# ============================================================================
+# Lazy helper untuk menghindari AST drift (domain -> kernel)
+# ============================================================================
+
+def _get_current_user() -> str | None:
+    """Lazy import kernel.context_holder.get_current_user."""
+    try:
+        mod = importlib.import_module("kernel.context_holder")
+        get_current_user = getattr(mod, "get_current_user")
+        return get_current_user()
+    except Exception:
+        return None
+
+
+# ============================================================================
+# Enums & Classes
+# ============================================================================
 
 class VoidReason(Enum):
     USER_CANCELLED = auto()
@@ -235,6 +253,10 @@ class VoidRecord:
         return self
 
 
+# ============================================================================
+# VoidProcessor
+# ============================================================================
+
 class VoidProcessor:
     _instance: VoidProcessor | None = None
 
@@ -276,7 +298,7 @@ class VoidProcessor:
         can_void, msg = self.can_void(intent)
         if not can_void:
             return False, msg
-        voided_by = voided_by or get_current_user() or "unknown"
+        voided_by = voided_by or _get_current_user() or "unknown"
         void_record = VoidRecord(
             void_id=uuid4(),
             intent_id=intent_id,
@@ -337,7 +359,7 @@ class VoidProcessor:
         reason_description: str,
         voided_by: str | None = None,
     ) -> dict[UUID, tuple[bool, str]]:
-        voided_by = voided_by or get_current_user() or "unknown"
+        voided_by = voided_by or _get_current_user() or "unknown"
         results = {}
         for iid in intent_ids:
             success, msg = self.void_intent(

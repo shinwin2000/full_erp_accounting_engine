@@ -1,4 +1,5 @@
 # command_validator.py - Hardened version with complete implementation
+# Fixed: Added ValidationError alias for backward compatibility
 
 #!/usr/bin/env python3
 
@@ -65,6 +66,10 @@ class CommandValidationError(Exception):
         else:
             self.errors = [errors]
             super().__init__(f"Command validation failed: {errors}")
+
+
+# Alias for backward compatibility with routers
+ValidationError = CommandValidationError
 
 
 class ValidationRuleError(Exception):
@@ -558,6 +563,7 @@ def validate_field(field_name: str, rule_name: str, error_message: str | None = 
 __all__ = [
     "CommandValidationError",
     "CommandValidator",
+    "ValidationError",          
     "ValidationResult",
     "ValidationRule",
     "ValidationRuleError",

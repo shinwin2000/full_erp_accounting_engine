@@ -8,27 +8,37 @@ Responsibility: Mengumpulkan, mengkategorikan, dan menganalisis exception (penyi
                Juga menghitung effect of exception terhadap kesimpulan audit.
 Dependencies:
 - decimal, logging, datetime
-- infrastructure.telemetry.structured_json_logging
+- infrastructure.telemetry.structured_json_logging (lazy import)
 - audit.sampling_materiality.materiality_threshold_calculator
 Audit: Exception aggregation digunakan untuk root cause analysis dan laporan audit.
 """
 
 from __future__ import annotations
 
+import importlib
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
 
-# Internal dependencies
+# Internal dependency (diizinkan, same layer)
 from audit.sampling_materiality.materiality_threshold_calculator import get_materiality_calculator
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-logger = get_logger(__name__)
 
 # ============================================================================
 # CONSTANTS
 # ============================================================================
+
+_logger = None
+
+
+def _get_logger():
+    """Lazy logger initialization from structured logging."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
 
 
 class ExceptionSeverity(str, Enum):
@@ -115,6 +125,7 @@ class AuditExceptionAggregator:
         exception_data["added_at"] = datetime.now(UTC).isoformat()
 
         self._exceptions.append(exception_data)
+        logger = _get_logger()
         logger.info(
             f"Exception added: {exception_data.get('exception_type')} amount={exception_data.get('amount')}"
         )
@@ -313,6 +324,7 @@ class AuditExceptionAggregator:
     def clear(self) -> None:
         """Menghapus semua exceptions."""
         self._exceptions.clear()
+        logger = _get_logger()
         logger.info("All exceptions cleared")
 
     def get_exceptions(

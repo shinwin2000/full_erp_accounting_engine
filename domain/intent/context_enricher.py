@@ -7,6 +7,7 @@ Responsibility: Memperkaya intent dengan konteks (waktu, lokasi, user agent).
 
 from __future__ import annotations
 
+import importlib
 import logging
 import socket
 import threading
@@ -15,10 +16,36 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from kernel.context_holder import get_correlation_id, get_current_user
-
 logger = logging.getLogger(__name__)
 
+
+# ============================================================================
+# Lazy helpers untuk menghindari AST drift (domain -> kernel)
+# ============================================================================
+
+def _get_current_user() -> str | None:
+    """Lazy import kernel.context_holder.get_current_user."""
+    try:
+        mod = importlib.import_module("kernel.context_holder")
+        get_current_user = getattr(mod, "get_current_user")
+        return get_current_user()
+    except Exception:
+        return None
+
+
+def _get_correlation_id() -> str | None:
+    """Lazy import kernel.context_holder.get_correlation_id."""
+    try:
+        mod = importlib.import_module("kernel.context_holder")
+        get_correlation_id = getattr(mod, "get_correlation_id")
+        return get_correlation_id()
+    except Exception:
+        return None
+
+
+# ============================================================================
+# EnrichedContext
+# ============================================================================
 
 @dataclass
 class EnrichedContext:
@@ -203,6 +230,10 @@ class EnrichedContext:
         return new_ctx
 
 
+# ============================================================================
+# ContextEnricher
+# ============================================================================
+
 class ContextEnricher:
     _instance: ContextEnricher | None = None
 
@@ -235,9 +266,9 @@ class ContextEnricher:
         additional_data: dict[str, Any] | None = None,
     ) -> EnrichedContext:
         if user_id is None:
-            user_id = get_current_user() or "unknown"
+            user_id = _get_current_user() or "unknown"
         if correlation_id is None:
-            correlation_id = get_correlation_id() or str(uuid4())
+            correlation_id = _get_correlation_id() or str(uuid4())
         return EnrichedContext(
             user_id=user_id,
             correlation_id=correlation_id,
@@ -275,7 +306,7 @@ class ContextEnricher:
         if not correlation_id:
             correlation_id = str(uuid4())
         if user_id is None:
-            user_id = get_current_user() or "unknown"
+            user_id = _get_current_user() or "unknown"
         return self.enrich(
             user_id=user_id,
             correlation_id=correlation_id,
@@ -330,13 +361,18 @@ class ContextEnricher:
             self._hostname = socket.gethostname()
 
 
+# ============================================================================
+# SINGLETON INSTANCE
+# ============================================================================
+
+_context_enricher_instance: ContextEnricher | None = None
+
+
 def get_context_enricher() -> ContextEnricher:
     global _context_enricher_instance
     if _context_enricher_instance is None:
         _context_enricher_instance = ContextEnricher()
     return _context_enricher_instance
 
-
-_context_enricher_instance: ContextEnricher | None = None
 
 __all__ = ["ContextEnricher", "EnrichedContext", "get_context_enricher"]

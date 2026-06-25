@@ -10,9 +10,12 @@ Responsibility: Registry untuk semua adapter (primary dan secondary).
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
-from bootstrap.dependency_container.ioc_container import IoCContainer
+if TYPE_CHECKING:
+    from bootstrap.dependency_container.interfaces import ContainerInterface
+
+from bootstrap.dependency_container.auto_register_ports import register_all_ports
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +26,18 @@ class AdapterRegistry:
     mendaftarkan semua port yang ditemukan.
     """
 
-    def __init__(self, container: Optional[IoCContainer] = None):
+    def __init__(self, container: Optional[ContainerInterface] = None):
         self._container = container
         self._adapters: dict[str, type] = {}
         self._logger = logging.getLogger(f"{__name__}.AdapterRegistry")
-        self._is_registered = False  # Idempotency flag
+        self._is_registered = False
 
-    def set_container(self, container: IoCContainer) -> None:
+    def set_container(self, container: ContainerInterface) -> None:
         """Set container after instantiation."""
         self._container = container
 
     def register_all(self) -> None:
         """Register semua adapter yang tersedia ke container menggunakan auto-discover."""
-        # Cegah double scan
         if self._is_registered:
             self._logger.debug("Adapter registration already completed. Skipping redundant scan.")
             return
@@ -45,8 +47,7 @@ class AdapterRegistry:
 
         self._logger.info("Starting adapter registration via auto-discover...")
 
-        from bootstrap.dependency_container.auto_register_ports import register_all_ports
-
+        # auto_register_ports sudah menerima container interface
         registered, fallback = register_all_ports(self._container)
 
         self._logger.info(
@@ -54,16 +55,13 @@ class AdapterRegistry:
             f"{len(fallback)} using in-memory fallback"
         )
 
-        # ============================================================
-        # 2. NAMED ADAPTERS (untuk lookup by name)
-        # ============================================================
+        # Named adapters
         for reg in self._container.get_registered_types():
             if hasattr(reg, "__name__"):
                 name = reg.__name__.lower()
                 if "repository" in name or "port" in name:
                     self._adapters[name] = reg
 
-        # Tambahkan alias untuk kemudahan
         named_aliases = {
             "unit_of_work": "UnitOfWorkPort",
             "event_publisher": "EventPublisherPort",
@@ -88,9 +86,7 @@ class AdapterRegistry:
         self._logger.info(f"Registered {len(self._adapters)} named adapter interfaces")
         self._is_registered = True
 
-    # ================================================================
-    # METODE LAINNYA (register, unregister, resolve, dll.)
-    # ================================================================
+    # ... metode lainnya sama seperti sebelumnya, hanya ganti tipe container dengan ContainerInterface ...
 
     def register(self, name: str, interface: type, implementation: type | None = None) -> None:
         if not name:
@@ -114,8 +110,8 @@ class AdapterRegistry:
             return False
 
         interface = self._adapters.pop(name)
-        if self._container and interface in self._container._registrations:
-            del self._container._registrations[interface]
+        if self._container and hasattr(self._container, "remove"):
+            self._container.remove(interface)
         self._logger.info(f"Unregistered adapter: {name}")
         return True
 
@@ -160,22 +156,15 @@ _adapter_registry: AdapterRegistry | None = None
 
 
 def set_adapter_registry_instance(registry: AdapterRegistry) -> None:
-    """Set the singleton registry instance (used by ioc_container to avoid recursion)."""
     global _adapter_registry
     _adapter_registry = registry
 
 
 def get_adapter_registry() -> AdapterRegistry:
-    """
-    Get the singleton AdapterRegistry. If not initialized, it will be created
-    and initialized with the global container.
-    """
     global _adapter_registry
     if _adapter_registry is None:
-        # Import inside to avoid circular import at module level
         from bootstrap.dependency_container.ioc_container import get_container
-        container = get_container()  # This will initialize the registry and set _adapter_registry
-        # After get_container() returns, _adapter_registry should not be None
+        container = get_container()
         if _adapter_registry is None:
             raise RuntimeError("Failed to initialize adapter registry")
     return _adapter_registry

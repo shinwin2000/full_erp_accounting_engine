@@ -1,0 +1,14 @@
+{
+  "invariant_id": "INV-006",
+  "name": "Ledger Append-Only",
+  "invariant_type": "LEDGER_APPEND_ONLY",
+  "description": "Ledger is append-only - no updates, only new entries",
+  "enforcement_level": "ABSOLUTE",
+  "violation_action": "SYSTEM_PANIC",
+  "validator": "LedgerAppendOnlyValidator",
+  "version": 2,
+  "created_at": "2026-06-24T15:58:29.699344",
+  "updated_at": "2026-06-24T15:58:29.730737",
+  "is_active": true,
+  "metadata": {}
+}

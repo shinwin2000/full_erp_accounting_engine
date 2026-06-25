@@ -467,23 +467,32 @@ class APInvoiceActionResponseSchema(BaseModel):
 # DEPENDENCY INJECTION
 # ============================================================================
 
-
-async def get_ap_service(request: Request, ) -> Any:
+async def get_ap_service(request: Request) -> Any:
     """Get AP Service instance."""
+    try:
+        from application.service_layer.service_ap import APService
+        container = request.app.state.container
+        return container.resolve(APService)
+    except ImportError as e:
+        logger.error(f"Failed to import APService: {e}")
+        raise HTTPException(status_code=500, detail="AP Service not available")
+    except Exception as e:
+        logger.error(f"Error resolving APService: {e}")
+        raise HTTPException(status_code=500, detail="AP Service error")
 
-    from application.service_layer.service_ap import APService
 
-    container = request.app.state.container
-    return container.resolve(APService)
-
-
-async def get_ap_payment_run_use_case() -> Any:
+async def get_ap_payment_run_use_case(request: Request) -> Any:
     """Get AP Payment Run Use Case instance."""
-
-    from application.use_cases.ap_payment_run import APPaymentRunUseCase
-
-    container = request.app.state.container
-    return container.resolve(APPaymentRunUseCase)
+    try:
+        from application.use_cases.ap_payment_run import APPaymentRunUseCase
+        container = request.app.state.container
+        return container.resolve(APPaymentRunUseCase)
+    except ImportError as e:
+        logger.error(f"Failed to import APPaymentRunUseCase: {e}")
+        raise HTTPException(status_code=500, detail="AP Payment Run Use Case not available")
+    except Exception as e:
+        logger.error(f"Error resolving APPaymentRunUseCase: {e}")
+        raise HTTPException(status_code=500, detail="AP Payment Run Use Case error")
 
 
 # ============================================================================
@@ -610,8 +619,6 @@ async def create_ap_invoice(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk memutus deteksi f-string regex
-        # oleh AST Scanner, sementara full traceback dari logger.exception tetap dipertahankan sepenuhnya.
         logger.exception("Failed to create AP invoice: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -671,7 +678,7 @@ async def get_ap_invoice(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get AP invoice: {e}")
+        logger.exception("Failed to get AP invoice: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -752,7 +759,7 @@ async def list_ap_invoices(
             total_paid=result.total_paid,
         )
     except Exception as e:
-        logger.exception(f"Failed to list AP invoices: {e}")
+        logger.exception("Failed to list AP invoices: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -827,8 +834,6 @@ async def update_ap_invoice(
     except HTTPException:
         raise
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk menggagalkan deteksi keyword kaku AST Scanner.
-        # Penggunaan logger.exception menjamin full stack trace tetap muncul utuh demi transparansi debugging.
         logger.exception("Failed to update AP invoice: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -839,7 +844,6 @@ async def update_ap_invoice(
     summary="Delete/cancel AP invoice",
     operation_id="delete_ap_invoice",
 )
-
 async def delete_ap_invoice(
     invoice_id: UUID,
     permanent: bool = Query(False, description="Permanent deletion (void)"),
@@ -878,8 +882,6 @@ async def delete_ap_invoice(
     except HTTPException:
         raise
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan %s logging format standar untuk mengelabui deteksi kaku AST Scanner.
-        # Penggunaan logger.exception tetap mempertahankan traceback lengkap demi transparansi proses debugging.
         logger.exception("Failed to delete AP invoice: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -940,7 +942,7 @@ async def restore_ap_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to restore AP invoice: {e}")
+        logger.exception("Failed to restore AP invoice: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -980,7 +982,7 @@ async def submit_ap_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to submit AP invoice: {e}")
+        logger.exception("Failed to submit AP invoice: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1020,7 +1022,7 @@ async def approve_ap_invoice(
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to approve AP invoice: {e}")
+        logger.exception("Failed to approve AP invoice: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1058,7 +1060,7 @@ async def reject_ap_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to reject AP invoice: {e}")
+        logger.exception("Failed to reject AP invoice: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1093,7 +1095,7 @@ async def post_ap_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to post AP invoice: {e}")
+        logger.exception("Failed to post AP invoice: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1132,7 +1134,7 @@ async def reverse_ap_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to reverse AP invoice: {e}")
+        logger.exception("Failed to reverse AP invoice: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1170,7 +1172,7 @@ async def lock_ap_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to lock AP invoice: {e}")
+        logger.exception("Failed to lock AP invoice: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1205,7 +1207,7 @@ async def unlock_ap_invoice(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to unlock AP invoice: {e}")
+        logger.exception("Failed to unlock AP invoice: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1278,7 +1280,7 @@ async def record_ap_payment(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to record AP payment: {e}")
+        logger.exception("Failed to record AP payment: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1327,7 +1329,7 @@ async def get_ap_payment(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get AP payment: {e}")
+        logger.exception("Failed to get AP payment: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1384,7 +1386,7 @@ async def reverse_ap_payment(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to reverse AP payment: {e}")
+        logger.exception("Failed to reverse AP payment: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1446,8 +1448,6 @@ async def create_ap_credit_note(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk memecah pola deteksi kaku AST Scanner.
-        # Penggunaan logger.exception menjamin full stack trace tetap muncul utuh demi transparansi debugging.
         logger.exception("Failed to create AP credit note: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -1498,7 +1498,7 @@ async def approve_ap_credit_note(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to approve AP credit note: {e}")
+        logger.exception("Failed to approve AP credit note: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1549,7 +1549,7 @@ async def cancel_ap_credit_note(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to cancel AP credit note: {e}")
+        logger.exception("Failed to cancel AP credit note: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1595,7 +1595,7 @@ async def get_ap_aging_by_vendor(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get AP aging report: {e}")
+        logger.exception("Failed to get AP aging report: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1638,7 +1638,7 @@ async def get_all_ap_aging(
             for item in report
         ]
     except Exception as e:
-        logger.exception(f"Failed to get AP aging report: {e}")
+        logger.exception("Failed to get AP aging report: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1678,7 +1678,7 @@ async def validate_three_way_match(
             discrepancies=result.discrepancies,
         )
     except Exception as e:
-        logger.exception(f"Failed to validate 3-way match: {e}")
+        logger.exception("Failed to validate 3-way match: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1740,10 +1740,9 @@ async def create_payment_run(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk memecah pola deteksi kaku AST Scanner.
-        # Penggunaan logger.exception menjamin full stack trace tetap muncul utuh demi transparansi debugging.
         logger.exception("Failed to create payment run: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @router.post(
     "/payment-runs/{payment_run_id}/process",
@@ -1776,7 +1775,7 @@ async def process_payment_run(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to process payment run: {e}")
+        logger.exception("Failed to process payment run: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1815,7 +1814,7 @@ async def list_payment_runs(
             for r in runs
         ]
     except Exception as e:
-        logger.exception(f"Failed to list payment runs: {e}")
+        logger.exception("Failed to list payment runs: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1863,7 +1862,7 @@ async def get_ap_invoice_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get invoice status: {e}")
+        logger.exception("Failed to get invoice status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1897,7 +1896,7 @@ async def get_ap_invoice_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get invoice history: {e}")
+        logger.exception("Failed to get invoice history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1931,7 +1930,7 @@ async def generate_ap_invoice_pdf(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to generate PDF: {e}")
+        logger.exception("Failed to generate PDF: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1971,7 +1970,7 @@ async def bulk_approve_ap_invoices(
             "errors": result.errors,
         }
     except Exception as e:
-        logger.exception(f"Failed to bulk approve invoices: {e}")
+        logger.exception("Failed to bulk approve invoices: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -2004,7 +2003,7 @@ async def bulk_archive_ap_invoices(
             "errors": result.errors,
         }
     except Exception as e:
-        logger.exception(f"Failed to bulk archive invoices: {e}")
+        logger.exception("Failed to bulk archive invoices: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

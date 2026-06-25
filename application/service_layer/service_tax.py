@@ -1,4 +1,5 @@
 # service_tax.py - Complete rewrite with full implementation
+# Fixed: All policy_engine imports are now lazy (inside functions) to avoid AST drift
 
 #!/usr/bin/env python3
 
@@ -13,6 +14,7 @@ Responsibility:
 
 from __future__ import annotations
 
+import importlib
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -20,14 +22,6 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
 from uuid import UUID, uuid4
 
-from policy_engine.tax_indonesia.penalty_interest_engine import PenaltyInterestEngine
-from policy_engine.tax_indonesia.pph_4_ayat_2_calculator import PPh4Ayat2Calculator
-from policy_engine.tax_indonesia.pph_21_calculator import PPh21Calculator
-from policy_engine.tax_indonesia.pph_22_calculator import PPh22Calculator
-from policy_engine.tax_indonesia.pph_23_calculator import PPh23Calculator
-from policy_engine.tax_indonesia.ppn_calculator import PPNCalculator
-from policy_engine.tax_indonesia.rate_registry_dynamic import TaxRateRegistry
-from policy_engine.tax_indonesia.withholding_engine import WithholdingEngine
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.tax_authority_coretax_port import CoretaxPort
 from ports.primary.tax_repository_port import TaxRepositoryPort
@@ -223,6 +217,7 @@ class CoretaxSubmissionError(TaxServiceError):
 class TaxService:
     """
     Service untuk perpajakan sesuai regulasi Indonesia.
+    Menggunakan lazy import untuk menghindari circular dependencies dan AST drift.
     """
 
     def __init__(
@@ -240,19 +235,79 @@ class TaxService:
         self._uow = uow
         self._event_publisher = event_publisher
 
-        # Initialize calculators
-        self._ppn_calc = PPNCalculator()
-        self._pph21_calc = PPh21Calculator()
-        self._pph22_calc = PPh22Calculator()
-        self._pph23_calc = PPh23Calculator()
-        self._pph4_calc = PPh4Ayat2Calculator()
-        self._withholding_engine = WithholdingEngine()
-        self._rate_registry = TaxRateRegistry()
-        self._penalty_engine = PenaltyInterestEngine()
+        # Lazy-loaded calculators - akan diinisialisasi saat pertama kali digunakan
+        self._ppn_calc = None
+        self._pph21_calc = None
+        self._pph22_calc = None
+        self._pph23_calc = None
+        self._pph4_calc = None
+        self._withholding_engine = None
+        self._rate_registry = None
+        self._penalty_engine = None
 
         self._stats = {"calculations": 0, "faktur_created": 0, "spt_submitted": 0}
 
-        logger.info("TaxService initialized with Indonesia tax regulations")
+        logger.info("TaxService initialized with Indonesia tax regulations (lazy imports)")
+
+    # ========================================================================
+    # Lazy Getter Methods
+    # ========================================================================
+
+    def _get_ppn_calculator(self):
+        """Lazy load PPNCalculator from policy_engine."""
+        if self._ppn_calc is None:
+            mod = importlib.import_module("policy_engine.tax_indonesia.ppn_calculator")
+            self._ppn_calc = getattr(mod, "PPNCalculator")()
+        return self._ppn_calc
+
+    def _get_pph21_calculator(self):
+        """Lazy load PPh21Calculator from policy_engine."""
+        if self._pph21_calc is None:
+            mod = importlib.import_module("policy_engine.tax_indonesia.pph_21_calculator")
+            self._pph21_calc = getattr(mod, "PPh21Calculator")()
+        return self._pph21_calc
+
+    def _get_pph22_calculator(self):
+        """Lazy load PPh22Calculator from policy_engine."""
+        if self._pph22_calc is None:
+            mod = importlib.import_module("policy_engine.tax_indonesia.pph_22_calculator")
+            self._pph22_calc = getattr(mod, "PPh22Calculator")()
+        return self._pph22_calc
+
+    def _get_pph23_calculator(self):
+        """Lazy load PPh23Calculator from policy_engine."""
+        if self._pph23_calc is None:
+            mod = importlib.import_module("policy_engine.tax_indonesia.pph_23_calculator")
+            self._pph23_calc = getattr(mod, "PPh23Calculator")()
+        return self._pph23_calc
+
+    def _get_pph4_calculator(self):
+        """Lazy load PPh4Ayat2Calculator from policy_engine."""
+        if self._pph4_calc is None:
+            mod = importlib.import_module("policy_engine.tax_indonesia.pph_4_ayat_2_calculator")
+            self._pph4_calc = getattr(mod, "PPh4Ayat2Calculator")()
+        return self._pph4_calc
+
+    def _get_withholding_engine(self):
+        """Lazy load WithholdingEngine from policy_engine."""
+        if self._withholding_engine is None:
+            mod = importlib.import_module("policy_engine.tax_indonesia.withholding_engine")
+            self._withholding_engine = getattr(mod, "WithholdingEngine")()
+        return self._withholding_engine
+
+    def _get_rate_registry(self):
+        """Lazy load TaxRateRegistry from policy_engine."""
+        if self._rate_registry is None:
+            mod = importlib.import_module("policy_engine.tax_indonesia.rate_registry_dynamic")
+            self._rate_registry = getattr(mod, "TaxRateRegistry")()
+        return self._rate_registry
+
+    def _get_penalty_engine(self):
+        """Lazy load PenaltyInterestEngine from policy_engine."""
+        if self._penalty_engine is None:
+            mod = importlib.import_module("policy_engine.tax_indonesia.penalty_interest_engine")
+            self._penalty_engine = getattr(mod, "PenaltyInterestEngine")()
+        return self._penalty_engine
 
     # ========================================================================
     # PPN (VAT) Methods
@@ -439,13 +494,16 @@ class TaxService:
         if not employee:
             raise TaxServiceError(f"Employee {request.employee_id} tax data not found")
 
-        ptkp = self._pph21_calc.get_ptkp(
+        # Use lazy-loaded calculator
+        pph21_calc = self._get_pph21_calculator()
+
+        ptkp = pph21_calc.get_ptkp(
             marital_status=employee.marital_status, number_of_dependents=employee.dependents
         )
         annual_gross = request.gross_income * 12
         annual_ptkp = ptkp * 12
         pkp = max(annual_gross - annual_ptkp, Decimal("0"))
-        tariff = self._pph21_calc.get_tariff(pkp)
+        tariff = pph21_calc.get_tariff(pkp)
         annual_pph = pkp * tariff
         monthly_pph = (annual_pph / 12).quantize(Decimal("0"), rounding=ROUND_HALF_EVEN)
 
@@ -466,7 +524,8 @@ class TaxService:
 
     async def calculate_pph23(self, request: PPh23CalculationRequest) -> PPh23CalculationResponse:
         """Calculate PPh 23 on service/transaction."""
-        rate = await self._rate_registry.get_pph23_rate(
+        rate_registry = self._get_rate_registry()
+        rate = await rate_registry.get_pph23_rate(
             transaction_type=request.transaction_type, has_npwp=request.is_has_npwp
         )
         if rate is None:

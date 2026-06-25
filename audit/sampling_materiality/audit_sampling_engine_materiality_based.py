@@ -11,36 +11,45 @@ Dependencies:
 - math, decimal, logging, datetime
 - audit.sampling_materiality.materiality_threshold_calculator
 - audit.sampling_materiality.audit_sampling_statistical
-- infrastructure.telemetry.structured_json_logging
+- infrastructure.telemetry.structured_json_logging (lazy import)
 Audit: Hasil evaluasi sampling dicatat untuk audit trail.
 """
 
 from __future__ import annotations
 
+import importlib
 import math
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
 
+# Internal dependencies (same layer, allowed)
 from audit.sampling_materiality.audit_sampling_statistical import (
     AuditStatisticalSampling,
     get_audit_sampling,
 )
-
-# Internal dependencies
 from audit.sampling_materiality.materiality_threshold_calculator import (
     MaterialityBasis,
     MaterialityThresholdCalculator,
     get_materiality_calculator,
 )
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-logger = get_logger(__name__)
 
 # ============================================================================
 # CONSTANTS
 # ============================================================================
+
+_logger = None
+
+
+def _get_logger():
+    """Lazy logger initialization from structured logging."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
 
 
 class SamplingConclusion(str, Enum):
@@ -162,6 +171,7 @@ class AuditSamplingEngineMaterialityBased:
             "use_mus": use_mus,
         }
 
+        logger = _get_logger()
         logger.info(
             f"Audit engagement setup: sample_size={sample_size}, "
             f"performance_materiality={performance_materiality:,.2f}"

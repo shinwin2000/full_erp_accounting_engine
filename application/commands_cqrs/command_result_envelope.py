@@ -1,4 +1,5 @@
 # command_result_envelope.py - Hardened version with complete implementation
+# Fixed: Added CommandResultEnvelope alias for backward compatibility
 
 #!/usr/bin/env python3
 
@@ -518,15 +519,19 @@ def result_from_exception(
     )
 
 
-# === 5. EXPORTS ===
+# === 5. BACKWARD COMPATIBILITY ALIASES ===
+
+# Alias for routers expecting CommandResultEnvelope
+CommandResultEnvelope = CommandResult
+
+
+# === 6. EXPORTS ===
 
 __all__ = [
     "CommandResult",
+    "CommandResultEnvelope",  
     "CommandResultBatch",
     "CommandStatus",
     "combine_results",
     "result_from_exception",
 ]
-
-# Additional import
-from uuid import uuid4

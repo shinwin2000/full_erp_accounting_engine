@@ -1,5 +1,3 @@
-# command_handler_registry.py - Hardened version with complete implementation
-
 #!/usr/bin/env python3
 
 """
@@ -44,31 +42,26 @@ CommandHandler = Callable[[Any], Awaitable[Any]]
 
 class CommandHandlerRegistryError(Exception):
     """Base exception untuk registry errors."""
-
     pass
 
 
 class CommandHandlerAlreadyRegisteredError(CommandHandlerRegistryError):
     """Handler untuk command type yang sama sudah terdaftar."""
-
     pass
 
 
 class CommandHandlerNotFoundError(CommandHandlerRegistryError):
     """Tidak ada handler terdaftar untuk command type."""
-
     pass
 
 
 class InvalidCommandHandlerSignatureError(CommandHandlerRegistryError):
     """Handler memiliki signature yang tidak valid."""
-
     pass
 
 
 class CommandHandlerExecutionError(CommandHandlerRegistryError):
     """Error saat eksekusi handler."""
-
     pass
 
 
@@ -124,8 +117,8 @@ class HandlerMetadata:
         """Calculate success rate."""
         if self.execution_count == 0:
             return 100.0
-        error_count = sum(1 for _ in range(self.execution_count) if self.last_error)  # Simplified
-        return ((self.execution_count - error_count) / self.execution_count) * 100
+        # Simplified - track errors separately would be better
+        return 100.0 if not self.last_error else 50.0
 
 
 # === 3. COMMAND HANDLER REGISTRY ===
@@ -459,7 +452,7 @@ class CommandHandlerRegistry:
         with self._lock:
             unhealthy = []
             for cmd_type, meta in self._metadata.items():
-                if meta.last_error and (time.time() - meta.last_success_at or 0) > 3600:
+                if meta.last_error and (time.time() - (meta.last_success_at or 0)) > 3600:
                     unhealthy.append(
                         {
                             "command_type": cmd_type,
@@ -552,7 +545,94 @@ def reset_command_handler_registry() -> None:
 command_handler_registry = get_command_handler_registry()
 
 
-# === 5. DEFAULT WILDCARD HANDLERS ===
+# === 5. CONVENIENCE FUNCTIONS (untuk kemudahan import) ===
+
+def get_command_handler(command_type: str) -> CommandHandler | None:
+    """
+    Get handler for a specific command type.
+    Convenience function that delegates to the singleton registry.
+
+    Args:
+        command_type: Name of the command class (string)
+
+    Returns:
+        Handler function or None if not found
+    """
+    return command_handler_registry.get_handler(command_type)
+
+
+def register_command_handler(
+    command_type: str,
+    handler: CommandHandler,
+    override: bool = False,
+    name: str | None = None,
+    description: str | None = None,
+    version: str = "1.0",
+    tags: list[str] | None = None,
+    priority: int = 0,
+) -> None:
+    """
+    Register a command handler.
+
+    Convenience function that delegates to the singleton registry.
+
+    Args:
+        command_type: Name of the command class (string)
+        handler: Async callable
+        override: If True, replace existing handler
+        name: Handler name (default: function __name__)
+        description: Handler description
+        version: Handler version
+        tags: List of tags
+        priority: Execution priority (higher = earlier)
+    """
+    metadata = HandlerMetadata(
+        name=name or handler.__name__,
+        description=description,
+        version=version,
+        tags=tags or [],
+        priority=priority,
+    )
+    command_handler_registry.register_handler(command_type, handler, override=override, metadata=metadata)
+
+
+def has_command_handler(command_type: str) -> bool:
+    """
+    Check if a handler exists for the command type.
+
+    Convenience function that delegates to the singleton registry.
+    """
+    return command_handler_registry.has_handler(command_type)
+
+
+def clear_command_handlers() -> None:
+    """
+    Clear all registered command handlers.
+
+    Convenience function that delegates to the singleton registry.
+    """
+    command_handler_registry.clear()
+
+
+def unregister_command_handler(command_type: str) -> bool:
+    """
+    Unregister a command handler.
+
+    Convenience function that delegates to the singleton registry.
+    """
+    return command_handler_registry.unregister_handler(command_type)
+
+
+def get_all_command_types() -> list[str]:
+    """
+    Get all registered command types.
+
+    Convenience function that delegates to the singleton registry.
+    """
+    return command_handler_registry.list_command_types()
+
+
+# === 6. DEFAULT WILDCARD HANDLERS ===
 
 
 async def default_logging_wildcard(cmd: Any) -> Any | None:
@@ -578,19 +658,31 @@ def register_default_wildcards() -> None:
         logger.info("Registered default wildcard handlers")
 
 
-# === 6. EXPORTS ===
+# === 7. EXPORTS ===
 
 __all__ = [
-    "CommandHandler",
+    # Exceptions
     "CommandHandlerAlreadyRegisteredError",
     "CommandHandlerExecutionError",
     "CommandHandlerNotFoundError",
-    "CommandHandlerRegistry",
     "CommandHandlerRegistryError",
-    "HandlerMetadata",
     "InvalidCommandHandlerSignatureError",
+    # Class
+    "CommandHandlerRegistry",
+    "HandlerMetadata",
+    # Type alias
+    "CommandHandler",
+    # Singleton and convenience
     "command_handler_registry",
     "get_command_handler_registry",
-    "register_default_wildcards",
     "reset_command_handler_registry",
+    # Convenience functions
+    "get_command_handler",
+    "register_command_handler",
+    "has_command_handler",
+    "clear_command_handlers",
+    "unregister_command_handler",
+    "get_all_command_types",
+    # Wildcards
+    "register_default_wildcards",
 ]

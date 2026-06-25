@@ -10,7 +10,7 @@ Dependencies:
 - aiosmtplib (email), aiohttp (WhatsApp/Slack webhook), asyncio, logging
 - reports.generator_pdf_excel_html (ReportGenerator)
 - infrastructure.telemetry.structured_json_logging
-- config.loader_yaml
+- config.loader_yaml -> DIINJEKSI DARI LUAR (tidak diimpor langsung)
 Audit: Setiap distribusi laporan dicatat, termasuk penerima, channel, dan status.
 """
 
@@ -21,7 +21,7 @@ import email.utils
 import mimetypes
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 # Email sending
 try:
@@ -42,7 +42,6 @@ except ImportError:
     aiohttp = None
 
 # Internal dependencies
-from config.loader_yaml import load_yaml_config
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 
@@ -114,20 +113,32 @@ class ReportDistributor:
     - Tracking distribusi
     """
 
-    def __init__(self, config_path: str = "config_files/report_config.yaml"):
-        self.config = self._load_config(config_path)
+    def __init__(self, config: Optional[dict[str, Any]] = None):
+        """
+        Inisialisasi distributor dengan konfigurasi yang diinjeksi.
+
+        Args:
+            config: Dictionary konfigurasi (jika None, gunakan DEFAULT_CONFIG)
+        """
+        self.config = self._prepare_config(config)
         self._email_config = self.config.get("email", DEFAULT_CONFIG["email"])
         self._whatsapp_config = self.config.get("whatsapp", DEFAULT_CONFIG["whatsapp"])
         self._slack_config = self.config.get("slack", DEFAULT_CONFIG["slack"])
         self._retry_config = self.config.get("retry", DEFAULT_CONFIG["retry"])
-        self._session: aiohttp.ClientSession | None = None
+        self._session: Optional[aiohttp.ClientSession] = None
 
-    def _load_config(self, config_path: str) -> dict[str, Any]:
-        try:
-            config = load_yaml_config(config_path)
-            return config.get("distributor", {})
-        except Exception:
-            return DEFAULT_CONFIG.copy()
+    def _prepare_config(self, config: Optional[dict]) -> dict:
+        """Siapkan konfigurasi dari parameter atau default."""
+        if config is not None:
+            # Merge dengan default untuk memastikan semua key ada
+            result = DEFAULT_CONFIG.copy()
+            for key, value in config.items():
+                if key in result and isinstance(value, dict):
+                    result[key].update(value)
+                else:
+                    result[key] = value
+            return result
+        return DEFAULT_CONFIG.copy()
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if not HTTP_AVAILABLE:
@@ -519,17 +530,24 @@ class ReportDistributor:
 
 
 # ============================================================================
-# SINGLETON INSTANCE
+# SINGLETON INSTANCE dengan injeksi konfigurasi dari luar
 # ============================================================================
 
-_report_distributor: ReportDistributor | None = None
+_report_distributor: Optional[ReportDistributor] = None
+_distributor_config: Optional[dict] = None
+
+
+def set_distributor_config(config: dict) -> None:
+    """Set konfigurasi untuk distributor (harus dipanggil sebelum get_report_distributor)."""
+    global _distributor_config
+    _distributor_config = config
 
 
 async def get_report_distributor() -> ReportDistributor:
     """Get singleton instance of ReportDistributor."""
     global _report_distributor
     if _report_distributor is None:
-        _report_distributor = ReportDistributor()
+        _report_distributor = ReportDistributor(config=_distributor_config)
     return _report_distributor
 
 
@@ -552,4 +570,5 @@ __all__ = [
     "WhatsAppSendError",
     "get_report_distributor",
     "shutdown_report_distributor",
+    "set_distributor_config",
 ]

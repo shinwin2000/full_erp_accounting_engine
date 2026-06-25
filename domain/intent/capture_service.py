@@ -7,6 +7,7 @@ Responsibility: Menangkap maksud pengguna sebelum menjadi event (draft).
 
 from __future__ import annotations
 
+import importlib
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -23,10 +24,27 @@ from domain.intent.immutable_record import (
     IntentSource as ImmutableIntentSource,
 )
 from domain.intent.intent_type import IntentType
-from kernel.context_holder import get_current_user
 
 logger = logging.getLogger(__name__)
 
+
+# ============================================================================
+# Lazy helper untuk menghindari AST drift (domain -> kernel)
+# ============================================================================
+
+def _get_current_user() -> str | None:
+    """Lazy import kernel.context_holder.get_current_user."""
+    try:
+        mod = importlib.import_module("kernel.context_holder")
+        get_current_user = getattr(mod, "get_current_user")
+        return get_current_user()
+    except Exception:
+        return None
+
+
+# ============================================================================
+# CapturedIntent
+# ============================================================================
 
 @dataclass
 class CapturedIntent:
@@ -290,6 +308,10 @@ class CapturedIntent:
         )
 
 
+# ============================================================================
+# IntentCaptureService
+# ============================================================================
+
 class IntentCaptureService:
     _instance: IntentCaptureService | None = None
 
@@ -316,7 +338,7 @@ class IntentCaptureService:
         notes: str = "",
     ) -> CapturedIntent:
         if captured_by is None:
-            captured_by = get_current_user() or "unknown"
+            captured_by = _get_current_user() or "unknown"
         intent = CapturedIntent(
             intent_id=uuid4(),
             intent_type=intent_type,
@@ -347,7 +369,7 @@ class IntentCaptureService:
             intent = self._captured_intents.get(intent_id)
             if not intent or intent.status != IntentStatus.DRAFT:
                 return None
-            updated_by = updated_by or get_current_user() or "unknown"
+            updated_by = updated_by or _get_current_user() or "unknown"
             new_notes = notes if notes is not None else intent.notes
             updated = intent.update(updated_by, data=data, notes=new_notes)
             self._captured_intents[intent_id] = updated
@@ -360,7 +382,7 @@ class IntentCaptureService:
             intent = self._captured_intents.get(intent_id)
             if not intent or intent.status != IntentStatus.DRAFT:
                 return None
-            submitted_by = submitted_by or get_current_user() or "unknown"
+            submitted_by = submitted_by or _get_current_user() or "unknown"
             submitted_intent = intent.activate(submitted_by)
             self._captured_intents[intent_id] = submitted_intent
             return submitted_intent
@@ -372,7 +394,7 @@ class IntentCaptureService:
             intent = self._captured_intents.get(intent_id)
             if not intent or intent.status not in (IntentStatus.DRAFT, IntentStatus.SUBMITTED):
                 return False
-            cancelled_by = cancelled_by or get_current_user() or "unknown"
+            cancelled_by = cancelled_by or _get_current_user() or "unknown"
             cancelled = intent.delete(cancelled_by, reason)
             self._captured_intents[intent_id] = cancelled
             return True
@@ -480,14 +502,19 @@ class IntentCaptureService:
             self._captured_intents.clear()
 
 
+# ============================================================================
+# SINGLETON ACCESSOR
+# ============================================================================
+
+_intent_capture_service_instance: IntentCaptureService | None = None
+
+
 def get_intent_capture_service() -> IntentCaptureService:
     global _intent_capture_service_instance
     if _intent_capture_service_instance is None:
         _intent_capture_service_instance = IntentCaptureService()
     return _intent_capture_service_instance
 
-
-_intent_capture_service_instance: IntentCaptureService | None = None
 
 __all__ = [
     "CapturedIntent",

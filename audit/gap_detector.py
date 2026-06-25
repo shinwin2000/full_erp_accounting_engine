@@ -17,15 +17,9 @@ Audit: Setiap gap yang terdeteksi dicatat dan memicu alert.
 from __future__ import annotations
 
 import asyncio
+import importlib
 from datetime import UTC, datetime
 from typing import Any
-
-# Internal dependencies
-from infrastructure.event_store.append_only_store import AppendOnlyStore, get_event_store
-from infrastructure.telemetry.alert_manager_router import trigger_alert
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-logger = get_logger(__name__)
 
 # ============================================================================
 # CONSTANTS
@@ -38,6 +32,19 @@ DEFAULT_CONFIG = {
     "alert_on_gap": True,
     "streams_to_scan": [],  # Empty = all streams
 }
+
+_logger = None
+
+
+def _get_logger():
+    """Lazy logger initialization."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -75,7 +82,7 @@ class GapDetector:
         self._alert_on_gap = self.config.get("alert_on_gap", True)
         self._streams_to_scan = self.config.get("streams_to_scan", [])
 
-        self._event_store: AppendOnlyStore | None = None
+        self._event_store = None
         self._scan_task: asyncio.Task | None = None
         self._running = False
         self._last_scan: datetime | None = None
@@ -83,6 +90,9 @@ class GapDetector:
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
+            # Lazy import config loader
+            mod = importlib.import_module("config.loader_yaml")
+            load_yaml_config = getattr(mod, "load_yaml_config")
             config = load_yaml_config(config_path)
             gap_config = config.get("gap_detector", {})
             result = DEFAULT_CONFIG.copy()
@@ -91,8 +101,10 @@ class GapDetector:
         except Exception:
             return DEFAULT_CONFIG.copy()
 
-    async def _get_event_store(self) -> AppendOnlyStore:
+    async def _get_event_store(self):
         if self._event_store is None:
+            mod = importlib.import_module("infrastructure.event_store.append_only_store")
+            get_event_store = getattr(mod, "get_event_store")
             self._event_store = await get_event_store()
         return self._event_store
 
@@ -193,12 +205,15 @@ class GapDetector:
         """
         store = await self._get_event_store()
 
+        # Lazy import SQLAlchemy and ORM table
+        sqlalchemy_mod = importlib.import_module("sqlalchemy")
+        select = getattr(sqlalchemy_mod, "select")
+        orm_mod = importlib.import_module("infrastructure.persistence_orm.event_store_table")
+        EventStoreTable = getattr(orm_mod, "EventStoreTable")
+
         # Get all streams
-        async with store._session_factory() as session:
-            from sqlalchemy import select
-
-            from infrastructure.persistence_orm.event_store_table import EventStoreTable
-
+        session_factory = store._session_factory
+        async with session_factory() as session:
             if self._streams_to_scan:
                 stream_names = self._streams_to_scan
             else:
@@ -244,12 +259,15 @@ class GapDetector:
             "timestamp_gaps": all_timestamp_gaps[:100],
         }
 
+        logger = _get_logger()
         logger.info(
             f"Gap detection scan completed: {total_sequence_gaps} sequence gaps, {total_timestamp_gaps} timestamp gaps"
         )
 
         # Trigger alert for large number of gaps
         if total_sequence_gaps > 100 or total_timestamp_gaps > 100:
+            alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
+            trigger_alert = getattr(alert_mod, "trigger_alert")
             await trigger_alert(
                 title="Large Number of Gaps Detected",
                 message=f"Scan found {total_sequence_gaps} sequence gaps and {total_timestamp_gaps} timestamp gaps",
@@ -263,6 +281,9 @@ class GapDetector:
         """
         Send alert for a detected gap.
         """
+        alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
+        trigger_alert = getattr(alert_mod, "trigger_alert")
+
         if gap_type == "sequence":
             title = f"Sequence Gap Detected in {gap['stream_name']}"
             message = (
@@ -283,10 +304,12 @@ class GapDetector:
     async def start_periodic_scan(self) -> None:
         """Start periodic gap detection scanning."""
         if not self._enabled:
+            logger = _get_logger()
             logger.info("Gap detector is disabled")
             return
 
         if self._running:
+            logger = _get_logger()
             logger.warning("Gap detector already running")
             return
 
@@ -300,10 +323,12 @@ class GapDetector:
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
+                    logger = _get_logger()
                     logger.error(f"Gap detection error: {e}")
                     await asyncio.sleep(60)
 
         self._scan_task = asyncio.create_task(_scan_loop())
+        logger = _get_logger()
         logger.info(f"Gap detector started (interval: {self._scan_interval}s)")
 
     async def stop_periodic_scan(self) -> None:
@@ -316,6 +341,7 @@ class GapDetector:
             except asyncio.CancelledError:
                 pass
             self._scan_task = None
+        logger = _get_logger()
         logger.info("Gap detector stopped")
 
     async def get_gaps(self) -> list[dict]:

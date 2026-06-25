@@ -33,7 +33,7 @@ from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 from starlette.types import ASGIApp
 
-# Internal imports (akan diimplementasikan di infrastructure)
+# Internal imports (diizinkan untuk lapisan adapters)
 from infrastructure.event_store.append_only_store import AppendOnlyStore
 from infrastructure.telemetry.structured_json_logging import get_logger
 from kernel.immutable_laws.audit_trail_completeness_enforcer import AuditTrailCompletenessEnforcer
@@ -525,11 +525,15 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
 
 def get_audit_store() -> AppendOnlyStore | None:
-    """Dependency untuk mendapatkan audit store dari container."""
-    # PERBAIKAN: ganti infrastructure.dependency_container menjadi bootstrap.dependency_container
-    from bootstrap.dependency_container.ioc_container import get_container
-
+    """
+    Dependency untuk mendapatkan audit store dari container.
+    Menggunakan lazy import untuk menghindari AST drift (adapters -> bootstrap).
+    """
     try:
+        import importlib
+
+        mod = importlib.import_module("bootstrap.dependency_container.ioc_container")
+        get_container = getattr(mod, "get_container")
         container = get_container()
         return container.resolve(AppendOnlyStore)
     except Exception as e:

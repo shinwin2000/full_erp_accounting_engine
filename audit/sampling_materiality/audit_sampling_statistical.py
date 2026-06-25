@@ -9,28 +9,46 @@ Responsibility: Implementasi statistical sampling untuk audit. Menentukan ukuran
                mengekstrapolasi error dari sampel ke populasi.
 Dependencies:
 - math, random, decimal, logging
-- config.loader_yaml
-- infrastructure.telemetry.structured_json_logging
+- config.loader_yaml (lazy import)
+- infrastructure.telemetry.structured_json_logging (lazy import)
 Audit: Sampling methodology dicatat untuk audit trail dan review oleh auditor.
 """
 
 from __future__ import annotations
 
+import importlib
 import math
 import random
 from decimal import Decimal
 from enum import Enum
 from typing import Any
 
-# Internal dependencies
-from config.loader_yaml import load_yaml_config
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-logger = get_logger(__name__)
-
 # ============================================================================
 # CONSTANTS
 # ============================================================================
+
+_logger = None
+
+
+def _get_logger():
+    """Lazy logger initialization from structured logging."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
+
+
+def _load_config(config_path: str) -> dict[str, Any]:
+    """Lazy load config from YAML."""
+    try:
+        mod = importlib.import_module("config.loader_yaml")
+        load_yaml_config = getattr(mod, "load_yaml_config")
+        config = load_yaml_config(config_path)
+        return config.get("sampling", {})
+    except Exception:
+        return {}
 
 
 class SamplingMethod(str, Enum):
@@ -55,6 +73,7 @@ DEFAULT_CONFIDENCE_LEVEL = 95  # 95%
 DEFAULT_EXPECTED_ERROR_PERCENT = 1.0  # 1%
 DEFAULT_TOLERABLE_ERROR_PERCENT = 5.0  # 5%
 DEFAULT_POPULATION_SIZE_FOR_INFINITE = 10000
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -98,16 +117,9 @@ class AuditStatisticalSampling:
     """
 
     def __init__(self, config_path: str = "config_files/audit_config.yaml"):
-        self.config = self._load_config(config_path)
+        self.config = _load_config(config_path)
         self._last_sample: list | None = None
         self._sampling_params: dict[str, Any] = {}
-
-    def _load_config(self, config_path: str) -> dict[str, Any]:
-        try:
-            config = load_yaml_config(config_path)
-            return config.get("sampling", {})
-        except Exception:
-            return {}
 
     def calculate_sample_size(
         self,
@@ -167,6 +179,7 @@ class AuditStatisticalSampling:
             "method": "proportion",
         }
 
+        logger = _get_logger()
         logger.info(f"Calculated sample size: {sample_size} from population of {population_size}")
         return sample_size
 
@@ -224,6 +237,7 @@ class AuditStatisticalSampling:
             "method": "monetary_unit",
         }
 
+        logger = _get_logger()
         logger.info(
             f"Calculated MUS sample size: {sample_size} for population value {population_value:,.2f}"
         )
@@ -254,6 +268,7 @@ class AuditStatisticalSampling:
             sample = random.sample(population, sample_size)
 
         self._last_sample = sample
+        logger = _get_logger()
         logger.info(
             f"Random sampling: {len(sample)} items selected from population of {len(population)}"
         )
@@ -291,6 +306,7 @@ class AuditStatisticalSampling:
             sample.append(population[idx])
 
         self._last_sample = sample
+        logger = _get_logger()
         logger.info(
             f"Systematic sampling: {len(sample)} items selected with interval {interval:.2f}"
         )
@@ -344,6 +360,7 @@ class AuditStatisticalSampling:
                 result[name] = []
 
         self._last_sample = result
+        logger = _get_logger()
         logger.info(
             f"Stratified sampling: {sample_size} items allocated across {len(strata)} strata"
         )
@@ -398,6 +415,7 @@ class AuditStatisticalSampling:
                     break
 
         self._last_sample = selected
+        logger = _get_logger()
         logger.info(
             f"Monetary Unit Sampling: {len(selected)} items selected from {len(items)} items"
         )
@@ -478,6 +496,7 @@ class AuditStatisticalSampling:
             "population_size": population_size,
         }
 
+        logger = _get_logger()
         logger.info(
             f"Error projection: projected {projected_error:,.2f}, upper bound {upper_bound:,.2f}"
         )

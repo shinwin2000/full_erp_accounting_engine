@@ -1,5 +1,3 @@
-# query_handler_registry.py - Hardened version with complete implementation
-
 #!/usr/bin/env python3
 
 """
@@ -546,7 +544,97 @@ def reset_query_handler_registry() -> None:
 query_handler_registry = get_query_handler_registry()
 
 
-# === 5. DEFAULT WILDCARD HANDLERS ===
+# === 5. CONVENIENCE FUNCTIONS (untuk kemudahan import) ===
+
+def get_query_handler(query_type: str) -> QueryHandler | None:
+    """
+    Get handler for a specific query type.
+    Convenience function that delegates to the singleton registry.
+
+    Args:
+        query_type: Name of the query class (string)
+
+    Returns:
+        Handler function or None if not found
+    """
+    return query_handler_registry.get_handler(query_type)
+
+
+def register_query_handler(
+    query_type: str,
+    handler: QueryHandler,
+    override: bool = False,
+    name: str | None = None,
+    description: str | None = None,
+    version: str = "1.0",
+    tags: list[str] | None = None,
+    deprecated: bool = False,
+    deprecated_message: str | None = None,
+) -> None:
+    """
+    Register a query handler.
+
+    Convenience function that delegates to the singleton registry.
+
+    Args:
+        query_type: Name of the query class (string)
+        handler: Async callable
+        override: If True, replace existing handler
+        name: Handler name (default: function __name__)
+        description: Handler description
+        version: Handler version
+        tags: List of tags
+        deprecated: Mark handler as deprecated
+        deprecated_message: Deprecation message
+    """
+    metadata = QueryHandlerMetadata(
+        name=name or handler.__name__,
+        description=description,
+        version=version,
+        tags=tags or [],
+        deprecated=deprecated,
+        deprecated_message=deprecated_message,
+    )
+    query_handler_registry.register_handler(query_type, handler, override=override, metadata=metadata)
+
+
+def has_query_handler(query_type: str) -> bool:
+    """
+    Check if a handler exists for the query type.
+
+    Convenience function that delegates to the singleton registry.
+    """
+    return query_handler_registry.has_handler(query_type)
+
+
+def clear_query_handlers() -> None:
+    """
+    Clear all registered query handlers.
+
+    Convenience function that delegates to the singleton registry.
+    """
+    query_handler_registry.clear()
+
+
+def unregister_query_handler(query_type: str) -> bool:
+    """
+    Unregister a query handler.
+
+    Convenience function that delegates to the singleton registry.
+    """
+    return query_handler_registry.unregister_handler(query_type)
+
+
+def get_all_query_types() -> list[str]:
+    """
+    Get all registered query types.
+
+    Convenience function that delegates to the singleton registry.
+    """
+    return query_handler_registry.list_query_types()
+
+
+# === 6. DEFAULT WILDCARD HANDLERS ===
 
 
 async def default_logging_wildcard(query: Any) -> Any | None:
@@ -575,9 +663,10 @@ def register_default_query_wildcards() -> None:
         logger.info("Registered default query wildcard handlers")
 
 
-# === 6. EXPORTS ===
+# === 7. EXPORTS ===
 
 __all__ = [
+    # Exceptions
     "InvalidQueryHandlerSignatureError",
     "QueryHandlerAlreadyRegisteredError",
     "QueryHandlerMetadata",
@@ -585,8 +674,17 @@ __all__ = [
     "QueryHandlerRegistry",
     "QueryHandlerRegistryError",
     "QueryHandlerVersionError",
+    # Singleton and convenience
     "get_query_handler_registry",
     "query_handler_registry",
-    "register_default_query_wildcards",
     "reset_query_handler_registry",
+    # Convenience functions
+    "get_query_handler",
+    "register_query_handler",
+    "has_query_handler",
+    "clear_query_handlers",
+    "unregister_query_handler",
+    "get_all_query_types",
+    # Wildcards
+    "register_default_query_wildcards",
 ]

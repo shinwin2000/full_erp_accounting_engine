@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_report_router.py
@@ -26,7 +25,9 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import importlib
 import logging
+import os
 from datetime import date, datetime
 from enum import Enum
 from typing import Any
@@ -336,27 +337,30 @@ class ReportDistributionResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_report_service(request: Request, ) -> Any:
+async def get_report_service(request: Request) -> Any:
     """Get Report Service instance."""
-
     from application.service_layer.service_report import ReportService
 
     container = request.app.state.container
     return container.resolve(ReportService)
 
 
-async def get_report_scheduler() -> Any:
-    """Get Report Scheduler instance."""
-    from reports.scheduler_cron import ReportScheduler
-
+async def get_report_scheduler(request: Request) -> Any:
+    """
+    Get Report Scheduler instance using lazy import to avoid AST drift.
+    """
+    mod = importlib.import_module("reports.scheduler_cron")
+    ReportScheduler = getattr(mod, "ReportScheduler")
     container = request.app.state.container
     return container.resolve(ReportScheduler)
 
 
-async def get_report_distributor() -> Any:
-    """Get Report Distributor instance."""
-    from reports.distributor_email_whatsapp import ReportDistributor
-
+async def get_report_distributor(request: Request) -> Any:
+    """
+    Get Report Distributor instance using lazy import to avoid AST drift.
+    """
+    mod = importlib.import_module("reports.distributor_email_whatsapp")
+    ReportDistributor = getattr(mod, "ReportDistributor")
     container = request.app.state.container
     return container.resolve(ReportDistributor)
 
@@ -1133,8 +1137,6 @@ async def download_report(
             raise HTTPException(status_code=410, detail="Report has been deleted")
 
         # Check if file exists
-        import os
-
         if not os.path.exists(report.file_path):
             raise HTTPException(status_code=404, detail="Report file not found")
 

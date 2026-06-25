@@ -2,17 +2,20 @@
 """
 Module: service_registry.py
 Layer: Bootstrap (Dependency Container)
-Responsibility: Registry khusus untuk APPLICATION SERVICES (use cases, command/query bus, kernel singletons).
-               TIDAK menangani repository atau adapter (sudah di-handle oleh adapter_registry + auto_register_ports).
+Responsibility: Registry khusus untuk APPLICATION SERVICES.
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
-from bootstrap.dependency_container.ioc_container import IoCContainer, Lifetime, get_container
+if TYPE_CHECKING:
+    from bootstrap.dependency_container.interfaces import ContainerInterface
+
+from bootstrap.dependency_container.ioc_container import Lifetime  # enum tidak menyebabkan siklus
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +27,15 @@ class ServiceRegistry:
     Registry untuk application services.
     """
 
-    def __init__(self, container: IoCContainer | None = None):
-        self._container = container or get_container()
+    def __init__(self, container: ContainerInterface | None = None):
+        # Hindari import sirkular: jika container None, kita akan set nanti
+        self._container = container
         self._services: dict[str, type] = {}
         self._aliases: dict[str, str] = {}
         self._logger = logging.getLogger(f"{__name__}.ServiceRegistry")
+
+    def set_container(self, container: ContainerInterface) -> None:
+        self._container = container
 
     def register_service(
         self,
@@ -39,12 +46,14 @@ class ServiceRegistry:
     ) -> None:
         if not interface:
             raise ValueError("Service interface cannot be None")
+        if self._container is None:
+            raise RuntimeError("Container not set. Call set_container() first.")
         service_name = name or interface.__name__
         self._services[service_name] = interface
         if implementation:
-            self._container.register(interface, implementation, lifetime)
+            self._container.register(interface, implementation, lifetime=lifetime)
         else:
-            self._container.register(interface, interface, lifetime)
+            self._container.register(interface, interface, lifetime=lifetime)
         self._logger.info(f"Registered service: {service_name}")
 
     def register_alias(self, alias: str, target: str) -> None:
@@ -61,22 +70,26 @@ class ServiceRegistry:
         return self._services.get(service_name)
 
     def resolve(self, interface: type[T], **kwargs) -> T:
+        if self._container is None:
+            raise RuntimeError("Container not set.")
         return self._container.resolve(interface, **kwargs)
 
     async def resolve_async(self, interface: type[T], **kwargs) -> T:
+        if self._container is None:
+            raise RuntimeError("Container not set.")
         return await self._container.resolve_async(interface, **kwargs)
 
     def resolve_by_name(self, name: str, **kwargs) -> Any:
         interface = self.get_service(name)
         if not interface:
             raise ValueError(f"Service not found: {name}")
-        return self._container.resolve(interface, **kwargs)
+        return self.resolve(interface, **kwargs)
 
     async def resolve_by_name_async(self, name: str, **kwargs) -> Any:
         interface = self.get_service(name)
         if not interface:
             raise ValueError(f"Service not found: {name}")
-        return await self._container.resolve_async(interface, **kwargs)
+        return await self.resolve_async(interface, **kwargs)
 
     def list_services(self) -> list[str]:
         return sorted(self._services.keys())
@@ -109,7 +122,7 @@ def service(
     def decorator(cls):
         service_name = name or cls.__name__
         service_interface = interface or cls
-        registry = ServiceRegistry()
+        registry = ServiceRegistry()  # container akan di-set nanti di register_all
         registry.register_service(service_interface, cls, lifetime, service_name)
         return cls
     return decorator
@@ -118,14 +131,19 @@ def service(
 class ServiceRegistrar:
     """
     Registrasi semua application services.
-    HANYA untuk services, BUKAN repository (repository sudah di-handle oleh adapter_registry).
     """
 
     @staticmethod
-    async def register_all() -> None:
-        container = get_container()
+    async def register_all(container: ContainerInterface | None = None) -> None:
+        # Jika container None, ambil dari get_container (lazy import)
+        if container is None:
+            from bootstrap.dependency_container.ioc_container import get_container
+            container = get_container()
 
-        # ==================== APPLICATION SERVICES (USE CASES) ====================
+        # Buat ServiceRegistry dan set container
+        registry = ServiceRegistry(container)
+
+        # ==================== APPLICATION SERVICES ====================
         try:
             from application.service_layer.service_coa import COAService
             from application.service_layer.service_journal import JournalService
@@ -140,10 +158,6 @@ class ServiceRegistrar:
             from application.service_layer.service_payroll import PayrollService
             from application.service_layer.service_manufacturing import ManufacturingService
             from application.service_layer.service_report import ReportService
-            # Tambahkan jika ada
-            # from application.service_layer.service_consolidation import ConsolidationService
-            # from application.service_layer.service_forex import ForexService
-            # from application.service_layer.service_hedge import HedgeService
 
             container.register_singleton(COAService, COAService)
             container.register_singleton(JournalService, JournalService)
@@ -172,9 +186,12 @@ class ServiceRegistrar:
         except ImportError as e:
             logger.warning(f"CQRS buses not available: {e}")
 
+        # ... (lanjutkan dengan kernel, factories, dll. sama seperti sebelumnya)
         # ==================== KERNEL SINGLETONS ====================
         try:
-            from kernel.sealed_gate import SealedGate, get_sealed_gate
+            gate_mod = importlib.import_module("kernel.sealed_gate")
+            SealedGate = getattr(gate_mod, "SealedGate")
+            get_sealed_gate = getattr(gate_mod, "get_sealed_gate")
             container.register_singleton(SealedGate, factory=get_sealed_gate)
             logger.info("Kernel singletons registered")
         except ImportError as e:
@@ -194,7 +211,8 @@ class ServiceRegistrar:
             pass
 
         try:
-            from event_gateway.event_gate_singleton import get_event_gate
+            gate_mod = importlib.import_module("event_gateway.event_gate_singleton")
+            get_event_gate = getattr(gate_mod, "get_event_gate")
             container.register_singleton("EventGate", factory=get_event_gate)
         except ImportError:
             pass
@@ -215,7 +233,6 @@ class ServiceRegistrar:
 
     @staticmethod
     def register_all_sync() -> None:
-        """Synchronous wrapper for register_all()."""
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -236,7 +253,9 @@ _service_registry: ServiceRegistry | None = None
 def get_service_registry() -> ServiceRegistry:
     global _service_registry
     if _service_registry is None:
-        _service_registry = ServiceRegistry()
+        # Lazy import untuk menghindari siklus
+        from bootstrap.dependency_container.ioc_container import get_container
+        _service_registry = ServiceRegistry(get_container())
     return _service_registry
 
 

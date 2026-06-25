@@ -6,8 +6,10 @@ Module: app_factory.py
 Layer: 5 - Application
 
 Responsibility:
-    Factory untuk membuat dan mengkonfigurasi aplikasi ERP Accounting Engine.
-    Menggunakan registry global untuk command/query handler.
+    Factory untuk merakit aplikasi ERP Accounting Engine.
+    Menerima semua dependensi infrastruktur dari Bootstrap melalui container,
+    dan hanya bertanggung jawab untuk menyusun service layer, use cases,
+    serta command/query buses.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol
 
+# Hanya import dari layer yang diizinkan: application, kernel, ports, bootstrap
 from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
 from application.commands_cqrs.query_bus_unified import UnifiedQueryBus
 from application.events.handler_registry import register_default_logging_handler
@@ -37,7 +40,7 @@ from application.service_layer.service_report import ReportService
 from application.service_layer.service_tax import TaxService
 from application.service_layer.service_umkm import UMKMService
 
-# Import semua use cases, commands, handlers
+# Import semua use cases, commands, dan handlers
 from application.use_cases import (
     AMLScreeningCommand,
     AMLScreeningUseCase,
@@ -125,71 +128,70 @@ from application.use_cases import (
     year_end_closing_handler,
 )
 
-# Import registry functions dari use_cases
 from application.use_cases.registry import (
     register_command_handler,
     set_use_case_container,
 )
+from bootstrap.dependency_container.ioc_container import DependencyContainer
 from kernel.circuit_breaker import CircuitBreakerRegistry
 from kernel.sealed_gate import SealedGate
 from kernel.transactional_executor import TransactionalExecutor
+
+# Port interfaces (hanya tipe, tidak ada implementasi konkret)
+from ports.primary.account_repository_port import AccountRepositoryPort
+from ports.primary.ap_repository_port import APRepositoryPort
+from ports.primary.ar_repository_port import ARRepositoryPort
 from ports.primary.audit_repository_port import AuditRepositoryPort
+from ports.primary.bank_cash_repository_port import BankCashRepositoryPort
 from ports.primary.consolidation_repository_port import ConsolidationRepositoryPort
+from ports.primary.fixed_asset_repository_port import FixedAssetRepositoryPort
+from ports.primary.inventory_repository_port import InventoryRepositoryPort
+from ports.primary.journal_repository_port import JournalRepositoryPort
 from ports.primary.manufacturing_repository_port import ManufacturingRepositoryPort
 from ports.primary.payroll_repository_port import PayrollRepositoryPort
 from ports.primary.project_repository_port import ProjectRepositoryPort
 from ports.primary.report_repository_port import ReportRepositoryPort
+from ports.primary.tax_repository_port import TaxRepositoryPort
 from ports.primary.umkm_repository_port import UMKMRepositoryPort
+from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)
 
 
-class DatabasePoolPort(Protocol):
-    async def initialize(self) -> None: ...
-    async def close(self) -> None: ...
-    async def acquire(self) -> Any: ...
-
-
-class MessageBrokerProducerPort(Protocol):
-    async def start(self) -> None: ...
-    async def stop(self) -> None: ...
-    async def send(self, topic: str, key: str, value: bytes) -> None: ...
-
-
-class MessageBrokerConsumerPort(Protocol):
-    async def start(self) -> None: ...
-    async def stop(self) -> None: ...
-
-
-class CachePort(Protocol):
-    async def connect(self) -> None: ...
-    async def disconnect(self) -> None: ...
-    async def ping(self) -> bool: ...
-
-
-class JWTIssuerPort(Protocol):
-    def create_token(self, payload: dict) -> str: ...
-
-
-class EncryptionServicePort(Protocol):
-    def encrypt(self, plaintext: str) -> str: ...
-    def decrypt(self, ciphertext: str) -> str: ...
-
-
-class EventStorePort(Protocol):
-    async def initialize(self) -> None: ...
-    async def close(self) -> None: ...
-    async def append(self, event: Any) -> None: ...
-
-
 class ApplicationFactory:
-    def __init__(self, config: dict[str, Any]):
+    """
+    Factory untuk merakit aplikasi.
+
+    Semua dependensi infrastruktur (db pool, kafka, redis, dll.) harus diberikan
+    melalui parameter container pada __init__. Container ini biasanya disediakan
+    oleh lapisan Bootstrap.
+    """
+
+    def __init__(
+        self,
+        config: dict[str, Any],
+        container: DependencyContainer | None = None,
+    ):
+        """
+        Args:
+            config: Konfigurasi aplikasi (database, kafka, redis, dll.).
+            container: Container dependency yang sudah berisi implementasi
+                       dari semua port yang dibutuhkan. Jika None, akan menggunakan
+                       container global dari bootstrap.
+        """
         self.config = config
-        self._container = {}
+        self._container = {}  # dictionary internal untuk menyimpan komponen yang dirakit
         self._initialized = False
         self._use_cases = {}
 
-        # Infrastructure components
+        # Ambil container dari bootstrap jika tidak diberikan
+        if container is None:
+            from bootstrap.dependency_container.ioc_container import container as global_container
+            self._di_container = global_container
+        else:
+            self._di_container = container
+
+        # Komponen infrastruktur (diambil dari container)
         self._db_pool = None
         self._kafka_producer = None
         self._kafka_consumer = None
@@ -201,7 +203,7 @@ class ApplicationFactory:
         self._transactional_executor = None
         self._circuit_breaker_registry = None
 
-        # Repositories
+        # Repositories (dari container)
         self._account_repo = None
         self._journal_repo = None
         self._ar_repo = None
@@ -244,220 +246,100 @@ class ApplicationFactory:
         self._query_bus = None
         self._event_subscriber = None
 
-    def _resolve_infrastructure_component(self, component_type: str, config_key: str) -> Any:
-        try:
-            if component_type == "database_pool":
-                from adapters.secondary_impl.postgres_connection_pool_manager import (
-                    AsyncPGConnectionPoolManager,
-                )
-                db_cfg = self.config.get("database", {})
-                return AsyncPGConnectionPoolManager(
-                    dsn=db_cfg.get("dsn", "postgresql://user:pass@localhost:5432/erp"),
-                    min_size=db_cfg.get("min_pool_size", 10),
-                    max_size=db_cfg.get("max_pool_size", 50),
-                )
-            elif component_type == "kafka_producer":
-                from adapters.secondary_impl.kafka_producer_wrapper import KafkaProducerWrapper
-                kafka_cfg = self.config.get("kafka", {})
-                return KafkaProducerWrapper(
-                    bootstrap_servers=kafka_cfg.get("bootstrap_servers", "localhost:9092"),
-                    client_id="erp_accounting_engine_producer",
-                )
-            elif component_type == "kafka_consumer":
-                from adapters.secondary_impl.kafka_consumer_wrapper import KafkaConsumerWrapper
-                kafka_cfg = self.config.get("kafka", {})
-                return KafkaConsumerWrapper(
-                    bootstrap_servers=kafka_cfg.get("bootstrap_servers", "localhost:9092"),
-                    group_id="erp_accounting_engine_group",
-                    auto_offset_reset="earliest",
-                )
-            elif component_type == "redis":
-                from adapters.secondary_impl.redis_cache_adapter_impl import RedisCacheAdapter
-                redis_cfg = self.config.get("redis", {})
-                if not redis_cfg.get("enabled", False):
-                    return None
-                return RedisCacheAdapter(
-                    host=redis_cfg.get("host", "localhost"),
-                    port=redis_cfg.get("port", 6379),
-                    db=redis_cfg.get("db", 0),
-                )
-            elif component_type == "jwt_issuer":
-                from infrastructure.security.jwt_issuer import JWTIssuer
-                sec_cfg = self.config.get("security", {})
-                return JWTIssuer(
-                    secret_key=sec_cfg.get("jwt_secret", "default-secret"),
-                    algorithm="RS256",
-                    expire_minutes=60,
-                )
-            elif component_type == "encryption":
-                from infrastructure.security.field_encryption_aes256_gcm import (
-                    FieldEncryptionService,
-                )
-                sec_cfg = self.config.get("security", {})
-                return FieldEncryptionService(
-                    key=sec_cfg.get("encryption_key", "default-key").encode()
-                )
-            elif component_type == "event_store":
-                from infrastructure.event_store.append_only_store import AppendOnlyStore
-                return AppendOnlyStore(db_pool=self._db_pool, table_name="event_store")
-            else:
-                return None
-        except ImportError as e:
-            logger.warning(f"Failed to load static dependency for {component_type}: {e}")
-            return None
-        except Exception as e:
-            logger.warning(f"Failed to initialize {component_type}: {e}")
-            return None
-
-    async def initialize(self) -> Any:
+    async def initialize(self) -> dict[str, Any]:
+        """Inisialisasi aplikasi: rakit semua komponen."""
         if self._initialized:
             return self._container
 
         logger.info("Initializing ERP Accounting Engine application...")
         self._container = {}
 
-        await self._setup_telemetry()
-        self._db_pool = self._resolve_infrastructure_component("database_pool", "database")
-        if self._db_pool:
-            await self._db_pool.initialize()
+        # Ambil komponen infrastruktur dari container
+        self._resolve_infrastructure()
 
-        self._kafka_producer = self._resolve_infrastructure_component("kafka_producer", "kafka")
-        if self._kafka_producer:
-            await self._kafka_producer.start()
-
-        self._kafka_consumer = self._resolve_infrastructure_component("kafka_consumer", "kafka")
-        if self._kafka_consumer:
-            await self._kafka_consumer.start()
-
-        self._redis_client = self._resolve_infrastructure_component("redis", "redis")
-        if self._redis_client:
-            await self._redis_client.connect()
-
-        self._jwt_issuer = self._resolve_infrastructure_component("jwt_issuer", "security")
-        self._encryption_service = self._resolve_infrastructure_component("encryption", "security")
-        self._event_store = self._resolve_infrastructure_component("event_store", "event_store")
-        if self._event_store:
-            await self._event_store.initialize()
-
-        self._sealed_gate = SealedGate()
-        self._transactional_executor = TransactionalExecutor()
-        self._circuit_breaker_registry = CircuitBreakerRegistry()
-
-        self._event_publisher = await create_event_publisher(
-            kafka_config=self.config.get("kafka", {}),
-            outbox_enabled=True,
-            mode="hybrid",
-            kafka_producer=self._kafka_producer,
-            redis_client=self._redis_client,
-        )
+        # Buat event publisher (menggunakan kafka_producer dan redis dari container)
+        self._event_publisher = await self._create_event_publisher()
         self._container["event_publisher"] = self._event_publisher
 
-        await self._setup_repositories()
-        await self._setup_services()
-        await self._setup_use_cases()
-        await self._setup_buses()
+        # Ambil repositories dari container (sudah terdaftar di bootstrap)
+        self._resolve_repositories()
+
+        # Setup service layer
+        self._setup_services()
+
+        # Setup use cases
+        self._setup_use_cases()
+
+        # Setup buses dan registrasi handler
+        self._setup_buses()
+
+        # Setup event handlers (subscribers)
         await self._setup_event_handlers()
 
         self._initialized = True
         logger.info("Application initialized successfully")
         return self._container
 
-    async def _setup_telemetry(self) -> None:
-        """Setup OpenTelemetry dan Prometheus."""
-        if self.config.get("telemetry", {}).get("opentelemetry_enabled", False):
-            try:
-                from infrastructure.telemetry.opentelemetry_setup import setup_opentelemetry
-                setup_opentelemetry(
-                    service_name="erp_accounting_engine",
-                    endpoint=self.config["telemetry"].get("otel_endpoint", "localhost:4317"),
-                )
-            except ImportError as e:
-                logger.warning(f"Failed to import OpenTelemetry: {e}")
-            except Exception as e:
-                logger.warning(f"Failed to setup OpenTelemetry: {e}")
+    def _resolve_infrastructure(self) -> None:
+        """Ambil komponen infrastruktur dari container."""
+        self._db_pool = self._di_container.resolve("database_pool")
+        self._kafka_producer = self._di_container.resolve("kafka_producer")
+        self._kafka_consumer = self._di_container.resolve("kafka_consumer")
+        self._redis_client = self._di_container.resolve("redis_client")
+        self._jwt_issuer = self._di_container.resolve("jwt_issuer")
+        self._encryption_service = self._di_container.resolve("encryption_service")
+        self._event_store = self._di_container.resolve("event_store")
 
-        if self.config.get("telemetry", {}).get("prometheus_enabled", False):
-            try:
-                from infrastructure.telemetry.prometheus_registry import setup_prometheus
-                setup_prometheus(port=self.config["telemetry"].get("prometheus_port", 9090))
-            except ImportError as e:
-                logger.warning(f"Failed to import Prometheus: {e}")
-            except Exception as e:
-                logger.warning(f"Failed to setup Prometheus: {e}")
+        # Kernel components
+        self._sealed_gate = SealedGate()
+        self._transactional_executor = TransactionalExecutor()
+        self._circuit_breaker_registry = CircuitBreakerRegistry()
 
-    async def _setup_repositories(self) -> None:
-        """Setup repository implementations using strict static imports."""
-        try:
-            from adapters.coretax_djp.api_oauth2_client import CoretaxOAuth2Client
-            from adapters.secondary_impl.sqlalchemy_account_repository_impl import (
-                SQLAlchemyAccountRepository,
-            )
-            from adapters.secondary_impl.sqlalchemy_ap_repository_impl import (
-                SQLAlchemyAPRepository,
-            )
-            from adapters.secondary_impl.sqlalchemy_ar_repository_impl import (
-                SQLAlchemyARRepository,
-            )
-            from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import (
-                SQLAlchemyBankCashRepository,
-            )
-            from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import (
-                SQLAlchemyFixedAssetRepository,
-            )
-            from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import (
-                SQLAlchemyInventoryRepository,
-            )
-            from adapters.secondary_impl.sqlalchemy_journal_repository_impl import (
-                SQLAlchemyJournalRepository,
-            )
-            from adapters.secondary_impl.sqlalchemy_tax_repository_impl import (
-                SQLAlchemyTaxRepository,
-            )
-            from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import (
-                SQLAlchemyUnitOfWork,
-            )
-        except ImportError as e:
-            logger.critical(f"Failed to import required repository adapters: {e}")
-            raise
+        # Simpan di container internal untuk akses nanti
+        self._container["db_pool"] = self._db_pool
+        self._container["kafka_producer"] = self._kafka_producer
+        self._container["redis_client"] = self._redis_client
+        self._container["sealed_gate"] = self._sealed_gate
+        self._container["circuit_breaker_registry"] = self._circuit_breaker_registry
 
-        # Buat session factory sederhana
-        async def async_session_factory():
-            return await self._db_pool.acquire()
-
-        # Instansiasi repositories
-        self._account_repo = SQLAlchemyAccountRepository(session_factory=async_session_factory)
-        self._journal_repo = SQLAlchemyJournalRepository(session_factory=async_session_factory)
-        self._ar_repo = SQLAlchemyARRepository(session_factory=async_session_factory)
-        self._ap_repo = SQLAlchemyAPRepository(session_factory=async_session_factory)
-        self._inventory_repo = SQLAlchemyInventoryRepository(session_factory=async_session_factory)
-        self._fixed_asset_repo = SQLAlchemyFixedAssetRepository(session_factory=async_session_factory)
-        self._bank_cash_repo = SQLAlchemyBankCashRepository(session_factory=async_session_factory)
-        self._tax_repo = SQLAlchemyTaxRepository(session_factory=async_session_factory)
-
-        # Report, consolidation, audit, payroll, manufacturing, project, umkm (placeholder)
-        self._report_repo = ReportRepositoryPort()
-        self._consolidation_repo = ConsolidationRepositoryPort()
-        self._audit_repo = AuditRepositoryPort()
-        self._payroll_repo = PayrollRepositoryPort()
-        self._manufacturing_repo = ManufacturingRepositoryPort()
-        self._project_repo = ProjectRepositoryPort()
-        self._umkm_repo = UMKMRepositoryPort()
-
-        # Coretax client
-        coretax_cfg = self.config.get("coretax", {})
-        self._coretax_client = CoretaxOAuth2Client(
-            base_url=coretax_cfg.get("base_url", "https://api.coretax.djp.go.id"),
-            client_id=coretax_cfg.get("client_id", ""),
-            client_secret=coretax_cfg.get("client_secret", ""),
+    async def _create_event_publisher(self):
+        """Buat event publisher dengan komponen dari container."""
+        return await create_event_publisher(
+            message_broker=self._kafka_producer,
+            outbox=self._di_container.resolve("outbox_repository"),  # bisa None
+            cache=self._redis_client,
+            mode=self.config.get("event_publisher", {}).get("mode", "hybrid"),
+            enable_circuit_breaker=True,
+            enable_idempotency=True,
+            max_retries=3,
+            retry_delay_seconds=0.5,
         )
 
-        # Unit of Work
-        self._uow = SQLAlchemyUnitOfWork(
-            session_factory=async_session_factory,
-            event_publisher=self._event_publisher,
-        )
+    def _resolve_repositories(self) -> None:
+        """Ambil repository implementations dari container."""
+        self._account_repo = self._di_container.resolve("account_repository")
+        self._journal_repo = self._di_container.resolve("journal_repository")
+        self._ar_repo = self._di_container.resolve("ar_repository")
+        self._ap_repo = self._di_container.resolve("ap_repository")
+        self._inventory_repo = self._di_container.resolve("inventory_repository")
+        self._fixed_asset_repo = self._di_container.resolve("fixed_asset_repository")
+        self._bank_cash_repo = self._di_container.resolve("bank_cash_repository")
+        self._tax_repo = self._di_container.resolve("tax_repository")
+        self._report_repo = self._di_container.resolve("report_repository")
+        self._consolidation_repo = self._di_container.resolve("consolidation_repository")
+        self._audit_repo = self._di_container.resolve("audit_repository")
+        self._payroll_repo = self._di_container.resolve("payroll_repository")
+        self._manufacturing_repo = self._di_container.resolve("manufacturing_repository")
+        self._project_repo = self._di_container.resolve("project_repository")
+        self._umkm_repo = self._di_container.resolve("umkm_repository")
+        self._coretax_client = self._di_container.resolve("coretax_client")
+        self._uow = self._di_container.resolve("unit_of_work")
 
-    async def _setup_services(self) -> None:
+        # Pastikan semua repository dan uow tersedia
+        if self._uow is None:
+            raise RuntimeError("Unit of Work not found in container")
+
+    def _setup_services(self) -> None:
         """Setup service layer components."""
         self._coa_service = COAService(
             account_repository=self._account_repo,
@@ -466,7 +348,7 @@ class ApplicationFactory:
         )
         self._journal_service = JournalService(
             journal_repo=self._journal_repo,
-            ledger_repo=None,
+            ledger_repo=None,  # akan diambil dari container jika ada
             account_repo=self._account_repo,
             uow=self._uow,
             event_publisher=self._event_publisher,
@@ -554,14 +436,29 @@ class ApplicationFactory:
             event_publisher=self._event_publisher,
         )
 
+        # Simpan di container internal
         self._container["coa_service"] = self._coa_service
         self._container["journal_service"] = self._journal_service
+        self._container["ar_service"] = self._ar_service
+        self._container["ap_service"] = self._ap_service
+        self._container["inventory_service"] = self._inventory_service
+        self._container["fixed_asset_service"] = self._fixed_asset_service
+        self._container["bank_cash_service"] = self._bank_cash_service
+        self._container["tax_service"] = self._tax_service
+        self._container["report_service"] = self._report_service
+        self._container["consolidation_service"] = self._consolidation_service
+        self._container["audit_service"] = self._audit_service
+        self._container["payroll_service"] = self._payroll_service
+        self._container["manufacturing_service"] = self._manufacturing_service
+        self._container["project_service"] = self._project_service
+        self._container["umkm_service"] = self._umkm_service
+        self._container["coretax_service"] = self._coretax_service
 
-    async def _setup_use_cases(self) -> None:
+    def _setup_use_cases(self) -> None:
         """Instansiasi semua use case dengan service yang tersedia."""
         logger.info("Instantiating use cases...")
 
-        # Buat intercompany elimination use case terlebih dahulu (dibutuhkan oleh consolidation)
+        # Use cases yang membutuhkan dependensi silang
         intercompany_uc = IntercompanyEliminationUseCase(
             consolidation_service=self._consolidation_service,
             ledger_service=None,
@@ -569,7 +466,6 @@ class ApplicationFactory:
             sealed_gate=self._sealed_gate,
         )
 
-        # Buat period close use case (dibutuhkan oleh year end)
         period_close_uc = PeriodCloseUseCase(
             fiscal_period_service=None,
             journal_service=self._journal_service,
@@ -578,7 +474,6 @@ class ApplicationFactory:
             sealed_gate=self._sealed_gate,
         )
 
-        # Buat post closing journal use case (dibutuhkan oleh year end)
         post_closing_uc = PostClosingJournalUseCase(
             journal_service=self._journal_service,
             fiscal_period_service=None,
@@ -736,7 +631,7 @@ class ApplicationFactory:
             ),
         }
 
-        # Simpan use cases ke container
+        # Simpan use cases ke container internal
         for use_case_cls, instance in self._use_cases.items():
             self._container[use_case_cls] = instance
 
@@ -745,22 +640,17 @@ class ApplicationFactory:
 
         logger.info(f"Created {len(self._use_cases)} use cases")
 
-    async def _setup_buses(self) -> None:
+    def _setup_buses(self) -> None:
         """Setup command and query buses dan registrasi handler ke registry global."""
-        # Inisialisasi command bus
         self._command_bus = UnifiedCommandBus(
             gate=self._sealed_gate,
             uow=self._uow,
             circuit_breaker=self._circuit_breaker_registry,
         )
 
-        # Inisialisasi query bus
         self._query_bus = UnifiedQueryBus()
 
-        # Daftarkan semua command handler ke registry global
         self._register_command_handlers()
-
-        # Daftarkan query handler (jika ada)
         self._register_query_handlers()
 
         self._container["command_bus"] = self._command_bus
@@ -813,7 +703,6 @@ class ApplicationFactory:
             async def wrapper(cmd, uc=use_case, h=handler):
                 return await h(cmd, uc)
 
-            # Daftarkan ke registry global
             try:
                 register_command_handler(cmd_cls.__name__, wrapper, override=True)
                 registered_count += 1
@@ -824,41 +713,43 @@ class ApplicationFactory:
         logger.info(f"Registered {registered_count} command handlers")
 
     def _register_query_handlers(self) -> None:
-        """
-        Daftarkan query handler ke registry global.
-
-        Saat ini tidak ada query handler yang didefinisikan di use cases.
-        Query handler registry sudah terinisialisasi dengan wildcard default
-        dari registry.py, sehingga checker akan mendeteksi registry tersebut.
-        """
+        """Daftarkan query handler jika ada."""
         logger.info("No query handlers to register (registry has default wildcards)")
 
     async def _setup_event_handlers(self) -> None:
         """Setup event handlers (subscribers)."""
+        # Registrasi default logging handler (tidak bergantung infrastruktur)
         register_default_logging_handler()
-        self._event_subscriber = await create_event_subscriber(
-            kafka_config=self.config.get("kafka", {}),
-            redis_config=self.config.get("redis", {}),
-            topics=[
-                "erp.accounting.journal",
-                "erp.accounting.ar",
-                "erp.accounting.ap",
-                "erp.inventory.movement",
-            ],
-            group_id="erp-accounting-group",
-            mode="kafka",
-            worker_count=4,
-            kafka_consumer=self._kafka_consumer,
-            redis_client=self._redis_client,
-        )
-        if self._event_subscriber:
-            await self._event_subscriber.start()
+
+        # Buat event subscriber hanya jika kafka_consumer tersedia
+        if self._kafka_consumer is not None:
+            self._event_subscriber = await create_event_subscriber(
+                kafka_consumer=self._kafka_consumer,
+                redis_client=self._redis_client,
+                dead_letter_store=self._di_container.resolve("dead_letter_store"),
+                metrics=self._di_container.resolve("metrics_reporter"),
+                topics=self.config.get("kafka", {}).get("topics", [
+                    "erp.accounting.journal",
+                    "erp.accounting.ar",
+                    "erp.accounting.ap",
+                    "erp.inventory.movement",
+                ]),
+                group_id=self.config.get("kafka", {}).get("group_id", "erp-accounting-group"),
+                mode=self.config.get("event_subscriber", {}).get("mode", "kafka"),
+                worker_count=self.config.get("event_subscriber", {}).get("worker_count", 4),
+            )
+            if self._event_subscriber:
+                await self._event_subscriber.start()
+                self._container["event_subscriber"] = self._event_subscriber
 
     async def shutdown(self) -> None:
         """Graceful shutdown of all components."""
         logger.info("Shutting down application...")
         if self._event_subscriber:
             await self._event_subscriber.stop()
+        if self._event_publisher:
+            # publisher mungkin memiliki resources yang perlu ditutup
+            pass
         if self._kafka_producer:
             await self._kafka_producer.stop()
         if self._kafka_consumer:
@@ -872,16 +763,39 @@ class ApplicationFactory:
         logger.info("Application shutdown complete")
 
 
-async def create_app(config: dict[str, Any]) -> Any:
-    """Convenience function to create and initialize application."""
-    factory = ApplicationFactory(config)
-    container = await factory.initialize()
-    return container
+async def create_app(
+    config: dict[str, Any],
+    container: DependencyContainer | None = None,
+) -> dict[str, Any]:
+    """
+    Convenience function untuk membuat dan menginisialisasi aplikasi.
+
+    Args:
+        config: Konfigurasi aplikasi.
+        container: Container dependency (opsional, jika tidak diberikan akan menggunakan global).
+
+    Returns:
+        Dictionary berisi semua komponen yang terdaftar.
+    """
+    factory = ApplicationFactory(config, container)
+    return await factory.initialize()
 
 
-async def shutdown_app(container: Any) -> None:
-    """Shutdown application."""
-    factory = container.get("ApplicationFactory") if isinstance(container, dict) else getattr(container, "factory", None)
+async def shutdown_app(container: dict[str, Any]) -> None:
+    """
+    Shutdown aplikasi.
+
+    Args:
+        container: Dictionary hasil dari create_app().
+    """
+    # Cari factory di dalam container
+    factory = container.get("ApplicationFactory")
+    if factory is None:
+        # Mungkin factory tidak disimpan, coba cari dengan nama kelas
+        for key, val in container.items():
+            if isinstance(val, ApplicationFactory):
+                factory = val
+                break
     if factory:
         await factory.shutdown()
 

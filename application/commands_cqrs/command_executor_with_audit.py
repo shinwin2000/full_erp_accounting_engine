@@ -1,4 +1,5 @@
 # command_executor_with_audit.py - Hardened version with complete implementation
+# Fixed: Added CommandExecutionError and CommandExecutionResult aliases for backward compatibility
 
 #!/usr/bin/env python3
 
@@ -49,6 +50,12 @@ logger = logging.getLogger(__name__)
 class AuditExecutionError(Exception):
     """Error saat eksekusi command dengan audit."""
 
+    pass
+
+
+# Alias for backward compatibility with existing routers
+class CommandExecutionError(AuditExecutionError):
+    """Alias for AuditExecutionError for backward compatibility."""
     pass
 
 
@@ -691,7 +698,14 @@ def reset_command_executor() -> None:
     _executor_instance = None
 
 
-# === 8. EXPORTS ===
+# === 8. BACKWARD COMPATIBILITY ALIASES ===
+
+# Alias for CommandExecutionError (already defined as subclass)
+# Alias for CommandExecutionResult -> CommandResult
+CommandExecutionResult = CommandResult
+
+
+# === 9. EXPORTS ===
 
 __all__ = [
     "AuditActionType",
@@ -700,6 +714,8 @@ __all__ = [
     "AuditRecord",
     "AuditStatus",
     "AuditStoreError",
+    "CommandExecutionError",      
+    "CommandExecutionResult",     
     "CommandExecutorWithAudit",
     "CommandTimeoutError",
     "ImmutableAuditStore",

@@ -9,27 +9,46 @@ Responsibility: Menghitung threshold materialitas untuk audit berdasarkan standa
                trivial threshold.
 Dependencies:
 - decimal, math, logging
-- config.loader_yaml
-- infrastructure.telemetry.structured_json_logging
+- config.loader_yaml (lazy import)
+- infrastructure.telemetry.structured_json_logging (lazy import)
 Audit: Perhitungan materialitas dicatat untuk audit trail keputusan auditor.
 """
 
 from __future__ import annotations
 
+import importlib
 import math
+from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from typing import Any
 
-# Internal dependencies
-from config.loader_yaml import load_yaml_config
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-logger = get_logger(__name__)
-
 # ============================================================================
 # CONSTANTS
 # ============================================================================
+
+_logger = None
+
+
+def _get_logger():
+    """Lazy logger initialization from structured logging."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
+
+
+def _load_config(config_path: str) -> dict[str, Any]:
+    """Lazy load config from YAML."""
+    try:
+        mod = importlib.import_module("config.loader_yaml")
+        load_yaml_config = getattr(mod, "load_yaml_config")
+        config = load_yaml_config(config_path)
+        return config.get("materiality", {})
+    except Exception:
+        return {}
 
 
 class MaterialityBasis(str, Enum):
@@ -54,6 +73,7 @@ DEFAULT_PERCENTAGES = {
 
 DEFAULT_PERFORMANCE_MATERIALITY_PERCENT = 75.0  # 75% of overall materiality
 DEFAULT_CLEARLY_TRIVIAL_PERCENT = 5.0  # 5% of overall materiality
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -90,15 +110,8 @@ class MaterialityThresholdCalculator:
     """
 
     def __init__(self, config_path: str = "config_files/audit_config.yaml"):
-        self.config = self._load_config(config_path)
+        self.config = _load_config(config_path)
         self._history: list = []
-
-    def _load_config(self, config_path: str) -> dict[str, Any]:
-        try:
-            config = load_yaml_config(config_path)
-            return config.get("materiality", {})
-        except Exception:
-            return {}
 
     def _round_to_materiality(self, value: Decimal) -> Decimal:
         """Membulatkan nilai ke angka signifikan material (misal: 100,000)."""
@@ -154,6 +167,7 @@ class MaterialityThresholdCalculator:
             }
         )
 
+        logger = _get_logger()
         logger.info(
             f"Overall materiality calculated: {rounded:,.2f} based on {basis_type.value} = {basis_value:,.2f}"
         )
@@ -188,6 +202,7 @@ class MaterialityThresholdCalculator:
             }
         )
 
+        logger = _get_logger()
         logger.info(f"Performance materiality calculated: {rounded:,.2f} ({pct}% of overall)")
         return rounded
 
@@ -220,6 +235,7 @@ class MaterialityThresholdCalculator:
             }
         )
 
+        logger = _get_logger()
         logger.info(f"Clearly trivial threshold calculated: {rounded:,.2f} ({pct}% of overall)")
         return rounded
 
@@ -266,6 +282,7 @@ class MaterialityThresholdCalculator:
     def clear_history(self) -> None:
         """Menghapus history."""
         self._history.clear()
+        logger = _get_logger()
         logger.info("Materiality calculation history cleared")
 
 

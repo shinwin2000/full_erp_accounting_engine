@@ -1,4 +1,5 @@
 # query_executor_readonly.py - Hardened version with complete implementation
+# Fixed: Added QueryExecutionResult alias for backward compatibility
 
 #!/usr/bin/env python3
 
@@ -39,6 +40,26 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+# ============================================================================
+# EXCEPTIONS
+# ============================================================================
+
+
+class QueryExecutionError(Exception):
+    """Base exception for query execution errors."""
+    pass
+
+
+class QueryTimeoutError(QueryExecutionError):
+    """Query execution timeout."""
+    pass
+
+
+class CircuitBreakerOpenError(QueryExecutionError):
+    """Circuit breaker is open."""
+    pass
 
 
 # ============================================================================
@@ -237,7 +258,7 @@ class CircuitBreaker:
     def call(self, func: Callable[[], Awaitable[T]]) -> Awaitable[T]:
         """Execute function with circuit breaker protection."""
         if self.state == CircuitBreakerState.OPEN:
-            raise Exception(f"Circuit breaker '{self.name}' is OPEN")
+            raise CircuitBreakerOpenError(f"Circuit breaker '{self.name}' is OPEN")
 
         async def wrapper():
             try:
@@ -374,7 +395,7 @@ class QueryExecutorReadonly:
             },
         )
 
-    def _get_circuit_breaker(self, query_type: str) -> CircuitBreaker:
+    def _get_circuit_breaker(self, query_type: str) -> CircuitBreaker | None:
         """Get or create circuit breaker for query type."""
         if not self._config.enable_circuit_breaker:
             return None
@@ -468,7 +489,10 @@ class QueryExecutorReadonly:
                 )
                 await asyncio.sleep(delay)
                 return await self._execute_with_retry(query, handler, attempt + 1)
-            raise
+            raise QueryTimeoutError(
+                f"Query {getattr(query, 'query_type', 'unknown')} timed out after "
+                f"{self._config.timeout_seconds}s (retries exhausted)"
+            )
         except Exception as e:
             if attempt < self._config.max_retries:
                 delay = self._config.retry_delay_seconds * (
@@ -533,7 +557,7 @@ class QueryExecutorReadonly:
         cb = self._get_circuit_breaker(query_type)
         if cb and cb.state == CircuitBreakerState.OPEN:
             self._stats["failed_queries"] += 1
-            raise Exception(f"Circuit breaker open for query type: {query_type}")
+            raise CircuitBreakerOpenError(f"Circuit breaker open for query type: {query_type}")
 
         # Execute with semaphore concurrency limit
         async with self._semaphore:
@@ -603,9 +627,13 @@ class QueryExecutorReadonly:
                 while len(self._query_history) > 100:
                     self._query_history.pop(0)
 
-                raise TimeoutError(
+                raise QueryTimeoutError(
                     f"Query {query_type} timed out after {self._config.timeout_seconds}s"
                 )
+
+            except QueryExecutionError:
+                # Re-raise query-specific errors
+                raise
 
             except Exception as e:
                 duration_ms = (time.perf_counter() - start_time) * 1000
@@ -633,7 +661,7 @@ class QueryExecutorReadonly:
                 while len(self._query_history) > 100:
                     self._query_history.pop(0)
 
-                raise
+                raise QueryExecutionError(f"Query execution failed: {e}") from e
 
     def invalidate_cache(self, pattern: str | None = None) -> None:
         """Invalidate cache entries."""
@@ -713,17 +741,33 @@ class QueryExecutorReadonly:
 
 
 # ============================================================================
+# BACKWARD COMPATIBILITY ALIASES
+# ============================================================================
+
+# Alias for case-insensitive imports (QueryExecutorReadOnly vs QueryExecutorReadonly)
+QueryExecutorReadOnly = QueryExecutorReadonly
+
+# Alias for result type - used by routers
+QueryExecutionResult = Any
+
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
 __all__ = [
     "CachePort",
     "CircuitBreaker",
+    "CircuitBreakerOpenError",
     "CircuitBreakerState",
     "ConnectionPoolPort",
     "MetricsPort",
+    "QueryExecutionError",
+    "QueryExecutionResult",       
     "QueryExecutorConfig",
     "QueryExecutorReadonly",
+    "QueryExecutorReadOnly",      
     "QueryStatus",
+    "QueryTimeoutError",
     "ReadReplicaRouterPort",
 ]

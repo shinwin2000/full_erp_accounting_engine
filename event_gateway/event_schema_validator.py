@@ -10,6 +10,7 @@ Metode yang ditambahkan:
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import re
@@ -19,9 +20,6 @@ from typing import TYPE_CHECKING, Any
 
 import jsonschema
 from jsonschema import ValidationError as JSONSchemaValidationError
-
-from config.loader_yaml import load_yaml_config
-from infrastructure.caching.redis_manager import get_redis_client
 
 if TYPE_CHECKING:
     from event_gateway.event_envelope import EventEnvelope
@@ -205,9 +203,20 @@ class EventSchemaValidator:
             self._schema_cache[event_type] = schema
         logger.info(f"Loaded {len(BUILTIN_SCHEMAS)} built-in event schemas")
 
+    def _get_load_yaml_config(self):
+        """Lazy import of config.loader_yaml.load_yaml_config."""
+        mod = importlib.import_module("config.loader_yaml")
+        return getattr(mod, "load_yaml_config")
+
+    def _get_redis_client(self):
+        """Lazy import of infrastructure.caching.redis_manager.get_redis_client."""
+        mod = importlib.import_module("infrastructure.caching.redis_manager")
+        return getattr(mod, "get_redis_client")
+
     async def _get_redis(self):
         if self._redis is None:
-            self._redis = await get_redis_client()
+            get_redis = self._get_redis_client()
+            self._redis = await get_redis()
         return self._redis
 
     async def _load_schema_from_file(self, event_type: str) -> dict[str, Any] | None:
@@ -215,6 +224,7 @@ class EventSchemaValidator:
         if not schema_path.exists():
             return None
         try:
+            load_yaml_config = self._get_load_yaml_config()
             schema = load_yaml_config(str(schema_path))
             if "schema" in schema:
                 return schema["schema"]

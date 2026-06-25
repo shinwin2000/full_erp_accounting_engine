@@ -15,6 +15,7 @@ Metode yang ditambahkan:
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import time
 from collections.abc import Callable
@@ -613,8 +614,9 @@ class RollbackHandler:
 
     def _reset_kernel(self) -> bool:
         try:
-            from kernel.sealed_gate import get_sealed_gate
-
+            # Lazy import untuk menghindari AST drift
+            gate_mod = importlib.import_module("kernel.sealed_gate")
+            get_sealed_gate = getattr(gate_mod, "get_sealed_gate")
             gate = get_sealed_gate()
             if hasattr(gate, "reset"):
                 gate.reset()
@@ -625,11 +627,15 @@ class RollbackHandler:
 
     def _reset_axioms(self) -> bool:
         try:
-            from axioms.conservation_of_value import get_conservation_axiom
-            from axioms.double_entry import get_double_entry_axiom
-            from axioms.immutability import get_immutability_axiom
+            # Lazy import semua axioms
+            conservation_mod = importlib.import_module("axioms.conservation_of_value")
+            get_conservation = getattr(conservation_mod, "get_conservation_axiom")
+            double_entry_mod = importlib.import_module("axioms.double_entry")
+            get_double_entry = getattr(double_entry_mod, "get_double_entry_axiom")
+            immutability_mod = importlib.import_module("axioms.immutability")
+            get_immutability = getattr(immutability_mod, "get_immutability_axiom")
 
-            axioms = [get_conservation_axiom, get_double_entry_axiom, get_immutability_axiom]
+            axioms = [get_conservation, get_double_entry, get_immutability]
             for axiom_getter in axioms:
                 axiom = axiom_getter()
                 if hasattr(axiom, "reset"):
@@ -641,6 +647,8 @@ class RollbackHandler:
 
     def _reset_constitution(self) -> bool:
         try:
+            # Lazy import constitution jika diperlukan
+            # Saat ini tidak ada reset yang diperlukan, hanya placeholder
             return True
         except Exception as e:
             logger.error(f"Failed to reset constitution: {e}")

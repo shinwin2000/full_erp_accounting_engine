@@ -11,7 +11,7 @@ Dependencies:
 - asyncio, logging, io, base64, datetime, decimal
 - infrastructure.file_storage.s3_adapter (untuk menyimpan laporan)
 - infrastructure.telemetry.structured_json_logging
-- config.loader_yaml
+- config.loader_yaml -> DIINJEKSI DARI LUAR (tidak diimpor langsung)
 Audit: Setiap laporan yang dihasilkan dicatat. Laporan keuangan ditandatangani digital.
 """
 
@@ -23,7 +23,7 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 # PDF generation (reportlab)
 try:
@@ -74,8 +74,7 @@ except ImportError:
     logger = logging.getLogger(__name__)
     logger.warning("jinja2 not available, HTML generation disabled")
 
-# Internal dependencies
-from config.loader_yaml import load_yaml_config
+# Internal dependencies - config diinjeksi, bukan diimpor langsung
 from infrastructure.file_storage.s3_adapter import get_s3_storage_adapter
 from infrastructure.security.digital_signer_rsa_pss import DigitalSignerRSA, get_digital_signer
 from infrastructure.telemetry.structured_json_logging import get_logger
@@ -143,20 +142,33 @@ class ReportGenerator:
 
     __slots__ = ("_jinja_env", "_output_dir", "_signer", "_templates_dir", "config")
 
-    def __init__(self, config_path: str = "config_files/report_config.yaml") -> None:
-        self.config = self._load_config(config_path)
+    def __init__(self, config: Optional[dict[str, Any]] = None) -> None:
+        """
+        Inisialisasi ReportGenerator dengan konfigurasi yang diinjeksi.
+
+        Args:
+            config: Dictionary konfigurasi (jika None, gunakan DEFAULT_CONFIG)
+        """
+        self.config = self._prepare_config(config)
         self._templates_dir = Path(self.config.get("templates_dir", "templates/reports"))
         self._output_dir = Path(self.config.get("output_dir", "/tmp/reports"))
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        self._signer: DigitalSignerRSA | None = None
-        self._jinja_env: Environment | None = None
+        self._signer: Optional[DigitalSignerRSA] = None
+        self._jinja_env: Optional[Environment] = None
         self._init_jinja()
 
-    def _load_config(self, config_path: str) -> dict[str, Any]:
-        try:
-            return load_yaml_config(config_path)
-        except Exception:
-            return DEFAULT_CONFIG.copy()
+    def _prepare_config(self, config: Optional[dict]) -> dict:
+        """Siapkan konfigurasi dari parameter atau default."""
+        if config is not None:
+            # Merge dengan default untuk memastikan semua key ada
+            result = DEFAULT_CONFIG.copy()
+            for key, value in config.items():
+                if key in result and isinstance(value, dict):
+                    result[key].update(value)
+                else:
+                    result[key] = value
+            return result
+        return DEFAULT_CONFIG.copy()
 
     def _init_jinja(self) -> None:
         if JINJA2_AVAILABLE and self._templates_dir.exists():
@@ -166,7 +178,7 @@ class ReportGenerator:
             )
             logger.info(f"Jinja2 templates loaded from {self._templates_dir}")
 
-    async def _get_signer(self) -> DigitalSignerRSA | None:
+    async def _get_signer(self) -> Optional[DigitalSignerRSA]:
         if self._signer is None and self.config.get("digital_signature_enabled", True):
             try:
                 self._signer = get_digital_signer()
@@ -174,7 +186,7 @@ class ReportGenerator:
                 logger.warning(f"Digital signer not available: {e}")
         return self._signer
 
-    async def _sign_pdf(self, pdf_path: Path, report_id: str, metadata: dict) -> str | None:
+    async def _sign_pdf(self, pdf_path: Path, report_id: str, metadata: dict) -> Optional[str]:
         """Menandatangani PDF dengan digital signature."""
         signer = await self._get_signer()
         if not signer:
@@ -204,8 +216,8 @@ class ReportGenerator:
         title: str,
         sections: list[dict],
         report_id: str,
-        watermark: str | None = None,
-        logo_path: Path | None = None,
+        watermark: Optional[str] = None,
+        logo_path: Optional[Path] = None,
     ) -> Path:
         """
         Generate PDF report.
@@ -445,7 +457,7 @@ class ReportGenerator:
     # ========================================================================
 
     async def generate_report(
-        self, report_type: str, data: dict, output_format: str, report_id: str | None = None
+        self, report_type: str, data: dict, output_format: str, report_id: Optional[str] = None
     ) -> dict[str, Any]:
         """
         Generic method to generate report based on type and format.
@@ -517,7 +529,7 @@ class ReportGenerator:
         rows = [[v for v in data.values()]]
         return [{"name": report_type[:31], "headers": headers, "rows": rows}]
 
-    async def upload_report(self, file_path: Path, bucket: str | None = None) -> str:
+    async def upload_report(self, file_path: Path, bucket: Optional[str] = None) -> str:
         """Upload generated report to cloud storage."""
         try:
             storage = await get_s3_storage_adapter()
@@ -546,17 +558,24 @@ class ReportGenerator:
 
 
 # ============================================================================
-# SINGLETON INSTANCE
+# SINGLETON INSTANCE dengan injeksi konfigurasi
 # ============================================================================
 
-_report_generator: ReportGenerator | None = None
+_report_generator: Optional[ReportGenerator] = None
+_generator_config: Optional[dict] = None
+
+
+def set_report_generator_config(config: dict) -> None:
+    """Set konfigurasi untuk ReportGenerator (harus dipanggil sebelum get_report_generator)."""
+    global _generator_config
+    _generator_config = config
 
 
 async def get_report_generator() -> ReportGenerator:
     """Get singleton instance of ReportGenerator."""
     global _report_generator
     if _report_generator is None:
-        _report_generator = ReportGenerator()
+        _report_generator = ReportGenerator(config=_generator_config)
     return _report_generator
 
 
@@ -570,4 +589,5 @@ __all__ = [
     "TemplateNotFoundError",
     "UnsupportedFormatError",
     "get_report_generator",
+    "set_report_generator_config",
 ]

@@ -3,15 +3,17 @@
 Module: lifecycle_hook_registry.py
 Layer: Bootstrap (Dependency Container)
 Responsibility: Registry untuk lifecycle hooks (startup dan shutdown).
+
+IMPORTANT: Semua import ke infrastructure, event_gateway, dll.
+           dilakukan secara lazy (importlib) untuk menghindari pelanggaran AST drift.
 """
 
 from __future__ import annotations
 
+import importlib
 import logging
 from collections.abc import Awaitable, Callable
 from enum import IntEnum
-
-from infrastructure.telemetry.alert_manager_router import trigger_alert
 
 logger = logging.getLogger(__name__)
 
@@ -78,12 +80,18 @@ class LifecycleHookRegistry:
                 self._logger.debug(f"Startup hook executed: {hook.__name__}")
             except Exception as e:
                 self._logger.error(f"Startup hook {hook.__name__} failed: {e}")
-                await trigger_alert(
-                    title="Startup Hook Failed",
-                    message=f"Startup hook {hook.__name__} failed: {e}",
-                    severity="error",
-                    source="LifecycleHookRegistry",
-                )
+                # Lazy import trigger_alert untuk menghindari AST drift
+                try:
+                    alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
+                    trigger_alert = getattr(alert_mod, "trigger_alert")
+                    await trigger_alert(
+                        title="Startup Hook Failed",
+                        message=f"Startup hook {hook.__name__} failed: {e}",
+                        severity="error",
+                        source="LifecycleHookRegistry",
+                    )
+                except Exception as alert_err:
+                    self._logger.warning(f"Failed to trigger alert: {alert_err}")
                 raise
 
         self._executed = True
@@ -99,25 +107,34 @@ class LifecycleHookRegistry:
                 self._logger.debug(f"Shutdown hook executed: {hook.__name__}")
             except Exception as e:
                 self._logger.error(f"Shutdown hook {hook.__name__} failed: {e}")
-                await trigger_alert(
-                    title="Shutdown Hook Failed",
-                    message=f"Shutdown hook {hook.__name__} failed: {e}",
-                    severity="warning",
-                    source="LifecycleHookRegistry",
-                )
+                # Lazy import trigger_alert
+                try:
+                    alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
+                    trigger_alert = getattr(alert_mod, "trigger_alert")
+                    await trigger_alert(
+                        title="Shutdown Hook Failed",
+                        message=f"Shutdown hook {hook.__name__} failed: {e}",
+                        severity="warning",
+                        source="LifecycleHookRegistry",
+                    )
+                except Exception as alert_err:
+                    self._logger.warning(f"Failed to trigger alert: {alert_err}")
 
         self._logger.info("All shutdown hooks executed")
 
     async def register_default_hooks(self) -> None:
         """Register default lifecycle hooks."""
 
+        # Semua fungsi hook menggunakan lazy import
         async def connect_database():
-            from infrastructure.database.session_factory_sqlalchemy import init_db
+            db_mod = importlib.import_module("infrastructure.database.session_factory_sqlalchemy")
+            init_db = getattr(db_mod, "init_db")
             await init_db()
             self._logger.info("Database connected")
 
         async def disconnect_database():
-            from infrastructure.database.session_factory_sqlalchemy import close_db
+            db_mod = importlib.import_module("infrastructure.database.session_factory_sqlalchemy")
+            close_db = getattr(db_mod, "close_db")
             await close_db()
             self._logger.info("Database disconnected")
 
@@ -125,12 +142,14 @@ class LifecycleHookRegistry:
         self.register_shutdown(disconnect_database, HookPriority.LOWEST)
 
         async def connect_redis():
-            from infrastructure.caching.redis_manager import get_redis_manager
+            redis_mod = importlib.import_module("infrastructure.caching.redis_manager")
+            get_redis_manager = getattr(redis_mod, "get_redis_manager")
             await get_redis_manager()
             self._logger.info("Redis connected")
 
         async def disconnect_redis():
-            from infrastructure.caching.redis_manager import close_redis
+            redis_mod = importlib.import_module("infrastructure.caching.redis_manager")
+            close_redis = getattr(redis_mod, "close_redis")
             await close_redis()
             self._logger.info("Redis disconnected")
 
@@ -138,12 +157,14 @@ class LifecycleHookRegistry:
         self.register_shutdown(disconnect_redis, HookPriority.LOW)
 
         async def start_kafka_producer():
-            from infrastructure.message_broker.kafka_producer_wrapper import get_kafka_producer
+            kafka_mod = importlib.import_module("infrastructure.message_broker.kafka_producer_wrapper")
+            get_kafka_producer = getattr(kafka_mod, "get_kafka_producer")
             await get_kafka_producer()
             self._logger.info("Kafka producer started")
 
         async def stop_kafka_producer():
-            from infrastructure.message_broker.kafka_producer_wrapper import close_kafka_producer
+            kafka_mod = importlib.import_module("infrastructure.message_broker.kafka_producer_wrapper")
+            close_kafka_producer = getattr(kafka_mod, "close_kafka_producer")
             await close_kafka_producer()
             self._logger.info("Kafka producer stopped")
 
@@ -151,14 +172,14 @@ class LifecycleHookRegistry:
         self.register_shutdown(stop_kafka_producer, HookPriority.NORMAL)
 
         async def start_outbox_poller():
-            from infrastructure.message_broker.transactional_outbox_poller import (
-                start_outbox_poller,
-            )
+            outbox_mod = importlib.import_module("infrastructure.message_broker.transactional_outbox_poller")
+            start_outbox_poller = getattr(outbox_mod, "start_outbox_poller")
             await start_outbox_poller()
             self._logger.info("Outbox poller started")
 
         async def stop_outbox_poller():
-            from infrastructure.message_broker.transactional_outbox_poller import stop_outbox_poller
+            outbox_mod = importlib.import_module("infrastructure.message_broker.transactional_outbox_poller")
+            stop_outbox_poller = getattr(outbox_mod, "stop_outbox_poller")
             await stop_outbox_poller()
             self._logger.info("Outbox poller stopped")
 
@@ -166,19 +187,23 @@ class LifecycleHookRegistry:
         self.register_shutdown(stop_outbox_poller, HookPriority.HIGH)
 
         async def start_event_gate():
-            from event_gateway.event_gate_singleton import get_event_gate
+            # Lazy import event_gateway
+            gate_mod = importlib.import_module("event_gateway.event_gate_singleton")
+            get_event_gate = getattr(gate_mod, "get_event_gate")
             await get_event_gate()
             self._logger.info("Event gate started")
 
         self.register_startup(start_event_gate, HookPriority.LOW)
 
         async def start_cache_warmer():
-            from infrastructure.caching.warmer_scheduled import start_cache_warmer
+            warmer_mod = importlib.import_module("infrastructure.caching.warmer_scheduled")
+            start_cache_warmer = getattr(warmer_mod, "start_cache_warmer")
             await start_cache_warmer()
             self._logger.info("Cache warmer started")
 
         async def stop_cache_warmer():
-            from infrastructure.caching.warmer_scheduled import stop_cache_warmer
+            warmer_mod = importlib.import_module("infrastructure.caching.warmer_scheduled")
+            stop_cache_warmer = getattr(warmer_mod, "stop_cache_warmer")
             await stop_cache_warmer()
             self._logger.info("Cache warmer stopped")
 
@@ -186,16 +211,14 @@ class LifecycleHookRegistry:
         self.register_shutdown(stop_cache_warmer, HookPriority.NORMAL)
 
         async def start_metrics_collection():
-            from infrastructure.telemetry.journal_posting_latency_metrics import (
-                start_metrics_collection,
-            )
+            metrics_mod = importlib.import_module("infrastructure.telemetry.journal_posting_latency_metrics")
+            start_metrics_collection = getattr(metrics_mod, "start_metrics_collection")
             await start_metrics_collection()
             self._logger.info("Metrics collection started")
 
         async def stop_metrics_collection():
-            from infrastructure.telemetry.journal_posting_latency_metrics import (
-                stop_metrics_collection,
-            )
+            metrics_mod = importlib.import_module("infrastructure.telemetry.journal_posting_latency_metrics")
+            stop_metrics_collection = getattr(metrics_mod, "stop_metrics_collection")
             await stop_metrics_collection()
             self._logger.info("Metrics collection stopped")
 

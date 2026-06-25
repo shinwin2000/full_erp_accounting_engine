@@ -279,7 +279,9 @@ class IoCContainer:
         return False
 
 
+# Alias for backward compatibility
 Container = IoCContainer
+
 _global_container: IoCContainer | None = None
 
 
@@ -296,7 +298,7 @@ def get_container() -> IoCContainer:
         _global_container = IoCContainer()
 
         # ------------------------------------------------------------
-        # 1. REGISTRASI ADAPTER
+        # 1. REGISTRASI ADAPTER (implementasi port)
         # ------------------------------------------------------------
         try:
             from bootstrap.dependency_container.adapter_registry import AdapterRegistry, set_adapter_registry_instance
@@ -345,48 +347,37 @@ def get_container() -> IoCContainer:
             logger.error(f"Service registry registration failed: {e}")
 
         # ------------------------------------------------------------
-        # 3. ALIAS UNTUK KOMPATIBILITAS CHECKER (P55)
+        # 3. ALIAS UNTUK KOMPATIBILITAS (tanpa import ports)
         # ------------------------------------------------------------
-        try:
-            from ports.primary.journal_repository_port import JournalRepositoryPort
-            from ports.primary.unit_of_work_port import UnitOfWorkPort
-            from ports.primary.event_publisher_port import EventPublisherPort
-            from ports.primary.tax_authority_coretax_port import CoreTaxPort
-            from ports.primary.iam_user_repository_port import IAMUserRepositoryPort
-            from ports.primary.account_repository_port import AccountRepositoryPort
-            from ports.primary.ar_repository_port import ARRepositoryPort
-            from ports.primary.ap_repository_port import APRepositoryPort
-            from ports.primary.inventory_repository_port import InventoryRepositoryPort
-            from ports.primary.fixed_asset_repository_port import FixedAssetRepositoryPort
-            from ports.primary.payroll_repository_port import PayrollRepositoryPort
-            from ports.primary.manufacturing_repository_port import ManufacturingRepositoryPort
-            from ports.primary.consolidation_repository_port import ConsolidationRepositoryPort
-            from ports.primary.forex_repository_port import ForexRepositoryPort
-            from ports.primary.hedge_repository_port import HedgeRepositoryPort
+        # Alias digunakan agar resolver bisa menemukan implementasi
+        # meskipun diminta dengan nama interface yang berbeda.
+        # Kita daftarkan alias dengan target berupa string nama interface
+        # yang telah didaftarkan oleh adapter_registry.
+        # Tidak ada import dari ports.primary di sini.
+        alias_map = {
+            "IJournalRepository": "JournalRepositoryPort",
+            "IUnitOfWork": "UnitOfWorkPort",
+            "IEventPublisher": "EventPublisherPort",
+            "ITaxAuthorityPort": "CoreTaxPort",
+            "IUserRepository": "IAMUserRepositoryPort",
+            "IAccountRepository": "AccountRepositoryPort",
+            "IArRepository": "ARRepositoryPort",
+            "IApRepository": "APRepositoryPort",
+            "IInventoryRepository": "InventoryRepositoryPort",
+            "IFixedAssetRepository": "FixedAssetRepositoryPort",
+            "IPayrollRepository": "PayrollRepositoryPort",
+            "IManufacturingRepository": "ManufacturingRepositoryPort",
+            "IConsolidationRepository": "ConsolidationRepositoryPort",
+            "IForexRepository": "ForexRepositoryPort",
+            "IHedgeRepository": "HedgeRepositoryPort",
+        }
 
-            alias_map = {
-                "IJournalRepository": JournalRepositoryPort,
-                "IUnitOfWork": UnitOfWorkPort,
-                "IEventPublisher": EventPublisherPort,
-                "ITaxAuthorityPort": CoreTaxPort,
-                "IUserRepository": IAMUserRepositoryPort,
-                "IAccountRepository": AccountRepositoryPort,
-                "IArRepository": ARRepositoryPort,
-                "IApRepository": APRepositoryPort,
-                "IInventoryRepository": InventoryRepositoryPort,
-                "IFixedAssetRepository": FixedAssetRepositoryPort,
-                "IPayrollRepository": PayrollRepositoryPort,
-                "IManufacturingRepository": ManufacturingRepositoryPort,
-                "IConsolidationRepository": ConsolidationRepositoryPort,
-                "IForexRepository": ForexRepositoryPort,
-                "IHedgeRepository": HedgeRepositoryPort,
-            }
-            for alias, target in alias_map.items():
-                if not _global_container.has_registration(alias):
-                    _global_container.register_alias(alias, target)
-            logger.info("Alias registration completed")
-        except ImportError as e:
-            logger.warning(f"Alias registration skipped: {e}")
+        # Daftarkan alias hanya jika belum terdaftar
+        for alias, target in alias_map.items():
+            if not _global_container.has_registration(alias):
+                _global_container.register_alias(alias, target)
+
+        logger.info("Alias registration completed (using string targets)")
 
         total = len(_global_container.get_registered_types())
         logger.info(f"Total registered types: {total}")

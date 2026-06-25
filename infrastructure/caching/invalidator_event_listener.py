@@ -9,9 +9,10 @@ Responsibility: Mendengarkan event dari event gateway dan menginvalidasi cache
                atau pattern wildcard.
 Dependencies:
 - asyncio, logging
-- event_gateway.event_gate_singleton (EventGate, EventEnvelope)
-- infrastructure.caching.redis_manager (RedisManager)
-- infrastructure.telemetry.structured_json_logging
+- event_gateway.event_gate_singleton (EventGate, EventEnvelope) → lazy import
+- infrastructure.caching.redis_manager (RedisManager) → lazy import
+- infrastructure.telemetry.structured_json_logging → lazy import
+
 Audit: Setiap invalidasi cache dicatat untuk debugging.
        Invalidasi massal memicu alert.
 """
@@ -19,15 +20,8 @@ Audit: Setiap invalidasi cache dicatat untuk debugging.
 from __future__ import annotations
 
 import asyncio
+import importlib
 from typing import Any
-
-# Internal dependencies
-from event_gateway.event_gate_singleton import EventEnvelope, EventGate, get_event_gate
-from infrastructure.caching.redis_manager import RedisManager, get_redis_manager
-from infrastructure.telemetry.alert_manager_router import trigger_alert
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-logger = get_logger(__name__)
 
 # ============================================================================
 # CONSTANTS
@@ -97,6 +91,43 @@ INVALIDATION_EVENTS = [
     "SystemSettingChanged",
 ]
 
+_logger = None
+
+
+def _get_logger():
+    """Lazy logger initialization from structured logging."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
+
+
+def _get_event_gate():
+    """Lazy import event_gate_singleton.get_event_gate."""
+    mod = importlib.import_module("event_gateway.event_gate_singleton")
+    return getattr(mod, "get_event_gate")
+
+
+def _get_event_envelope():
+    """Lazy import EventEnvelope for type checking (minimal)."""
+    mod = importlib.import_module("event_gateway.event_envelope")
+    return getattr(mod, "EventEnvelope")
+
+
+def _get_redis_manager():
+    """Lazy import redis_manager.get_redis_manager."""
+    mod = importlib.import_module("infrastructure.caching.redis_manager")
+    return getattr(mod, "get_redis_manager")
+
+
+def _get_alert_trigger():
+    """Lazy import alert_manager_router.trigger_alert."""
+    mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
+    return getattr(mod, "trigger_alert")
+
+
 # ============================================================================
 # CACHE INVALIDATOR
 # ============================================================================
@@ -107,9 +138,7 @@ class CacheInvalidator:
     Mendengarkan event dan menginvalidasi cache yang terkait.
     """
 
-    def __init__(
-        self, event_gate: EventGate | None = None, redis_manager: RedisManager | None = None
-    ):
+    def __init__(self, event_gate=None, redis_manager=None):
         self._event_gate = event_gate
         self._redis_manager = redis_manager
         self._subscriptions: dict[str, list[str]] = {}  # event_type -> list of patterns
@@ -171,19 +200,22 @@ class CacheInvalidator:
         self._subscriptions["LegalEntityUpdated"] = ["legal_entity:*"]
         self._subscriptions["SystemSettingChanged"] = ["system_setting:*"]
 
-    async def _get_event_gate(self) -> EventGate:
+    async def _get_event_gate(self):
         if self._event_gate is None:
+            get_event_gate = _get_event_gate()
             self._event_gate = await get_event_gate()
         return self._event_gate
 
-    async def _get_redis(self) -> RedisManager:
+    async def _get_redis(self):
         if self._redis_manager is None:
+            get_redis_manager = _get_redis_manager()
             self._redis_manager = await get_redis_manager()
         return self._redis_manager
 
     async def start(self) -> None:
         """Start listening to events."""
         if self._running:
+            logger = _get_logger()
             logger.warning("Cache invalidator already running")
             return
 
@@ -192,9 +224,11 @@ class CacheInvalidator:
         # Subscribe to all relevant events
         for event_type in INVALIDATION_EVENTS:
             event_gate.subscribe(event_type, self._on_event)
+            logger = _get_logger()
             logger.debug(f"Subscribed to {event_type} for cache invalidation")
 
         self._running = True
+        logger = _get_logger()
         logger.info(
             f"Cache invalidator started, subscribed to {len(INVALIDATION_EVENTS)} event types"
         )
@@ -211,9 +245,10 @@ class CacheInvalidator:
             event_gate.unsubscribe(event_type, self._on_event)
 
         self._running = False
+        logger = _get_logger()
         logger.info("Cache invalidator stopped")
 
-    async def _on_event(self, envelope: EventEnvelope) -> None:
+    async def _on_event(self, envelope) -> None:
         """
         Callback when an event is received.
         """
@@ -245,14 +280,17 @@ class CacheInvalidator:
                 if keys:
                     await redis.delete(*keys)
                     invalidated_keys.extend(keys)
+                    logger = _get_logger()
                     logger.debug(f"Invalidated {len(keys)} cache keys matching pattern: {pattern}")
             except Exception as e:
+                logger = _get_logger()
                 logger.error(f"Failed to invalidate pattern {pattern}: {e}")
 
         self._invalidation_counter += len(invalidated_keys)
 
         # Alert if too many invalidations (potential cache storm)
         if len(invalidated_keys) > 1000:
+            trigger_alert = _get_alert_trigger()
             await trigger_alert(
                 title="Large Cache Invalidation",
                 message=f"Event {event_type} invalidated {len(invalidated_keys)} cache keys",
@@ -260,6 +298,7 @@ class CacheInvalidator:
                 source="CacheInvalidator",
             )
 
+        logger = _get_logger()
         logger.debug(f"Invalidated {len(invalidated_keys)} cache keys for event {event_type}")
 
     async def invalidate_pattern(self, pattern: str) -> int:
@@ -271,6 +310,7 @@ class CacheInvalidator:
         if keys:
             await redis.delete(*keys)
             self._invalidation_counter += len(keys)
+            logger = _get_logger()
             logger.info(f"Manually invalidated {len(keys)} keys matching pattern: {pattern}")
             return len(keys)
         return 0
@@ -283,6 +323,7 @@ class CacheInvalidator:
         deleted = await redis.delete(key)
         if deleted:
             self._invalidation_counter += 1
+            logger = _get_logger()
             logger.debug(f"Manually invalidated key: {key}")
         return deleted > 0
 
@@ -322,6 +363,7 @@ class CacheInvalidator:
             event_gate = await self._get_event_gate()
             event_gate.subscribe(event_type, self._on_event)
 
+        logger = _get_logger()
         logger.info(f"Added cache invalidation subscription for {event_type}: {patterns}")
 
     async def remove_subscription(self, event_type: str) -> None:
@@ -330,6 +372,7 @@ class CacheInvalidator:
         """
         if event_type in self._subscriptions:
             del self._subscriptions[event_type]
+            logger = _get_logger()
             logger.info(f"Removed cache invalidation subscription for {event_type}")
 
 

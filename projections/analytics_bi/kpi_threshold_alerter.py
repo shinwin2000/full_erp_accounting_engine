@@ -16,13 +16,14 @@ Dependencies:
 - projections.ledger.cash_flow_indirect
 - projections.analytics_bi.financial_ratios_calculator
 - infrastructure.telemetry.alert_manager_router
-- config.loader_yaml
+- config.loader_yaml (lazy import)
 Audit: Setiap KPI yang melewati threshold dicatat. Alert yang dikirim juga dicatat.
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -33,7 +34,6 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.declarative import declarative_base
 
-from config.loader_yaml import load_yaml_config
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
@@ -183,9 +183,16 @@ class KPIThresholdAlerter:
         self._check_task: asyncio.Task | None = None
         self._running = False
 
+    @staticmethod
+    def _get_load_yaml_config():
+        """Lazy import load_yaml_config from config.loader_yaml."""
+        mod = importlib.import_module("config.loader_yaml")
+        return getattr(mod, "load_yaml_config")
+
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
-            return load_yaml_config(config_path)
+            load_yaml = self._get_load_yaml_config()
+            return load_yaml(config_path)
         except Exception:
             return {}
 

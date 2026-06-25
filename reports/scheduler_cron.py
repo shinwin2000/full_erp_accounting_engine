@@ -11,9 +11,8 @@ Dependencies:
 - apscheduler (AsyncIOScheduler), asyncio, logging, datetime
 - reports.generator_pdf_excel_html (ReportGenerator)
 - reports.distributor_email_whatsapp (ReportDistributor)
-- app.container (untuk service)
 - infrastructure.telemetry.structured_json_logging
-- config.loader_yaml
+- config.loader_yaml -> DIINJEKSI DARI LUAR (tidak diimpor langsung)
 Audit: Setiap job laporan yang dijalankan dicatat. Laporan yang dihasilkan
        disimpan dan distribusinya dicatat untuk audit trail.
 """
@@ -23,14 +22,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from config.loader_yaml import load_yaml_config
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 from reports.distributor_email_whatsapp import ReportDistributor, get_report_distributor
@@ -174,20 +172,25 @@ class ReportScheduler:
     - Monitoring job execution
     """
 
-    def __init__(self, config_path: str = "config_files/report_config.yaml"):
-        self.config = self._load_config(config_path)
+    def __init__(self, config: Optional[dict[str, Any]] = None):
+        self.config = self._prepare_config(config)
         self._scheduler: AsyncIOScheduler | None = None
         self._report_generator: ReportGenerator | None = None
         self._distributor: ReportDistributor | None = None
         self._jobs: dict[str, ReportJob] = {}
         self._running = False
 
-    def _load_config(self, config_path: str) -> dict[str, Any]:
-        try:
-            config = load_yaml_config(config_path)
-            return config.get("scheduler", DEFAULT_CONFIG)
-        except Exception:
-            return DEFAULT_CONFIG.copy()
+    def _prepare_config(self, config: Optional[dict]) -> dict:
+        """Siapkan konfigurasi dari parameter atau default."""
+        if config is not None:
+            result = DEFAULT_CONFIG.copy()
+            for key, value in config.items():
+                if key in result and isinstance(value, dict):
+                    result[key].update(value)
+                else:
+                    result[key] = value
+            return result
+        return DEFAULT_CONFIG.copy()
 
     async def _get_report_generator(self) -> ReportGenerator:
         if self._report_generator is None:
@@ -422,17 +425,24 @@ class ReportScheduler:
 
 
 # ============================================================================
-# SINGLETON INSTANCE
+# SINGLETON INSTANCE dengan injeksi konfigurasi
 # ============================================================================
 
 _report_scheduler: ReportScheduler | None = None
+_scheduler_config: Optional[dict] = None
+
+
+def set_scheduler_config(config: dict) -> None:
+    """Set konfigurasi untuk ReportScheduler (harus dipanggil sebelum get_report_scheduler)."""
+    global _scheduler_config
+    _scheduler_config = config
 
 
 async def get_report_scheduler() -> ReportScheduler:
     """Get singleton instance of ReportScheduler."""
     global _report_scheduler
     if _report_scheduler is None:
-        _report_scheduler = ReportScheduler()
+        _report_scheduler = ReportScheduler(config=_scheduler_config)
         await _report_scheduler.start()
     return _report_scheduler
 
@@ -457,4 +467,5 @@ __all__ = [
     "ScheduleFrequency",
     "get_report_scheduler",
     "shutdown_report_scheduler",
+    "set_scheduler_config",
 ]

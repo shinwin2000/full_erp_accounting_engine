@@ -17,7 +17,7 @@ Dependencies:
 - projections.ledger.equity_statement
 - infrastructure.persistence_orm.fiscal_period_table
 - infrastructure.telemetry.structured_json_logging
-- config.loader_yaml
+- config.loader_yaml -> DIINJEKSI DARI LUAR (tidak diimpor langsung)
 Audit: Laporan OJK dihasilkan untuk kepatuhan regulasi.
        Setiap laporan yang dihasilkan dicatat.
 """
@@ -28,11 +28,9 @@ import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from sqlalchemy import select
-
-from config.loader_yaml import load_yaml_config
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -162,20 +160,32 @@ class OJKFormatBuilder:
     - Ekspor ke JSON dan CSV
     """
 
-    def __init__(self, config_path: str = "config_files/report_config.yaml"):
-        self.config = self._load_config(config_path)
+    def __init__(self, config: Optional[dict[str, Any]] = None):
+        """
+        Inisialisasi OJKFormatBuilder dengan konfigurasi yang diinjeksi.
+
+        Args:
+            config: Dictionary konfigurasi (jika None, gunakan DEFAULT_CONFIG)
+        """
+        self.config = self._prepare_config(config)
         self._output_dir = Path(self.config.get("output_dir", "/var/reports/ojk"))
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        self._balance_sheet: BalanceSheetSnapshot | None = None
-        self._income_statement: IncomeStatementPeriod | None = None
-        self._cash_flow: CashFlowIndirect | None = None
-        self._equity_statement: EquityStatement | None = None
+        self._balance_sheet: Optional[BalanceSheetSnapshot] = None
+        self._income_statement: Optional[IncomeStatementPeriod] = None
+        self._cash_flow: Optional[CashFlowIndirect] = None
+        self._equity_statement: Optional[EquityStatement] = None
 
-    def _load_config(self, config_path: str) -> dict[str, Any]:
-        try:
-            return load_yaml_config(config_path).get("ojk", DEFAULT_CONFIG)
-        except Exception:
-            return DEFAULT_CONFIG.copy()
+    def _prepare_config(self, config: Optional[dict]) -> dict:
+        """Siapkan konfigurasi dari parameter atau default."""
+        if config is not None:
+            result = DEFAULT_CONFIG.copy()
+            for key, value in config.items():
+                if key in result and isinstance(value, dict):
+                    result[key].update(value)
+                else:
+                    result[key] = value
+            return result
+        return DEFAULT_CONFIG.copy()
 
     async def _get_balance_sheet(self) -> BalanceSheetSnapshot:
         if self._balance_sheet is None:
@@ -198,56 +208,52 @@ class OJKFormatBuilder:
         return self._equity_statement
 
     async def _get_financial_data(
-        self, legal_entity_id: UUID, period_id: UUID
+        self, legal_entity_id: UUID, period_id: UUID, start_date: datetime, end_date: datetime
     ) -> dict[str, Decimal]:
         """
         Mengumpulkan data keuangan yang diperlukan untuk laporan OJK.
         """
         # Balance sheet
-        bs = await self._get_balance_sheet().get_snapshot(legal_entity_id, period_id)
-        if not bs:
+        bs = await self._get_balance_sheet()
+        bs_data = await bs.get_snapshot(legal_entity_id, period_id)
+        if not bs_data:
             raise OJKFormatBuilderError(f"Balance sheet not available for period {period_id}")
 
         # Income statement
-        inc = await self._get_income_statement().get_income_statement(legal_entity_id, period_id)
+        inc = await self._get_income_statement()
+        inc_data = await inc.get_income_statement(legal_entity_id, period_id)
 
-        # Cash flow
-        cf = await self._get_cash_flow().get_cash_flow_statement(
+        # Cash flow - perlu start_date, end_date
+        cf = await self._get_cash_flow()
+        cf_data = await cf.get_cash_flow_statement(
             legal_entity_id, start_date, end_date
         )
 
-        # Equity statement (optional)
-        await self._get_equity_statement().get_equity_statement(
+        # Equity statement
+        eq = await self._get_equity_statement()
+        eq_data = await eq.get_equity_statement(
             legal_entity_id, start_date, end_date
         )
 
         # Build data dictionary (simplified mapping)
         data = {
-            "total_assets": Decimal(str(bs.get("total_assets", 0))),
-            "current_assets": Decimal(str(bs.get("current_assets", 0))),
-            "non_current_assets": Decimal(str(bs.get("non_current_assets", 0))),
-            "total_liabilities": Decimal(str(bs.get("total_liabilities", 0))),
-            "current_liabilities": Decimal(str(bs.get("current_liabilities", 0))),
-            "non_current_liabilities": Decimal(str(bs.get("non_current_liabilities", 0))),
-            "total_equity": Decimal(str(bs.get("total_equity", 0))),
-            "revenue": Decimal(str(inc.get("total_revenue", 0))) if inc else Decimal(0),
-            "cost_of_sales": Decimal(str(inc.get("total_cogs", 0))) if inc else Decimal(0),
-            "gross_profit": Decimal(str(inc.get("gross_profit", 0))) if inc else Decimal(0),
-            "operating_expenses": (
-                Decimal(str(inc.get("operating_expense", 0))) if inc else Decimal(0)
-            ),
-            "operating_profit": Decimal(str(inc.get("operating_income", 0))) if inc else Decimal(0),
-            "net_income": Decimal(str(inc.get("net_income", 0))) if inc else Decimal(0),
-            "operating_cash_flow": (
-                Decimal(str(cf.get("operating_cash_flow", 0))) if cf else Decimal(0)
-            ),
-            "investing_cash_flow": (
-                Decimal(str(cf.get("investing_cash_flow", 0))) if cf else Decimal(0)
-            ),
-            "financing_cash_flow": (
-                Decimal(str(cf.get("financing_cash_flow", 0))) if cf else Decimal(0)
-            ),
-            "net_cash_flow": Decimal(str(cf.get("net_cash_flow", 0))) if cf else Decimal(0),
+            "total_assets": Decimal(str(bs_data.get("total_assets", 0))),
+            "current_assets": Decimal(str(bs_data.get("current_assets", 0))),
+            "non_current_assets": Decimal(str(bs_data.get("non_current_assets", 0))),
+            "total_liabilities": Decimal(str(bs_data.get("total_liabilities", 0))),
+            "current_liabilities": Decimal(str(bs_data.get("current_liabilities", 0))),
+            "non_current_liabilities": Decimal(str(bs_data.get("non_current_liabilities", 0))),
+            "total_equity": Decimal(str(bs_data.get("total_equity", 0))),
+            "revenue": Decimal(str(inc_data.get("total_revenue", 0))) if inc_data else Decimal(0),
+            "cost_of_sales": Decimal(str(inc_data.get("total_cogs", 0))) if inc_data else Decimal(0),
+            "gross_profit": Decimal(str(inc_data.get("gross_profit", 0))) if inc_data else Decimal(0),
+            "operating_expenses": Decimal(str(inc_data.get("operating_expense", 0))) if inc_data else Decimal(0),
+            "operating_profit": Decimal(str(inc_data.get("operating_income", 0))) if inc_data else Decimal(0),
+            "net_income": Decimal(str(inc_data.get("net_income", 0))) if inc_data else Decimal(0),
+            "operating_cash_flow": Decimal(str(cf_data.get("operating_cash_flow", 0))) if cf_data else Decimal(0),
+            "investing_cash_flow": Decimal(str(cf_data.get("investing_cash_flow", 0))) if cf_data else Decimal(0),
+            "financing_cash_flow": Decimal(str(cf_data.get("financing_cash_flow", 0))) if cf_data else Decimal(0),
+            "net_cash_flow": Decimal(str(cf_data.get("net_cash_flow", 0))) if cf_data else Decimal(0),
         }
         return data
 
@@ -255,7 +261,17 @@ class OJKFormatBuilder:
         """
         Membangun laporan posisi keuangan (neraca) format OJK.
         """
-        data = await self._get_financial_data(legal_entity_id, period_id)
+        # Need period dates for cash flow, but we don't have them here, we can fetch them
+        async with await get_session_factory() as session:
+            period_stmt = select(FiscalPeriodTable).where(FiscalPeriodTable.id == period_id)
+            period_result = await session.execute(period_stmt)
+            period = period_result.scalar_one_or_none()
+            if not period:
+                raise OJKFormatBuilderError(f"Period {period_id} not found")
+            start_date = period.start_date
+            end_date = period.end_date
+
+        data = await self._get_financial_data(legal_entity_id, period_id, start_date, end_date)
 
         assets = []
         for line in OJK_BALANCE_SHEET_LINES["assets"]:
@@ -277,6 +293,8 @@ class OJKFormatBuilder:
         return {
             "legal_entity_id": str(legal_entity_id),
             "period_id": str(period_id),
+            "period_start": start_date.isoformat(),
+            "period_end": end_date.isoformat(),
             "assets": assets,
             "liabilities": liabilities,
             "equity": equity,
@@ -290,7 +308,17 @@ class OJKFormatBuilder:
         """
         Membangun laporan laba rugi format OJK.
         """
-        data = await self._get_financial_data(legal_entity_id, period_id)
+        # Same for period dates
+        async with await get_session_factory() as session:
+            period_stmt = select(FiscalPeriodTable).where(FiscalPeriodTable.id == period_id)
+            period_result = await session.execute(period_stmt)
+            period = period_result.scalar_one_or_none()
+            if not period:
+                raise OJKFormatBuilderError(f"Period {period_id} not found")
+            start_date = period.start_date
+            end_date = period.end_date
+
+        data = await self._get_financial_data(legal_entity_id, period_id, start_date, end_date)
 
         lines = []
         for line in OJK_INCOME_STATEMENT_LINES:
@@ -300,6 +328,8 @@ class OJKFormatBuilder:
         return {
             "legal_entity_id": str(legal_entity_id),
             "period_id": str(period_id),
+            "period_start": start_date.isoformat(),
+            "period_end": end_date.isoformat(),
             "lines": lines,
             "net_income": lines[-1]["value"] if lines else 0,
             "currency": self.config.get("currency", "IDR"),
@@ -309,7 +339,16 @@ class OJKFormatBuilder:
         """
         Membangun laporan arus kas format OJK (indirect method).
         """
-        data = await self._get_financial_data(legal_entity_id, period_id)
+        async with await get_session_factory() as session:
+            period_stmt = select(FiscalPeriodTable).where(FiscalPeriodTable.id == period_id)
+            period_result = await session.execute(period_stmt)
+            period = period_result.scalar_one_or_none()
+            if not period:
+                raise OJKFormatBuilderError(f"Period {period_id} not found")
+            start_date = period.start_date
+            end_date = period.end_date
+
+        data = await self._get_financial_data(legal_entity_id, period_id, start_date, end_date)
 
         cash_flow = {
             "operating": data.get("operating_cash_flow", Decimal(0)),
@@ -319,12 +358,13 @@ class OJKFormatBuilder:
             "beginning_cash": Decimal(0),  # would need previous period
             "ending_cash": Decimal(0),
         }
-        # Calculate ending cash
         cash_flow["ending_cash"] = cash_flow["beginning_cash"] + cash_flow["net_cash_flow"]
 
         return {
             "legal_entity_id": str(legal_entity_id),
             "period_id": str(period_id),
+            "period_start": start_date.isoformat(),
+            "period_end": end_date.isoformat(),
             "operating_activities": float(cash_flow["operating"]),
             "investing_activities": float(cash_flow["investing"]),
             "financing_activities": float(cash_flow["financing"]),
@@ -364,7 +404,7 @@ class OJKFormatBuilder:
         """
         report = await self.build_full_report(legal_entity_id, period_id)
 
-        # Get period info
+        # Get period info already included in sub-reports, so we can add it to main
         async with await get_session_factory() as session:
             period_stmt = select(FiscalPeriodTable).where(FiscalPeriodTable.id == period_id)
             period_result = await session.execute(period_stmt)
@@ -390,11 +430,11 @@ class OJKFormatBuilder:
         """
         Mengekspor laporan OJK ke file CSV (multiple sheets via separate files).
         """
+        import csv
+
         balance_sheet = await self.build_balance_sheet(legal_entity_id, period_id)
         income_stmt = await self.build_income_statement(legal_entity_id, period_id)
         cash_flow = await self.build_cash_flow_statement(legal_entity_id, period_id)
-
-        import csv
 
         base_name = f"ojk_report_{legal_entity_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
@@ -435,17 +475,24 @@ class OJKFormatBuilder:
 
 
 # ============================================================================
-# SINGLETON INSTANCE
+# SINGLETON INSTANCE dengan injeksi konfigurasi
 # ============================================================================
 
-_ojk_builder: OJKFormatBuilder | None = None
+_ojk_builder: Optional[OJKFormatBuilder] = None
+_ojk_config: Optional[dict] = None
+
+
+def set_ojk_builder_config(config: dict) -> None:
+    """Set konfigurasi untuk OJKFormatBuilder (harus dipanggil sebelum get_ojk_builder)."""
+    global _ojk_config
+    _ojk_config = config
 
 
 async def get_ojk_builder() -> OJKFormatBuilder:
     """Get singleton instance of OJKFormatBuilder."""
     global _ojk_builder
     if _ojk_builder is None:
-        _ojk_builder = OJKFormatBuilder()
+        _ojk_builder = OJKFormatBuilder(config=_ojk_config)
     return _ojk_builder
 
 
@@ -453,4 +500,9 @@ async def get_ojk_builder() -> OJKFormatBuilder:
 # EXPORTS
 # ============================================================================
 
-__all__ = ["OJKFormatBuilder", "OJKFormatBuilderError", "get_ojk_builder"]
+__all__ = [
+    "OJKFormatBuilder",
+    "OJKFormatBuilderError",
+    "get_ojk_builder",
+    "set_ojk_builder_config",
+]

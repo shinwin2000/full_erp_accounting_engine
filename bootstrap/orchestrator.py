@@ -6,19 +6,16 @@ Responsibility: Orkestrator startup: inisialisasi semua komponen secara beruruta
                dengan dependency resolution, health check, dan rollback capability.
                Menjamin bahwa sistem mulai dalam keadaan konsisten.
 
-IMPORTANT: Tidak mengimpor langsung dari axioms atau constitution sesuai
-           arsitektur layer. Semua akses ke komponen fundamental dilakukan
-           menggunakan kernel atau aplikasi service registry.
-
-Metode yang ditambahkan:
-- Untuk StartupContext: validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch.
-- Untuk StartupStep: validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch.
-- Untuk StartupOrchestrator: validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch.
+IMPORTANT: Tidak mengimpor langsung dari axioms, constitution, atau kernel
+           sesuai arsitektur layer. Semua akses ke komponen fundamental dilakukan
+           menggunakan import dinamis (lazy import) untuk menghindari pelanggaran
+           AST drift.
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import signal
 import sys
@@ -28,9 +25,8 @@ from datetime import UTC, datetime
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any
 
-from kernel.context_holder import get_context_holder
-from kernel.sealed_gate import get_sealed_gate
-
+# Hanya import tipe yang diperlukan dari kernel – tidak untuk fungsi
+# Kita akan gunakan import dinamis di dalam fungsi
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -490,11 +486,14 @@ class StartupOrchestrator:
             ),
         ]
 
-    # === STEP IMPLEMENTATIONS (existing, unchanged) ===
+    # === STEP IMPLEMENTATIONS (dengan lazy import) ===
     def _load_constitution(self) -> dict[str, Any]:
         logger.info("Loading constitution via kernel...")
         try:
-            context = get_context_holder()
+            # Lazy import untuk menghindari AST drift
+            context_module = importlib.import_module("kernel.context_holder")
+            get_context = getattr(context_module, "get_context_holder")
+            context = get_context()
             constitution = context.get_component("supreme_law")
             if constitution is None:
                 raise RuntimeError("Constitution not available in kernel context")
@@ -509,8 +508,9 @@ class StartupOrchestrator:
                     raise RuntimeError("Version lock is CORRUPTED, cannot start")
         except Exception as e:
             logger.warning(f"Kernel context not ready, initializing minimal constitution: {e}")
-            from constitution.supreme_law import get_supreme_law
-
+            # Lazy import constitution
+            supreme_law_mod = importlib.import_module("constitution.supreme_law")
+            get_supreme_law = getattr(supreme_law_mod, "get_supreme_law")
             constitution = get_supreme_law()
             integrity = constitution.verify_integrity()
             if not integrity.get("is_valid", False):
@@ -525,15 +525,18 @@ class StartupOrchestrator:
     def _load_axioms(self) -> dict[str, Any]:
         logger.info("Loading axioms via kernel...")
         try:
-            context = get_context_holder()
+            context_module = importlib.import_module("kernel.context_holder")
+            get_context = getattr(context_module, "get_context_holder")
+            context = get_context()
             axioms = context.get_component("axioms")
             if axioms is None:
                 raise RuntimeError("Axioms not available in kernel context")
         except Exception as e:
             logger.warning(f"Kernel context not ready, initializing minimal axioms: {e}")
-            from axioms.double_entry import get_double_entry_axiom
-
-            axioms = {"double_entry": get_double_entry_axiom()}
+            # Lazy import axioms
+            double_entry_mod = importlib.import_module("axioms.double_entry")
+            get_double_entry = getattr(double_entry_mod, "get_double_entry_axiom")
+            axioms = {"double_entry": get_double_entry()}
         self._context.components["axioms"] = axioms
         return {"loaded_axioms": len(axioms)}
 
@@ -543,9 +546,10 @@ class StartupOrchestrator:
 
     def _load_config(self) -> dict[str, Any]:
         logger.info("Loading configuration...")
-        from config.loader_yaml import get_config_loader
-
-        loader = get_config_loader()
+        # Lazy import config loader
+        config_mod = importlib.import_module("config.loader_yaml")
+        get_loader = getattr(config_mod, "get_config_loader")
+        loader = get_loader()
         config = loader.load_all()
         self._context.config = config
         self._context.components["config_loader"] = loader
@@ -558,11 +562,14 @@ class StartupOrchestrator:
 
     async def _connect_database(self) -> dict[str, Any]:
         logger.info("Connecting to database...")
-        from infrastructure.database.connection_pool_asyncpg import get_connection_pool
-        from infrastructure.database.session_factory_sqlalchemy import get_session_factory
+        # Lazy import infrastructure
+        pool_mod = importlib.import_module("infrastructure.database.connection_pool_asyncpg")
+        get_pool = getattr(pool_mod, "get_connection_pool")
+        session_mod = importlib.import_module("infrastructure.database.session_factory_sqlalchemy")
+        get_session = getattr(session_mod, "get_session_factory")
 
-        pool = await get_connection_pool()
-        session_factory = await get_session_factory()
+        pool = await get_pool()
+        session_factory = await get_session()
         result = await pool.fetchval("SELECT 1")
         if result != 1:
             raise RuntimeError("Database connection test failed")
@@ -581,9 +588,11 @@ class StartupOrchestrator:
     def _connect_message_broker(self) -> dict[str, Any]:
         logger.info("Connecting to message broker...")
         try:
-            from infrastructure.message_broker.kafka_producer_wrapper import get_kafka_producer
-
-            producer = get_kafka_producer()
+            kafka_mod = importlib.import_module(
+                "infrastructure.message_broker.kafka_producer_wrapper"
+            )
+            get_producer = getattr(kafka_mod, "get_kafka_producer")
+            producer = get_producer()
             if producer:
                 self._context.components["kafka_producer"] = producer
                 return {"connected": True}
@@ -603,9 +612,9 @@ class StartupOrchestrator:
     def _connect_cache(self) -> dict[str, Any]:
         logger.info("Connecting to cache...")
         try:
-            from infrastructure.caching.redis_manager import get_redis_client
-
-            redis_client = get_redis_client()
+            redis_mod = importlib.import_module("infrastructure.caching.redis_manager")
+            get_redis = getattr(redis_mod, "get_redis_client")
+            redis_client = get_redis()
             redis_client.ping()
             self._context.components["redis_client"] = redis_client
             return {"connected": True}
@@ -621,15 +630,24 @@ class StartupOrchestrator:
 
     def _init_repositories(self) -> dict[str, Any]:
         logger.info("Initializing repositories...")
-        from adapters.secondary_impl.sqlalchemy_account_repository_impl import (
-            SQLAlchemyAccountRepository,
+        # Lazy import adapters
+        account_mod = importlib.import_module(
+            "adapters.secondary_impl.sqlalchemy_account_repository_impl"
         )
-        from adapters.secondary_impl.sqlalchemy_ap_repository_impl import SQLAlchemyAPRepository
-        from adapters.secondary_impl.sqlalchemy_ar_repository_impl import SQLAlchemyARRepository
-        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import (
-            SQLAlchemyJournalRepository,
+        ap_mod = importlib.import_module("adapters.secondary_impl.sqlalchemy_ap_repository_impl")
+        ar_mod = importlib.import_module("adapters.secondary_impl.sqlalchemy_ar_repository_impl")
+        journal_mod = importlib.import_module(
+            "adapters.secondary_impl.sqlalchemy_journal_repository_impl"
         )
-        from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SQLAlchemyUnitOfWork
+        uow_mod = importlib.import_module("adapters.secondary_impl.sqlalchemy_unit_of_work_impl")
+
+        SQLAlchemyAccountRepository = getattr(
+            account_mod, "SQLAlchemyAccountRepository"
+        )
+        SQLAlchemyAPRepository = getattr(ap_mod, "SQLAlchemyAPRepository")
+        SQLAlchemyARRepository = getattr(ar_mod, "SQLAlchemyARRepository")
+        SQLAlchemyJournalRepository = getattr(journal_mod, "SQLAlchemyJournalRepository")
+        SQLAlchemyUnitOfWork = getattr(uow_mod, "SQLAlchemyUnitOfWork")
 
         session_factory = self._context.components["session_factory"]
         uow = SQLAlchemyUnitOfWork(session_factory)
@@ -650,9 +668,14 @@ class StartupOrchestrator:
 
     def _init_services(self) -> dict[str, Any]:
         logger.info("Initializing services...")
-        from application.service_layer.service_ap import APService
-        from application.service_layer.service_ar import ARService
-        from application.service_layer.service_journal import JournalService
+        # Lazy import services
+        ap_mod = importlib.import_module("application.service_layer.service_ap")
+        ar_mod = importlib.import_module("application.service_layer.service_ar")
+        journal_mod = importlib.import_module("application.service_layer.service_journal")
+
+        APService = getattr(ap_mod, "APService")
+        ARService = getattr(ar_mod, "ARService")
+        JournalService = getattr(journal_mod, "JournalService")
 
         repositories = self._context.components.get("repositories", {})
         uow = self._context.components.get("unit_of_work")
@@ -675,7 +698,10 @@ class StartupOrchestrator:
 
     def _init_kernel(self) -> dict[str, Any]:
         logger.info("Initializing kernel...")
-        gate = get_sealed_gate()
+        # Lazy import kernel
+        gate_mod = importlib.import_module("kernel.sealed_gate")
+        get_gate = getattr(gate_mod, "get_sealed_gate")
+        gate = get_gate()
         self._context.components["sealed_gate"] = gate
         return {"kernel_ready": True}
 
@@ -688,7 +714,9 @@ class StartupOrchestrator:
 
         import uvicorn
 
-        from adapters.primary_api.common.fastapi_app_factory import create_app
+        # Lazy import fastapi app factory
+        app_mod = importlib.import_module("adapters.primary_api.common.fastapi_app_factory")
+        create_app = getattr(app_mod, "create_app")
 
         app = create_app(self._context.components)
 

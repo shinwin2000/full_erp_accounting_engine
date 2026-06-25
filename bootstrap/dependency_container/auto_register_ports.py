@@ -15,6 +15,8 @@ from typing import Dict, List, Optional, Tuple, Set, Any
 
 logger = logging.getLogger(__name__)
 
+# --- Paths ---
+# Asumsikan file ini berada di bootstrap/dependency_container/
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 PORTS_PRIMARY = ROOT / "ports" / "primary"

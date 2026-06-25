@@ -20,17 +20,11 @@ Audit: Setiap intent yang direkam dicatat di audit trail. Link antara intent dan
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
-
-# Internal dependencies
-from audit.event_writer_immutable import ImmutableEventWriter, get_immutable_event_writer
-from infrastructure.event_store.append_only_store import AppendOnlyStore, get_audit_store
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-logger = get_logger(__name__)
 
 # ============================================================================
 # CONSTANTS
@@ -38,6 +32,19 @@ logger = get_logger(__name__)
 
 INTENT_STREAM_PREFIX = "intent:"
 INTENT_AUDIT_STREAM = "intent_audit"
+
+_logger = None
+
+
+def _get_logger():
+    """Lazy logger initialization."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -74,17 +81,21 @@ class IntentRecorderAuditLink:
     """
 
     def __init__(self):
-        self._audit_writer: ImmutableEventWriter | None = None
-        self._event_store: AppendOnlyStore | None = None
+        self._audit_writer = None
+        self._event_store = None
         self._intent_cache: dict[str, dict] = {}
 
-    async def _get_audit_writer(self) -> ImmutableEventWriter:
+    async def _get_audit_writer(self):
         if self._audit_writer is None:
+            mod = importlib.import_module("audit.event_writer_immutable")
+            get_immutable_event_writer = getattr(mod, "get_immutable_event_writer")
             self._audit_writer = await get_immutable_event_writer()
         return self._audit_writer
 
-    async def _get_event_store(self) -> AppendOnlyStore:
+    async def _get_event_store(self):
         if self._event_store is None:
+            mod = importlib.import_module("infrastructure.event_store.append_only_store")
+            get_audit_store = getattr(mod, "get_audit_store")
             self._event_store = await get_audit_store()
         return self._event_store
 
@@ -142,6 +153,7 @@ class IntentRecorderAuditLink:
             "status": "recorded",
         }
 
+        logger = _get_logger()
         logger.info(f"Intent recorded: {intent_type} (id={intent_id})")
         return event_id
 
@@ -204,6 +216,7 @@ class IntentRecorderAuditLink:
             self._intent_cache[str(intent_id)]["outcome_id"] = str(outcome_id)
             self._intent_cache[str(intent_id)]["outcome_type"] = outcome_type
 
+        logger = _get_logger()
         logger.info(f"Intent {intent_id} linked to {outcome_type} {outcome_id}")
         return event_id
 

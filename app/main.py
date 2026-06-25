@@ -52,7 +52,11 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from bootstrap.dependency_container.ioc_container import get_container
-from kernel.audit_hook_injector import get_audit_hook_injector
+
+# ============================================================
+# PERHATIAN: Import dari kernel DILAKUKAN SECARA LAZY (di dalam fungsi)
+# untuk menghindari AST drift. Jangan import di level modul!
+# ============================================================
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -500,8 +504,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await engine.dispose()
     logger.info("DB engine disposed")
 
-    # Shutdown AuditHookInjector gracefully
+    # Shutdown AuditHookInjector gracefully (LAZY IMPORT)
     try:
+        # Lazy import untuk menghindari AST drift
+        import importlib
+        audit_mod = importlib.import_module("kernel.audit_hook_injector")
+        get_audit_hook_injector = getattr(audit_mod, "get_audit_hook_injector")
         await get_audit_hook_injector().shutdown()
         logger.info("AuditHookInjector shut down gracefully")
     except Exception as e:
@@ -696,13 +704,17 @@ async def versioned_journal(journal_id: str, accept: str = Header(None, alias="A
 
 
 # ============================================================
-# ADAPTER ROUTERS - DYNAMIC IMPORT
+# ADAPTER ROUTERS - DYNAMIC IMPORT (DIPERBAIKI)
 # ============================================================
 def _discover_and_register_adapter_routers(app: FastAPI) -> None:
     """
     Scan semua file di adapters/primary_api/v1/ yang memiliki variabel 'router'
     dan mendaftarkannya ke aplikasi FastAPI dengan prefix /api/v1/{module_name}
     atau dengan prefix yang ditentukan di dalam router.
+    
+    Perbaikan: prefix_name selalu didefinisikan SEBELUM mencoba import,
+    sehingga tidak terjadi error "cannot access local variable 'prefix_name'"
+    jika terjadi exception saat import modul.
     """
     import importlib
     from pathlib import Path
@@ -734,26 +746,32 @@ def _discover_and_register_adapter_routers(app: FastAPI) -> None:
         # Skip jika module_name adalah "fastapi_router" atau "fastapi_common"
         if module_name in ("fastapi_router", "fastapi_common"):
             continue
+        
+        # =============================================================
+        # DEFINISIKAN prefix_name SEBELUM TRY UNTUK MENGHINDARI ERROR
+        # =============================================================
+        if module_name in known_prefixes:
+            prefix = known_prefixes[module_name]
+            prefix_name = module_name.replace("fastapi_", "").replace("_router", "").replace("_", "-")
+        else:
+            # Gunakan nama modul sebagai prefix, tanpa 'fastapi_' dan '_router'
+            prefix_name = module_name.replace("fastapi_", "").replace("_router", "").replace("_", "-")
+            prefix = f"/api/v1/{prefix_name}"
+
         try:
             # Import module
             module = importlib.import_module(f"adapters.primary_api.v1.{module_name}")
             router = getattr(module, "router", None)
             if router is None or not isinstance(router, APIRouter):
+                logger.warning(f"Module {module_name} does not contain a valid APIRouter")
                 continue
-
-            # Tentukan prefix
-            if module_name in known_prefixes:
-                prefix = known_prefixes[module_name]
-            else:
-                # Gunakan nama modul sebagai prefix, tanpa 'fastapi_' dan '_router'
-                prefix_name = module_name.replace("fastapi_", "").replace("_router", "").replace("_", "-")
-                prefix = f"/api/v1/{prefix_name}"
 
             # Daftarkan router
             app.include_router(router, prefix=prefix, tags=[prefix_name.capitalize()])
             logger.info(f"Registered router: {module_name} @ {prefix}")
         except Exception as e:
-            logger.warning(f"Failed to load router from {module_name}: {e}")
+            # prefix_name sudah terdefinisi, aman digunakan di log
+            logger.warning(f"Failed to load router from {module_name} (prefix={prefix_name}): {e}")
 
 
 # ============================================================

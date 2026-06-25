@@ -18,18 +18,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib
 import json
+import logging
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
 from typing import Any
-
-# Internal dependencies
-from infrastructure.event_store.append_only_store import AppendOnlyStore, get_event_store
-from infrastructure.telemetry.alert_manager_router import trigger_alert
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-logger = get_logger(__name__)
 
 # ============================================================================
 # CONSTANTS
@@ -43,6 +38,19 @@ DEFAULT_CONFIG = {
     "max_events_per_scan": 10000,
     "alert_on_duplicate": True,
 }
+
+_logger = None
+
+
+def _get_logger():
+    """Lazy logger initialization."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -81,15 +89,16 @@ class DuplicateDetectorFuzzy:
         self._max_events = self.config.get("max_events_per_scan", 10000)
         self._alert_on_duplicate = self.config.get("alert_on_duplicate", True)
 
-        self._event_store: AppendOnlyStore | None = None
+        self._event_store = None
         self._scan_task: asyncio.Task | None = None
         self._running = False
         self._detected_duplicates: list[dict] = []
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
-            from config.loader_yaml import load_yaml_config
-
+            # Lazy import config loader
+            mod = importlib.import_module("config.loader_yaml")
+            load_yaml_config = getattr(mod, "load_yaml_config")
             config = load_yaml_config(config_path)
             dup_config = config.get("duplicate_detector", {})
             result = DEFAULT_CONFIG.copy()
@@ -98,8 +107,10 @@ class DuplicateDetectorFuzzy:
         except Exception:
             return DEFAULT_CONFIG.copy()
 
-    async def _get_event_store(self) -> AppendOnlyStore:
+    async def _get_event_store(self):
         if self._event_store is None:
+            mod = importlib.import_module("infrastructure.event_store.append_only_store")
+            get_event_store = getattr(mod, "get_event_store")
             self._event_store = await get_event_store()
         return self._event_store
 
@@ -212,12 +223,15 @@ class DuplicateDetectorFuzzy:
         """
         store = await self._get_event_store()
 
+        # Lazy import SQLAlchemy and ORM table
+        sqlalchemy_mod = importlib.import_module("sqlalchemy")
+        select = getattr(sqlalchemy_mod, "select")
+        orm_mod = importlib.import_module("infrastructure.persistence_orm.event_store_table")
+        EventStoreTable = getattr(orm_mod, "EventStoreTable")
+
         # Get all streams
-        async with store._session_factory() as session:
-            from sqlalchemy import select
-
-            from infrastructure.persistence_orm.event_store_table import EventStoreTable
-
+        session_factory = store._session_factory
+        async with session_factory() as session:
             stmt = select(EventStoreTable.stream_name).distinct()
             result = await session.execute(stmt)
             stream_names = result.scalars().all()
@@ -244,11 +258,15 @@ class DuplicateDetectorFuzzy:
             "duplicates": all_duplicates[:50],  # Limit output
         }
 
+        logger = _get_logger()
         logger.info(
             f"Duplicate detection scan completed: {total_duplicates} duplicate groups found"
         )
 
         if total_duplicates > 10:
+            # Lazy import alert manager
+            alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
+            trigger_alert = getattr(alert_mod, "trigger_alert")
             await trigger_alert(
                 title="High Number of Potential Duplicates Detected",
                 message=f"Found {total_duplicates} potential duplicate event groups",
@@ -260,6 +278,8 @@ class DuplicateDetectorFuzzy:
 
     async def _send_duplicate_alert(self, duplicate: dict) -> None:
         """Send alert for detected duplicate."""
+        alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
+        trigger_alert = getattr(alert_mod, "trigger_alert")
         title = f"Potential Duplicate Events in {duplicate['stream_name']}"
         message = (
             f"Found {len(duplicate['duplicate_group'])} similar events with "
@@ -276,10 +296,12 @@ class DuplicateDetectorFuzzy:
     async def start_periodic_scan(self) -> None:
         """Start periodic duplicate detection scanning."""
         if not self._enabled:
+            logger = _get_logger()
             logger.info("Duplicate detector is disabled")
             return
 
         if self._running:
+            logger = _get_logger()
             logger.warning("Duplicate detector already running")
             return
 
@@ -293,10 +315,12 @@ class DuplicateDetectorFuzzy:
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
+                    logger = _get_logger()
                     logger.error(f"Duplicate detection error: {e}")
                     await asyncio.sleep(60)
 
         self._scan_task = asyncio.create_task(_scan_loop())
+        logger = _get_logger()
         logger.info(f"Duplicate detector started (interval: {self._scan_interval}s)")
 
     async def stop_periodic_scan(self) -> None:
@@ -309,6 +333,7 @@ class DuplicateDetectorFuzzy:
             except asyncio.CancelledError:
                 pass
             self._scan_task = None
+        logger = _get_logger()
         logger.info("Duplicate detector stopped")
 
     async def get_duplicates(self) -> list[dict]:

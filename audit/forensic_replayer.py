@@ -20,6 +20,7 @@ Audit: Setiap replay dicatat untuk audit trail. Hasil replay dapat digunakan
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -28,19 +29,53 @@ from uuid import UUID
 
 from audit.hash_chain_builder import AuditHashChainBuilder, get_audit_hash_builder
 
-# Internal dependencies
-from infrastructure.event_store.append_only_store import AppendOnlyStore, get_event_store
-from infrastructure.telemetry.alert_manager_router import trigger_alert
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-logger = get_logger(__name__)
-
 # ============================================================================
 # CONSTANTS
 # ============================================================================
 
 DEFAULT_BATCH_SIZE = 1000
 DEFAULT_EXPORT_DIR = Path("/var/audit/replays")
+
+_logger = None
+
+
+def _get_logger():
+    """Lazy logger initialization from structured logging."""
+    global _logger
+    if _logger is None:
+        mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
+        get_logger_func = getattr(mod, "get_logger")
+        _logger = get_logger_func(__name__)
+    return _logger
+
+
+def _get_event_store():
+    """Lazy import and get event store."""
+    mod = importlib.import_module("infrastructure.event_store.append_only_store")
+    get_event_store = getattr(mod, "get_event_store")
+    return get_event_store
+
+
+def _get_alert_trigger():
+    """Lazy import alert manager trigger."""
+    mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
+    trigger_alert = getattr(mod, "trigger_alert")
+    return trigger_alert
+
+
+def _get_event_store_table():
+    """Lazy import ORM EventStoreTable."""
+    mod = importlib.import_module("infrastructure.persistence_orm.event_store_table")
+    EventStoreTable = getattr(mod, "EventStoreTable")
+    return EventStoreTable
+
+
+def _get_sqlalchemy_select():
+    """Lazy import sqlalchemy select."""
+    mod = importlib.import_module("sqlalchemy")
+    select = getattr(mod, "select")
+    return select
+
 
 # ============================================================================
 # EXCEPTIONS
@@ -84,13 +119,14 @@ class ForensicReplayer:
     """
 
     def __init__(self):
-        self._event_store: AppendOnlyStore | None = None
-        self._hash_builder: AuditHashChainBuilder | None = None
+        self._event_store = None
+        self._hash_builder = None
         self._export_dir = DEFAULT_EXPORT_DIR
         self._export_dir.mkdir(parents=True, exist_ok=True)
 
-    async def _get_event_store(self) -> AppendOnlyStore:
+    async def _get_event_store(self):
         if self._event_store is None:
+            get_event_store = _get_event_store()
             self._event_store = await get_event_store()
         return self._event_store
 
@@ -122,6 +158,7 @@ class ForensicReplayer:
         events = await store.read_stream(stream_name, from_sequence, limit)
 
         if not events:
+            logger = _get_logger()
             logger.warning(f"No events found in stream {stream_name}")
             return []
 
@@ -129,7 +166,9 @@ class ForensicReplayer:
             hash_builder = await self._get_hash_builder()
             is_valid, broken_at, error = await hash_builder.verify_chain(events, stream_name)
             if not is_valid:
+                logger = _get_logger()
                 logger.error(f"Hash chain verification failed for stream {stream_name}: {error}")
+                trigger_alert = _get_alert_trigger()
                 await trigger_alert(
                     title="Forensic Replay: Hash Chain Verification Failed",
                     message=f"Stream {stream_name} has broken hash chain at index {broken_at}",
@@ -305,6 +344,7 @@ class ForensicReplayer:
         else:
             raise ValueError(f"Unsupported format: {format}")
 
+        logger = _get_logger()
         logger.info(f"Exported {len(events)} events to {file_path}")
         return file_path
 
@@ -360,11 +400,10 @@ class ForensicReplayer:
         List all streams in event store.
         """
         store = await self._get_event_store()
+        select = _get_sqlalchemy_select()
+        EventStoreTable = _get_event_store_table()
+
         async with store._session_factory() as session:
-            from sqlalchemy import select
-
-            from infrastructure.persistence_orm.event_store_table import EventStoreTable
-
             stmt = select(EventStoreTable.stream_name).distinct()
             if prefix:
                 stmt = stmt.where(EventStoreTable.stream_name.like(f"{prefix}%"))

@@ -14,9 +14,27 @@ import logging
 import threading
 from typing import Any
 
-from kernel.context_holder import get_current_user
+# ============================================================================
+# Lazy helper untuk menghindari AST drift (domain -> kernel)
+# ============================================================================
 
-# Try to import cryptography libraries
+
+def _get_current_user() -> str | None:
+    """Lazy import kernel.context_holder.get_current_user."""
+    try:
+        import importlib
+
+        mod = importlib.import_module("kernel.context_holder")
+        get_current_user = getattr(mod, "get_current_user")
+        return get_current_user()
+    except Exception:
+        return None
+
+
+# ============================================================================
+# Cryptography availability
+# ============================================================================
+
 try:
     from cryptography.hazmat.backends import default_backend
     from cryptography.hazmat.primitives import hashes, serialization
@@ -25,8 +43,6 @@ try:
     CRYPTO_AVAILABLE = True
 except ImportError:
     CRYPTO_AVAILABLE = False
-    # Note: logger will be defined below, so we can't use it here yet.
-    # We'll set a flag and log after logger is defined.
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +83,6 @@ class CryptographicSigner:
 
     def _init_keys(self) -> None:
         """Inisialisasi kunci untuk signing (dalam produksi dari Vault/HSM)."""
-        # Declare global at the top of the function (required for assignment in except)
         global CRYPTO_AVAILABLE
 
         if not CRYPTO_AVAILABLE:
@@ -135,7 +150,7 @@ class CryptographicSigner:
             raise ValueError("Content cannot be empty")
 
         if user_id is None:
-            user_id = get_current_user() or "system"
+            user_id = _get_current_user() or "system"
 
         with self._lock:
             if not CRYPTO_AVAILABLE or not self._private_key:
