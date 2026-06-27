@@ -23,21 +23,32 @@ logger = logging.getLogger(__name__)
 
 
 class PeriodStatus(Enum):
-    OPEN = "open"
-    LOCKED = "locked"
-    CLOSED = "closed"
+    """Status of an accounting period with full lifecycle: DRAFT → OPEN → LOCKED → CLOSED."""
+
+    DRAFT = "draft"      # Initial state, not yet active
+    OPEN = "open"        # Active, can post and adjust
+    LOCKED = "locked"    # Cannot post new entries, but adjustments allowed
+    CLOSED = "closed"    # No changes allowed; period is finalized
 
     def can_post(self) -> bool:
+        """Return True if new journal entries can be posted."""
         return self == PeriodStatus.OPEN
 
     def can_adjust(self) -> bool:
+        """Return True if adjusting entries are allowed."""
         return self in (PeriodStatus.OPEN, PeriodStatus.LOCKED)
 
     def can_close(self) -> bool:
+        """Return True if the period can be closed (must be OPEN or LOCKED)."""
         return self != PeriodStatus.CLOSED
+
+    def can_open(self) -> bool:
+        """Return True if the period can be opened (from DRAFT or CLOSED with force)."""
+        return self in (PeriodStatus.DRAFT, PeriodStatus.CLOSED)
 
     def display_name(self) -> str:
         names = {
+            PeriodStatus.DRAFT: "Draft",
             PeriodStatus.OPEN: "Terbuka",
             PeriodStatus.LOCKED: "Terkunci",
             PeriodStatus.CLOSED: "Ditutup",
@@ -429,6 +440,10 @@ class FiscalPeriod:
         return self._status == PeriodStatus.LOCKED
 
     @property
+    def is_draft(self) -> bool:
+        return self._status == PeriodStatus.DRAFT
+
+    @property
     def duration_days(self) -> int:
         return (self._end_date - self._start_date).days
 
@@ -703,6 +718,7 @@ class FiscalPeriod:
             "is_open": self.is_open,
             "is_locked": self.is_locked,
             "is_closed": self.is_closed,
+            "is_draft": self.is_draft,
             "can_post": self.can_post,
             "can_adjust": self.can_adjust,
             "opened_at": self._opened_at.isoformat() if self._opened_at else None,
@@ -730,7 +746,7 @@ class FiscalPeriod:
             year=self._year,
             start_date=self._start_date,
             end_date=self._end_date,
-            status=PeriodStatus.DRAFT if hasattr(PeriodStatus, "DRAFT") else PeriodStatus.OPEN,
+            status=PeriodStatus.DRAFT,
             created_at=now,
             updated_at=now,
             created_by=self._created_by,
@@ -774,9 +790,9 @@ class FiscalPeriod:
 
     def can_post(self, transaction_date: datetime | None = None) -> bool:
         """Check if posting is allowed on given date."""
-        check_date = transaction_date or datetime.now(UTC)
         if self._status != PeriodStatus.OPEN:
             return False
+        check_date = transaction_date or datetime.now(UTC)
         return self._start_date <= check_date < self._end_date
 
     def post(self, transaction_date: datetime, posted_by: str) -> FiscalPeriod:
@@ -901,10 +917,26 @@ class FiscalPeriod:
     # ==================== STATUS TRANSITION METHODS ====================
 
     def open(self, opened_by: str, force: bool = False) -> FiscalPeriod:
+        """
+        Open the period. If already OPEN, return self.
+        If CLOSED and force=True, reopen.
+        If DRAFT, transition to OPEN.
+        """
         if self._status == PeriodStatus.OPEN:
             return self
         if self._status == PeriodStatus.CLOSED and not force:
             raise InvalidStatusTransitionError("Cannot reopen a CLOSED period without force flag")
+        if self._status == PeriodStatus.CLOSED and force:
+            # Reopen: allow transition from CLOSED to OPEN
+            pass
+        if self._status == PeriodStatus.DRAFT:
+            # Draft -> Open
+            pass
+        if self._status not in (PeriodStatus.DRAFT, PeriodStatus.CLOSED, PeriodStatus.OPEN):
+            raise InvalidStatusTransitionError(
+                f"Cannot open period with status {self._status.value}"
+            )
+
         now = datetime.now(UTC)
         new_period = FiscalPeriod(
             period_id=self._period_id,

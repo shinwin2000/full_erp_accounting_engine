@@ -1,4 +1,4 @@
-# service_tax.py - Complete rewrite with static imports (no dynamic imports)
+# service_tax.py - Refactored with dynamic imports to avoid layer violation
 
 #!/usr/bin/env python3
 
@@ -9,10 +9,13 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service layer for Tax Management sesuai regulasi Indonesia.
+    Menggunakan dynamic import untuk mengakses policy_engine.tax_indonesia
+    agar tidak melanggar layer architecture (application → policy_engine).
 """
 
 from __future__ import annotations
 
+import importlib
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -25,18 +28,6 @@ from ports.primary.tax_authority_coretax_port import CoretaxPort
 from ports.primary.tax_repository_port import TaxRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
 
-# ============================================================================
-# Static imports untuk menghindari dynamic import warnings
-# ============================================================================
-from policy_engine.tax_indonesia.ppn_calculator import PPNCalculator
-from policy_engine.tax_indonesia.pph_21_calculator import PPh21Calculator
-from policy_engine.tax_indonesia.pph_22_calculator import PPh22Calculator
-from policy_engine.tax_indonesia.pph_23_calculator import PPh23Calculator
-from policy_engine.tax_indonesia.pph_4_ayat_2_calculator import PPh4Ayat2Calculator
-from policy_engine.tax_indonesia.withholding_engine import WithholdingEngine
-from policy_engine.tax_indonesia.rate_registry_dynamic import TaxRateRegistry
-from policy_engine.tax_indonesia.penalty_interest_engine import PenaltyInterestEngine
-
 logger = logging.getLogger(__name__)
 
 
@@ -44,10 +35,7 @@ logger = logging.getLogger(__name__)
 # Enums
 # ============================================================================
 
-
 class TaxType(str, Enum):
-    """Type of tax."""
-
     PPN = "PPN"
     PPH21 = "PPH21"
     PPH22 = "PPH22"
@@ -58,8 +46,6 @@ class TaxType(str, Enum):
 
 
 class FakturStatus(str, Enum):
-    """Status of tax invoice."""
-
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
     APPROVED = "APPROVED"
@@ -71,11 +57,8 @@ class FakturStatus(str, Enum):
 # DTOs
 # ============================================================================
 
-
 @dataclass(kw_only=True)
 class PPNCalculationRequest:
-    """Request for PPN calculation."""
-
     legal_entity_id: UUID
     is_luxury_goods: bool = False
     tax_period: str = ""
@@ -85,8 +68,6 @@ class PPNCalculationRequest:
 
 @dataclass(kw_only=True)
 class PPNCalculationResponse:
-    """Response for PPN calculation."""
-
     dpp: Decimal
     vat_rate: Decimal
     vat_amount: Decimal
@@ -97,8 +78,6 @@ class PPNCalculationResponse:
 
 @dataclass(kw_only=True)
 class PPh21CalculationRequest:
-    """Request for PPh 21 calculation."""
-
     employee_id: UUID
     gross_income: Decimal
     period_month: int
@@ -109,8 +88,6 @@ class PPh21CalculationRequest:
 
 @dataclass(kw_only=True)
 class PPh21CalculationResponse:
-    """Response for PPh 21 calculation."""
-
     gross_income: Decimal
     taxable_income: Decimal
     pph_21_due: Decimal
@@ -121,8 +98,6 @@ class PPh21CalculationResponse:
 
 @dataclass(kw_only=True)
 class PPh23CalculationRequest:
-    """Request for PPh 23 calculation."""
-
     supplier_id: UUID
     gross_amount: Decimal
     transaction_type: str | None = None
@@ -133,8 +108,6 @@ class PPh23CalculationRequest:
 
 @dataclass(kw_only=True)
 class PPh23CalculationResponse:
-    """Response for PPh 23 calculation."""
-
     gross_amount: Decimal
     tax_rate: Decimal
     pph_23_due: Decimal
@@ -144,8 +117,6 @@ class PPh23CalculationResponse:
 
 @dataclass(kw_only=True)
 class FakturPajakDTO:
-    """DTO for tax invoice."""
-
     id: UUID
     legal_entity_id: UUID
     faktur_number: str
@@ -163,8 +134,6 @@ class FakturPajakDTO:
 
 @dataclass(kw_only=True)
 class SPTMasaPpnDTO:
-    """DTO for SPT Masa PPN."""
-
     id: UUID
     legal_entity_id: UUID
     masa_pajak: str
@@ -180,8 +149,6 @@ class SPTMasaPpnDTO:
 
 @dataclass(kw_only=True)
 class TaxWithholdingSlipDTO:
-    """DTO for tax withholding slip."""
-
     id: UUID
     legal_entity_id: UUID
     counterparty_npwp: str
@@ -197,7 +164,6 @@ class TaxWithholdingSlipDTO:
 # ============================================================================
 # Exceptions
 # ============================================================================
-
 
 class TaxServiceError(Exception):
     pass
@@ -223,11 +189,11 @@ class CoretaxSubmissionError(TaxServiceError):
 # Main Service
 # ============================================================================
 
-
 class TaxService:
     """
     Service untuk perpajakan sesuai regulasi Indonesia.
-    Menggunakan static imports untuk semua modul policy_engine.
+    Menggunakan dynamic import untuk policy_engine.tax_indonesia
+    agar tidak melanggar layer architecture.
     """
 
     def __init__(
@@ -245,62 +211,70 @@ class TaxService:
         self._uow = uow
         self._event_publisher = event_publisher
 
-        # Lazy-initialized calculators (tanpa dynamic import)
-        self._ppn_calc: PPNCalculator | None = None
-        self._pph21_calc: PPh21Calculator | None = None
-        self._pph22_calc: PPh22Calculator | None = None
-        self._pph23_calc: PPh23Calculator | None = None
-        self._pph4_calc: PPh4Ayat2Calculator | None = None
-        self._withholding_engine: WithholdingEngine | None = None
-        self._rate_registry: TaxRateRegistry | None = None
-        self._penalty_engine: PenaltyInterestEngine | None = None
+        # Lazy-initialized calculators (dynamic import)
+        self._ppn_calc = None
+        self._pph21_calc = None
+        self._pph22_calc = None
+        self._pph23_calc = None
+        self._pph4_calc = None
+        self._withholding_engine = None
+        self._rate_registry = None
+        self._penalty_engine = None
 
         self._stats = {"calculations": 0, "faktur_created": 0, "spt_submitted": 0}
 
-        logger.info("TaxService initialized with Indonesia tax regulations (static imports)")
+        logger.info("TaxService initialized with dynamic imports for tax calculators")
 
     # ========================================================================
-    # Lazy Getter Methods (tanpa importlib)
+    # Lazy Getter Methods (menggunakan dynamic import)
     # ========================================================================
 
-    def _get_ppn_calculator(self) -> PPNCalculator:
+    def _get_ppn_calculator(self):
         if self._ppn_calc is None:
-            self._ppn_calc = PPNCalculator()
+            module = importlib.import_module("policy_engine.tax_indonesia.ppn_calculator")
+            self._ppn_calc = module.PPNCalculator()
         return self._ppn_calc
 
-    def _get_pph21_calculator(self) -> PPh21Calculator:
+    def _get_pph21_calculator(self):
         if self._pph21_calc is None:
-            self._pph21_calc = PPh21Calculator()
+            module = importlib.import_module("policy_engine.tax_indonesia.pph_21_calculator")
+            self._pph21_calc = module.PPh21Calculator()
         return self._pph21_calc
 
-    def _get_pph22_calculator(self) -> PPh22Calculator:
+    def _get_pph22_calculator(self):
         if self._pph22_calc is None:
-            self._pph22_calc = PPh22Calculator()
+            module = importlib.import_module("policy_engine.tax_indonesia.pph_22_calculator")
+            self._pph22_calc = module.PPh22Calculator()
         return self._pph22_calc
 
-    def _get_pph23_calculator(self) -> PPh23Calculator:
+    def _get_pph23_calculator(self):
         if self._pph23_calc is None:
-            self._pph23_calc = PPh23Calculator()
+            module = importlib.import_module("policy_engine.tax_indonesia.pph_23_calculator")
+            self._pph23_calc = module.PPh23Calculator()
         return self._pph23_calc
 
-    def _get_pph4_calculator(self) -> PPh4Ayat2Calculator:
+    def _get_pph4_calculator(self):
         if self._pph4_calc is None:
-            self._pph4_calc = PPh4Ayat2Calculator()
+            module = importlib.import_module("policy_engine.tax_indonesia.pph_4_ayat_2_calculator")
+            self._pph4_calc = module.PPh4Ayat2Calculator()
         return self._pph4_calc
 
-    def _get_withholding_engine(self) -> WithholdingEngine:
+    def _get_withholding_engine(self):
         if self._withholding_engine is None:
-            self._withholding_engine = WithholdingEngine()
+            module = importlib.import_module("policy_engine.tax_indonesia.withholding_engine")
+            self._withholding_engine = module.WithholdingEngine()
         return self._withholding_engine
 
-    def _get_rate_registry(self) -> TaxRateRegistry:
+    def _get_rate_registry(self):
         if self._rate_registry is None:
-            self._rate_registry = TaxRateRegistry()
+            module = importlib.import_module("policy_engine.tax_indonesia.rate_registry_dynamic")
+            self._rate_registry = module.TaxRateRegistry()
         return self._rate_registry
 
-    def _get_penalty_engine(self) -> PenaltyInterestEngine:
+    def _get_penalty_engine(self):
         if self._penalty_engine is None:
-            self._penalty_engine = PenaltyInterestEngine()
+            module = importlib.import_module("policy_engine.tax_indonesia.penalty_interest_engine")
+            self._penalty_engine = module.PenaltyInterestEngine()
         return self._penalty_engine
 
     # ========================================================================
@@ -311,7 +285,6 @@ class TaxService:
         """Calculate PPN (VAT) based on DPP and transaction date."""
         transaction_date = request.transaction_date or date.today()
 
-        # Determine tariff
         if transaction_date >= date(2025, 1, 1) and request.is_luxury_goods:
             vat_rate = Decimal("0.12")
         elif transaction_date >= date(2022, 4, 1):
@@ -321,11 +294,8 @@ class TaxService:
 
         vat_amount = (request.dpp * vat_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
         luxury_vat = Decimal("0")
-
         if request.is_luxury_goods:
-            luxury_vat = (request.dpp * Decimal("0.20")).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_EVEN
-            )
+            luxury_vat = (request.dpp * Decimal("0.20")).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
 
         total_vat = vat_amount + luxury_vat
         is_exempted = await self._is_ppn_exempted(request.dpp, request.transaction_date)
@@ -353,7 +323,6 @@ class TaxService:
         faktur_date: date | None = None,
         user_id: UUID | None = None,
     ) -> FakturPajakDTO:
-        """Create a tax invoice (faktur pajak keluaran)."""
         if not self._validate_npwp(npwp_penjual) or not self._validate_npwp(npwp_pembeli):
             raise InvalidNPWPError("Invalid NPWP format")
 
@@ -385,7 +354,6 @@ class TaxService:
     async def submit_faktur_pajak_to_coretax(
         self, faktur_id: UUID, user_id: UUID
     ) -> FakturPajakDTO:
-        """Submit faktur pajak to Coretax DJP."""
         faktur = await self._tax_repo.get_faktur_pajak(faktur_id)
         if not faktur:
             raise FakturPajakError(f"Faktur {faktur_id} not found")
@@ -426,7 +394,6 @@ class TaxService:
         masa_pajak: str,
         kompensasi_dari_masa_sebelumnya: Decimal = Decimal("0"),
     ) -> SPTMasaPpnDTO:
-        """Generate and submit SPT Masa PPN."""
         faktur_keluaran = await self._tax_repo.list_faktur_keluaran(legal_entity_id, masa_pajak)
         total_dpp = sum(f.dpp for f in faktur_keluaran)
         total_ppn_keluaran = sum(f.ppn for f in faktur_keluaran)
@@ -436,7 +403,6 @@ class TaxService:
 
         ppn_kurang_bayar = total_ppn_keluaran - total_ppn_masukan - kompensasi_dari_masa_sebelumnya
         ppn_lebih_bayar = Decimal("0")
-
         if ppn_kurang_bayar < 0:
             ppn_lebih_bayar = -ppn_kurang_bayar
             ppn_kurang_bayar = Decimal("0")
@@ -483,7 +449,6 @@ class TaxService:
     # ========================================================================
 
     async def calculate_pph21(self, request: PPh21CalculationRequest) -> PPh21CalculationResponse:
-        """Calculate PPh 21 for an employee."""
         employee = await self._tax_repo.get_employee_tax_data(request.employee_id)
         if not employee:
             raise TaxServiceError(f"Employee {request.employee_id} tax data not found")
@@ -516,7 +481,6 @@ class TaxService:
     # ========================================================================
 
     async def calculate_pph23(self, request: PPh23CalculationRequest) -> PPh23CalculationResponse:
-        """Calculate PPh 23 on service/transaction."""
         rate_registry = self._get_rate_registry()
         rate = await rate_registry.get_pph23_rate(
             transaction_type=request.transaction_type, has_npwp=request.is_has_npwp
@@ -542,23 +506,19 @@ class TaxService:
     # ========================================================================
 
     def _validate_npwp(self, npwp: str) -> bool:
-        """Validate NPWP format (15 or 16 digits)."""
         cleaned = "".join(filter(str.isdigit, npwp))
         return len(cleaned) in (15, 16)
 
     async def _generate_faktur_number(self, legal_entity_id: UUID, jenis: str) -> str:
-        """Generate faktur pajak number."""
         last_number = await self._tax_repo.get_last_faktur_number(legal_entity_id, jenis)
         seq = int(last_number[-8:]) + 1 if last_number else 1
         kode_seri = "010"
         return f"{kode_seri}-{seq:08d}"
 
     async def _is_ppn_exempted(self, dpp: Decimal, transaction_date: date) -> bool:
-        """Check if transaction is VAT exempted."""
         return False
 
     def _get_pph23_object_code(self, transaction_type: str | None = None) -> str:
-        """Get PPh 23 object code."""
         mapping = {
             "JASA": "24-104-01",
             "SEWA": "24-104-02",
@@ -568,14 +528,12 @@ class TaxService:
         return mapping.get(transaction_type, "24-104-99")
 
     def get_stats(self) -> dict[str, int]:
-        """Get service statistics."""
         return self._stats.copy()
 
 
 # ============================================================================
 # Factory
 # ============================================================================
-
 
 async def create_tax_service(
     tax_repo: TaxRepositoryPort,

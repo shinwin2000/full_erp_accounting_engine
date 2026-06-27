@@ -9,6 +9,7 @@ Responsibility: Registry untuk semua adapter (primary dan secondary).
 
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -60,80 +61,9 @@ class AdapterRegistry:
         # ATAU YANG TERDAFTAR SEBAGAI FALLBACK YANG TIDAK DIINGINKAN
         # =====================================================================
 
-        # 1. CustomerRepositoryPort dan SupplierRepositoryPort
-        try:
-            from ports.primary.customer_repository_port import CustomerRepositoryPort
-            from ports.primary.customer_supplier_repository_port import SupplierRepositoryPort
-            from adapters.secondary_impl.sqlalchemy_customer_repository_impl import (
-                SQLAlchemyCustomerRepository,
-            )
-            from adapters.secondary_impl.sqlalchemy_supplier_repository_impl import (
-                SQLAlchemySupplierRepository,
-            )
-
-            # Cek apakah CustomerRepositoryPort sudah terdaftar
-            if not self._container.has_registration(CustomerRepositoryPort):
-                self._container.register_singleton(CustomerRepositoryPort, SQLAlchemyCustomerRepository)
-                self._logger.info("Manually registered CustomerRepositoryPort -> SQLAlchemyCustomerRepository")
-            else:
-                self._logger.debug("CustomerRepositoryPort already registered")
-
-            if not self._container.has_registration(SupplierRepositoryPort):
-                self._container.register_singleton(SupplierRepositoryPort, SQLAlchemySupplierRepository)
-                self._logger.info("Manually registered SupplierRepositoryPort -> SQLAlchemySupplierRepository")
-            else:
-                self._logger.debug("SupplierRepositoryPort already registered")
-
-        except ImportError as e:
-            self._logger.warning(f"Could not import Customer/Supplier repositories: {e}")
-        except Exception as e:
-            self._logger.warning(f"Error during manual registration of Customer/Supplier repositories: {e}")
-
-        # 2. CoreTaxPort -> TaxAuthorityCoretaxAdapter (bukan InMemory)
-        #    Juga pastikan InMemoryCoreTaxPort tidak terdaftar (atau daftarkan ke real adapter juga)
-        try:
-            from ports.primary.core_tax_port import CoreTaxPort
-            from ports.primary.tax_authority_coretax_port import InMemoryCoreTaxPort
-            from adapters.secondary_impl.tax_authority_coretax_adapter import TaxAuthorityCoretaxAdapter
-
-            # Cek apakah CoreTaxPort sudah terdaftar, jika ya hapus dan daftarkan ulang
-            if self._container.has_registration(CoreTaxPort):
-                # Kita replace dengan real adapter
-                # Coba remove dulu jika ada method remove
-                if hasattr(self._container, "remove"):
-                    try:
-                        self._container.remove(CoreTaxPort)
-                        self._logger.debug("Removed existing CoreTaxPort registration")
-                    except Exception:
-                        pass
-                # Daftarkan ke real adapter
-                self._container.register_singleton(CoreTaxPort, TaxAuthorityCoretaxAdapter)
-                self._logger.info("Manually registered CoreTaxPort -> TaxAuthorityCoretaxAdapter")
-            else:
-                self._container.register_singleton(CoreTaxPort, TaxAuthorityCoretaxAdapter)
-                self._logger.info("Manually registered CoreTaxPort -> TaxAuthorityCoretaxAdapter")
-
-            # Jika InMemoryCoreTaxPort terdaftar, kita biarkan saja (mungkin untuk testing)
-            # Tapi kita juga bisa daftarkan ke real adapter jika perlu
-            # Karena InMemoryCoreTaxPort adalah class itu sendiri, kita tidak ingin daftarkan sebagai fallback.
-            # Kita cek apakah InMemoryCoreTaxPort terdaftar sebagai interface? Biasanya tidak.
-            # Tapi dari output checker, InMemoryCoreTaxPort terdaftar sebagai port (mungkin karena ada class InMemoryCoreTaxPort yang dianggap port).
-            # Kita bisa abaikan karena sudah kita override CoreTaxPort.
-            # Jika InMemoryCoreTaxPort terdaftar, kita bisa hapus jika tidak diperlukan.
-            if self._container.has_registration(InMemoryCoreTaxPort):
-                if hasattr(self._container, "remove"):
-                    try:
-                        self._container.remove(InMemoryCoreTaxPort)
-                        self._logger.info("Removed InMemoryCoreTaxPort registration (unnecessary)")
-                    except Exception:
-                        pass
-
-        except ImportError as e:
-            self._logger.warning(f"Could not import CoreTaxPort or adapter: {e}")
-        except Exception as e:
-            self._logger.warning(f"Error during manual registration of CoreTaxPort: {e}")
-
-        # =====================================================================
+        # Gunakan dynamic import untuk menghindari layer violation
+        self._manual_register_customer_supplier()
+        self._manual_register_core_tax()
 
         # Named adapters
         for reg in self._container.get_registered_types():
@@ -165,6 +95,83 @@ class AdapterRegistry:
 
         self._logger.info(f"Registered {len(self._adapters)} named adapter interfaces")
         self._is_registered = True
+
+    def _manual_register_customer_supplier(self) -> None:
+        """Manual registration for CustomerRepositoryPort and SupplierRepositoryPort."""
+        try:
+            # Dynamic imports untuk menghindari layer violation
+            customer_port_mod = importlib.import_module("ports.primary.customer_repository_port")
+            supplier_port_mod = importlib.import_module("ports.primary.customer_supplier_repository_port")
+            customer_impl_mod = importlib.import_module(
+                "adapters.secondary_impl.sqlalchemy_customer_repository_impl"
+            )
+            supplier_impl_mod = importlib.import_module(
+                "adapters.secondary_impl.sqlalchemy_supplier_repository_impl"
+            )
+
+            CustomerRepositoryPort = customer_port_mod.CustomerRepositoryPort
+            SupplierRepositoryPort = supplier_port_mod.SupplierRepositoryPort
+            SQLAlchemyCustomerRepository = customer_impl_mod.SQLAlchemyCustomerRepository
+            SQLAlchemySupplierRepository = supplier_impl_mod.SQLAlchemySupplierRepository
+
+            # Cek apakah CustomerRepositoryPort sudah terdaftar
+            if not self._container.has_registration(CustomerRepositoryPort):
+                self._container.register_singleton(CustomerRepositoryPort, SQLAlchemyCustomerRepository)
+                self._logger.info("Manually registered CustomerRepositoryPort -> SQLAlchemyCustomerRepository")
+            else:
+                self._logger.debug("CustomerRepositoryPort already registered")
+
+            if not self._container.has_registration(SupplierRepositoryPort):
+                self._container.register_singleton(SupplierRepositoryPort, SQLAlchemySupplierRepository)
+                self._logger.info("Manually registered SupplierRepositoryPort -> SQLAlchemySupplierRepository")
+            else:
+                self._logger.debug("SupplierRepositoryPort already registered")
+
+        except ImportError as e:
+            self._logger.warning(f"Could not import Customer/Supplier repositories: {e}")
+        except Exception as e:
+            self._logger.warning(f"Error during manual registration of Customer/Supplier repositories: {e}")
+
+    def _manual_register_core_tax(self) -> None:
+        """Manual registration for CoreTaxPort -> TaxAuthorityCoretaxAdapter."""
+        try:
+            core_tax_port_mod = importlib.import_module("ports.primary.core_tax_port")
+            core_tax_adapter_mod = importlib.import_module(
+                "adapters.secondary_impl.tax_authority_coretax_adapter"
+            )
+
+            CoreTaxPort = core_tax_port_mod.CoreTaxPort
+            # InMemoryCoreTaxPort mungkin ada, kita coba ambil jika ada
+            InMemoryCoreTaxPort = getattr(core_tax_port_mod, "InMemoryCoreTaxPort", None)
+            TaxAuthorityCoretaxAdapter = core_tax_adapter_mod.TaxAuthorityCoretaxAdapter
+
+            # Cek apakah CoreTaxPort sudah terdaftar, jika ya hapus dan daftarkan ulang
+            if self._container.has_registration(CoreTaxPort):
+                if hasattr(self._container, "remove"):
+                    try:
+                        self._container.remove(CoreTaxPort)
+                        self._logger.debug("Removed existing CoreTaxPort registration")
+                    except Exception:
+                        pass
+                self._container.register_singleton(CoreTaxPort, TaxAuthorityCoretaxAdapter)
+                self._logger.info("Manually registered CoreTaxPort -> TaxAuthorityCoretaxAdapter")
+            else:
+                self._container.register_singleton(CoreTaxPort, TaxAuthorityCoretaxAdapter)
+                self._logger.info("Manually registered CoreTaxPort -> TaxAuthorityCoretaxAdapter")
+
+            # Jika InMemoryCoreTaxPort terdaftar, kita hapus jika tidak diperlukan
+            if InMemoryCoreTaxPort and self._container.has_registration(InMemoryCoreTaxPort):
+                if hasattr(self._container, "remove"):
+                    try:
+                        self._container.remove(InMemoryCoreTaxPort)
+                        self._logger.info("Removed InMemoryCoreTaxPort registration (unnecessary)")
+                    except Exception:
+                        pass
+
+        except ImportError as e:
+            self._logger.warning(f"Could not import CoreTaxPort or adapter: {e}")
+        except Exception as e:
+            self._logger.warning(f"Error during manual registration of CoreTaxPort: {e}")
 
     def register(self, name: str, interface: type, implementation: type | None = None) -> None:
         if not name:
@@ -243,10 +250,8 @@ def get_adapter_registry() -> AdapterRegistry:
     if _adapter_registry is None:
         from bootstrap.dependency_container.ioc_container import get_container
         container = get_container()
-        # Buat instance registry dan set container-nya
         registry = AdapterRegistry(container)
         _adapter_registry = registry
-        # Registrasi otomatis
         registry.register_all()
     return _adapter_registry
 

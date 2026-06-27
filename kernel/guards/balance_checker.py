@@ -461,8 +461,21 @@ def get_balance_checker() -> BalanceChecker:
     if _balance_checker_instance is None:
         with _lock_instance:
             if _balance_checker_instance is None:
+                # Inisialisasi dengan fallback repository
+                # Ini aman untuk kernel dan tidak memerlukan set_balance_checker
                 _balance_checker_instance = BalanceChecker()
     return _balance_checker_instance
+
+
+# ============================================================================
+# FUNGSI UNTUK TESTING
+# ============================================================================
+def create_test_balance_checker(repository: Any = None) -> BalanceChecker:
+    """
+    Buat instance BalanceChecker untuk keperluan testing.
+    Jika repository tidak diberikan, akan menggunakan fallback in-memory.
+    """
+    return BalanceChecker(account_repository=repository or _get_account_repository())
 
 
 # ============================================================================
@@ -483,6 +496,7 @@ __all__ = [
     "BalanceCheckResult",
     "BalanceCheckSeverity",
     "BalanceChecker",
-    "balance_checker",          
+    "balance_checker",
     "get_balance_checker",
+    "create_test_balance_checker",
 ]

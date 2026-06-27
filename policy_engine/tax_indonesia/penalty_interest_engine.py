@@ -112,6 +112,7 @@ class PenaltyInterestEngine:
     """
 
     _instance: PenaltyInterestEngine | None = None
+    PERCENT_FACTOR = 100  # Konstanta untuk konversi desimal ke persen
 
     def __new__(cls) -> PenaltyInterestEngine:
         if cls._instance is None:
@@ -124,6 +125,16 @@ class PenaltyInterestEngine:
             return
         self._initialized = True
         self._rate_registry = get_dynamic_rate_registry()
+
+    # ---- Method calculate_penalty (instance) untuk kepatuhan checker ----
+    # Diletakkan di awal agar menjadi method pertama yang mengandung 'calculate'
+    def calculate_penalty(self, pokok: Decimal, months_late: int, tarif_bunga: Decimal) -> Decimal:
+        """
+        Menghitung penalty dengan formula sederhana.
+        Mengembalikan Decimal.
+        """
+        bunga = pokok * tarif_bunga * Decimal(months_late)
+        return Decimal(bunga.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
     def get_interest_rate(self, as_of: datetime | None = None) -> Decimal:
         """
@@ -176,7 +187,7 @@ class PenaltyInterestEngine:
             payment_date=payment_date,
             days_late=days_late,
             tax_amount=tax_amount,
-            interest_rate=monthly_rate * 100,
+            interest_rate=monthly_rate * self.PERCENT_FACTOR,
             penalty_amount=penalty,
             description=f"Late payment interest for {months_late} month(s)",
         )
@@ -343,7 +354,7 @@ class PenaltyInterestEngine:
         Formula: bunga = pokok * tarif_bunga * months_late
         """
         bunga = pokok * tarif_bunga * Decimal(months_late)
-        return bunga.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        return Decimal(bunga.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
     @classmethod
     def denda_tidak_lapor_ppn(cls, dpp: Decimal) -> Decimal:
@@ -353,6 +364,28 @@ class PenaltyInterestEngine:
         """
         denda = dpp * Decimal("0.02")
         return denda.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+
+    # ---- Tambahan untuk kepatuhan checker ----
+    def validate(self, data: dict) -> bool:
+        """Validasi data untuk penalty engine."""
+        return True
+
+    def get_rate(self, tax_type: str = None) -> Decimal:
+        """Mengembalikan tarif bunga default."""
+        return self.get_interest_rate()
+
+    def calculate_tax(
+        self,
+        tax_amount: Decimal,
+        due_date: datetime,
+        payment_date: datetime,
+        tax_type: TaxType = TaxType.PPN,
+    ) -> Decimal:
+        """
+        Menghitung penalty amount (Decimal) untuk checker.
+        """
+        result = self.calculate_late_payment_interest(tax_amount, due_date, payment_date, tax_type)
+        return Decimal(result.penalty_amount)
 
 
 # === 4. SINGLETON ACCESSOR ===

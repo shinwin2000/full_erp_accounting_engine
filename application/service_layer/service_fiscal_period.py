@@ -353,16 +353,27 @@ class FiscalPeriodService:
         request: ReopenPeriodRequest,
         correlation_id: str | None = None,
     ) -> FiscalPeriod:
-        """Reopen a closed period."""
+        """
+        Reopen a closed period.
+
+        Business rule: Only periods with status CLOSED can be reopened.
+        """
         period = await self._period_repo.get_by_year_month(
             request.legal_entity_id, request.year, request.month
         )
         if not period:
             raise PeriodNotFoundError(f"Period {request.year}-{request.month:02d} not found")
 
+        # FIX: Added validation - period must be CLOSED before reopening
         if period.status == PeriodStatus.OPEN:
             raise PeriodAlreadyOpenError(
                 f"Period {request.year}-{request.month:02d} is already OPEN"
+            )
+
+        # Additional safety: ensure period is CLOSED (not LOCKED or other status)
+        if period.status != PeriodStatus.CLOSED:
+            raise FiscalPeriodServiceError(
+                f"Period {request.year}-{request.month:02d} must be CLOSED to reopen (current: {period.status.value})"
             )
 
         updated = period.open(str(request.reopened_by))

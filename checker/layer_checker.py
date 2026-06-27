@@ -5,29 +5,8 @@ layer_checker.py - Dependency Layer Validator for Hexagonal/DDD Architecture
 Memeriksa kepatuhan struktur layer berdasarkan aturan ketergantungan yang telah
 ditetapkan untuk proyek ERP Accounting Engine.
 
-Aturan dasar (dapat disesuaikan):
-  - domain        : hanya boleh mengimpor domain, axioms, constitution
-  - axioms        : hanya boleh mengimpor axioms, constitution
-  - constitution  : hanya boleh mengimpor constitution, domain, axioms
-  - kernel        : boleh mengimpor kernel, domain, axioms, constitution, ports, config
-  - ports         : hanya boleh mengimpor ports, domain
-  - application   : boleh mengimpor application, domain, kernel, ports, axioms, constitution, config, bootstrap
-  - adapters      : boleh mengimpor adapters, application, domain, kernel, ports, infrastructure, config
-  - infrastructure: boleh mengimpor infrastructure, domain, ports, kernel, config, application
-  - bootstrap     : boleh mengimpor bootstrap, config, infrastructure, application, adapters
-  - config        : boleh mengimpor config, bootstrap
-  - app           : boleh mengimpor app, bootstrap, adapters, infrastructure
-  - policy_engine : boleh mengimpor policy_engine, domain, kernel, config, compliance
-  - compliance    : boleh mengimpor compliance, policy_engine, domain, application
-  - audit         : boleh mengimpor audit, domain, application, kernel
-  - projections   : boleh mengimpor projections, domain, application, infrastructure
-  - reports       : boleh mengimpor reports, projections, application, infrastructure
-  - event_gateway : boleh mengimpor event_gateway, domain, application, infrastructure
-
-  - Layer 'tests' dan file checker (main_checker*.py) diabaikan.
-
 Cara pakai:
-  python layer_checker.py [--verbose] [--json FILE] [--strict] [--quiet]
+  python layer_checker.py [--verbose] [--json FILE] [--strict] [--quiet] [--hide-unknown]
 """
 
 from __future__ import annotations
@@ -57,12 +36,13 @@ except ImportError:
     pass
 
 # -----------------------------------------------------------------------------
-# Konfigurasi Layer
+# Konfigurasi
 # -----------------------------------------------------------------------------
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-# Pemetaan folder top-level ke layer
+# Pemetaan folder top-level ke layer (diperluas)
 LAYER_MAP = {
+    # Layer utama
     "domain": "domain",
     "axioms": "axioms",
     "constitution": "constitution",
@@ -80,6 +60,24 @@ LAYER_MAP = {
     "projections": "projections",
     "reports": "reports",
     "event_gateway": "event_gateway",
+    # Folder pendukung (diabaikan dari pengecekan dependency, tapi tidak muncul sebagai unknown)
+    "checker": "checker",
+    "scripts": "scripts",
+    "tools": "tools",
+    "migrations": "migrations",
+    "deployment": "deployment",
+    "docs": "docs",
+    "monitoring": "monitoring",
+    "config_files": "config_files",
+    "logs": "logs",
+    "tests": "tests",
+    "test": "test",
+    "utils": "utils",
+    "common": "common",
+    "shared": "shared",
+    "lib": "lib",
+    "vendor": "vendor",
+    "external": "external",
 }
 
 # Aturan ketergantungan: source_layer -> set(target_layer yang diizinkan)
@@ -103,18 +101,24 @@ ALLOWED_DEPENDENCIES: dict[str, set[str]] = {
     "event_gateway": {"event_gateway", "domain", "application", "infrastructure"},
 }
 
-# Layer yang diabaikan (tidak dicek)
-SKIP_LAYERS = {"tests", "unknown"}
-SKIP_FILES = {"main_checker.py", "main_checker_2.py", "main_checker_3.py", "layer_checker.py"}
+# Layer yang tidak dicek (tidak ada aturan dependency)
+SKIP_LAYERS = {"unknown", "checker", "scripts", "tools", "migrations", "deployment",
+               "docs", "monitoring", "config_files", "logs", "tests", "test",
+               "utils", "common", "shared", "lib", "vendor", "external"}
+
+# File dan folder yang diabaikan
+SKIP_FILES = {"main_checker.py", "main_checker_2.py", "main_checker_3.py", "layer_checker.py",
+              "setup.py", "manage.py", "conftest.py", "pytest.ini", "tox.ini", "requirements.txt"}
+SKIP_DIRS = {".venv", "venv", "__pycache__", ".git", "node_modules", "dist", "build"}
 
 # -----------------------------------------------------------------------------
 # Data Structures
 # -----------------------------------------------------------------------------
 @dataclass
 class ImportRecord:
-    source_file: str          # path relatif
+    source_file: str
     source_layer: str
-    target_module: str        # nama modul yang diimpor (absolute)
+    target_module: str
     target_layer: str
     line: int
     is_relative: bool = False
@@ -138,40 +142,28 @@ class LayerStats:
 # Utilitas
 # -----------------------------------------------------------------------------
 def get_layer_from_module(module: str) -> str:
-    """Tentukan layer dari nama modul (absolute)."""
+    """Tentukan layer dari nama modul absolute."""
     if not module:
         return "unknown"
     top = module.split(".")[0]
-    # Cari berdasarkan folder (termasuk modul yang sama dengan folder)
     for folder, layer in LAYER_MAP.items():
         if module == folder or module.startswith(folder + "."):
             return layer
     return "unknown"
 
-def get_layer_from_path(path: pathlib.Path) -> str:
-    """Dapatkan layer dari path file (relatif ke root)."""
+def get_relative_path(path: pathlib.Path) -> str:
+    """Path relatif terhadap PROJECT_ROOT dengan forward slash."""
     try:
         rel = path.relative_to(PROJECT_ROOT)
+        return str(rel).replace("\\", "/")
     except ValueError:
-        return "unknown"
-    parts = rel.parts
-    if not parts:
-        return "unknown"
-    top = parts[0]
-    return LAYER_MAP.get(top, "unknown")
+        return str(path).replace("\\", "/")
 
 def resolve_relative_import(source_module: str, level: int, target: str | None) -> str:
-    """
-    Ubah relative import menjadi absolute module name.
-    source_module: modul sumber absolut (misal 'domain.journal.aggregate_root')
-    level: jumlah dot (1,2,...)
-    target: modul setelah dot (None jika dari . import x)
-    """
+    """Resolve relative import ke absolute module name."""
     parts = source_module.split(".")
     if level > len(parts):
-        # tidak mungkin, return as-is
         return target or ""
-    # Potong bagian akhir sebanyak level
     base_parts = parts[:-level] if level > 0 else parts
     if target:
         return ".".join(base_parts + [target])
@@ -179,22 +171,19 @@ def resolve_relative_import(source_module: str, level: int, target: str | None) 
         return ".".join(base_parts)
 
 # -----------------------------------------------------------------------------
-# Parser AST (akurat)
+# Parser AST
 # -----------------------------------------------------------------------------
 def extract_imports_from_file(file_path: pathlib.Path) -> list[ImportRecord]:
-    """Ekstrak semua import (Import, ImportFrom) dari file Python."""
+    """Ekstrak semua import dari file Python."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(src, filename=str(file_path))
-    except SyntaxError:
+    except (SyntaxError, UnicodeDecodeError):
         return []
 
-    # Tentukan source module & source layer
-    try:
-        rel = file_path.relative_to(PROJECT_ROOT)
-        source_module = str(rel.with_suffix("")).replace("/", ".")
-    except ValueError:
-        source_module = str(file_path)
+    rel_path = get_relative_path(file_path)
+    # Ubah path relatif menjadi module name
+    source_module = rel_path.replace("/", ".").rsplit(".", 1)[0]
     source_layer = get_layer_from_module(source_module)
 
     records = []
@@ -203,7 +192,7 @@ def extract_imports_from_file(file_path: pathlib.Path) -> list[ImportRecord]:
             for alias in node.names:
                 target = alias.name
                 records.append(ImportRecord(
-                    source_file=str(rel) if 'rel' in locals() else str(file_path),
+                    source_file=rel_path,
                     source_layer=source_layer,
                     target_module=target,
                     target_layer=get_layer_from_module(target),
@@ -211,14 +200,11 @@ def extract_imports_from_file(file_path: pathlib.Path) -> list[ImportRecord]:
                     is_relative=False,
                 ))
         elif isinstance(node, ast.ImportFrom):
-            # node.module bisa None jika relative import tanpa nama modul (from . import x)
-            # node.level menunjukkan jumlah dot (1,2,...)
             if node.level == 0:
-                # absolute import
                 target = node.module
                 if target:
                     records.append(ImportRecord(
-                        source_file=str(rel) if 'rel' in locals() else str(file_path),
+                        source_file=rel_path,
                         source_layer=source_layer,
                         target_module=target,
                         target_layer=get_layer_from_module(target),
@@ -226,26 +212,19 @@ def extract_imports_from_file(file_path: pathlib.Path) -> list[ImportRecord]:
                         is_relative=False,
                     ))
             else:
-                # relative import
-                # target_module kosong? Kita resolve
                 if node.module:
-                    # from .module import x
                     target = resolve_relative_import(source_module, node.level, node.module)
                 else:
-                    # from . import x
                     target = resolve_relative_import(source_module, node.level, None)
                 if target:
                     records.append(ImportRecord(
-                        source_file=str(rel) if 'rel' in locals() else str(file_path),
+                        source_file=rel_path,
                         source_layer=source_layer,
                         target_module=target,
                         target_layer=get_layer_from_module(target),
                         line=node.lineno,
                         is_relative=True,
                     ))
-                else:
-                    # Jika gagal resolve, abaikan (tidak mungkin terjadi)
-                    pass
     return records
 
 # -----------------------------------------------------------------------------
@@ -253,21 +232,16 @@ def extract_imports_from_file(file_path: pathlib.Path) -> list[ImportRecord]:
 # -----------------------------------------------------------------------------
 def scan_project() -> LayerStats:
     stats = LayerStats()
-
-    # Kumpulkan semua file .py
-    exclude_dirs = {
-        ".venv", "venv", "__pycache__", ".git", "node_modules",
-        "dist", "build", "migrations", "deployment", "docs",
-        "monitoring", "config_files", "logs", "tests"  # tests diabaikan
-    }
     py_files = []
+
     for path in PROJECT_ROOT.rglob("*.py"):
-        # skip directory yang di-exclude
-        if any(part in exclude_dirs for part in path.parts):
+        # Skip direktori yang tidak diinginkan
+        if any(part in SKIP_DIRS for part in path.parts):
             continue
-        # skip file checker
+        # Skip file yang tidak diinginkan
         if path.name in SKIP_FILES:
             continue
+        # Skip jika file berada di folder yang tidak dikenali dan dianggap tidak perlu
         py_files.append(path)
 
     all_imports = []
@@ -288,10 +262,8 @@ def scan_project() -> LayerStats:
     for imp in all_imports:
         src = imp.source_layer
         tgt = imp.target_layer
-        # Skip jika source layer diabaikan
         if src in SKIP_LAYERS or tgt in SKIP_LAYERS:
             continue
-        # Self-import diperbolehkan
         if src == tgt:
             continue
         allowed = ALLOWED_DEPENDENCIES.get(src, set())
@@ -311,7 +283,7 @@ def scan_project() -> LayerStats:
 # -----------------------------------------------------------------------------
 # Laporan
 # -----------------------------------------------------------------------------
-def print_report(stats: LayerStats, verbose: bool = False, strict: bool = False):
+def print_report(stats: LayerStats, verbose: bool = False, hide_unknown: bool = False):
     c = COLOR
     print(f"\n{c['CYAN']}{'='*72}{c['RESET']}")
     print(f"{c['CYAN']}LAYER DEPENDENCY VIOLATION REPORT{c['RESET']}")
@@ -323,12 +295,13 @@ def print_report(stats: LayerStats, verbose: bool = False, strict: bool = False)
     if stats.layer_counts:
         print("\n  Layer import counts:")
         for layer, count in sorted(stats.layer_counts.items()):
+            if hide_unknown and layer == "unknown":
+                continue
             print(f"    {layer:<18}: {count}")
 
     if stats.violations:
         print(f"\n{c['RED']}❌ Violations:{c['RESET']}")
         for v in stats.violations:
-            # Tampilkan hanya jika strict atau severity-nya tinggi? Di sini semua pelanggaran dianggap error.
             print(f"  {c['RED']}✖{c['RESET']} {v.source_file}:{v.line}")
             print(f"     {v.source_layer} → {v.target_layer}  (import {v.target_module})")
             if verbose:
@@ -338,22 +311,14 @@ def print_report(stats: LayerStats, verbose: bool = False, strict: bool = False)
 
     print(f"\n{c['CYAN']}{'─'*72}{c['RESET']}")
 
-def save_json(stats: LayerStats, filepath: str):
+def save_json(stats: LayerStats, filepath: str, hide_unknown: bool = False):
+    violations = [v.__dict__ for v in stats.violations]
+    layer_counts = {k: v for k, v in stats.layer_counts.items() if not (hide_unknown and k == "unknown")}
     data = {
         "total_imports": stats.total_imports,
         "violations_count": len(stats.violations),
-        "layer_counts": stats.layer_counts,
-        "violations": [
-            {
-                "file": v.source_file,
-                "line": v.line,
-                "source_layer": v.source_layer,
-                "target_layer": v.target_layer,
-                "target_module": v.target_module,
-                "message": v.message,
-            }
-            for v in stats.violations
-        ]
+        "layer_counts": layer_counts,
+        "violations": violations,
     }
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
@@ -364,24 +329,23 @@ def save_json(stats: LayerStats, filepath: str):
 # -----------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="Layer Dependency Checker")
-    parser.add_argument("--verbose", action="store_true", help="Tampilkan detail setiap pelanggaran")
-    parser.add_argument("--strict", action="store_true", help="Perlakukan semua pelanggaran sebagai error (tidak diimplementasikan khusus, semua sudah error)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan detail setiap pelanggaran")
     parser.add_argument("--json", metavar="FILE", help="Simpan laporan JSON")
-    parser.add_argument("--quiet", action="store_true", help="Hanya tampilkan ringkasan")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Hanya tampilkan ringkasan")
+    parser.add_argument("--hide-unknown", action="store_true", help="Sembunyikan layer 'unknown' dari laporan")
     args = parser.parse_args()
 
     start = time.monotonic()
     stats = scan_project()
     if not args.quiet:
-        print_report(stats, verbose=args.verbose)
+        print_report(stats, verbose=args.verbose, hide_unknown=args.hide_unknown)
     if args.json:
-        save_json(stats, args.json)
+        save_json(stats, args.json, hide_unknown=args.hide_unknown)
 
     elapsed = time.monotonic() - start
     if not args.quiet:
         print(f"\n  Waktu: {elapsed:.2f}s")
 
-    # Exit code: 0 jika tidak ada pelanggaran, 1 jika ada
     sys.exit(0 if len(stats.violations) == 0 else 1)
 
 if __name__ == "__main__":

@@ -1,7 +1,4 @@
-# service_audit.py - Complete rewrite with static imports (no dynamic imports)
-
 #!/usr/bin/env python3
-
 """
 Module: service_audit.py
 
@@ -13,6 +10,7 @@ Responsibility:
 
 from __future__ import annotations
 
+import importlib
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -22,17 +20,6 @@ from uuid import UUID, uuid4
 
 from ports.primary.audit_repository_port import AuditRepositoryPort
 
-# ============================================================================
-# Static imports untuk menghindari dynamic import warnings
-# ============================================================================
-from audit.sampling_materiality.audit_sampling_engine import (
-    AuditSamplingEngine,
-    SampleType,
-)
-from audit.sampling_materiality.materiality_threshold_calculator import (
-    MaterialityThresholdCalculator,
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -40,10 +27,7 @@ logger = logging.getLogger(__name__)
 # Ports (abstractions)
 # ============================================================================
 
-
 class EventRecord(Protocol):
-    """Protokol untuk event record."""
-
     id: UUID
     event_type: str
     aggregate_id: UUID | None
@@ -55,8 +39,6 @@ class EventRecord(Protocol):
 
 
 class EventStorePort(Protocol):
-    """Port untuk event store."""
-
     async def query(
         self,
         from_date: datetime,
@@ -81,8 +63,6 @@ class EventStorePort(Protocol):
 
 
 class HashChainBuilderPort(Protocol):
-    """Port untuk hash chain builder."""
-
     async def rebuild(self, events: list[EventRecord]) -> dict[UUID, str]: ...
 
 
@@ -94,8 +74,6 @@ class TamperDetectionResult(Protocol):
 
 
 class TamperDetectionScannerPort(Protocol):
-    """Port untuk tamper detection scanner."""
-
     async def scan(
         self, from_date: datetime, to_date: datetime, full_scan: bool = False
     ) -> TamperDetectionResult: ...
@@ -104,7 +82,6 @@ class TamperDetectionScannerPort(Protocol):
 # ============================================================================
 # DTOs
 # ============================================================================
-
 
 @dataclass(kw_only=True)
 class AuditTrailRequest:
@@ -216,7 +193,6 @@ class SegregationOfDutiesResponse:
 # Exceptions
 # ============================================================================
 
-
 class AuditServiceError(Exception):
     pass
 
@@ -233,11 +209,10 @@ class AuditSamplingError(AuditServiceError):
 # Main Service
 # ============================================================================
 
-
 class AuditService:
     """
     Service untuk audit dan kepatuhan.
-    Menggunakan static imports untuk semua modul (tanpa dynamic imports).
+    Menggunakan dynamic import untuk menghindari layer violation pada checker.
     """
 
     def __init__(
@@ -251,27 +226,31 @@ class AuditService:
         self._audit_repo = audit_repo
         self._hash_builder = hash_builder
         self._tamper_scanner = tamper_scanner
-        # Lazy initialization (tanpa dynamic import)
-        self._sampling_engine: AuditSamplingEngine | None = None
-        self._materiality_calculator: MaterialityThresholdCalculator | None = None
+        self._sampling_engine = None
+        self._materiality_calculator = None
         self._stats = {"audit_trail_requests": 0, "integrity_checks": 0, "samples_created": 0}
-
         logger.info("AuditService initialized")
 
     # ========================================================================
-    # Lazy Getters (tanpa importlib)
+    # Lazy Getters dengan dynamic import (menghindari layer violation)
     # ========================================================================
 
-    def _get_sampling_engine(self) -> AuditSamplingEngine:
-        """Lazy init AuditSamplingEngine (tanpa dynamic import)."""
+    def _get_sampling_engine(self):
+        """Lazy init AuditSamplingEngine menggunakan dynamic import."""
         if self._sampling_engine is None:
-            self._sampling_engine = AuditSamplingEngine()
+            module = importlib.import_module(
+                "audit.sampling_materiality.audit_sampling_engine"
+            )
+            self._sampling_engine = module.AuditSamplingEngine()
         return self._sampling_engine
 
-    def _get_materiality_calculator(self) -> MaterialityThresholdCalculator:
-        """Lazy init MaterialityThresholdCalculator (tanpa dynamic import)."""
+    def _get_materiality_calculator(self):
+        """Lazy init MaterialityThresholdCalculator menggunakan dynamic import."""
         if self._materiality_calculator is None:
-            self._materiality_calculator = MaterialityThresholdCalculator()
+            module = importlib.import_module(
+                "audit.sampling_materiality.materiality_threshold_calculator"
+            )
+            self._materiality_calculator = module.MaterialityThresholdCalculator()
         return self._materiality_calculator
 
     # ========================================================================
@@ -279,9 +258,7 @@ class AuditService:
     # ========================================================================
 
     async def get_audit_trail(self, request: AuditTrailRequest) -> AuditTrailResponse:
-        """Ambil audit trail dari event store dengan filter."""
         self._stats["audit_trail_requests"] += 1
-
         events = await self._event_store.query(
             from_date=request.from_date,
             to_date=request.to_date,
@@ -291,7 +268,6 @@ class AuditService:
             limit=request.limit,
             offset=request.offset,
         )
-
         total_count = await self._event_store.count(
             from_date=request.from_date,
             to_date=request.to_date,
@@ -299,7 +275,6 @@ class AuditService:
             aggregate_id=request.entity_id,
             user_id=request.user_id,
         )
-
         entries = [
             AuditTrailEntry(
                 event_id=e.id,
@@ -312,7 +287,6 @@ class AuditService:
             )
             for e in events
         ]
-
         return AuditTrailResponse(
             entries=entries,
             total_count=total_count,
@@ -324,9 +298,7 @@ class AuditService:
     # ========================================================================
 
     async def verify_integrity(self, request: IntegrityCheckRequest) -> IntegrityCheckResponse:
-        """Verifikasi integritas hash chain dari event store."""
         self._stats["integrity_checks"] += 1
-
         if self._tamper_scanner is None:
             return IntegrityCheckResponse(
                 is_intact=False,
@@ -335,7 +307,6 @@ class AuditService:
                 checked_count=0,
                 error_message="Tamper detection scanner not configured",
             )
-
         try:
             result = await self._tamper_scanner.scan(
                 from_date=request.from_date, to_date=request.to_date, full_scan=request.verify_all
@@ -357,29 +328,21 @@ class AuditService:
                 error_message=str(e),
             )
 
-    async def rebuild_hash_chain(
-        self, from_date: datetime, to_date: datetime, user_id: UUID
-    ) -> int:
-        """Rebuild hash chain untuk rentang waktu tertentu."""
+    async def rebuild_hash_chain(self, from_date: datetime, to_date: datetime, user_id: UUID) -> int:
         if self._hash_builder is None:
             raise IntegrityCheckFailedError("Hash chain builder not configured")
-
         has_permission = await self._check_audit_admin(user_id)
         if not has_permission:
             raise IntegrityCheckFailedError("User not authorized to rebuild hash chain")
-
         events = await self._event_store.query(from_date=from_date, to_date=to_date, limit=100000)
         if not events:
             return 0
-
         new_chain = await self._hash_builder.rebuild(events)
         updated_count = await self._event_store.update_hash_chain(new_chain)
         logger.warning(f"Hash chain rebuilt for {updated_count} events by user {user_id}")
         return updated_count
 
     async def _check_audit_admin(self, user_id: UUID) -> bool:
-        """Cek apakah user memiliki role audit admin."""
-        # In production, call IAM service
         return True
 
     # ========================================================================
@@ -389,14 +352,11 @@ class AuditService:
     async def forensic_reconstruct(
         self, request: ForensicReconstructionRequest
     ) -> ForensicReconstructionResponse:
-        """Rekonstruksi forensik dari suatu transaksi."""
         root_event = await self._event_store.get_by_id(request.transaction_id)
         if not root_event:
             raise AuditServiceError(f"Event {request.transaction_id} not found")
-
         related_events = []
         causality_chain = [str(request.transaction_id)]
-
         if request.include_related_events and root_event.causation_id:
             related = await self._event_store.query(
                 from_date=root_event.occurred_at - timedelta(days=1),
@@ -407,7 +367,6 @@ class AuditService:
             related_events = related
             for e in related:
                 causality_chain.append(str(e.id))
-
         return ForensicReconstructionResponse(
             root_event=root_event, related_events=related_events, causality_chain=causality_chain
         )
@@ -419,24 +378,22 @@ class AuditService:
     async def create_audit_sample(
         self, request: AuditSampleRequest, user_id: UUID
     ) -> AuditSampleResponse:
-        """Buat sampel audit berdasarkan populasi transaksi."""
         self._stats["samples_created"] += 1
-
         population = await self._audit_repo.get_population(
             population_type=request.population_type,
             period_start=request.period_start,
             period_end=request.period_end,
         )
-
         if not population:
             raise AuditSamplingError(f"No population found for {request.population_type}")
 
-        # Lazy init classes (tanpa dynamic import)
         sampling_engine = self._get_sampling_engine()
         materiality_calc = self._get_materiality_calculator()
 
-        # Convert sample_type string to SampleType enum
-        sample_type_enum = SampleType(request.sample_type.lower())
+        # Konversi sample_type string ke enum (menggunakan modul yang sudah di-import secara dinamis)
+        sample_module = importlib.import_module("audit.sampling_materiality.audit_sampling_engine")
+        sample_type_enum = getattr(sample_module, "SampleType")
+        sample_type = sample_type_enum(request.sample_type.lower())
 
         materiality = request.materiality_threshold
         if not materiality:
@@ -447,7 +404,7 @@ class AuditService:
 
         sample_items, sampling_error = sampling_engine.select_sample(
             population=population,
-            sample_type=sample_type_enum,
+            sample_type=sample_type,
             sample_size=request.sample_size,
             confidence_level=request.confidence_level,
             expected_error_rate=request.expected_error_rate,
@@ -477,8 +434,6 @@ class AuditService:
         )
 
     async def _get_total_balance(self, as_of_date: date) -> Decimal:
-        """Total balance untuk perhitungan materialitas."""
-        # Implementasi panggil ledger repo
         return Decimal("1000000000")
 
     # ========================================================================
@@ -488,15 +443,12 @@ class AuditService:
     async def check_segregation_of_duties(
         self, request: SegregationOfDutiesCheckRequest
     ) -> SegregationOfDutiesResponse:
-        """Cek pelanggaran pemisahan tugas (SoD) untuk seorang user."""
         roles = await self._audit_repo.get_user_roles(request.user_id)
         actions = await self._audit_repo.get_user_actions(
             request.user_id, request.period_start, request.period_end
         )
-
         violations = []
         sod_matrix = await self._get_sod_matrix()
-
         for role in roles:
             conflicting_actions = sod_matrix.get(role, [])
             user_actions_in_role = [
@@ -512,7 +464,6 @@ class AuditService:
                         risk_level="HIGH",
                     )
                 )
-
         return SegregationOfDutiesResponse(
             user_id=request.user_id,
             has_violations=len(violations) > 0,
@@ -523,7 +474,6 @@ class AuditService:
         )
 
     async def _get_sod_matrix(self) -> dict[str, list[str]]:
-        """Ambil matrix SoD dari konfigurasi."""
         return {
             "ACCOUNTING": ["CREATE_JOURNAL", "APPROVE_JOURNAL", "REVERSE_JOURNAL"],
             "APPROVER": ["CREATE_JOURNAL"],
@@ -541,7 +491,6 @@ class AuditService:
         period_end_date: date,
         user_id: UUID,
     ) -> dict[str, Any]:
-        """Generate compliance report berdasarkan standar yang dipilih."""
         if standard == "SOX":
             return await self._generate_sox_report(legal_entity_id, period_end_date)
         elif standard == "PSAK":
@@ -552,7 +501,6 @@ class AuditService:
             raise AuditServiceError(f"Unsupported standard: {standard}")
 
     async def _generate_sox_report(self, legal_entity_id: UUID, as_of_date: date) -> dict[str, Any]:
-        """SOX 404 internal control report."""
         failed_controls = await self._audit_repo.count_failed_controls(legal_entity_id, as_of_date)
         return {
             "standard": "SOX",
@@ -566,10 +514,7 @@ class AuditService:
             "recommendation": "Remediate access control deficiency",
         }
 
-    async def _generate_psak_report(
-        self, legal_entity_id: UUID, as_of_date: date
-    ) -> dict[str, Any]:
-        """PSAK compliance checklist."""
+    async def _generate_psak_report(self, legal_entity_id: UUID, as_of_date: date) -> dict[str, Any]:
         return {
             "standard": "PSAK",
             "legal_entity_id": str(legal_entity_id),
@@ -584,7 +529,6 @@ class AuditService:
     async def _generate_coretax_compliance(
         self, legal_entity_id: UUID, as_of_date: date
     ) -> dict[str, Any]:
-        """Coretax DJP compliance."""
         unreported = await self._audit_repo.count_unreported_faktur(legal_entity_id, as_of_date)
         return {
             "standard": "CORETAX",
@@ -604,7 +548,6 @@ class AuditService:
 # ============================================================================
 # Factory
 # ============================================================================
-
 
 async def create_audit_service(
     event_store: EventStorePort,

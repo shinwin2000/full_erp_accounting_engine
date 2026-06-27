@@ -291,6 +291,7 @@ class FiscalPeriodInvariantEnforcer:
         period: FiscalPeriod,
         user_role: str = "user",
     ) -> InvariantResult:
+        # FIX: Call the correct validator that checks CLOSED status
         return validate_can_reopen_period(period, user_role)
 
 
