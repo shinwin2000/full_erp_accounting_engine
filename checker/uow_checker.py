@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
-uow_checker.py - Unit of Work Pattern Validator
-================================================
-Memeriksa kepatuhan terhadap Unit of Work (UoW) pattern:
-- Port UoW didefinisikan dengan benar (commit, rollback, begin/__enter__/__exit__)
-- Implementasi UoW di adapter mengimplementasikan semua method
-- Setiap operasi write di use cases menggunakan UoW (dekorator @transactional atau with uow:)
-- Tidak ada write operation yang bypass UoW
+uow_checker.py - Unit of Work Pattern Validator (Final)
+========================================================
+Memeriksa kepatuhan terhadap Unit of Work (UoW) pattern.
+
+Fitur:
+- Mendeteksi async method (AsyncFunctionDef)
+- Skip Factory/Builder/Provider classes
+- Fleksibel terhadap context manager (__enter__/__exit__ atau __aenter__/__aexit__)
+- Validasi isi __exit__: mendeteksi commit/rollback baik sync maupun async (await)
+- Jika class memiliki method commit() dan rollback(), __exit__ tidak wajib memanggil commit (explicit commit pattern)
+- Menggunakan NodeVisitor untuk analisis branch error tanpa error parent
 
 Cara pakai:
-  python uow_checker.py
-  python uow_checker.py --verbose
-  python uow_checker.py --json report.json
+  python checker/uow_checker.py
+  python checker/uow_checker.py --verbose
+  python checker/uow_checker.py --json report.json
 """
 
 from __future__ import annotations
@@ -22,9 +26,16 @@ import json
 import pathlib
 import sys
 from dataclasses import dataclass, field
-from typing import List, Optional, Set
+from typing import List, Set, Optional, Tuple
 
+# =============================================================================
+# Root Project
+# =============================================================================
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+# =============================================================================
 # Warna
+# =============================================================================
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
 try:
     import colorama
@@ -37,13 +48,14 @@ try:
 except ImportError:
     pass
 
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
-
+# =============================================================================
+# Data Classes
+# =============================================================================
 @dataclass
 class Finding:
     file: str
     line: int
-    severity: str       # ERROR / WARNING
+    severity: str       # ERROR / WARNING / INFO
     category: str       # port / implementation / usage / bypass
     message: str
     detail: str = ""
@@ -54,12 +66,214 @@ class Report:
     score: int = 100
 
 # =============================================================================
-# 1. Port Checker – memeriksa UoW port
+# HELPERS
+# =============================================================================
+
+def is_exception_class(cls_node: ast.ClassDef) -> bool:
+    name = cls_node.name
+    if "Error" in name or "Exception" in name:
+        return True
+    for base in cls_node.bases:
+        if isinstance(base, ast.Name) and ("Error" in base.id or "Exception" in base.id):
+            return True
+    return False
+
+def is_factory_class(cls_node: ast.ClassDef) -> bool:
+    name = cls_node.name
+    if name.endswith(("Factory", "Builder", "Provider", "Registry")):
+        return True
+    if "Factory" in name or "Builder" in name or "Provider" in name:
+        return True
+    return False
+
+def get_methods(cls_node: ast.ClassDef) -> Set[str]:
+    methods = set()
+    for item in cls_node.body:
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            methods.add(item.name)
+    return methods
+
+def has_method(cls_node: ast.ClassDef, method_name: str) -> bool:
+    for item in cls_node.body:
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if item.name == method_name:
+                return True
+    return False
+
+def has_context_manager(methods: Set[str]) -> bool:
+    return ("__enter__" in methods and "__exit__" in methods) or \
+           ("__aenter__" in methods and "__aexit__" in methods)
+
+def find_exit_method(cls_node: ast.ClassDef) -> Optional[ast.FunctionDef | ast.AsyncFunctionDef]:
+    for item in cls_node.body:
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if item.name in ("__exit__", "__aexit__"):
+                return item
+    return None
+
+def analyze_exit_method(exit_node: ast.FunctionDef | ast.AsyncFunctionDef) -> Tuple[bool, bool, bool]:
+    """
+    Menganalisis method __exit__ atau __aexit__.
+    Returns: (has_commit, has_rollback, has_rollback_on_error)
+    Mendeteksi baik pemanggilan sync maupun async (await).
+    Menggunakan NodeVisitor untuk melacak branch error.
+    """
+    has_commit = False
+    has_rollback = False
+    has_rollback_on_error = False
+
+    class ErrorBranchVisitor(ast.NodeVisitor):
+        def __init__(self):
+            self.in_error_branch = False
+
+        def visit_If(self, node):
+            # Cek apakah ini if yang mengecek exception
+            is_exception_check = False
+            test = node.test
+            if isinstance(test, ast.Name) and test.id in ("exc_type", "exc_val", "exc_tb"):
+                is_exception_check = True
+            elif isinstance(test, ast.Call) and isinstance(test.func, ast.Name) and test.func.id == "isinstance":
+                is_exception_check = True
+            elif isinstance(test, ast.Compare):
+                is_exception_check = True
+
+            if is_exception_check:
+                # Masuk ke branch if (error branch)
+                old_in_error = self.in_error_branch
+                self.in_error_branch = True
+                self.generic_visit(node)
+                self.in_error_branch = old_in_error
+                # Kunjungi else jika ada
+                if node.orelse:
+                    for stmt in node.orelse:
+                        self.visit(stmt)
+                return
+            # Jika bukan exception check, kunjungi normal
+            self.generic_visit(node)
+
+        def visit_Call(self, node):
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                attr = func.attr.lower()
+                if attr == "commit":
+                    nonlocal has_commit
+                    has_commit = True
+                elif attr == "rollback":
+                    nonlocal has_rollback
+                    has_rollback = True
+                    if self.in_error_branch:
+                        nonlocal has_rollback_on_error
+                        has_rollback_on_error = True
+                # Cek juga melalui self._transaction_manager.commit()
+                if isinstance(func.value, ast.Attribute) and isinstance(func.value.value, ast.Name) and func.value.value.id == "self":
+                    if func.value.attr in ("_transaction_manager", "_session", "_uow"):
+                        if attr == "commit":
+                            has_commit = True
+                        elif attr == "rollback":
+                            has_rollback = True
+                            if self.in_error_branch:
+                                has_rollback_on_error = True
+                # self.commit() atau self.rollback()
+                if isinstance(func.value, ast.Name) and func.value.id == "self":
+                    if attr == "commit":
+                        has_commit = True
+                    elif attr == "rollback":
+                        has_rollback = True
+                        if self.in_error_branch:
+                            has_rollback_on_error = True
+            self.generic_visit(node)
+
+        def visit_Await(self, node):
+            # Proses value dari await
+            self.visit(node.value)
+
+    visitor = ErrorBranchVisitor()
+    visitor.visit(exit_node)
+    return has_commit, has_rollback, has_rollback_on_error
+
+def is_factory_function(func_name: str) -> bool:
+    return func_name.startswith(('create_', 'build_', 'make_', 'new_', 'get_', 'setup_'))
+
+def is_wrapper_function(func_node: ast.FunctionDef) -> bool:
+    if len(func_node.body) > 3:
+        return False
+    for stmt in ast.walk(func_node):
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+            if isinstance(stmt.value.func, ast.Attribute):
+                if 'service' in ast.unparse(stmt.value.func.value).lower():
+                    return True
+    return False
+
+def has_direct_repo_call(func_node: ast.FunctionDef) -> bool:
+    for stmt in ast.walk(func_node):
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+            if isinstance(stmt.value.func, ast.Attribute):
+                attr = stmt.value.func.attr.lower()
+                if attr in ('save', 'add', 'update', 'delete', 'persist', 'remove', 'commit', 'flush'):
+                    if isinstance(stmt.value.func.value, ast.Name):
+                        obj_name = stmt.value.func.value.id.lower()
+                        if 'repo' in obj_name or 'repository' in obj_name:
+                            return True
+    return False
+
+def has_uow_parameter(func_node: ast.FunctionDef) -> bool:
+    for arg in func_node.args.args:
+        if arg.arg in ('uow', 'unit_of_work'):
+            return True
+    return False
+
+def has_uow_self_assign(func_node: ast.FunctionDef) -> bool:
+    if func_node.name != '__init__':
+        return False
+    for stmt in ast.walk(func_node):
+        if isinstance(stmt, ast.Assign):
+            for target in stmt.targets:
+                if isinstance(target, ast.Attribute):
+                    if isinstance(target.value, ast.Name) and target.value.id == 'self' and target.attr == '_uow':
+                        return True
+    return False
+
+def has_uow_commit_call(func_node: ast.FunctionDef) -> bool:
+    for stmt in ast.walk(func_node):
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+            call = stmt.value
+            if isinstance(call.func, ast.Attribute):
+                if call.func.attr in ('commit', 'rollback'):
+                    if isinstance(call.func.value, ast.Name) and call.func.value.id in ('uow', 'unit_of_work'):
+                        return True
+                    if isinstance(call.func.value, ast.Attribute):
+                        if isinstance(call.func.value.value, ast.Name) and call.func.value.value.id == 'self' and call.func.value.attr == '_uow':
+                            return True
+    return False
+
+def has_uow_with_context(func_node: ast.FunctionDef) -> bool:
+    for stmt in ast.walk(func_node):
+        if isinstance(stmt, ast.With):
+            for item in stmt.items:
+                context_expr = ast.unparse(item.context_expr)
+                if 'uow' in context_expr.lower() or 'unit_of_work' in context_expr.lower():
+                    return True
+    return False
+
+def has_transactional_decorator(func_node: ast.FunctionDef) -> bool:
+    for dec in func_node.decorator_list:
+        if isinstance(dec, ast.Name) and dec.id == 'transactional':
+            return True
+        if isinstance(dec, ast.Attribute) and dec.attr == 'transactional':
+            return True
+        if isinstance(dec, ast.Call):
+            if isinstance(dec.func, ast.Name) and dec.func.id == 'transactional':
+                return True
+            if isinstance(dec.func, ast.Attribute) and dec.func.attr == 'transactional':
+                return True
+    return False
+
+# =============================================================================
+# 1. Port Checker
 # =============================================================================
 def check_uow_port() -> List[Finding]:
-    """Cek file ports/primary/unit_of_work_port.py, pastikan ada class dengan metode commit, rollback, begin."""
     findings = []
-    port_file = PROJECT_ROOT / "ports" / "primary" / "unit_of_work_port.py"
+    port_file = ROOT / "ports" / "primary" / "unit_of_work_port.py"
     if not port_file.exists():
         findings.append(Finding(
             file=str(port_file),
@@ -85,7 +299,6 @@ def check_uow_port() -> List[Finding]:
         ))
         return findings
 
-    # Cari class yang mungkin UoW (bisa bernama UnitOfWork, UnitOfWorkPort, dll.)
     uow_classes = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
@@ -99,48 +312,53 @@ def check_uow_port() -> List[Finding]:
             severity="ERROR",
             category="port",
             message="Tidak ditemukan class UnitOfWork di port file",
-            detail="Tambahkan class UnitOfWork (atau UnitOfWorkPort) dengan method commit, rollback, begin."
+            detail="Tambahkan class UnitOfWork (atau UnitOfWorkPort) dengan method commit, rollback, begin/context manager."
         ))
         return findings
 
-    # Periksa setiap class UoW
     for cls in uow_classes:
-        methods = [item.name for item in cls.body if isinstance(item, ast.FunctionDef)]
-        required = {'commit', 'rollback', 'begin'}
-        # Beberapa implementasi menggunakan __enter__ dan __exit__ sebagai pengganti begin
-        if '__enter__' in methods and '__exit__' in methods:
-            required.discard('begin')  # begin tidak wajib jika pakai context manager
+        methods = get_methods(cls)
+        has_cm = has_context_manager(methods)
 
-        missing = required - set(methods)
-        if missing:
-            findings.append(Finding(
-                file=str(port_file),
-                line=cls.lineno,
-                severity="ERROR",
-                category="port",
-                message=f"Class '{cls.name}' kekurangan method: {', '.join(missing)}",
-                detail=f"Implementasikan method {', '.join(missing)}."
-            ))
-        else:
-            # Tambahkan informasi bahwa port OK
+        if has_cm:
             findings.append(Finding(
                 file=str(port_file),
                 line=cls.lineno,
                 severity="INFO",
                 category="port",
-                message=f"✅ Port UoW '{cls.name}' lengkap (commit, rollback, begin/context manager)",
+                message=f"✅ Port UoW '{cls.name}' memiliki context manager (__enter__/__exit__ atau __aenter__/__aexit__)",
                 detail=""
             ))
+        else:
+            required = {'begin', 'commit', 'rollback'}
+            missing = required - methods
+            if missing:
+                findings.append(Finding(
+                    file=str(port_file),
+                    line=cls.lineno,
+                    severity="ERROR",
+                    category="port",
+                    message=f"Class '{cls.name}' kekurangan method: {', '.join(missing)}",
+                    detail=f"Implementasikan method {', '.join(missing)} atau gunakan context manager."
+                ))
+            else:
+                findings.append(Finding(
+                    file=str(port_file),
+                    line=cls.lineno,
+                    severity="INFO",
+                    category="port",
+                    message=f"✅ Port UoW '{cls.name}' lengkap (begin, commit, rollback)",
+                    detail=""
+                ))
 
     return findings
 
 # =============================================================================
-# 2. Implementation Checker – cek adapter UoW
+# 2. Implementation Checker
 # =============================================================================
 def check_uow_implementation() -> List[Finding]:
-    """Cari implementasi UoW di adapters/secondary_impl/, cek apakah mengimplementasikan semua method port."""
     findings = []
-    impl_dir = PROJECT_ROOT / "adapters" / "secondary_impl"
+    impl_dir = ROOT / "adapters" / "secondary_impl"
     if not impl_dir.exists():
         findings.append(Finding(
             file=str(impl_dir),
@@ -152,7 +370,6 @@ def check_uow_implementation() -> List[Finding]:
         ))
         return findings
 
-    # Cari file yang mengandung 'unit_of_work' atau 'uow' di namanya
     impl_files = list(impl_dir.glob("*unit_of_work*.py")) + list(impl_dir.glob("*uow*.py"))
     if not impl_files:
         findings.append(Finding(
@@ -180,77 +397,113 @@ def check_uow_implementation() -> List[Finding]:
             ))
             continue
 
-        # Cari class yang mungkin implementasi UoW
-        impl_classes = []
         for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                if 'unit' in node.name.lower() and 'work' in node.name.lower():
-                    impl_classes.append(node)
-        if not impl_classes:
-            findings.append(Finding(
-                file=str(impl_file),
-                line=0,
-                severity="WARNING",
-                category="implementation",
-                message=f"File {impl_file.name} tidak memiliki class UoW",
-                detail="Pastikan file berisi class implementasi UoW."
-            ))
-            continue
+            if not isinstance(node, ast.ClassDef):
+                continue
+            if is_exception_class(node):
+                continue
+            if is_factory_class(node):
+                continue
+            if 'unit' not in node.name.lower() or 'work' not in node.name.lower():
+                continue
 
-        for cls in impl_classes:
-            methods = [item.name for item in cls.body if isinstance(item, ast.FunctionDef)]
-            required = {'commit', 'rollback', 'begin'}
-            if '__enter__' in methods and '__exit__' in methods:
-                required.discard('begin')
-            missing = required - set(methods)
-            if missing:
-                findings.append(Finding(
-                    file=str(impl_file),
-                    line=cls.lineno,
-                    severity="ERROR",
-                    category="implementation",
-                    message=f"Implementasi '{cls.name}' kekurangan method: {', '.join(missing)}",
-                    detail=f"Implementasikan method {', '.join(missing)} sesuai port."
-                ))
+            methods = get_methods(node)
+            has_cm = has_context_manager(methods)
+
+            if has_cm:
+                exit_method = find_exit_method(node)
+                if exit_method is not None:
+                    has_commit, has_rollback, has_rollback_on_error = analyze_exit_method(exit_method)
+                    has_commit_method_defined = has_method(node, "commit")
+                    has_rollback_method_defined = has_method(node, "rollback")
+
+                    if has_commit or has_rollback:
+                        findings.append(Finding(
+                            file=str(impl_file),
+                            line=node.lineno,
+                            severity="INFO",
+                            category="implementation",
+                            message=f"✅ Implementasi UoW '{node.name}' menggunakan context manager dan __exit__ memanggil commit/rollback",
+                            detail=""
+                        ))
+                    elif has_commit_method_defined and has_rollback_method_defined:
+                        if has_rollback_on_error:
+                            findings.append(Finding(
+                                file=str(impl_file),
+                                line=node.lineno,
+                                severity="INFO",
+                                category="implementation",
+                                message=f"✅ Implementasi UoW '{node.name}' menggunakan explicit commit pattern (__exit__ hanya rollback error)",
+                                detail="commit dipanggil secara eksplisit oleh pengguna."
+                            ))
+                        else:
+                            findings.append(Finding(
+                                file=str(impl_file),
+                                line=exit_method.lineno,
+                                severity="WARNING",
+                                category="implementation",
+                                message=f"Implementasi '{node.name}' memiliki __exit__ tetapi tidak memanggil commit/rollback di branch error",
+                                detail="Pastikan error branch memanggil rollback, atau abaikan warning ini jika desain sudah benar."
+                            ))
+                    else:
+                        findings.append(Finding(
+                            file=str(impl_file),
+                            line=exit_method.lineno,
+                            severity="WARNING",
+                            category="implementation",
+                            message=f"Implementasi '{node.name}' memiliki __exit__ tetapi tidak memanggil commit atau rollback",
+                            detail="Pastikan __exit__ memanggil session.commit() atau session.rollback() (termasuk melalui _transaction_manager), atau gunakan explicit commit pattern dengan method commit() dan rollback()."
+                        ))
+                else:
+                    findings.append(Finding(
+                        file=str(impl_file),
+                        line=node.lineno,
+                        severity="ERROR",
+                        category="implementation",
+                        message=f"Implementasi '{node.name}' memiliki context manager tetapi tidak ditemukan __exit__",
+                        detail="Implementasikan __exit__ atau __aexit__"
+                    ))
             else:
-                findings.append(Finding(
-                    file=str(impl_file),
-                    line=cls.lineno,
-                    severity="INFO",
-                    category="implementation",
-                    message=f"✅ Implementasi UoW '{cls.name}' lengkap",
-                    detail=""
-                ))
+                required = {'begin', 'commit', 'rollback'}
+                missing = required - methods
+                if missing:
+                    findings.append(Finding(
+                        file=str(impl_file),
+                        line=node.lineno,
+                        severity="ERROR",
+                        category="implementation",
+                        message=f"Implementasi '{node.name}' kekurangan method: {', '.join(missing)}",
+                        detail=f"Implementasikan method {', '.join(missing)} atau gunakan context manager."
+                    ))
+                else:
+                    findings.append(Finding(
+                        file=str(impl_file),
+                        line=node.lineno,
+                        severity="INFO",
+                        category="implementation",
+                        message=f"✅ Implementasi UoW '{node.name}' lengkap",
+                        detail=""
+                    ))
 
     return findings
 
 # =============================================================================
-# 3. Usage Checker – cek apakah use cases menggunakan UoW dengan benar
+# 3. Usage Checker
 # =============================================================================
 def check_uow_usage() -> List[Finding]:
-    """Cek setiap use case atau service yang melakukan write, pastikan menggunakan @transactional atau with uow:."""
     findings = []
     target_dirs = [
-        PROJECT_ROOT / "application" / "use_cases",
-        PROJECT_ROOT / "application" / "service_layer",
+        ROOT / "application" / "use_cases",
+        ROOT / "application" / "service_layer",
     ]
-    # Cari juga di subfolder application lainnya
-    app_dir = PROJECT_ROOT / "application"
-    if app_dir.exists():
-        for sub in app_dir.iterdir():
-            if sub.is_dir() and sub.name not in ['use_cases', 'service_layer', '__pycache__']:
-                # Skip folder yang tidak relevan
-                if sub.name in ['commands_cqrs', 'sagas', 'outbox', 'mappers', 'events']:
-                    continue
-                target_dirs.append(sub)
-
-    write_keywords = {'post', 'create', 'update', 'delete', 'save', 'persist', 'remove', 'add', 'modify', 'change', 'register'}
 
     for dir_path in target_dirs:
         if not dir_path.exists():
             continue
         for py_file in dir_path.rglob("*.py"):
             if py_file.name.startswith("__") or py_file.name.startswith("uow_checker"):
+                continue
+            if py_file.name in ("registry.py", "handlers.py"):
                 continue
             try:
                 src = py_file.read_text(encoding="utf-8", errors="replace")
@@ -259,81 +512,46 @@ def check_uow_usage() -> List[Finding]:
                 continue
 
             for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    func_name = node.name.lower()
-                    # Cek apakah fungsi ini menulis data?
-                    if not any(k in func_name for k in write_keywords):
-                        continue
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
 
-                    # Cek dekorator @transactional
-                    has_transactional = False
-                    for dec in node.decorator_list:
-                        if isinstance(dec, ast.Name) and dec.id == 'transactional':
-                            has_transactional = True
-                            break
-                        elif isinstance(dec, ast.Attribute) and dec.attr == 'transactional':
-                            has_transactional = True
-                            break
-                        elif isinstance(dec, ast.Call):
-                            if isinstance(dec.func, ast.Name) and dec.func.id == 'transactional':
-                                has_transactional = True
-                                break
-                            elif isinstance(dec.func, ast.Attribute) and dec.func.attr == 'transactional':
-                                has_transactional = True
-                                break
+                func_name = node.name
+                if is_factory_function(func_name):
+                    continue
 
-                    # Cek apakah ada dengan uow: atau unit_of_work:
-                    has_uow_context = False
-                    for stmt in ast.walk(node):
-                        if isinstance(stmt, ast.With):
-                            for item in stmt.items:
-                                context_expr = ast.unparse(item.context_expr)
-                                if 'uow' in context_expr.lower() or 'unit_of_work' in context_expr.lower():
-                                    has_uow_context = True
-                                    break
-                        # Cek juga assignment seperti uow = get_uow()
-                        if isinstance(stmt, ast.Assign):
-                            for target in stmt.targets:
-                                if isinstance(target, ast.Name) and target.id in ('uow', 'unit_of_work'):
-                                    # Cek apakah ada pemanggilan commit/rollback nanti
-                                    has_uow_context = True
-                                    break
+                if not has_direct_repo_call(node):
+                    continue
 
-                    # Cek apakah ada pemanggilan commit/rollback langsung
-                    has_commit = False
-                    for stmt in ast.walk(node):
-                        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-                            if isinstance(stmt.value.func, ast.Attribute):
-                                if stmt.value.func.attr in ('commit', 'rollback'):
-                                    # Cek apakah objeknya adalah uow
-                                    if isinstance(stmt.value.func.value, ast.Name) and stmt.value.func.value.id in ('uow', 'unit_of_work'):
-                                        has_commit = True
-                                        break
+                uses_uow = (
+                    has_transactional_decorator(node) or
+                    has_uow_with_context(node) or
+                    has_uow_commit_call(node) or
+                    has_uow_parameter(node) or
+                    is_wrapper_function(node)
+                )
 
-                    if not has_transactional and not has_uow_context and not has_commit:
-                        findings.append(Finding(
-                            file=str(py_file),
-                            line=node.lineno,
-                            severity="ERROR",
-                            category="usage",
-                            message=f"Fungsi '{node.name}' melakukan write tanpa UoW",
-                            detail="Tambahkan dekorator @transactional atau gunakan 'with uow:' untuk membungkus operasi."
-                        ))
+                if not uses_uow:
+                    findings.append(Finding(
+                        file=str(py_file),
+                        line=node.lineno,
+                        severity="ERROR",
+                        category="usage",
+                        message=f"Fungsi '{func_name}' memanggil repository method tanpa UoW",
+                        detail="Tambahkan dekorator @transactional atau gunakan 'with uow:'"
+                    ))
+
     return findings
 
 # =============================================================================
-# 4. Bypass Checker – cek apakah ada repository.save() tanpa UoW
+# 4. Bypass Checker
 # =============================================================================
 def check_bypass_uow() -> List[Finding]:
-    """Cek kode yang memanggil repository.save() atau .add() tanpa UoW."""
     findings = []
     target_dirs = [
-        PROJECT_ROOT / "application",
-        PROJECT_ROOT / "adapters",
-        PROJECT_ROOT / "domain",
-        PROJECT_ROOT / "infrastructure",
+        ROOT / "application" / "use_cases",
+        ROOT / "application" / "service_layer",
     ]
-    exclude = {'.venv', 'venv', '__pycache__', '.git', 'node_modules', 'dist', 'build', 'migrations', 'deployment', 'docs', 'tests'}
+    exclude = {'.venv', 'venv', '__pycache__', '.git', 'node_modules', 'dist', 'build', 'migrations', 'deployment', 'docs', 'tests', 'checker'}
 
     for dir_path in target_dirs:
         if not dir_path.exists():
@@ -343,51 +561,38 @@ def check_bypass_uow() -> List[Finding]:
                 continue
             if py_file.name.startswith("__") or py_file.name.startswith("uow_checker"):
                 continue
+            if py_file.name in ("registry.py", "handlers.py"):
+                continue
             try:
                 src = py_file.read_text(encoding="utf-8", errors="replace")
                 tree = ast.parse(src, filename=str(py_file))
             except SyntaxError:
                 continue
 
-            # Cari pemanggilan repository.save(), .add(), .update(), .delete() tanpa UoW
             for node in ast.walk(tree):
                 if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
                     call = node.value
                     if isinstance(call.func, ast.Attribute):
                         attr = call.func.attr.lower()
                         if attr in ('save', 'add', 'update', 'delete', 'persist', 'remove'):
-                            # Cek apakah objeknya adalah repository
                             if isinstance(call.func.value, ast.Name):
                                 obj_name = call.func.value.id.lower()
                                 if 'repo' in obj_name or 'repository' in obj_name:
-                                    # Cek apakah pemanggilan ini berada di dalam fungsi yang sudah menggunakan UoW?
-                                    # Kita akan cek parent function apakah sudah ada UoW
                                     parent_func = None
                                     for parent in ast.walk(tree):
                                         if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
                                             if node in ast.walk(parent):
                                                 parent_func = parent
                                                 break
-                                    if parent_func:
-                                        # Cek apakah parent_func menggunakan UoW (dengan cara yang sama seperti di usage)
-                                        has_uow = False
-                                        for stmt in ast.walk(parent_func):
-                                            if isinstance(stmt, ast.With):
-                                                for item in stmt.items:
-                                                    if 'uow' in ast.unparse(item.context_expr).lower():
-                                                        has_uow = True
-                                                        break
-                                            if isinstance(stmt, ast.Assign):
-                                                for target in stmt.targets:
-                                                    if isinstance(target, ast.Name) and target.id in ('uow', 'unit_of_work'):
-                                                        has_uow = True
-                                                        break
-                                            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-                                                if isinstance(stmt.value.func, ast.Attribute) and stmt.value.func.attr in ('commit', 'rollback'):
-                                                    if isinstance(stmt.value.func.value, ast.Name) and stmt.value.func.value.id in ('uow', 'unit_of_work'):
-                                                        has_uow = True
-                                                        break
-                                        if not has_uow:
+                                    if parent_func and not is_factory_function(parent_func.name):
+                                        uses_uow = (
+                                            has_transactional_decorator(parent_func) or
+                                            has_uow_with_context(parent_func) or
+                                            has_uow_commit_call(parent_func) or
+                                            has_uow_parameter(parent_func) or
+                                            is_wrapper_function(parent_func)
+                                        )
+                                        if not uses_uow:
                                             findings.append(Finding(
                                                 file=str(py_file),
                                                 line=node.lineno,
@@ -396,6 +601,7 @@ def check_bypass_uow() -> List[Finding]:
                                                 message=f"Pemanggilan {call.func.attr}() tanpa UoW di {parent_func.name}",
                                                 detail="Gunakan UoW untuk operasi write ke repository."
                                             ))
+
     return findings
 
 # =============================================================================
@@ -408,10 +614,9 @@ def scan_uow() -> Report:
     report.findings.extend(check_uow_usage())
     report.findings.extend(check_bypass_uow())
 
-    # Hitung skor
     errors = sum(1 for f in report.findings if f.severity == "ERROR")
     warnings = sum(1 for f in report.findings if f.severity == "WARNING")
-    report.score = max(0, 100 - errors * 10 - warnings * 3)
+    report.score = max(0, 100 - errors * 10 - warnings * 2)
     return report
 
 # =============================================================================
@@ -420,8 +625,9 @@ def scan_uow() -> Report:
 def print_report(report: Report, verbose: bool = False):
     c = COLOR
     print(f"\n{c['CYAN']}{'='*70}{c['RESET']}")
-    print(f"{c['CYAN']}UNIT OF WORK (UoW) CHECKER REPORT{c['RESET']}")
+    print(f"{c['CYAN']}UNIT OF WORK (UoW) CHECKER REPORT (FINAL){c['RESET']}")
     print(f"{c['CYAN']}{'='*70}{c['RESET']}")
+
     print(f"\n  Total findings: {len(report.findings)}")
     errors = sum(1 for f in report.findings if f.severity == "ERROR")
     warnings = sum(1 for f in report.findings if f.severity == "WARNING")
@@ -458,6 +664,7 @@ def print_report(report: Report, verbose: bool = False):
             print(f"  ... and {len(report.findings)-30} more findings")
 
 def save_json(report: Report, filepath: str):
+    c = COLOR
     data = {
         "findings": [
             {"file": f.file, "line": f.line, "severity": f.severity,

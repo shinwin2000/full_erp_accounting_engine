@@ -22,7 +22,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.jobstores.memory import MemoryJobStore
@@ -172,7 +172,7 @@ class ReportScheduler:
     - Monitoring job execution
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self.config = self._prepare_config(config)
         self._scheduler: AsyncIOScheduler | None = None
         self._report_generator: ReportGenerator | None = None
@@ -180,7 +180,7 @@ class ReportScheduler:
         self._jobs: dict[str, ReportJob] = {}
         self._running = False
 
-    def _prepare_config(self, config: Optional[dict]) -> dict:
+    def _prepare_config(self, config: dict | None) -> dict:
         """Siapkan konfigurasi dari parameter atau default."""
         if config is not None:
             result = DEFAULT_CONFIG.copy()
@@ -429,7 +429,7 @@ class ReportScheduler:
 # ============================================================================
 
 _report_scheduler: ReportScheduler | None = None
-_scheduler_config: Optional[dict] = None
+_scheduler_config: dict | None = None
 
 
 def set_scheduler_config(config: dict) -> None:
@@ -466,6 +466,6 @@ __all__ = [
     "ReportSchedulerError",
     "ScheduleFrequency",
     "get_report_scheduler",
-    "shutdown_report_scheduler",
     "set_scheduler_config",
+    "shutdown_report_scheduler",
 ]

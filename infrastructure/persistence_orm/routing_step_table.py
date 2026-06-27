@@ -58,8 +58,8 @@ class RoutingStepTable(Base, TimestampMixin, VersionMixin):
     overhead_rate: Mapped[float | None] = mapped_column(default=0.0, comment="Overhead rate percentage")
 
     # Relationships
-    routing: Mapped["RoutingTable"] = relationship("RoutingTable", back_populates="steps")
-    machine: Mapped["MachineTable | None"] = relationship("MachineTable", back_populates="steps", foreign_keys=[machine_id])
+    routing: Mapped[RoutingTable] = relationship("RoutingTable", back_populates="steps")
+    machine: Mapped[MachineTable | None] = relationship("MachineTable", back_populates="steps", foreign_keys=[machine_id])
 
     __table_args__ = (
         UniqueConstraint("routing_id", "step_sequence", name="uq_routing_step_sequence"),

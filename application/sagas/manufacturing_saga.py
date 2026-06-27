@@ -15,8 +15,9 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from application.sagas.saga_orchestrator_base import SagaOrchestratorBase
+# Perbaikan: import DoubleEntryValidator bukan validate_balance
+from axioms.double_entry import DoubleEntryValidator
 from ports.primary.saga_state_store_port import SagaStateStorePort
-from axioms.double_entry import validate_balance
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,105 @@ class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]
         self.add_step(self._complete_production, self._reverse_production, "complete_production")
         self.add_step(self._post_journal, self._reverse_journal, "post_journal")
 
-    # ... (Method _issue_materials, _record_labor, _complete_production tetap sama)
+    async def _issue_materials(self, state: ManufacturingSagaState) -> ManufacturingSagaState:
+        """Issue materials to work orders."""
+        logger.info(f"Issuing materials for work orders: {state.work_order_ids}")
+        try:
+            await self._manufacturing.issue_materials(
+                legal_entity_id=state.legal_entity_id,
+                work_order_ids=state.work_order_ids,
+                user_id=state.user_id,
+            )
+            state.material_issued = True
+            state.status = "MATERIAL_ISSUED"
+            state.updated_at = datetime.utcnow()
+        except Exception as e:
+            state.add_error(f"Material issue failed: {str(e)}")
+            raise
+        return state
+
+    async def _reverse_material_issue(self, state: ManufacturingSagaState) -> ManufacturingSagaState:
+        """Reverse material issue (compensation)."""
+        if state.material_issued and hasattr(self._manufacturing, "reverse_material_issue"):
+            try:
+                await self._manufacturing.reverse_material_issue(
+                    legal_entity_id=state.legal_entity_id,
+                    work_order_ids=state.work_order_ids,
+                    user_id=state.user_id,
+                )
+                state.material_issued = False
+                state.updated_at = datetime.utcnow()
+            except Exception as e:
+                logger.error(f"Reverse material issue failed: {e}")
+                state.add_error(f"Reverse material issue failed: {str(e)}")
+        return state
+
+    async def _record_labor(self, state: ManufacturingSagaState) -> ManufacturingSagaState:
+        """Record labor costs."""
+        logger.info(f"Recording labor for work orders: {state.work_order_ids}")
+        try:
+            await self._manufacturing.record_labor(
+                legal_entity_id=state.legal_entity_id,
+                work_order_ids=state.work_order_ids,
+                user_id=state.user_id,
+            )
+            state.labor_recorded = True
+            state.status = "LABOR_RECORDED"
+            state.updated_at = datetime.utcnow()
+        except Exception as e:
+            state.add_error(f"Labor recording failed: {str(e)}")
+            raise
+        return state
+
+    async def _reverse_labor(self, state: ManufacturingSagaState) -> ManufacturingSagaState:
+        """Reverse labor recording (compensation)."""
+        if state.labor_recorded and hasattr(self._manufacturing, "reverse_labor"):
+            try:
+                await self._manufacturing.reverse_labor(
+                    legal_entity_id=state.legal_entity_id,
+                    work_order_ids=state.work_order_ids,
+                    user_id=state.user_id,
+                )
+                state.labor_recorded = False
+                state.updated_at = datetime.utcnow()
+            except Exception as e:
+                logger.error(f"Reverse labor failed: {e}")
+                state.add_error(f"Reverse labor failed: {str(e)}")
+        return state
+
+    async def _complete_production(self, state: ManufacturingSagaState) -> ManufacturingSagaState:
+        """Complete production (finish goods)."""
+        logger.info(f"Completing production for work orders: {state.work_order_ids}")
+        try:
+            await self._manufacturing.complete_production(
+                legal_entity_id=state.legal_entity_id,
+                work_order_ids=state.work_order_ids,
+                period_end=state.period_end,
+                user_id=state.user_id,
+            )
+            state.production_completed = True
+            state.status = "PRODUCTION_COMPLETED"
+            state.updated_at = datetime.utcnow()
+        except Exception as e:
+            state.add_error(f"Production completion failed: {str(e)}")
+            raise
+        return state
+
+    async def _reverse_production(self, state: ManufacturingSagaState) -> ManufacturingSagaState:
+        """Reverse production completion (compensation)."""
+        if state.production_completed and hasattr(self._manufacturing, "reverse_production"):
+            try:
+                await self._manufacturing.reverse_production(
+                    legal_entity_id=state.legal_entity_id,
+                    work_order_ids=state.work_order_ids,
+                    user_id=state.user_id,
+                )
+                state.production_completed = False
+                state.updated_at = datetime.utcnow()
+            except Exception as e:
+                logger.error(f"Reverse production failed: {e}")
+                state.add_error(f"Reverse production failed: {str(e)}")
+        return state
 
     async def _post_journal(self, state: ManufacturingSagaState) -> ManufacturingSagaState:
         """Post jurnal dengan validasi double-entry yang ketat."""
@@ -92,10 +191,12 @@ class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]
             work_order_ids=state.work_order_ids
         )
 
-        # Validasi Double-Entry
+        # Validasi Double-Entry menggunakan DoubleEntryValidator
         total_debit = sum(Decimal(str(e.debit)) for e in journal_entries)
         total_credit = sum(Decimal(str(e.credit)) for e in journal_entries)
-        validate_balance(total_debit, total_credit)
+        is_valid, diff = DoubleEntryValidator.validate_balance(total_debit, total_credit)
+        if not is_valid:
+            raise ValueError(f"Double-entry validation failed: debit={total_debit}, credit={total_credit}, diff={diff}")
 
         # Jika valid, post ke database
         await self._journal.post_manufacturing_journal(
@@ -123,8 +224,6 @@ class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]
         state.journal_posted = False
         state.updated_at = datetime.utcnow()
         return state
-
-    # ... (Method lainnya tetap sama)
 
     async def start_manufacturing_cost_flow(
         self,

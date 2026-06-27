@@ -28,7 +28,7 @@ class MachineTable(Base, TimestampMixin, VersionMixin):
     hourly_rate: Mapped[float | None] = mapped_column(nullable=True)
 
     # Relationships
-    steps: Mapped[list["RoutingStepTable"]] = relationship("RoutingStepTable", back_populates="machine")
+    steps: Mapped[list[RoutingStepTable]] = relationship("RoutingStepTable", back_populates="machine")
 
     def __repr__(self) -> str:
         return f"<MachineTable(id={self.id}, code={self.code}, name={self.name})>"

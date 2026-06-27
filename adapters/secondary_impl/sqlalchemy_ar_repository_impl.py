@@ -12,8 +12,8 @@ import io
 import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
-from uuid import UUID
+from typing import Any
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -56,15 +56,21 @@ class OptimisticLockError(ARRepositoryError):
 
 
 class SQLAlchemyARRepository(ARRepositoryPort):
-    def __init__(self, session: AsyncSession | None = None):
+    def __init__(self, session: AsyncSession | None = None, legal_entity_id: UUID | None = None):
         self._session = session
-        self._audit_log: List[Dict[str, Any]] = []
+        self._legal_entity_id = legal_entity_id
+        self._audit_log: list[dict[str, Any]] = []
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
             from infrastructure.database.session_factory_sqlalchemy import get_async_session
             self._session = await get_async_session()
         return self._session
+
+    def _get_legal_entity_id(self) -> UUID:
+        if self._legal_entity_id is None:
+            raise ValueError("legal_entity_id not set in repository")
+        return self._legal_entity_id
 
     # ========================================================================
     # HELPER MAPPING
@@ -140,6 +146,8 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             "paid": ARInvoiceStatus.PAID,
             "overdue": ARInvoiceStatus.OVERDUE,
             "cancelled": ARInvoiceStatus.CANCELLED,
+            "disputed": ARInvoiceStatus.DISPUTED,
+            "written_off": ARInvoiceStatus.WRITTEN_OFF,
         }
         status = status_map.get(header.status, ARInvoiceStatus.DRAFT)
         aggregate = ARInvoiceAggregate(
@@ -219,7 +227,7 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             )
         return lines
 
-    async def _log_audit(self, action: str, invoice_id: UUID, details: Dict[str, Any]) -> None:
+    async def _log_audit(self, action: str, invoice_id: UUID, details: dict[str, Any]) -> None:
         self._audit_log.append({
             "timestamp": datetime.utcnow().isoformat(),
             "action": action,
@@ -326,6 +334,33 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             await session.rollback()
             raise ARRepositoryError(f"Failed to update invoice: {e}") from e
 
+    async def delete(self, invoice_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
+        session = await self._get_session()
+        try:
+            invoice = await self.get_by_id(invoice_id)
+            if not invoice:
+                return False
+            if permanent:
+                await session.execute(delete(ARInvoiceLineTable).where(ARInvoiceLineTable.invoice_id == invoice_id))
+                stmt = delete(ARInvoiceTable).where(ARInvoiceTable.id == invoice_id)
+                result = await session.execute(stmt)
+            else:
+                stmt = update(ARInvoiceTable).where(ARInvoiceTable.id == invoice_id).values(
+                    deleted_at=datetime.utcnow(),
+                    deleted_by=user_id,
+                    status=ARInvoiceStatus.CANCELLED.value,
+                    updated_at=datetime.utcnow()
+                )
+                result = await session.execute(stmt)
+            await session.flush()
+            if result.rowcount > 0:
+                await self._log_audit("DELETE", invoice_id, {"permanent": permanent, "user_id": str(user_id)})
+                logger.info("Invoice %s deleted by %s", invoice_id, user_id)
+            return result.rowcount > 0
+        except Exception as e:
+            await session.rollback()
+            raise ARRepositoryError(f"Failed to delete invoice: {e}") from e
+
     # ========================================================================
     # STATUS TRANSITIONS
     # ========================================================================
@@ -347,6 +382,8 @@ class SQLAlchemyARRepository(ARRepositoryPort):
                 "paid": ["cancelled"],
                 "overdue": ["partially_paid", "paid", "cancelled"],
                 "cancelled": [],
+                "disputed": ["draft", "cancelled"],
+                "written_off": [],
             }
             if new_status not in valid_transitions.get(current_status, []):
                 raise InvalidStatusTransitionError(f"Cannot transition from {current_status} to {new_status}")
@@ -371,8 +408,14 @@ class SQLAlchemyARRepository(ARRepositoryPort):
         session = await self._get_session()
         await session.execute(update(ARInvoiceTable).where(ARInvoiceTable.id == invoice_id).values(approved_at=datetime.utcnow(), approved_by=approved_by))
 
-    async def cancel(self, invoice_id: UUID, cancelled_by: UUID) -> None:
-        await self._transition_status(invoice_id, "cancelled", cancelled_by, "cancelled_by")
+    async def cancel(self, invoice_id: UUID, reason: str, user_id: UUID) -> None:
+        await self._transition_status(invoice_id, "cancelled", user_id, "cancelled_by")
+        session = await self._get_session()
+        await session.execute(
+            update(ARInvoiceTable)
+            .where(ARInvoiceTable.id == invoice_id)
+            .values(cancellation_reason=reason, cancelled_at=datetime.utcnow(), cancelled_by=user_id)
+        )
 
     async def submit(self, invoice_id: UUID, submitted_by: UUID) -> None:
         await self._transition_status(invoice_id, "submitted", submitted_by, "submitted_by")
@@ -380,58 +423,14 @@ class SQLAlchemyARRepository(ARRepositoryPort):
     async def reject(self, invoice_id: UUID, rejected_by: UUID) -> None:
         await self._transition_status(invoice_id, "draft", rejected_by, "rejected_by")
 
-    async def delete(self, invoice_id: UUID, deleted_by: UUID) -> None:
+    async def dispute(self, invoice_id: UUID, reason: str, user_id: UUID) -> None:
+        await self._transition_status(invoice_id, "disputed", user_id)
         session = await self._get_session()
-        try:
-            stmt = select(ARInvoiceTable.version).where(ARInvoiceTable.id == invoice_id)
-            result = await session.execute(stmt)
-            current_version = result.scalar_one_or_none()
-            if current_version is None:
-                raise ARInvoiceNotFoundError(f"Invoice {invoice_id} not found")
-            await session.execute(
-                update(ARInvoiceTable)
-                .where(ARInvoiceTable.id == invoice_id)
-                .values(
-                    deleted_at=datetime.utcnow(),
-                    deleted_by=deleted_by,
-                    version=current_version + 1,
-                    updated_at=datetime.utcnow()
-                )
-            )
-            await session.flush()
-            await self._log_audit("DELETE", invoice_id, {"deleted_by": str(deleted_by)})
-            logger.info("Invoice %s soft deleted by %s", invoice_id, deleted_by)
-        except ARInvoiceNotFoundError:
-            raise
-        except Exception as e:
-            await session.rollback()
-            raise ARRepositoryError(f"Failed to delete invoice: {e}") from e
-
-    async def dispute(self, invoice_id: UUID, reason: str, disputed_by: UUID) -> None:
-        session = await self._get_session()
-        try:
-            stmt = select(ARInvoiceTable).where(ARInvoiceTable.id == invoice_id)
-            result = await session.execute(stmt)
-            header = result.scalar_one_or_none()
-            if not header:
-                raise ARInvoiceNotFoundError(f"Invoice {invoice_id} not found")
-            await session.execute(
-                update(ARInvoiceTable)
-                .where(ARInvoiceTable.id == invoice_id)
-                .values(
-                    status="draft",
-                    description=func.concat(ARInvoiceTable.description, " [DISPUTED: ", reason, "]"),
-                    updated_at=datetime.utcnow()
-                )
-            )
-            await session.flush()
-            await self._log_audit("DISPUTE", invoice_id, {"reason": reason, "disputed_by": str(disputed_by)})
-            logger.info("Invoice %s disputed: %s", invoice_id, reason)
-        except ARInvoiceNotFoundError:
-            raise
-        except Exception as e:
-            await session.rollback()
-            raise ARRepositoryError(f"Failed to dispute invoice: {e}") from e
+        await session.execute(
+            update(ARInvoiceTable)
+            .where(ARInvoiceTable.id == invoice_id)
+            .values(description=func.concat(ARInvoiceTable.description, " [DISPUTED: ", reason, "]"), disputed_reason=reason)
+        )
 
     async def submit_for_approval(self, invoice_id: UUID, submitted_by: UUID) -> None:
         await self.submit(invoice_id, submitted_by)
@@ -439,6 +438,50 @@ class SQLAlchemyARRepository(ARRepositoryPort):
     # ========================================================================
     # PAYMENT / CREDIT / DEBIT NOTES
     # ========================================================================
+
+    async def record_payment(self, invoice_id: UUID, amount: Decimal, payment_date: date, user_id: UUID) -> None:
+        session = await self._get_session()
+        try:
+            invoice = await self.get_by_id(invoice_id)
+            if not invoice:
+                raise ARInvoiceNotFoundError(f"Invoice {invoice_id} not found")
+            if invoice.status not in (ARInvoiceStatus.APPROVED, ARInvoiceStatus.PARTIALLY_PAID):
+                raise InvalidStatusTransitionError("Invoice not in approvable state for payment")
+            payment_id = uuid4()
+            payment_number = f"PAY-{payment_date.strftime('%Y%m%d')}-{invoice_id.hex[:6]}"
+            payment_table = ARPaymentTable(
+                id=payment_id,
+                payment_number=payment_number,
+                invoice_id=invoice_id,
+                payment_date=payment_date,
+                amount=amount,
+                currency=invoice.total_amount.currency,
+                payment_method="TRANSFER",
+                reference_number="",
+                status="completed",
+                created_at=datetime.utcnow(),
+                created_by=user_id,
+            )
+            session.add(payment_table)
+            new_paid = invoice.paid_amount.amount + amount
+            new_status = "paid" if new_paid >= invoice.total_amount.amount else "partially_paid"
+            await session.execute(
+                update(ARInvoiceTable)
+                .where(ARInvoiceTable.id == invoice_id)
+                .values(
+                    paid_amount=new_paid,
+                    status=new_status,
+                    updated_at=datetime.utcnow(),
+                    last_payment_date=payment_date,
+                    last_payment_amount=amount,
+                )
+            )
+            await session.flush()
+            await self._log_audit("PAYMENT", invoice_id, {"payment_id": str(payment_id), "amount": str(amount)})
+            logger.info("Payment %s added for invoice %s", payment_number, invoice_id)
+        except Exception as e:
+            await session.rollback()
+            raise ARRepositoryError(f"Failed to record payment: {e}") from e
 
     async def add_payment(self, payment: ARPayment) -> None:
         session = await self._get_session()
@@ -473,20 +516,6 @@ class SQLAlchemyARRepository(ARRepositoryPort):
         except Exception as e:
             await session.rollback()
             raise ARRepositoryError(f"Failed to add payment: {e}") from e
-
-    async def record_payment(self, invoice_id: UUID, payment_id: UUID, amount: Decimal, payment_date: date, created_by: UUID) -> None:
-        payment = ARPayment(
-            id=payment_id,
-            payment_number=f"PAY-{payment_date.strftime('%Y%m%d')}-{invoice_id.hex[:6]}",
-            invoice_id=invoice_id,
-            payment_date=payment_date,
-            amount=Money(amount, "IDR"),
-            payment_method="TRANSFER",
-            reference_number="",
-            status="completed",
-            created_by=created_by,
-        )
-        await self.add_payment(payment)
 
     async def add_credit_note(self, credit_note: ARCreditNote) -> None:
         session = await self._get_session()
@@ -557,10 +586,6 @@ class SQLAlchemyARRepository(ARRepositoryPort):
     # ========================================================================
     # QUERY METHODS
     # ========================================================================
-
-    async def find_by_vendor(self, vendor_id: UUID, limit: int = 100, offset: int = 0) -> list[ARInvoiceAggregate]:
-        # For AR, we use customer, not vendor. Alias for compatibility.
-        return await self.find_by_customer(vendor_id, None)
 
     async def find_by_customer(self, customer_id: UUID, legal_entity_id: UUID) -> list[ARInvoiceAggregate]:
         session = await self._get_session()
@@ -642,13 +667,31 @@ class SQLAlchemyARRepository(ARRepositoryPort):
         except Exception as e:
             raise ARRepositoryError(f"Failed to find overdue invoices: {e}") from e
 
-    async def get_dunning_candidates(self, as_of_date: date, legal_entity_id: UUID, days_overdue: int = 30) -> list[ARInvoiceAggregate]:
-        # Invoices overdue by more than days_overdue
-        cutoff = as_of_date - timedelta(days=days_overdue)
+    # ===== NEW: get_outstanding_balance (sesuai port) =====
+    async def get_outstanding_balance(self, customer_id: UUID, as_of_date: date) -> Decimal:
+        """Get outstanding balance for a customer as of a specific date."""
+        legal_entity_id = self._get_legal_entity_id()
+        session = await self._get_session()
+        try:
+            stmt = select(func.coalesce(func.sum(ARInvoiceTable.total_amount - ARInvoiceTable.paid_amount), 0)).where(
+                ARInvoiceTable.customer_id == customer_id,
+                ARInvoiceTable.legal_entity_id == legal_entity_id,
+                ARInvoiceTable.due_date <= as_of_date,
+                ARInvoiceTable.status.in_(["approved", "partially_paid", "overdue"]),
+                ARInvoiceTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            outstanding = result.scalar() or 0
+            return Decimal(str(outstanding))
+        except Exception as e:
+            raise ARRepositoryError(f"Failed to get outstanding balance: {e}") from e
+
+    async def get_dunning_candidates(self, as_of_date: date) -> list[ARInvoiceAggregate]:
+        legal_entity_id = self._get_legal_entity_id()
         session = await self._get_session()
         try:
             stmt = select(ARInvoiceTable).where(
-                ARInvoiceTable.due_date < cutoff,
+                ARInvoiceTable.due_date < as_of_date,
                 ARInvoiceTable.status.in_(["approved", "partially_paid", "overdue"]),
                 ARInvoiceTable.legal_entity_id == legal_entity_id,
                 ARInvoiceTable.deleted_at.is_(None),
@@ -663,81 +706,6 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             return invoices
         except Exception as e:
             raise ARRepositoryError(f"Failed to get dunning candidates: {e}") from e
-
-    async def increment_dunning_level(self, invoice_id: UUID, dunning_level: int) -> None:
-        session = await self._get_session()
-        try:
-            await session.execute(
-                update(ARInvoiceTable)
-                .where(ARInvoiceTable.id == invoice_id)
-                .values(dunning_level=dunning_level, updated_at=datetime.utcnow())
-            )
-            await session.flush()
-            await self._log_audit("DUNNING_LEVEL", invoice_id, {"dunning_level": dunning_level})
-        except Exception as e:
-            raise ARRepositoryError(f"Failed to increment dunning level: {e}") from e
-
-    async def is_credit_limit_exceeded(self, customer_id: UUID, legal_entity_id: UUID, credit_limit: Decimal) -> bool:
-        outstanding = await self.get_total_outstanding_for_customer(customer_id, legal_entity_id)
-        return outstanding > credit_limit
-
-    async def get_total_outstanding_for_customer(self, customer_id: UUID, legal_entity_id: UUID) -> Decimal:
-        session = await self._get_session()
-        try:
-            stmt = select(func.coalesce(func.sum(ARInvoiceTable.total_amount - ARInvoiceTable.paid_amount), 0)).where(
-                ARInvoiceTable.customer_id == customer_id,
-                ARInvoiceTable.legal_entity_id == legal_entity_id,
-                ARInvoiceTable.status.in_(["approved", "partially_paid", "overdue"]),
-                ARInvoiceTable.deleted_at.is_(None),
-            )
-            result = await session.execute(stmt)
-            outstanding = result.scalar() or 0
-            return Decimal(str(outstanding))
-        except Exception as e:
-            raise ARRepositoryError(f"Failed to get total outstanding for customer: {e}") from e
-
-    async def get_customer_balance_history(self, customer_id: UUID, legal_entity_id: UUID, limit: int = 100) -> list[Dict[str, Any]]:
-        session = await self._get_session()
-        try:
-            stmt = select(ARInvoiceTable).where(
-                ARInvoiceTable.customer_id == customer_id,
-                ARInvoiceTable.legal_entity_id == legal_entity_id,
-                ARInvoiceTable.deleted_at.is_(None),
-            ).order_by(ARInvoiceTable.invoice_date.desc()).limit(limit)
-            result = await session.execute(stmt)
-            headers = result.scalars().all()
-            history = []
-            running_balance = Decimal(0)
-            for header in reversed(headers):
-                running_balance += header.total_amount - header.paid_amount
-                history.append({
-                    "date": header.invoice_date.isoformat(),
-                    "invoice_number": header.invoice_number,
-                    "amount": float(header.total_amount),
-                    "paid": float(header.paid_amount),
-                    "balance": float(running_balance),
-                })
-            return list(reversed(history[-limit:]))
-        except Exception as e:
-            raise ARRepositoryError(f"Failed to get customer balance history: {e}") from e
-
-    async def get_outstanding_balance(self, customer_id: UUID, as_of_date: date) -> Decimal:
-        # Alias for total outstanding
-        return await self.get_total_outstanding_for_customer(customer_id, as_of_date)  # not exact but acceptable
-
-    async def exists_by_invoice_number(self, invoice_number: str, legal_entity_id: UUID) -> bool:
-        session = await self._get_session()
-        try:
-            stmt = select(func.count()).select_from(ARInvoiceTable).where(
-                ARInvoiceTable.invoice_number == invoice_number,
-                ARInvoiceTable.legal_entity_id == legal_entity_id,
-                ARInvoiceTable.deleted_at.is_(None),
-            )
-            result = await session.execute(stmt)
-            count = result.scalar()
-            return count > 0
-        except Exception as e:
-            raise ARRepositoryError(f"Failed to check invoice number: {e}") from e
 
     async def get_aging_buckets(self, legal_entity_id: UUID, as_of_date: date) -> list[dict[str, Any]]:
         session = await self._get_session()
@@ -774,6 +742,114 @@ class SQLAlchemyARRepository(ARRepositoryPort):
         except Exception as e:
             raise ARRepositoryError(f"Failed to get aging buckets: {e}") from e
 
+    async def get_customer_balance_history(self, customer_id: UUID, start_date: date, end_date: date) -> list[dict[str, Any]]:
+        legal_entity_id = self._get_legal_entity_id()
+        session = await self._get_session()
+        try:
+            stmt = select(ARInvoiceTable).where(
+                ARInvoiceTable.customer_id == customer_id,
+                ARInvoiceTable.legal_entity_id == legal_entity_id,
+                ARInvoiceTable.deleted_at.is_(None),
+            ).order_by(ARInvoiceTable.invoice_date.desc())
+            result = await session.execute(stmt)
+            headers = result.scalars().all()
+            history = []
+            running_balance = Decimal(0)
+            filtered = [h for h in headers if start_date <= h.invoice_date <= end_date]
+            for header in reversed(filtered):
+                running_balance += header.total_amount - header.paid_amount
+                history.append({
+                    "date": header.invoice_date.isoformat(),
+                    "invoice_number": header.invoice_number,
+                    "amount": float(header.total_amount),
+                    "paid": float(header.paid_amount),
+                    "balance": float(running_balance),
+                })
+            return list(reversed(history))
+        except Exception as e:
+            raise ARRepositoryError(f"Failed to get customer balance history: {e}") from e
+
+    async def increment_dunning_level(self, invoice_id: UUID, dunning_level: int) -> None:
+        session = await self._get_session()
+        try:
+            await session.execute(
+                update(ARInvoiceTable)
+                .where(ARInvoiceTable.id == invoice_id)
+                .values(dunning_level=dunning_level, updated_at=datetime.utcnow())
+            )
+            await session.flush()
+            await self._log_audit("DUNNING_LEVEL", invoice_id, {"dunning_level": dunning_level})
+        except Exception as e:
+            raise ARRepositoryError(f"Failed to increment dunning level: {e}") from e
+
+    async def get_total_outstanding_for_customer(self, customer_id: UUID) -> Decimal:
+        legal_entity_id = self._get_legal_entity_id()
+        session = await self._get_session()
+        try:
+            stmt = select(func.coalesce(func.sum(ARInvoiceTable.total_amount - ARInvoiceTable.paid_amount), 0)).where(
+                ARInvoiceTable.customer_id == customer_id,
+                ARInvoiceTable.legal_entity_id == legal_entity_id,
+                ARInvoiceTable.status.in_(["approved", "partially_paid", "overdue"]),
+                ARInvoiceTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            outstanding = result.scalar() or 0
+            return Decimal(str(outstanding))
+        except Exception as e:
+            raise ARRepositoryError(f"Failed to get total outstanding for customer: {e}") from e
+
+    async def is_credit_limit_exceeded(self, customer_id: UUID, credit_limit: Decimal) -> bool:
+        outstanding = await self.get_total_outstanding_for_customer(customer_id)
+        return outstanding > credit_limit
+
+    async def write_off(self, invoice_id: UUID, amount: Decimal, reason: str, user_id: UUID) -> None:
+        session = await self._get_session()
+        try:
+            invoice = await self.get_by_id(invoice_id)
+            if not invoice:
+                raise ARInvoiceNotFoundError(f"Invoice {invoice_id} not found")
+            if amount <= 0 or amount > invoice.outstanding_amount.amount:
+                raise ValueError("Invalid write-off amount")
+            new_paid = invoice.paid_amount.amount + amount
+            new_status = "written_off" if new_paid >= invoice.total_amount.amount else "partially_paid"
+            await session.execute(
+                update(ARInvoiceTable)
+                .where(ARInvoiceTable.id == invoice_id)
+                .values(
+                    paid_amount=new_paid,
+                    status=new_status,
+                    write_off_amount=amount,
+                    write_off_date=datetime.utcnow().date(),
+                    write_off_reason=reason,
+                    updated_at=datetime.utcnow(),
+                    written_off_by=user_id,
+                )
+            )
+            await session.flush()
+            await self._log_audit("WRITE_OFF", invoice_id, {"amount": str(amount), "reason": reason, "user_id": str(user_id)})
+            logger.info("Invoice %s written off by %s", invoice_id, user_id)
+        except Exception as e:
+            await session.rollback()
+            raise ARRepositoryError(f"Failed to write off invoice: {e}") from e
+
+    # ========================================================================
+    # UTILITY METHODS
+    # ========================================================================
+
+    async def exists_by_invoice_number(self, invoice_number: str, legal_entity_id: UUID) -> bool:
+        session = await self._get_session()
+        try:
+            stmt = select(func.count()).select_from(ARInvoiceTable).where(
+                ARInvoiceTable.invoice_number == invoice_number,
+                ARInvoiceTable.legal_entity_id == legal_entity_id,
+                ARInvoiceTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            count = result.scalar()
+            return count > 0
+        except Exception as e:
+            raise ARRepositoryError(f"Failed to check invoice number: {e}") from e
+
     async def get_next_invoice_number(self, prefix: str = "INV", year: int = None) -> str:
         if year is None:
             year = date.today().year
@@ -795,7 +871,7 @@ class SQLAlchemyARRepository(ARRepositoryPort):
     # STATISTICS & AUDIT
     # ========================================================================
 
-    async def get_statistics(self, legal_entity_id: UUID) -> Dict[str, Any]:
+    async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
         session = await self._get_session()
         try:
             stmt_total = select(
@@ -831,17 +907,17 @@ class SQLAlchemyARRepository(ARRepositoryPort):
         except Exception as e:
             raise ARRepositoryError(f"Failed to get statistics: {e}") from e
 
-    async def get_audit_log(self, invoice_id: UUID | None = None, limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_audit_log(self, invoice_id: UUID | None = None, limit: int = 100) -> list[dict[str, Any]]:
         logs = self._audit_log
         if invoice_id:
             logs = [l for l in logs if l.get("invoice_id") == str(invoice_id)]
         return logs[-limit:]
 
-    # ========================================================================
-    # EXPORT / IMPORT
-    # ========================================================================
-
-    async def export_to_csv(self, legal_entity_id: UUID, from_date: date, to_date: date) -> str:
+    async def export_to_csv(self, legal_entity_id: UUID, from_date: date | None = None, to_date: date | None = None) -> str:
+        if from_date is None:
+            from_date = date(1900, 1, 1)
+        if to_date is None:
+            to_date = date.today()
         invoices = await self.find_by_date_range(from_date, to_date, legal_entity_id)
         output = io.StringIO()
         writer = csv.writer(output)
@@ -905,58 +981,6 @@ class SQLAlchemyARRepository(ARRepositoryPort):
                 logger.warning(f"Failed to import row: {e}")
         return count
 
-    # ========================================================================
-    # WRITE-OFF
-    # ========================================================================
-
-    async def write_off(self, invoice_id: UUID, written_off_by: UUID, reason: str) -> None:
-        session = await self._get_session()
-        try:
-            invoice = await self.get_by_id(invoice_id)
-            if not invoice:
-                raise ARInvoiceNotFoundError(f"Invoice {invoice_id} not found")
-            # Mark as fully written off (could set a special status, but we set as paid with zero amount)
-            # Or we set status to "written_off". For simplicity, we'll use a custom status.
-            await session.execute(
-                update(ARInvoiceTable)
-                .where(ARInvoiceTable.id == invoice_id)
-                .values(
-                    status="written_off",
-                    description=func.concat(ARInvoiceTable.description, " [WRITTEN OFF: ", reason, "]"),
-                    updated_at=datetime.utcnow(),
-                    written_off_at=datetime.utcnow(),
-                    written_off_by=written_off_by,
-                )
-            )
-            await session.flush()
-            await self._log_audit("WRITE_OFF", invoice_id, {"reason": reason, "written_off_by": str(written_off_by)})
-            logger.info("Invoice %s written off by %s", invoice_id, written_off_by)
-        except ARInvoiceNotFoundError:
-            raise
-        except Exception as e:
-            await session.rollback()
-            raise ARRepositoryError(f"Failed to write off invoice: {e}") from e
-
-    # ========================================================================
-    # ALIAS UNTUK KONTRAK PORT
-    # ========================================================================
-
-    async def save_invoice(self, invoice: ARInvoiceAggregate) -> None:
-        existing = await self.get_by_id(invoice.id)
-        if existing:
-            await self.update(invoice)
-        else:
-            await self.add(invoice)
-
-    async def find_invoice_by_id(self, invoice_id: UUID) -> ARInvoiceAggregate | None:
-        return await self.get_by_id(invoice_id)
-
-    async def delete_invoice(self, invoice_id: UUID, deleted_by: UUID) -> None:
-        await self.delete(invoice_id, deleted_by)
-
-    async def dispute_invoice(self, invoice_id: UUID, reason: str, disputed_by: UUID) -> None:
-        await self.dispute(invoice_id, reason, disputed_by)
-
     async def health_check(self) -> dict[str, Any]:
         try:
             session = await self._get_session()
@@ -965,6 +989,30 @@ class SQLAlchemyARRepository(ARRepositoryPort):
         except Exception as e:
             return {"status": "unhealthy", "repository": "ARRepository", "error": str(e)}
 
+    # ========================================================================
+    # MISSING METHODS (DIPERLUKAN OLEH KONTRAK ARRepositoryPort)
+    # ========================================================================
+
+    async def save_invoice(self, invoice: ARInvoiceAggregate) -> None:
+        """
+        Simpan invoice (add jika baru, update jika sudah ada).
+        """
+        existing = await self.get_by_id(invoice.id)
+        if existing:
+            await self.update(invoice)
+        else:
+            await self.add(invoice)
+
+    async def find_invoice_by_id(self, invoice_id: UUID) -> ARInvoiceAggregate | None:
+        """
+        Cari invoice berdasarkan ID (alias untuk get_by_id).
+        """
+        return await self.get_by_id(invoice_id)
+
+
+# ============================================================================
+# ALIAS UNTUK KOMPATIBILITAS
+# ============================================================================
 
 SQLAlchemyARRepositoryImpl = SQLAlchemyARRepository
 

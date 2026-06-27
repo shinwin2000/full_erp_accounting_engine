@@ -40,7 +40,6 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 # -----------------------------------------------------------------------------
 # Color
@@ -84,7 +83,7 @@ LAYER_MAP = {
 }
 
 # Aturan ketergantungan: source_layer -> set(target_layer yang diizinkan)
-ALLOWED_DEPENDENCIES: Dict[str, Set[str]] = {
+ALLOWED_DEPENDENCIES: dict[str, set[str]] = {
     "domain": {"domain", "axioms", "constitution"},
     "axioms": {"axioms", "constitution"},
     "constitution": {"constitution", "domain", "axioms"},
@@ -132,8 +131,8 @@ class Violation:
 @dataclass
 class LayerStats:
     total_imports: int = 0
-    violations: List[Violation] = field(default_factory=list)
-    layer_counts: Dict[str, int] = field(default_factory=dict)
+    violations: list[Violation] = field(default_factory=list)
+    layer_counts: dict[str, int] = field(default_factory=dict)
 
 # -----------------------------------------------------------------------------
 # Utilitas
@@ -161,7 +160,7 @@ def get_layer_from_path(path: pathlib.Path) -> str:
     top = parts[0]
     return LAYER_MAP.get(top, "unknown")
 
-def resolve_relative_import(source_module: str, level: int, target: Optional[str]) -> str:
+def resolve_relative_import(source_module: str, level: int, target: str | None) -> str:
     """
     Ubah relative import menjadi absolute module name.
     source_module: modul sumber absolut (misal 'domain.journal.aggregate_root')
@@ -182,7 +181,7 @@ def resolve_relative_import(source_module: str, level: int, target: Optional[str
 # -----------------------------------------------------------------------------
 # Parser AST (akurat)
 # -----------------------------------------------------------------------------
-def extract_imports_from_file(file_path: pathlib.Path) -> List[ImportRecord]:
+def extract_imports_from_file(file_path: pathlib.Path) -> list[ImportRecord]:
     """Ekstrak semua import (Import, ImportFrom) dari file Python."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")

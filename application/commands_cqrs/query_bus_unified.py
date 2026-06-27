@@ -119,6 +119,11 @@ class BaseQuery(Generic[TResult]):
         return f"BaseQuery({self.query_type}, id={self.query_id})"
 
 
+# === ALIAS UNTUK KOMPATIBILITAS ===
+# Beberapa modul mengimpor 'Query' (tanpa Base)
+Query = BaseQuery
+
+
 # === 2. QUERY RESULT ===
 
 
@@ -755,14 +760,21 @@ async def dispatch_query(query: BaseQuery[TResult]) -> QueryResult[TResult]:
     return await get_query_bus().dispatch(query)
 
 
-# === 8. EXPORTS ===
+# === 8. ALIAS UNTUK KOMPATIBILITAS (QueryBusUnified) ===
+# Beberapa modul mengimpor "QueryBusUnified" - tambahkan alias
+QueryBusUnified = UnifiedQueryBus
+
+
+# === 9. EXPORTS ===
 
 __all__ = [
     "BaseQuery",
     "CacheQueryMiddleware",
     "LoggingQueryMiddleware",
+    "Query",
     "QueryBus",
     "QueryBusError",
+    "QueryBusUnified",        
     "QueryExecutionError",
     "QueryMiddleware",
     "QueryNotFoundError",

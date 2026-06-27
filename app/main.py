@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import redis.asyncio as aioredis
@@ -60,6 +61,7 @@ from bootstrap.dependency_container.ioc_container import get_container
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+
     from redis.asyncio import Redis
 
 
@@ -509,7 +511,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # Lazy import untuk menghindari AST drift
         import importlib
         audit_mod = importlib.import_module("kernel.audit_hook_injector")
-        get_audit_hook_injector = getattr(audit_mod, "get_audit_hook_injector")
+        get_audit_hook_injector = audit_mod.get_audit_hook_injector
         await get_audit_hook_injector().shutdown()
         logger.info("AuditHookInjector shut down gracefully")
     except Exception as e:
@@ -746,7 +748,7 @@ def _discover_and_register_adapter_routers(app: FastAPI) -> None:
         # Skip jika module_name adalah "fastapi_router" atau "fastapi_common"
         if module_name in ("fastapi_router", "fastapi_common"):
             continue
-        
+
         # =============================================================
         # DEFINISIKAN prefix_name SEBELUM TRY UNTUK MENGHINDARI ERROR
         # =============================================================

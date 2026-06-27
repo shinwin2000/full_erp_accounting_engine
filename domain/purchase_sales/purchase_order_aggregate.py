@@ -58,6 +58,8 @@ class PurchaseOrderAggregate:
     def is_locked(self) -> bool:
         return self._is_locked
 
+    # ==================== EVENT METHODS ====================
+
     def _add_event(self, event: DomainEvent) -> None:
         self._events.append(event)
         self._record_audit("event_added", {"event_type": event.event_type.value})
@@ -73,6 +75,18 @@ class PurchaseOrderAggregate:
         events = self._events.copy()
         self._events.clear()
         return events
+
+    def pull_events(self) -> list[DomainEvent]:
+        """Pull all domain events (clear and return)."""
+        events = self._events.copy()
+        self._events.clear()
+        return events
+
+    def register_event(self, event: DomainEvent) -> None:
+        """Register a domain event."""
+        self._add_event(event)
+
+    # ==================== AUDIT TRAIL ====================
 
     def _record_audit(self, action: str, details: dict) -> None:
         self._audit_trail.append(
@@ -372,11 +386,16 @@ class PurchaseOrderAggregate:
 
     @classmethod
     def create(cls, legal_entity_id: UUID, created_by: str) -> PurchaseOrderAggregate:
-        return cls(
+        agg = cls(
             aggregate_id=uuid4(),
             legal_entity_id=legal_entity_id,
-            created_by=created_by,
         )
+        agg._audit_trail.append({
+            "action": "CREATE",
+            "performed_by": created_by,
+            "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+        })
+        return agg
 
 
 class PurchaseOrderRepository:

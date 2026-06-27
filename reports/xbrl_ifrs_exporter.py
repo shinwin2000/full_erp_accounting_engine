@@ -23,7 +23,7 @@ import xml.etree.ElementTree as ET
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
@@ -119,7 +119,7 @@ class XBRLIFRSExporter:
     - Validasi terhadap taxonomy
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self.config = self._prepare_config(config)
         self._output_dir = Path(self.config.get("output_dir", "/var/reports/xbrl"))
         self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -129,11 +129,11 @@ class XBRLIFRSExporter:
         self._company_identifier_scheme = self.config.get(
             "company_identifier_scheme", "http://www.oecd.org/documentation/lei"
         )
-        self._balance_sheet: Optional[BalanceSheetSnapshot] = None
-        self._income_statement: Optional[IncomeStatementPeriod] = None
-        self._cash_flow: Optional[CashFlowIndirect] = None
+        self._balance_sheet: BalanceSheetSnapshot | None = None
+        self._income_statement: IncomeStatementPeriod | None = None
+        self._cash_flow: CashFlowIndirect | None = None
 
-    def _prepare_config(self, config: Optional[dict]) -> dict:
+    def _prepare_config(self, config: dict | None) -> dict:
         if config is not None:
             result = DEFAULT_CONFIG.copy()
             for key, value in config.items():
@@ -291,7 +291,7 @@ class XBRLIFRSExporter:
         period_id: UUID,
         entity_identifier: str,
         currency: str = "IDR",
-        output_filename: Optional[str] = None,
+        output_filename: str | None = None,
     ) -> Path:
         """
         Mengekspor laporan keuangan ke file XBRL.
@@ -307,8 +307,9 @@ class XBRLIFRSExporter:
             Path to generated XBRL file
         """
         # Get period info
-        from infrastructure.persistence_orm.fiscal_period_table import FiscalPeriodTable
         from sqlalchemy import select
+
+        from infrastructure.persistence_orm.fiscal_period_table import FiscalPeriodTable
 
         async with await get_session_factory() as session:
             period_stmt = select(FiscalPeriodTable).where(FiscalPeriodTable.id == period_id)
@@ -369,8 +370,8 @@ class XBRLIFRSExporter:
 # SINGLETON INSTANCE dengan injeksi konfigurasi
 # ============================================================================
 
-_xbrl_exporter: Optional[XBRLIFRSExporter] = None
-_xbrl_config: Optional[dict] = None
+_xbrl_exporter: XBRLIFRSExporter | None = None
+_xbrl_config: dict | None = None
 
 
 def set_xbrl_exporter_config(config: dict) -> None:

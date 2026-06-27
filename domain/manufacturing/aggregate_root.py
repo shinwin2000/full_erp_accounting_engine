@@ -31,7 +31,7 @@ from domain.manufacturing.domain_events import (
     WorkOrderCreatedEvent,
     WorkOrderStartedEvent,
 )
-from domain.manufacturing.standard_cost_entity import StandardCostEntity
+from domain.manufacturing.standard_cost_entity import StandardCostEntity, StandardCostStatus
 from domain.manufacturing.variance_analysis_engine import (
     VarianceAnalysisEngine,
     VarianceAnalysisResult,
@@ -110,6 +110,12 @@ class ManufacturingAggregate:
         return self._events.copy()
 
     def pop_events(self) -> list[DomainEvent]:
+        events = self._events.copy()
+        self._events.clear()
+        return events
+
+    def pull_events(self) -> list[DomainEvent]:
+        """Pull all domain events (clear and return)."""
         events = self._events.copy()
         self._events.clear()
         return events

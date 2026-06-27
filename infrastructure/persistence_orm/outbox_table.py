@@ -11,16 +11,15 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import (
     Base,
-    TimestampMixin,
     SoftDeleteMixin,
+    TimestampMixin,
 )
 
 

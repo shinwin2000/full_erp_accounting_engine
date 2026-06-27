@@ -364,7 +364,7 @@ class HealthProbe:
         try:
             # Lazy import constitution.supreme_law
             supreme_law_mod = importlib.import_module("constitution.supreme_law")
-            get_supreme_law = getattr(supreme_law_mod, "get_supreme_law")
+            get_supreme_law = supreme_law_mod.get_supreme_law
             supreme_law = get_supreme_law()
             integrity = supreme_law.verify_integrity()
             if integrity.get("is_valid"):
@@ -528,7 +528,7 @@ class HealthProbe:
         try:
             # Lazy import kernel.sealed_gate
             gate_mod = importlib.import_module("kernel.sealed_gate")
-            get_sealed_gate = getattr(gate_mod, "get_sealed_gate")
+            get_sealed_gate = gate_mod.get_sealed_gate
             gate = get_sealed_gate()
             response_time = (time.time() - start) * 1000
             is_healthy = gate is not None
@@ -620,7 +620,7 @@ class HealthProbe:
         try:
             # Lazy import migration manager
             mig_mod = importlib.import_module("infrastructure.database.migration_manager_alembic")
-            get_migration_manager = getattr(mig_mod, "get_migration_manager")
+            get_migration_manager = mig_mod.get_migration_manager
             manager = get_migration_manager()
             current_rev = manager.get_current_revision()
             head_rev = manager.get_head_revision()

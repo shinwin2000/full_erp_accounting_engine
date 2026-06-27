@@ -19,6 +19,8 @@ Features:
 """
 
 # Handler Registry
+# Global Event Subscribers (generic handler)
+from application.events.global_event_subscribers import handle_any_event
 from application.events.handler_registry import (
     AsyncEventHandler,
     EventHandler,
@@ -37,9 +39,6 @@ from application.events.handler_registry import (
     register_handler,
     register_wildcard,
 )
-
-# Global Event Subscribers (generic handler)
-from application.events.global_event_subscribers import handle_any_event
 
 # Event Publisher
 from application.events.publisher_application import (

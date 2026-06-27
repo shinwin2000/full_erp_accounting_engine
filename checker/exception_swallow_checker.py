@@ -27,7 +27,6 @@ import pathlib
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 # =============================================================================
 # Konfigurasi Warna
@@ -61,20 +60,20 @@ class ExceptionFinding:
 class Report:
     total_files: int = 0
     total_except_blocks: int = 0
-    findings: List[ExceptionFinding] = field(default_factory=list)
+    findings: list[ExceptionFinding] = field(default_factory=list)
     score: int = 100
 
 # =============================================================================
 # AST Analyzer
 # =============================================================================
-def analyze_exception_handling(tree: ast.AST, file_path: str) -> List[ExceptionFinding]:
+def analyze_exception_handling(tree: ast.AST, file_path: str) -> list[ExceptionFinding]:
     findings = []
 
     def _is_bare_except(handler: ast.ExceptHandler) -> bool:
         """Cek apakah except handler adalah bare except (tanpa tipe)."""
         return handler.type is None
 
-    def _is_empty_block(body: List[ast.stmt]) -> bool:
+    def _is_empty_block(body: list[ast.stmt]) -> bool:
         """Cek apakah block hanya berisi pass, docstring, atau kosong."""
         if not body:
             return True
@@ -87,7 +86,7 @@ def analyze_exception_handling(tree: ast.AST, file_path: str) -> List[ExceptionF
                 return True
         return False
 
-    def _has_logging_or_raise(body: List[ast.stmt]) -> bool:
+    def _has_logging_or_raise(body: list[ast.stmt]) -> bool:
         """Cek apakah ada logging, print, atau raise di dalam block."""
         for stmt in body:
             if isinstance(stmt, ast.Raise):
@@ -104,7 +103,7 @@ def analyze_exception_handling(tree: ast.AST, file_path: str) -> List[ExceptionF
                             return True
         return False
 
-    def _has_comment(body: List[ast.stmt]) -> bool:
+    def _has_comment(body: list[ast.stmt]) -> bool:
         """Cek apakah ada komentar di dalam block (tidak bisa deteksi via AST). Kita abaikan."""
         return False
 
@@ -152,11 +151,11 @@ def analyze_exception_handling(tree: ast.AST, file_path: str) -> List[ExceptionF
                 category = "SILENT_SWALLOW"
                 msg = f"Potential exception swallow: {_get_exception_names(handler)}"
                 if _is_bare_except(handler):
-                    msg = f"Bare except detected (swallows all exceptions)"
+                    msg = "Bare except detected (swallows all exceptions)"
                 elif _is_empty_block(handler.body):
-                    msg = f"Empty except block (no handling)"
+                    msg = "Empty except block (no handling)"
                 else:
-                    msg = f"No logging/raise in except handler (exception swallowed)"
+                    msg = "No logging/raise in except handler (exception swallowed)"
                 suggestion = _get_suggestion(handler)
                 findings.append(ExceptionFinding(
                     file=file_path,
@@ -192,7 +191,7 @@ def analyze_exception_handling(tree: ast.AST, file_path: str) -> List[ExceptionF
 # =============================================================================
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
 
-def scan_project(exclude_dirs: List[str] = None, ignore_return: bool = False) -> Report:
+def scan_project(exclude_dirs: list[str] = None, ignore_return: bool = False) -> Report:
     if exclude_dirs is None:
         exclude_dirs = [".venv", "venv", "__pycache__", ".git", "node_modules", "dist", "build", "migrations", "deployment", "docs"]
     exclude_set = set(exclude_dirs)

@@ -61,7 +61,7 @@ def _get_logger():
     global _logger
     if _logger is None:
         mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
-        get_logger_func = getattr(mod, "get_logger")
+        get_logger_func = mod.get_logger
         _logger = get_logger_func(__name__)
     return _logger
 
@@ -127,7 +127,7 @@ class ForensicReportGeneratorPDF:
         try:
             # Lazy import config loader
             mod = importlib.import_module("config.loader_yaml")
-            load_yaml_config = getattr(mod, "load_yaml_config")
+            load_yaml_config = mod.load_yaml_config
             config = load_yaml_config(config_path)
             report_config = config.get("forensic_report", {})
             result = DEFAULT_CONFIG.copy()

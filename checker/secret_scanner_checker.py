@@ -22,7 +22,6 @@ import pathlib
 import re
 import sys
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 # Warna
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
@@ -50,7 +49,7 @@ class Finding:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: int = 100
 
 # ----------------------------------------------------------------------
@@ -123,7 +122,7 @@ def is_exempt_value(value: str) -> bool:
         return True
     return False
 
-def extract_value(node: ast.AST) -> Optional[str]:
+def extract_value(node: ast.AST) -> str | None:
     """Ekstrak nilai string dari node AST."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
@@ -143,7 +142,7 @@ def extract_value(node: ast.AST) -> Optional[str]:
             return ''.join(parts)
     return None
 
-def check_assignment(node: ast.Assign, file_path: str, lines: List[str]) -> List[Finding]:
+def check_assignment(node: ast.Assign, file_path: str, lines: list[str]) -> list[Finding]:
     findings = []
     for target in node.targets:
         if not isinstance(target, ast.Name):
@@ -175,7 +174,7 @@ def check_assignment(node: ast.Assign, file_path: str, lines: List[str]) -> List
                 break
     return findings
 
-def check_comment(line: str, file_path: str, lineno: int) -> List[Finding]:
+def check_comment(line: str, file_path: str, lineno: int) -> list[Finding]:
     """Cek apakah komentar mengandung secret."""
     findings = []
     # Ambil teks setelah # atau """
@@ -195,7 +194,7 @@ def check_comment(line: str, file_path: str, lineno: int) -> List[Finding]:
             break
     return findings
 
-def check_file(file_path: pathlib.Path) -> List[Finding]:
+def check_file(file_path: pathlib.Path) -> list[Finding]:
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
         lines = src.splitlines()
@@ -220,7 +219,7 @@ def check_file(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # Main Scanner
 # ----------------------------------------------------------------------
-def scan_project(exclude_dirs: List[str] = None, strict: bool = False) -> Report:
+def scan_project(exclude_dirs: list[str] = None, strict: bool = False) -> Report:
     if exclude_dirs is None:
         exclude_dirs = ['.venv', 'venv', '__pycache__', '.git', 'node_modules', 'dist', 'build', 'migrations', 'deployment', 'docs', 'tests']
     exclude_set = set(exclude_dirs)

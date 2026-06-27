@@ -59,7 +59,7 @@ class RevaluationTable(Base, TimestampMixin, SoftDeleteMixin):
     # =========================================================================
     # RELATIONSHIPS � menggunakan backref agar FixedAssetTable otomatis mendapat 'revaluations'
     # =========================================================================
-    asset: Mapped["FixedAssetTable"] = relationship(
+    asset: Mapped[FixedAssetTable] = relationship(
         "FixedAssetTable",
         backref="revaluations",
         foreign_keys=[asset_id],

@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any
 
 from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaError
@@ -43,10 +43,10 @@ class KafkaEventPublisher:
         # For stub statistics and audit
         self._event_count = 0
         self._failed_count = 0
-        self._dead_letter_events: List[Dict[str, Any]] = []
-        self._outbox_events: List[Dict[str, Any]] = []
-        self._processing_events: List[Dict[str, Any]] = []
-        self._audit_log: List[Dict[str, Any]] = []
+        self._dead_letter_events: list[dict[str, Any]] = []
+        self._outbox_events: list[dict[str, Any]] = []
+        self._processing_events: list[dict[str, Any]] = []
+        self._audit_log: list[dict[str, Any]] = []
         self._poller_running = False
 
     async def start(self) -> None:
@@ -160,7 +160,7 @@ class KafkaEventPublisher:
 
     # ===== New missing methods =====
 
-    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """Get audit log of published events."""
         logs = self._audit_log
         return logs[offset:offset + limit]
@@ -169,7 +169,7 @@ class KafkaEventPublisher:
         """Get number of events in dead letter queue."""
         return len(self._dead_letter_events)
 
-    async def get_event_status(self, event_id: str) -> Optional[Dict[str, Any]]:
+    async def get_event_status(self, event_id: str) -> dict[str, Any] | None:
         """Get status of a specific event."""
         # Stub: check in audit log or stored events
         for log in self._audit_log:
@@ -193,7 +193,7 @@ class KafkaEventPublisher:
         """Get number of events currently being processed."""
         return len(self._processing_events)
 
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self) -> dict[str, Any]:
         """Get statistics about event publishing."""
         return {
             "total_published": self._event_count,
@@ -205,12 +205,12 @@ class KafkaEventPublisher:
             "bootstrap_servers": self.bootstrap_servers,
         }
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Check health of the event publisher."""
         status = "healthy" if self._started else "unhealthy"
         return {"status": status, "producer_running": self._started}
 
-    async def list_dead_letters(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    async def list_dead_letters(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """List events in dead letter queue."""
         return self._dead_letter_events[offset:offset + limit]
 

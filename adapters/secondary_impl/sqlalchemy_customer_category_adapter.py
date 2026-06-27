@@ -7,12 +7,12 @@ Menggunakan SQLAlchemy real, tanpa stub/mock.
 
 from __future__ import annotations
 
-import uuid
 import logging
+import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Column, DateTime, String, Text, select, update, delete
+from sqlalchemy import Boolean, Column, DateTime, String, Text, delete, select, update
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base

@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,8 +23,9 @@ from ports.primary.payroll_repository_port import PayrollRepositoryPort
 
 
 class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
-    def __init__(self, session: AsyncSession | None = None):
+    def __init__(self, session: AsyncSession | None = None, legal_entity_id: UUID | None = None):
         self._session = session
+        self._legal_entity_id = legal_entity_id
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
@@ -31,9 +33,17 @@ class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
             self._session = await get_async_session()
         return self._session
 
+    def _get_legal_entity_id(self) -> UUID:
+        if self._legal_entity_id is None:
+            raise ValueError("legal_entity_id not set in repository")
+        return self._legal_entity_id
+
     # ========== Payroll Run ==========
     async def save_payroll_run(self, run: PayrollRunTable) -> PayrollRunTable:
         session = await self._get_session()
+        # Ensure legal_entity_id is set if not provided
+        if not run.legal_entity_id:
+            run.legal_entity_id = self._get_legal_entity_id()
         session.add(run)
         await session.flush()
         return run
@@ -44,9 +54,15 @@ class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    # ===== alias untuk P09 =====
-    async def get_payroll_run(self, run_id: uuid.UUID) -> PayrollRunTable | None:
-        return await self.get_payroll_run_by_id(run_id)
+    # ===== FIX: get_payroll_run dengan legal_entity_id wajib (sesuai port) =====
+    async def get_payroll_run(self, run_id: UUID, legal_entity_id: UUID) -> PayrollRunTable | None:
+        session = await self._get_session()
+        stmt = select(PayrollRunTable).where(
+            PayrollRunTable.id == run_id,
+            PayrollRunTable.legal_entity_id == legal_entity_id,
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_payroll_runs_by_period(
         self, period_year: int, period_month: int, legal_entity_id: uuid.UUID
@@ -120,8 +136,15 @@ class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_employee(self, employee_id: uuid.UUID) -> EmployeeTable | None:
-        return await self.get_employee_by_id(employee_id)
+    # ===== FIX: get_employee dengan legal_entity_id wajib (sesuai port) =====
+    async def get_employee(self, employee_id: UUID, legal_entity_id: UUID) -> EmployeeTable | None:
+        session = await self._get_session()
+        stmt = select(EmployeeTable).where(
+            EmployeeTable.id == employee_id,
+            EmployeeTable.legal_entity_id == legal_entity_id,
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_active_employees(self, legal_entity_id: uuid.UUID) -> list[EmployeeTable]:
         session = await self._get_session()

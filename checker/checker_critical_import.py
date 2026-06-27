@@ -5,11 +5,10 @@ Memastikan semua modul kritis dapat diimpor tanpa error.
 Jika ada yang gagal, exit code 1 dan laporan detail.
 """
 
-import sys
 import importlib
 import logging
+import sys
 import time
-from typing import List, Tuple
 
 # Konfigurasi logging minimal
 logging.basicConfig(
@@ -38,17 +37,17 @@ def get_critical_modules():
         sys.exit(1)
 
 
-def safe_import(module_name: str) -> Tuple[bool, str]:
+def safe_import(module_name: str) -> tuple[bool, str]:
     """Coba import modul, kembalikan (success, error_message)"""
     try:
         importlib.import_module(module_name)
         return True, ""
     except ImportError as e:
-        return False, f"ImportError: {str(e)}"
+        return False, f"ImportError: {e!s}"
     except SyntaxError as e:
-        return False, f"SyntaxError: {str(e)}"
+        return False, f"SyntaxError: {e!s}"
     except Exception as e:
-        return False, f"{type(e).__name__}: {str(e)}"
+        return False, f"{type(e).__name__}: {e!s}"
 
 
 def main():

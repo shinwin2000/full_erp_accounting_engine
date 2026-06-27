@@ -6,12 +6,12 @@ Adapter for AuditEvent (from audit_repository_port)
 
 from __future__ import annotations
 
-import uuid
 import logging
+import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, DateTime, String, Text, JSON, select
+from sqlalchemy import JSON, Column, DateTime, String, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base

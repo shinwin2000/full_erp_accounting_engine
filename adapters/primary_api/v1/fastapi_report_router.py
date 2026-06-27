@@ -350,7 +350,7 @@ async def get_report_scheduler(request: Request) -> Any:
     Get Report Scheduler instance using lazy import to avoid AST drift.
     """
     mod = importlib.import_module("reports.scheduler_cron")
-    ReportScheduler = getattr(mod, "ReportScheduler")
+    ReportScheduler = mod.ReportScheduler
     container = request.app.state.container
     return container.resolve(ReportScheduler)
 
@@ -360,7 +360,7 @@ async def get_report_distributor(request: Request) -> Any:
     Get Report Distributor instance using lazy import to avoid AST drift.
     """
     mod = importlib.import_module("reports.distributor_email_whatsapp")
-    ReportDistributor = getattr(mod, "ReportDistributor")
+    ReportDistributor = mod.ReportDistributor
     container = request.app.state.container
     return container.resolve(ReportDistributor)
 

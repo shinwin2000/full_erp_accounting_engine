@@ -22,7 +22,7 @@ import csv
 import json
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 # Internal dependencies
@@ -105,7 +105,7 @@ class FormatConverterCSVJSON:
     - Batch processing
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Inisialisasi converter dengan konfigurasi yang diinjeksi.
 
@@ -121,7 +121,7 @@ class FormatConverterCSVJSON:
         self._datetime_format = self.config.get("datetime_format", DEFAULT_CONFIG["datetime_format"])
         self._decimal_format = self.config.get("decimal_format", DEFAULT_CONFIG["decimal_format"])
 
-    def _prepare_config(self, config: Optional[dict]) -> dict:
+    def _prepare_config(self, config: dict | None) -> dict:
         """Siapkan konfigurasi dari parameter atau default."""
         if config is not None:
             result = DEFAULT_CONFIG.copy()
@@ -424,8 +424,8 @@ class FormatConverterCSVJSON:
 # SINGLETON INSTANCE dengan injeksi konfigurasi dari luar
 # ============================================================================
 
-_format_converter: Optional[FormatConverterCSVJSON] = None
-_converter_config: Optional[dict] = None
+_format_converter: FormatConverterCSVJSON | None = None
+_converter_config: dict | None = None
 
 
 def set_format_converter_config(config: dict) -> None:

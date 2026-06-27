@@ -6,6 +6,11 @@ Responsibility: Memeriksa saldo akun agar tidak negatif untuk akun tertentu.
                Guard ini memastikan bahwa saldo akun aset (seperti kas, piutang)
                tidak menjadi negatif. Untuk akun liabilitas/ekuitas, saldo negatif
                mungkin diizinkan tergantung kebijakan.
+
+               Catatan: Balance checker ini menggunakan fallback in-memory
+               untuk account repository karena tidak ada ketergantungan infrastruktur
+               di lapisan kernel. Ini adalah desain yang disengaja untuk menjaga
+               kernel tetap independen dan mudah di-test.
 """
 
 from __future__ import annotations
@@ -27,11 +32,20 @@ from kernel.guards.guard_exceptions import (
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# ALIAS SEMENTARA (untuk mencegah ImportError saat modul di-load)
+# ============================================================================
+# Ini akan diisi dengan instance singleton yang sebenarnya di bagian akhir file.
+balance_checker = None
+
 
 # ============================================================================
 # FALLBACK ACCOUNT REPOSITORY (in-memory, no infrastructure)
 # ============================================================================
-
+# Ini adalah fallback yang sengaja digunakan karena kernel tidak boleh
+# bergantung pada infrastruktur database. Semua logika balance checker
+# diuji dengan repository ini.
+# ============================================================================
 
 class _FallbackAccountRepository:
     def __init__(self):
@@ -65,8 +79,8 @@ class _FallbackAccountRepository:
 
 
 def _get_account_repository():
-    # Selalu gunakan fallback in-memory
-    logger.info("Using in-memory fallback for account repository (no infrastructure)")
+    # Selalu gunakan fallback in-memory (disengaja)
+    logger.info("Using in-memory fallback for account repository (kernel independence)")
     return _FallbackAccountRepository()
 
 
@@ -452,6 +466,15 @@ def get_balance_checker() -> BalanceChecker:
 
 
 # ============================================================================
+# ALIAS FINAL (mengganti None dengan instance singleton yang sebenarnya)
+# ============================================================================
+
+# Sekarang setelah class dan fungsi singleton sudah didefinisikan,
+# kita isi alias dengan instance yang sebenarnya.
+balance_checker = get_balance_checker()
+
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -460,5 +483,6 @@ __all__ = [
     "BalanceCheckResult",
     "BalanceCheckSeverity",
     "BalanceChecker",
+    "balance_checker",          
     "get_balance_checker",
 ]

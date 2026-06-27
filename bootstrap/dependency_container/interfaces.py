@@ -10,7 +10,7 @@ Responsibility: Mendefinisikan interface abstrak untuk container dan komponen te
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 

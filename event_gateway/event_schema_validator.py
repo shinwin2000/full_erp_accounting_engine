@@ -206,12 +206,12 @@ class EventSchemaValidator:
     def _get_load_yaml_config(self):
         """Lazy import of config.loader_yaml.load_yaml_config."""
         mod = importlib.import_module("config.loader_yaml")
-        return getattr(mod, "load_yaml_config")
+        return mod.load_yaml_config
 
     def _get_redis_client(self):
         """Lazy import of infrastructure.caching.redis_manager.get_redis_client."""
         mod = importlib.import_module("infrastructure.caching.redis_manager")
-        return getattr(mod, "get_redis_client")
+        return mod.get_redis_client
 
     async def _get_redis(self):
         if self._redis is None:

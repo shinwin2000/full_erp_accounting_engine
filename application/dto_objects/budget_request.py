@@ -7,12 +7,11 @@ Responsibility: Data Transfer Objects untuk modul Budget.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
-
 
 # ============================================================================
 # REQUEST DTOs

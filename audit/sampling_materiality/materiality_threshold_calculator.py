@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import importlib
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from typing import Any
@@ -35,7 +35,7 @@ def _get_logger():
     global _logger
     if _logger is None:
         mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
-        get_logger_func = getattr(mod, "get_logger")
+        get_logger_func = mod.get_logger
         _logger = get_logger_func(__name__)
     return _logger
 
@@ -44,7 +44,7 @@ def _load_config(config_path: str) -> dict[str, Any]:
     """Lazy load config from YAML."""
     try:
         mod = importlib.import_module("config.loader_yaml")
-        load_yaml_config = getattr(mod, "load_yaml_config")
+        load_yaml_config = mod.load_yaml_config
         config = load_yaml_config(config_path)
         return config.get("materiality", {})
     except Exception:
@@ -163,7 +163,7 @@ class MaterialityThresholdCalculator:
                 "basis_value": float(basis_value),
                 "percentage": float(percentage * 100),
                 "result": float(rounded),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         )
 
@@ -198,7 +198,7 @@ class MaterialityThresholdCalculator:
                 "overall_materiality": float(overall_materiality),
                 "percentage": pct,
                 "result": float(rounded),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         )
 
@@ -231,7 +231,7 @@ class MaterialityThresholdCalculator:
                 "overall_materiality": float(overall_materiality),
                 "percentage": pct,
                 "result": float(rounded),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         )
 

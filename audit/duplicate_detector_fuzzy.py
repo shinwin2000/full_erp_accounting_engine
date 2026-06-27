@@ -20,7 +20,6 @@ import asyncio
 import hashlib
 import importlib
 import json
-import logging
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
@@ -47,7 +46,7 @@ def _get_logger():
     global _logger
     if _logger is None:
         mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
-        get_logger_func = getattr(mod, "get_logger")
+        get_logger_func = mod.get_logger
         _logger = get_logger_func(__name__)
     return _logger
 
@@ -98,7 +97,7 @@ class DuplicateDetectorFuzzy:
         try:
             # Lazy import config loader
             mod = importlib.import_module("config.loader_yaml")
-            load_yaml_config = getattr(mod, "load_yaml_config")
+            load_yaml_config = mod.load_yaml_config
             config = load_yaml_config(config_path)
             dup_config = config.get("duplicate_detector", {})
             result = DEFAULT_CONFIG.copy()
@@ -110,7 +109,7 @@ class DuplicateDetectorFuzzy:
     async def _get_event_store(self):
         if self._event_store is None:
             mod = importlib.import_module("infrastructure.event_store.append_only_store")
-            get_event_store = getattr(mod, "get_event_store")
+            get_event_store = mod.get_event_store
             self._event_store = await get_event_store()
         return self._event_store
 
@@ -225,9 +224,9 @@ class DuplicateDetectorFuzzy:
 
         # Lazy import SQLAlchemy and ORM table
         sqlalchemy_mod = importlib.import_module("sqlalchemy")
-        select = getattr(sqlalchemy_mod, "select")
+        select = sqlalchemy_mod.select
         orm_mod = importlib.import_module("infrastructure.persistence_orm.event_store_table")
-        EventStoreTable = getattr(orm_mod, "EventStoreTable")
+        EventStoreTable = orm_mod.EventStoreTable
 
         # Get all streams
         session_factory = store._session_factory
@@ -266,7 +265,7 @@ class DuplicateDetectorFuzzy:
         if total_duplicates > 10:
             # Lazy import alert manager
             alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
-            trigger_alert = getattr(alert_mod, "trigger_alert")
+            trigger_alert = alert_mod.trigger_alert
             await trigger_alert(
                 title="High Number of Potential Duplicates Detected",
                 message=f"Found {total_duplicates} potential duplicate event groups",
@@ -279,7 +278,7 @@ class DuplicateDetectorFuzzy:
     async def _send_duplicate_alert(self, duplicate: dict) -> None:
         """Send alert for detected duplicate."""
         alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
-        trigger_alert = getattr(alert_mod, "trigger_alert")
+        trigger_alert = alert_mod.trigger_alert
         title = f"Potential Duplicate Events in {duplicate['stream_name']}"
         message = (
             f"Found {len(duplicate['duplicate_group'])} similar events with "

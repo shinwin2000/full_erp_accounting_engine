@@ -616,7 +616,7 @@ class RollbackHandler:
         try:
             # Lazy import untuk menghindari AST drift
             gate_mod = importlib.import_module("kernel.sealed_gate")
-            get_sealed_gate = getattr(gate_mod, "get_sealed_gate")
+            get_sealed_gate = gate_mod.get_sealed_gate
             gate = get_sealed_gate()
             if hasattr(gate, "reset"):
                 gate.reset()
@@ -629,11 +629,11 @@ class RollbackHandler:
         try:
             # Lazy import semua axioms
             conservation_mod = importlib.import_module("axioms.conservation_of_value")
-            get_conservation = getattr(conservation_mod, "get_conservation_axiom")
+            get_conservation = conservation_mod.get_conservation_axiom
             double_entry_mod = importlib.import_module("axioms.double_entry")
-            get_double_entry = getattr(double_entry_mod, "get_double_entry_axiom")
+            get_double_entry = double_entry_mod.get_double_entry_axiom
             immutability_mod = importlib.import_module("axioms.immutability")
-            get_immutability = getattr(immutability_mod, "get_immutability_axiom")
+            get_immutability = immutability_mod.get_immutability_axiom
 
             axioms = [get_conservation, get_double_entry, get_immutability]
             for axiom_getter in axioms:

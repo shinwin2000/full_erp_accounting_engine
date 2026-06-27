@@ -109,6 +109,12 @@ class PayrollAggregate:
         self._events.clear()
         return events
 
+    def pull_events(self) -> list[DomainEvent]:
+        """Pull all domain events (clear and return)."""
+        events = self._events.copy()
+        self._events.clear()
+        return events
+
     def register_event(self, event: DomainEvent) -> None:
         self._add_event(event)
 

@@ -463,7 +463,7 @@ def _safe_import_module(module_name: str) -> tuple[bool, str | None]:
         importlib.import_module(module_name)
         return True, None
     except Exception as e:
-        return False, f"{type(e).__name__}: {str(e)}"
+        return False, f"{type(e).__name__}: {e!s}"
 
 def get_ast_tree(path: pathlib.Path) -> ast.AST | None:
     try:
@@ -1101,7 +1101,7 @@ def p02_syntax() -> PhaseResult:
     pr = PhaseResult("P02 Syntax Validation", weight=2)
     pr.disclaimer = "Ensures all source files are syntactically valid Python. Zero tolerance for syntax errors."
     t0 = time.monotonic()
-    
+
     files = list(all_py(include_checker=True))
     errors = []
 
@@ -1111,10 +1111,10 @@ def p02_syntax() -> PhaseResult:
             raw = path.read_bytes()
             if raw.startswith(b"\xef\xbb\xbf"): # BOM (Byte Order Mark)
                 raw = raw[3:]
-            
+
             # Melakukan parsing AST untuk validasi syntax
             ast.parse(raw, filename=str(path))
-            
+
         except SyntaxError as e:
             errors.append((path, f"SyntaxError: {e.msg}", e.lineno or 0))
         except Exception as e:
@@ -1127,12 +1127,12 @@ def p02_syntax() -> PhaseResult:
         # PENGUBAHAN: Jika ada error, skor langsung 0, tidak ada partial pass.
         pr.score = 0
         pr.passed = False
-        
+
         # Laporkan semua error yang ditemukan
         for path, msg, lineno in errors[:30]: # Batasi agar output tidak terlalu panjang
             pr.add("CRITICAL", rel(path), lineno, msg,
                    recommendation="Fix the syntax error immediately. The engine cannot start with broken source files.")
-        
+
         if len(errors) > 30:
             pr.add("INFO", ".", 0, f"... and {len(errors) - 30} more syntax errors.")
 
@@ -1144,7 +1144,7 @@ def p03_self_audit() -> PhaseResult:
     pr = PhaseResult("P03 Self-Audit (Meta-Integrity)", weight=3)
     pr.disclaimer = "Uses structural analysis to verify that the auditor itself is immutable, safe, and syntactically consistent."
     t0 = time.monotonic()
-    
+
     checker_path = ROOT / "main_checker_3.py"
     if not checker_path.exists():
         pr.add("CRITICAL", "main_checker_3.py", 0, "Checker integrity failure: File missing.")
@@ -1190,7 +1190,7 @@ def p03_self_audit() -> PhaseResult:
             pr.add("CRITICAL", "main_checker_3.py", lineno, msg,
                    recommendation="Remove hardcoded credentials and ensure all phases are strictly typed.")
     else:
-        pr.add("PASS", "main_checker_3.py", 0, 
+        pr.add("PASS", "main_checker_3.py", 0,
                f"Meta-audit verified: {len(phase_functions)} registered phases validated for signature integrity.")
         pr.score = 100
 
@@ -1279,7 +1279,7 @@ def p05_static_imports() -> PhaseResult:
     pr = PhaseResult("P05 Static Import Scan", weight=2)
     pr.disclaimer = "Enforces strict import hygiene: Bans wildcard imports (*)."
     t0 = time.monotonic()
-    
+
     files = list(all_py(skip_tops={"tests", "migrations", "deployment", "docs"}))
     violations = []
     total_imports = 0
@@ -1288,18 +1288,16 @@ def p05_static_imports() -> PhaseResult:
         tree = get_ast_tree(path)
         if not tree:
             continue
-            
+
         for node in ast.walk(tree):
             # 1. Audit Wildcard Import
             if isinstance(node, ast.ImportFrom):
                 for alias in node.names:
                     if alias.name == "*":
                         violations.append((rel(path), node.lineno))
-            
+
             # 2. Statistik (hanya untuk log)
-            if isinstance(node, ast.Import):
-                total_imports += len(node.names)
-            elif isinstance(node, ast.ImportFrom):
+            if isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
                 total_imports += len(node.names)
 
     if violations:
@@ -1321,10 +1319,10 @@ def p06_dynamic_imports() -> PhaseResult:
     pr = PhaseResult("P06 Dynamic Import Audit", weight=3)
     pr.disclaimer = "Strict architectural enforcement: Bans dynamic imports in core layers to ensure predictable dependency graphs."
     t0 = time.monotonic()
-    
+
     # Local protected layers include application as well
     protected_layers = _PROTECTED_LAYERS | {"application"}
-    
+
     files = all_py(skip_tops={"tests", "migrations", "deployment", "docs"})
     violations = []
 
@@ -1332,7 +1330,7 @@ def p06_dynamic_imports() -> PhaseResult:
         tree = get_ast_tree(path)
         if tree is None:
             continue
-            
+
         mod = mod_name(path)
         layer = top_layer(mod) if mod else "unknown"
         is_protected = layer in protected_layers
@@ -1345,12 +1343,12 @@ def p06_dynamic_imports() -> PhaseResult:
         hits = _find_dynamic_imports_ast(tree)
         if not hits:
             continue
-            
+
         for lineno, call, expr in hits:
             if is_protected:
                 violations.append((rel(path), lineno, f"Forbidden dynamic import '{call}({expr})' in protected layer '{layer}'"))
             else:
-                pr.add("WARNING", rel(path), lineno, 
+                pr.add("WARNING", rel(path), lineno,
                        f"Dynamic import in non-core layer '{layer}': {call}({expr})",
                        recommendation="Verify if static import/DI is possible.")
 
@@ -2060,9 +2058,7 @@ def p12_asgi() -> PhaseResult:
                         # Cek apakah return-nya FastAPI()
                         if isinstance(subnode.value, ast.Call):
                             func = subnode.value.func
-                            if isinstance(func, ast.Name) and func.id == "FastAPI":
-                                has_fastapi_call = True
-                            elif isinstance(func, ast.Attribute) and func.attr == "FastAPI":
+                            if (isinstance(func, ast.Name) and func.id == "FastAPI") or (isinstance(func, ast.Attribute) and func.attr == "FastAPI"):
                                 has_fastapi_call = True
                         break
 
@@ -2073,18 +2069,14 @@ def p12_asgi() -> PhaseResult:
                         get_app_returns = True
                         if isinstance(subnode.value, ast.Call):
                             func = subnode.value.func
-                            if isinstance(func, ast.Name) and func.id == "FastAPI":
-                                has_fastapi_call = True
-                            elif isinstance(func, ast.Attribute) and func.attr == "FastAPI":
+                            if (isinstance(func, ast.Name) and func.id == "FastAPI") or (isinstance(func, ast.Attribute) and func.attr == "FastAPI"):
                                 has_fastapi_call = True
                         break
 
             # Deteksi lifespan decorator (biasanya dalam fungsi bernama lifespan)
             if node.name == "lifespan":
                 for decorator in node.decorator_list:
-                    if isinstance(decorator, ast.Name) and decorator.id == "asynccontextmanager":
-                        has_lifespan_decorator = True
-                    elif isinstance(decorator, ast.Attribute) and decorator.attr == "asynccontextmanager":
+                    if (isinstance(decorator, ast.Name) and decorator.id == "asynccontextmanager") or (isinstance(decorator, ast.Attribute) and decorator.attr == "asynccontextmanager"):
                         has_lifespan_decorator = True
 
     # =========================================================================
@@ -2175,7 +2167,7 @@ def p13_migrations() -> PhaseResult:
 
     for mf in migration_files:
         src = mf.read_text(encoding="utf-8", errors="replace")
-        
+
         # Cari revision (support berbagai format)
         rm = re.search(r'^revision\s*=\s*["\'](\w+)["\']', src, re.M)
         if not rm:
@@ -2302,10 +2294,10 @@ def p14_quality() -> PhaseResult:
     t0 = time.monotonic()
 
     files = all_py(include_checker=True, skip_tops={"tests", "migrations"})
-    
+
     # Layer yang sangat dilindungi (core business logic)
     critical_layers = {"domain", "kernel", "application", "ports", "axioms", "constitution"}
-    
+
     # Regex untuk marker
     marker_pattern = re.compile(r"\b(TODO|FIXME|HACK|XXX|BUG)\b", re.IGNORECASE)
 
@@ -2424,12 +2416,12 @@ def p15_security() -> PhaseResult:
         (r"subprocess\.Popen\s*\([^)]*shell\s*=\s*True", "CRITICAL", "subprocess.Popen(shell=True) — command injection"),
         (r"pty\.spawn\s*\(", "CRITICAL", "pty.spawn() — potentially dangerous"),
         (r"eval\s*\(input\s*\(\)", "CRITICAL", "eval(input()) — remote code execution vulnerability"),
-        
+
         # WARNING: Risky but sometimes necessary
         (r"\bverify\s*=\s*False\b", "WARNING", "SSL/TLS verify=False — MITM risk (should be configurable per env)"),
         (r"__import__\s*\(", "WARNING", "__import__() — dynamic import; may indicate unsafe code loading"),
         (r"tmpfile\s*\(", "WARNING", "tmpfile() — potential insecure temporary file usage"),
-        
+
         # INFO: Best practice reminders
         (r"DEBUG\s*=\s*True\b", "INFO", "DEBUG=True — ensure not used in production"),
         (r"print\s*\(.*password", "INFO", "print() of password-like data — potential logging exposure"),
@@ -2437,10 +2429,10 @@ def p15_security() -> PhaseResult:
 
     # Function names that are always dangerous (will be detected via AST)
     DANGEROUS_FUNCS = {
-        "eval", "exec", 
-        "pickle.load", "pickle.loads", 
-        "yaml.load", 
-        "os.system", "os.popen", 
+        "eval", "exec",
+        "pickle.load", "pickle.loads",
+        "yaml.load",
+        "os.system", "os.popen",
         "__import__",
         "pty.spawn",
         "input",  # input() alone is not dangerous, but eval(input()) is
@@ -2522,7 +2514,7 @@ def p15_security() -> PhaseResult:
             for pattern, severity, msg in patterns:
                 if re.search(pattern, line, re.IGNORECASE):
                     # Avoid duplicate reporting for same issue (e.g., eval already caught by AST)
-                    # If already reported as CRITICAL for same line and same function, skip? 
+                    # If already reported as CRITICAL for same line and same function, skip?
                     # But we'll allow because it might catch different patterns.
                     findings.append((severity, rp, lineno, msg, line[:100].strip()))
                     break  # only one finding per line to avoid spam
@@ -2716,7 +2708,7 @@ def p16_dependency_audit() -> PhaseResult:
     # =====================================================================
     vulnerabilities = []
     warnings = []
-    
+
     with open(req_file, encoding="utf-8") as f:
         for line in f:
             pkg, constraint = parse_requirement(line)
@@ -2728,7 +2720,7 @@ def p16_dependency_audit() -> PhaseResult:
 
             vuln_info = vulnerable_versions[pkg]
             is_vulnerable = False
-            
+
             if constraint is None:
                 # No version pinned, assume latest (usually safe, but we warn)
                 warnings.append((pkg, "No version constraint (uses latest). Consider pinning to a secure version."))
@@ -3530,7 +3522,7 @@ def p20_sql_injection() -> PhaseResult:
 
                 issues.append((
                     severity, rp, node.lineno,
-                    f"Potential SQL injection: f-string with interpolation and SQL keyword",
+                    "Potential SQL injection: f-string with interpolation and SQL keyword",
                     f"SQL snippet: {node_str[:100]}"
                 ))
 
@@ -3654,12 +3646,7 @@ def p21_orm_enums() -> PhaseResult:
                         has_sqlalchemy_enum_import = False
                         for import_node in ast.walk(tree):
                             if isinstance(import_node, ast.ImportFrom):
-                                if import_node.module == "sqlalchemy":
-                                    for alias in import_node.names:
-                                        if alias.name == "Enum":
-                                            has_sqlalchemy_enum_import = True
-                                            break
-                                elif import_node.module == "sqlalchemy.types":
+                                if import_node.module == "sqlalchemy" or import_node.module == "sqlalchemy.types":
                                     for alias in import_node.names:
                                         if alias.name == "Enum":
                                             has_sqlalchemy_enum_import = True
@@ -3705,10 +3692,10 @@ def p22_async_correctness() -> PhaseResult:
     t0 = time.monotonic()
 
     files = all_py(skip_tops={"tests", "migrations", "deployment", "docs"})
-    
+
     # Core layers that must follow strict async rules
     CORE_LAYERS = {"domain", "kernel", "application", "ports", "axioms", "constitution"}
-    
+
     # Patterns to detect
     DANGEROUS_ASYNC_PATTERNS = [
         ("asyncio.run", "asyncio.run() — creates new event loop, dangerous in libraries"),
@@ -3932,11 +3919,7 @@ def p23_kernel_guards() -> PhaseResult:
         # Collect all defined class and function names
         defined_names = set()
         for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                defined_names.add(node.name)
-            elif isinstance(node, ast.FunctionDef):
-                defined_names.add(node.name)
-            elif isinstance(node, ast.AsyncFunctionDef):
+            if isinstance(node, ast.ClassDef) or isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
                 defined_names.add(node.name)
 
         # Check if at least one required name exists
@@ -4015,7 +3998,7 @@ def p24_double_entry_pattern() -> PhaseResult:
     pr = PhaseResult("P24 Double-Entry Structural Validation", weight=3)
     pr.disclaimer = "Uses structural AST validation to ensure strict mathematical balancing logic exists and guards against text bypasses."
     t0 = time.monotonic()
-    
+
     de_file = ROOT / "axioms" / "double_entry.py"
     if not de_file.exists():
         pr.add("CRITICAL", "axioms/double_entry.py", 0, "Axiom Error: double_entry.py core accounting guard is missing.",
@@ -4114,10 +4097,10 @@ def p25_journal_lifecycle() -> PhaseResult:
     pr = PhaseResult("P25 Journal Lifecycle Pattern", weight=2)
     pr.disclaimer = "Uses structural AST validation to verify strict state machine definitions and transition guards for journals."
     t0 = time.monotonic()
-    
+
     sm_file = ROOT / "domain" / "journal" / "state_machine.py"
     if not sm_file.exists():
-        pr.add("CRITICAL", "domain/journal/state_machine.py", 0, 
+        pr.add("CRITICAL", "domain/journal/state_machine.py", 0,
                "Lifecycle Error: 'state_machine.py' is missing. Transactions lack structural state definitions.",
                recommendation="Create domain/journal/state_machine.py containing explicit states and transition logic.")
         pr.score = 0
@@ -4126,7 +4109,7 @@ def p25_journal_lifecycle() -> PhaseResult:
 
     tree = get_ast_tree(sm_file)
     if tree is None:
-        pr.add("CRITICAL", "domain/journal/state_machine.py", 0, 
+        pr.add("CRITICAL", "domain/journal/state_machine.py", 0,
                "Syntax Error: Failed to parse 'state_machine.py'. Ensure python code is syntactically sound.",
                recommendation="Fix Python syntax errors in domain/journal/state_machine.py immediately.")
         pr.score = 0
@@ -4172,7 +4155,7 @@ def p25_journal_lifecycle() -> PhaseResult:
         violations.append("Missing active transition guard logic (e.g., 'transition_to()', 'post()', or 'reverse()' methods) to enforce lifecycle constraints.")
 
     if not violations:
-        pr.add("PASS", "domain/journal/state_machine.py", 0, 
+        pr.add("PASS", "domain/journal/state_machine.py", 0,
                f"Journal lifecycle pattern verified. All states {REQUIRED_STATES} and transition controls are structurally active.")
         pr.score = 100
     else:
@@ -4189,10 +4172,10 @@ def p26_fiscal_period() -> PhaseResult:
     pr = PhaseResult("P26 Fiscal Period Pattern", weight=2)
     pr.disclaimer = "Uses rigorous AST analysis to ensure active executable logic exists for open, close, and lock operations, rejecting comment/stub bypasses."
     t0 = time.monotonic()
-    
+
     fp_file = ROOT / "domain" / "fiscal_period" / "aggregate_root.py"
     if not fp_file.exists():
-        pr.add("CRITICAL", "domain/fiscal_period/aggregate_root.py", 0, 
+        pr.add("CRITICAL", "domain/fiscal_period/aggregate_root.py", 0,
                "Accounting Integrity Error: 'aggregate_root.py' for fiscal period management is missing.",
                recommendation="Create domain/fiscal_period/aggregate_root.py to govern ledger period states.")
         pr.score = 0
@@ -4201,7 +4184,7 @@ def p26_fiscal_period() -> PhaseResult:
 
     tree = get_ast_tree(fp_file)
     if tree is None:
-        pr.add("CRITICAL", "domain/fiscal_period/aggregate_root.py", 0, 
+        pr.add("CRITICAL", "domain/fiscal_period/aggregate_root.py", 0,
                "Syntax Error: Failed to parse fiscal period aggregate root file.",
                recommendation="Fix Python syntax errors in domain/fiscal_period/aggregate_root.py immediately.")
         pr.score = 0
@@ -4215,14 +4198,14 @@ def p26_fiscal_period() -> PhaseResult:
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):
             name_lower = node.name.lower()
-            
+
             # Periksa apakah nama fungsi mengandung keyword operasi wajib
             matched_op = None
             for op in REQUIRED_OPS:
                 if op in name_lower:
                     matched_op = op
                     break
-            
+
             if matched_op:
                 # DETEKSI STUB/FUNGSI KOSONG:
                 # Jika body fungsi hanya berisi 1 statement, cek apakah itu 'pass' atau '...'
@@ -4232,20 +4215,20 @@ def p26_fiscal_period() -> PhaseResult:
                         continue  # Abaikan, ini dummy bypass!
                     if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and stmt.value.value == Ellipsis:
                         continue  # Abaikan, ini dummy stub (...)
-                
+
                 # Jika lolos pengecekan di atas, berarti fungsi ini memiliki blok kode operasional
                 found_ops.add(matched_op)
 
     # Evaluasi Hasil Akhir
     missing_ops = REQUIRED_OPS - found_ops
-    
+
     if not missing_ops:
-        pr.add("PASS", "domain/fiscal_period/aggregate_root.py", 0, 
+        pr.add("PASS", "domain/fiscal_period/aggregate_root.py", 0,
                "Fiscal period aggregate invariant verified. Concrete logic for open, close, and lock operations is present.")
         pr.score = 100
     else:
         for op in missing_ops:
-            pr.add("CRITICAL", "domain/fiscal_period/aggregate_root.py", 0, 
+            pr.add("CRITICAL", "domain/fiscal_period/aggregate_root.py", 0,
                    f"Compliance Deficit: Method for '{op}' operation is missing or implemented as an empty stub.",
                    recommendation=f"Implement actionable business logic for the '{op}' method to alter or lock the fiscal state.")
         pr.score = 0  # Zero tolerance jika proteksi periode pembukuan bohong / tidak lengkap
@@ -4259,10 +4242,10 @@ def p27_immutable_audit() -> PhaseResult:
     pr = PhaseResult("P27 Immutable Audit Pattern", weight=2)
     pr.disclaimer = "Enforces strict append-only whitelisting via AST, completely banning any mutation operations or unvetted logic in the core audit stream."
     t0 = time.monotonic()
-    
+
     ew_file = ROOT / "audit" / "event_writer_immutable.py"
     if not ew_file.exists():
-        pr.add("CRITICAL", "audit/event_writer_immutable.py", 0, 
+        pr.add("CRITICAL", "audit/event_writer_immutable.py", 0,
                "Forensic Integrity Error: Core 'event_writer_immutable.py' file is missing.",
                recommendation="Create audit/event_writer_immutable.py to lock the system's unalterable audit trails.")
         pr.score = 0
@@ -4271,7 +4254,7 @@ def p27_immutable_audit() -> PhaseResult:
 
     tree = get_ast_tree(ew_file)
     if tree is None:
-        pr.add("CRITICAL", "audit/event_writer_immutable.py", 0, 
+        pr.add("CRITICAL", "audit/event_writer_immutable.py", 0,
                "Syntax Error: Cannot parse 'event_writer_immutable.py'. Ensure the file is valid Python.",
                recommendation="Fix Python syntax errors in audit/event_writer_immutable.py immediately.")
         pr.score = 0
@@ -4280,7 +4263,7 @@ def p27_immutable_audit() -> PhaseResult:
 
     # Daftar kata kunci yang mutlak dilarang muncul di nama fungsi/metode manapun
     STRICT_BLACKLIST = {"update", "delete", "modify", "edit", "overwrite", "change", "purge", "remove", "clear", "truncate", "fix"}
-    
+
     # Daftar kata kunci yang diizinkan untuk fungsi append-only / read-only (Whitelisting)
     ALLOWED_PREFIXES_OR_KEYWORDS = {"append", "write", "log", "save", "get", "read", "fetch", "stream", "replay", "verify", "hash", "init"}
 
@@ -4294,7 +4277,7 @@ def p27_immutable_audit() -> PhaseResult:
         if isinstance(node, ast.FunctionDef):
             name = node.name
             name_lower = name.lower()
-            
+
             # 1. Cek Blok Kosong (Bypass Tipu-Tipu)
             if len(node.body) == 1:
                 stmt = node.body[0]
@@ -4322,7 +4305,7 @@ def p27_immutable_audit() -> PhaseResult:
 
     # Evaluasi Hasil Akhir
     if not violations:
-        pr.add("PASS", "audit/event_writer_immutable.py", 0, 
+        pr.add("PASS", "audit/event_writer_immutable.py", 0,
                "Forensic Invariant Confirmed: 'event_writer_immutable.py' structurally restricts operations to append-only and read-only pathways.")
         pr.score = 100
     else:
@@ -4340,7 +4323,7 @@ def p28_monetary_decimal() -> PhaseResult:
     pr = PhaseResult("P28 Monetary Decimal Pattern", weight=3)
     pr.disclaimer = "Uses advanced AST analysis to detect any float typification, literal floats, or float conversions in core monetary fields."
     t0 = time.monotonic()
-    
+
     _MONETARY_FIELDS = {"amount", "debit", "credit", "price", "cost", "tax", "total", "balance", "value"}
     violations = []
 
@@ -4357,11 +4340,11 @@ def p28_monetary_decimal() -> PhaseResult:
     for path in all_py(skip_tops={"tests", "migrations", "deployment", "docs"}):
         if is_test_file(path):
             continue
-            
+
         tree = get_ast_tree(path)
         if tree is None:
             continue
-            
+
         rp = rel(path)
 
         for node in ast.walk(tree):
@@ -4390,7 +4373,7 @@ def p28_monetary_decimal() -> PhaseResult:
                         # Kasus A: Assignment dengan literal angka desimal langsung (e.g., amount = 250.75)
                         if isinstance(node.value, ast.Constant) and isinstance(node.value.value, float):
                             violations.append((rp, node.lineno, f"Monetary field '{target.id}' is assigned a raw float literal value ({node.value.value})."))
-                        
+
                         # Kasus B: Assignment menggunakan pemanggilan fungsi float()
                         elif isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == "float":
                             violations.append((rp, node.lineno, f"Monetary field '{target.id}' is forced into a float via explicit float() conversion."))
@@ -4417,7 +4400,7 @@ def p29_acid_pattern() -> PhaseResult:
     pr = PhaseResult("P29 ACID Pattern (Unit of Work)", weight=2)
     pr.disclaimer = "Validates ACID contract: checks Port (Interface) and Adapter (Implementation) for sync/async context managers."
     t0 = time.monotonic()
-    
+
     # ====================================================================
     # 1. CEK PORT (INTERFACE) — Wajib ada deklarasi method (boleh abstract)
     # ====================================================================
@@ -4453,7 +4436,7 @@ def p29_acid_pattern() -> PhaseResult:
     # Minimal harus punya salah satu pasang context manager (sync ATAU async)
     has_sync_cm = "__enter__" in port_methods and "__exit__" in port_methods
     has_async_cm = "__aenter__" in port_methods and "__aexit__" in port_methods
-    
+
     if not (has_sync_cm or has_async_cm):
         pr.add("CRITICAL", "ports/primary/unit_of_work_port.py", 0,
                "UoW Port missing context manager methods. Define either (__enter__/__exit__) for sync, or (__aenter__/__aexit__) for async.",
@@ -4478,7 +4461,7 @@ def p29_acid_pattern() -> PhaseResult:
     if not impl_candidates:
         # Fallback: cari file lain yang mengimplementasikan UoW
         impl_candidates = list(ROOT.glob("adapters/**/*unit_of_work*.py"))
-    
+
     if not impl_candidates:
         pr.add("CRITICAL", "adapters/secondary_impl", 0,
                "Implementation missing: No SQLAlchemyUnitOfWork found in adapters/.",
@@ -4507,7 +4490,7 @@ def p29_acid_pattern() -> PhaseResult:
                     if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         # Validasi body: tidak boleh hanya pass atau ... (kecuali abstract)
                         is_empty = (
-                            len(item.body) == 1 and 
+                            len(item.body) == 1 and
                             isinstance(item.body[0], (ast.Pass, ast.Expr))
                         )
                         if not is_empty:
@@ -4519,11 +4502,11 @@ def p29_acid_pattern() -> PhaseResult:
         missing_impl.append("commit")
     if "rollback" not in impl_methods:
         missing_impl.append("rollback")
-    
+
     # Cek context manager (pilih salah satu yang terimplementasi)
     has_impl_sync = "__enter__" in impl_methods and "__exit__" in impl_methods
     has_impl_async = "__aenter__" in impl_methods and "__aexit__" in impl_methods
-    
+
     if not has_impl_sync and not has_impl_async:
         missing_impl.append("context_manager (__enter__/__exit__ OR __aenter__/__aexit__)")
 
@@ -4545,7 +4528,7 @@ def p30_constitution_isolation() -> PhaseResult:
     pr = PhaseResult("P30 Constitution Isolation (Domain Purity)", weight=3)
     pr.disclaimer = "Uses AST to strictly enforce domain purity by banning direct imports of the constitution module."
     t0 = time.monotonic()
-    
+
     domain_dir = ROOT / "domain"
     if not domain_dir.exists():
         pr.add("CRITICAL", "domain/", 0, "Domain directory missing.")
@@ -4554,7 +4537,7 @@ def p30_constitution_isolation() -> PhaseResult:
         return pr
 
     violations = []
-    
+
     # Menentukan target modul yang terlarang bagi domain
     FORBIDDEN_MODULE = "constitution"
 
@@ -4562,14 +4545,14 @@ def p30_constitution_isolation() -> PhaseResult:
         tree = get_ast_tree(path)
         if not tree:
             continue
-            
+
         for node in ast.walk(tree):
             # Cek 'import constitution'
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name == FORBIDDEN_MODULE or alias.name.startswith(f"{FORBIDDEN_MODULE}."):
                         violations.append((rel(path), alias.name))
-            
+
             # Cek 'from constitution import ...'
             elif isinstance(node, ast.ImportFrom):
                 if node.module and (node.module == FORBIDDEN_MODULE or node.module.startswith(f"{FORBIDDEN_MODULE}.")):
@@ -4948,7 +4931,7 @@ def p34_cogs_pattern() -> PhaseResult:
     # 1. CARI FILE COGS
     # =====================================================================
     cogs_candidates = []
-    
+
     # File yang paling mungkin berisi COGS logic
     known_cogs_files = [
         "application/use_cases/cogs_calculation.py",
@@ -4957,45 +4940,43 @@ def p34_cogs_pattern() -> PhaseResult:
         "domain/inventory/cost_of_goods_sold.py",
         "application/service_layer/service_cogs.py",
     ]
-    
+
     for rel_path in known_cogs_files:
         full_path = ROOT / rel_path
         if full_path.exists():
             cogs_candidates.append(full_path)
-    
+
     # Jika tidak ditemukan, cari file yang mengandung kata "cogs" di path
     if not cogs_candidates:
         for path in all_py(skip_tops={"tests", "migrations"}):
             if "cogs" in str(path).lower() or "hpp" in str(path).lower() or "cost_of_goods" in str(path).lower():
                 cogs_candidates.append(path)
-    
+
     # =====================================================================
     # 2. ANALISIS AST
     # =====================================================================
     found_cogs_implementation = False
     details = []
-    
+
     for path in cogs_candidates:
         tree = get_ast_tree(path)
         if tree is None:
             continue
-        
+
         # Kumpulkan semua fungsi dan kelas
         functions = []
         classes = []
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                functions.append(node)
-            elif isinstance(node, ast.AsyncFunctionDef):
+            if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
                 functions.append(node)
             elif isinstance(node, ast.ClassDef):
                 classes.append(node)
-        
+
         # Cari fungsi atau method yang terkait COGS
         for func in functions:
             func_name = func.name.lower()
             func_body = ast.unparse(func)
-            
+
             # Indikasi: nama mengandung cogs / hpp / cost_of_goods
             if any(kw in func_name for kw in ["cogs", "hpp", "cost_of_goods", "calculate_cogs"]):
                 # Periksa apakah ada operasi matematis dan keyword inventory
@@ -5005,10 +4986,10 @@ def p34_cogs_pattern() -> PhaseResult:
                     found_cogs_implementation = True
                     details.append(f"Function '{func.name}' in {rel(path)}")
                     break
-        
+
         if found_cogs_implementation:
             break
-    
+
     # =====================================================================
     # 3. EVALUASI
     # =====================================================================
@@ -5024,7 +5005,7 @@ def p34_cogs_pattern() -> PhaseResult:
             if "cogs" in src.lower() and ("beginning" in src.lower() or "purchase" in src.lower() or "ending" in src.lower()):
                 fallback_found = True
                 break
-        
+
         if fallback_found:
             pr.add("WARNING", ".", 0,
                    "COGS pattern found in source (regex-based), but AST structural validation could not confirm robust mathematical logic.",
@@ -5098,15 +5079,11 @@ def p35_tax_pattern() -> PhaseResult:
         # Collect all function and method names
         defined_names = set()
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                defined_names.add(node.name)
-            elif isinstance(node, ast.AsyncFunctionDef):
+            if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
                 defined_names.add(node.name)
             elif isinstance(node, ast.ClassDef):
                 for item in node.body:
-                    if isinstance(item, ast.FunctionDef):
-                        defined_names.add(item.name)
-                    elif isinstance(item, ast.AsyncFunctionDef):
+                    if isinstance(item, ast.FunctionDef) or isinstance(item, ast.AsyncFunctionDef):
                         defined_names.add(item.name)
 
         # Check if at least one expected method exists
@@ -5358,9 +5335,7 @@ def p37_inventory_valuation() -> PhaseResult:
         functions = []
         classes = []
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                functions.append(node)
-            elif isinstance(node, ast.AsyncFunctionDef):
+            if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
                 functions.append(node)
             elif isinstance(node, ast.ClassDef):
                 classes.append(node)
@@ -5927,9 +5902,7 @@ def p41_compliance_structure() -> PhaseResult:
         class_methods = {}  # class_name -> set(method_names)
 
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                defined_names.add(node.name)
-            elif isinstance(node, ast.AsyncFunctionDef):
+            if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
                 defined_names.add(node.name)
             elif isinstance(node, ast.ClassDef):
                 defined_names.add(node.name)
@@ -6519,7 +6492,9 @@ def p48_orm_mapper() -> PhaseResult:
 
     try:
         from sqlalchemy import select
+
         from infrastructure.database.session_factory_sqlalchemy import get_session_factory_sync
+
         # Try to import a table that should exist in all ORM setups
         # Use OutboxMessageTable as it's a core table
         from infrastructure.persistence_orm.outbox_message_table import OutboxMessageTable
@@ -6710,7 +6685,7 @@ def p51_environment_vars() -> PhaseResult:
             pr.score = 90
         else:
             pr.add("PASS", ".env", 0,
-                   f"All required and optional environment variables are set.")
+                   "All required and optional environment variables are set.")
             pr.score = 100
 
     pr.finalize_status()
@@ -6918,7 +6893,7 @@ def p55_di_container() -> PhaseResult:
                 # 3. (Opsional) Bisa tambahkan validasi lebih lanjut, misal cek tipe parameter, dll.
 
             except Exception as e:
-                error_msg = f"{type(e).__name__}: {str(e)}"
+                error_msg = f"{type(e).__name__}: {e!s}"
                 missing_or_failed.append(iface)
                 pr.add("CRITICAL", "bootstrap/dependency_container", 0,
                        f"Failed to resolve or validate '{iface}'.",
@@ -6940,7 +6915,7 @@ def p55_di_container() -> PhaseResult:
         pr.score = 0
     except Exception as e:
         pr.add("CRITICAL", "bootstrap/dependency_container", 0,
-               f"Unexpected DI validation error: {type(e).__name__}: {str(e)}")
+               f"Unexpected DI validation error: {type(e).__name__}: {e!s}")
         pr.score = 0
 
     pr.finalize_status()
@@ -7175,10 +7150,10 @@ def p58_repository_contract() -> PhaseResult:
     pr = PhaseResult("P58 Repository Contract Validation", weight=3)
     pr.disclaimer = "Verifies that repository implementations exactly match the method signatures defined in their ports."
     t0 = time.monotonic()
-    
+
     port_dir = ROOT / "ports" / "primary"
     impl_dir = ROOT / "adapters" / "secondary_impl"
-    
+
     if not port_dir.exists() or not impl_dir.exists():
         pr.add("CRITICAL", "ports/primary", 0, "Architecture Violation: Ports or adapters directories missing.")
         pr.score = 0
@@ -7210,7 +7185,7 @@ def p58_repository_contract() -> PhaseResult:
         if py_file.name == "__init__.py": continue
         tree = get_ast_tree(py_file)
         if not tree: continue
-        
+
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef) and ("Port" in node.name or "Repository" in node.name):
                 methods = extract_methods_with_signatures(tree, node.name)
@@ -7227,7 +7202,7 @@ def p58_repository_contract() -> PhaseResult:
         if py_file.name == "__init__.py": continue
         tree = get_ast_tree(py_file)
         if not tree: continue
-        
+
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
                 methods = extract_methods_with_signatures(tree, node.name)
@@ -7240,37 +7215,37 @@ def p58_repository_contract() -> PhaseResult:
 
     # 3. Strict Contract Verification
     broken_contracts = []
-    
+
     for port_stem, port_data in port_contracts.items():
         base = port_stem.replace("_port", "").replace("_repository", "")
-        
+
         # Cari matching adapter file
         matched_impl_stem = None
         for impl_stem in impl_registry:
             if base in impl_stem or port_stem.replace("_port", "") in impl_stem:
                 matched_impl_stem = impl_stem
                 break
-                
+
         if not matched_impl_stem:
-            broken_contracts.append((str(port_data["file_path"]), "CRITICAL", 
+            broken_contracts.append((str(port_data["file_path"]), "CRITICAL",
                                      f"Port class '{port_data['class_name']}' has no matching implementation file."))
             continue
 
         impl_data = impl_registry[matched_impl_stem]
-        
+
         # Validasi setiap abstract method
         for method_name, (is_abstract, port_args) in port_data["methods"].items():
             if not is_abstract: continue
-            
+
             if method_name not in impl_data["methods"]:
-                broken_contracts.append((str(impl_data["file_path"]), "CRITICAL", 
+                broken_contracts.append((str(impl_data["file_path"]), "CRITICAL",
                      f"Adapter '{impl_data['class_name']}' missing implementation for abstract method '{method_name}'."))
                 continue
-                
+
             # VALIDASI SIGNATURE: Periksa apakah jumlah dan susunan argumennya sama
             _, impl_args = impl_data["methods"][method_name]
             if port_args != impl_args:
-                broken_contracts.append((str(impl_data["file_path"]), "CRITICAL", 
+                broken_contracts.append((str(impl_data["file_path"]), "CRITICAL",
                      f"Signature mismatch in '{impl_data['class_name']}.{method_name}'. "
                      f"Expected args: {port_args}, Found: {impl_args}"))
 
@@ -7292,7 +7267,7 @@ def p59_dto_mapper() -> PhaseResult:
     pr = PhaseResult("P59 DTO Mapper Validation", weight=2)
     pr.disclaimer = "Uses AST to ensure mapper files contain real structural mapping logic, rejecting empty or commented dummies."
     t0 = time.monotonic()
-    
+
     mapper_dir = ROOT / "application" / "mappers"
     if not mapper_dir.exists():
         pr.add("INFO", "application/mappers/", 0, "No mappers directory found.")
@@ -7309,7 +7284,7 @@ def p59_dto_mapper() -> PhaseResult:
         if not tree: continue
 
         has_valid_logic = False
-        
+
         for node in ast.walk(tree):
             # Cek jika ada fungsi pemetaan di level modul atau level kelas
             if isinstance(node, ast.FunctionDef):
@@ -7320,7 +7295,7 @@ def p59_dto_mapper() -> PhaseResult:
                         stmt = node.body[0]
                         if isinstance(stmt, ast.Pass) or (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and stmt.value.value == Ellipsis):
                             continue # Ini fungsi kosong / dummy stub
-                    
+
                     has_valid_logic = True
                     break
 

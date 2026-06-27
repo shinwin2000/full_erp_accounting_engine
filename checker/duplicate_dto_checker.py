@@ -22,11 +22,8 @@ import argparse
 import ast
 import json
 import pathlib
-import re
 import sys
-from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple, Any
 
 # Warna
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
@@ -46,7 +43,7 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
 @dataclass
 class FieldInfo:
     name: str
-    type_hint: Optional[str]
+    type_hint: str | None
     has_default: bool
     lineno: int
 
@@ -59,21 +56,21 @@ class DTOInfo:
     is_dataclass: bool
     is_pydantic: bool
     is_typed_dict: bool
-    fields: List[FieldInfo]
-    bases: List[str]
+    fields: list[FieldInfo]
+    bases: list[str]
     has_methods: bool  # True jika ada method selain __init__
 
 @dataclass
 class DuplicateDTOGroup:
     pattern_name: str
-    fields: List[str]  # field names
-    locations: List[Tuple[str, int, str]]  # (file_path, line, class_name)
+    fields: list[str]  # field names
+    locations: list[tuple[str, int, str]]  # (file_path, line, class_name)
     similarity_score: float
 
 @dataclass
 class Report:
     dto_count: int
-    duplicate_groups: List[DuplicateDTOGroup] = field(default_factory=list)
+    duplicate_groups: list[DuplicateDTOGroup] = field(default_factory=list)
     score: int = 100
 
 def is_dto_class(cls: ast.ClassDef) -> bool:
@@ -131,14 +128,12 @@ def is_dto_class(cls: ast.ClassDef) -> bool:
             break
 
     is_dto = False
-    if has_dataclass_decorator or is_pydantic_base or is_typed_dict:
-        is_dto = True
-    elif method_count == 0 and has_fields:
+    if has_dataclass_decorator or is_pydantic_base or is_typed_dict or (method_count == 0 and has_fields):
         is_dto = True
 
     return is_dto
 
-def extract_dto_info(file_path: pathlib.Path, module: str) -> List[DTOInfo]:
+def extract_dto_info(file_path: pathlib.Path, module: str) -> list[DTOInfo]:
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(src, filename=str(file_path))
@@ -266,7 +261,7 @@ def compute_dto_similarity(dto1: DTOInfo, dto2: DTOInfo) -> float:
 
     return round(min(1.0, max(0.0, score)), 2)
 
-def find_duplicate_dtos(dtos: List[DTOInfo], threshold: float = 0.7) -> List[DuplicateDTOGroup]:
+def find_duplicate_dtos(dtos: list[DTOInfo], threshold: float = 0.7) -> list[DuplicateDTOGroup]:
     groups = []
     used = set()
     n = len(dtos)
@@ -301,7 +296,7 @@ def find_duplicate_dtos(dtos: List[DTOInfo], threshold: float = 0.7) -> List[Dup
 
     return groups
 
-def scan_project(exclude_dirs: List[str] = None) -> Report:
+def scan_project(exclude_dirs: list[str] = None) -> Report:
     if exclude_dirs is None:
         exclude_dirs = ['.venv', 'venv', '__pycache__', '.git', 'node_modules',
                        'dist', 'build', 'migrations', 'deployment', 'docs', 'tests']
@@ -340,7 +335,7 @@ def print_report(report: Report, verbose: bool = False):
         for group in report.duplicate_groups:
             print(f"\n  Pattern: {group.pattern_name} (similarity: {group.similarity_score:.2f})")
             print(f"    Fields: {', '.join(group.fields)}")
-            print(f"    Locations:")
+            print("    Locations:")
             for file_path, line, class_name in group.locations:
                 print(f"      - {file_path}:{line}  [{class_name}]")
     else:

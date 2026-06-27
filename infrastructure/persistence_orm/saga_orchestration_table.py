@@ -6,10 +6,10 @@ Responsibility: ORM models untuk Saga orchestration tables.
 
 from __future__ import annotations
 
-from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import uuid4
 
-from sqlalchemy import UUID as SQLUUID, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import UUID as SQLUUID
+from sqlalchemy import Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from infrastructure.persistence_orm.base_model import Base

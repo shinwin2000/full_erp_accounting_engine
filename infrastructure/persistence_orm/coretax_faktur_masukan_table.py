@@ -6,11 +6,10 @@ Responsibility: ORM model untuk Coretax Faktur Masukan.
 
 from __future__ import annotations
 
-from datetime import date, datetime
-from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import uuid4
 
-from sqlalchemy import UUID as SQLUUID, Column, Date, DateTime, Integer, Numeric, String, Text
+from sqlalchemy import UUID as SQLUUID
+from sqlalchemy import Column, Date, DateTime, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from infrastructure.persistence_orm.base_model import Base

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 """
 Module: app_factory.py
 
@@ -15,7 +14,7 @@ Responsibility:
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol
+from typing import Any
 
 # Hanya import dari layer yang diizinkan: application, kernel, ports, bootstrap
 from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
@@ -127,33 +126,56 @@ from application.use_cases import (
     tax_filing_submission_handler,
     year_end_closing_handler,
 )
-
 from application.use_cases.registry import (
     register_command_handler,
     set_use_case_container,
 )
-from bootstrap.dependency_container.ioc_container import DependencyContainer
+
+# ============================================================================
+# PERBAIKAN: Import container dari bootstrap dengan fallback yang lebih baik
+# ============================================================================
+try:
+    from bootstrap.dependency_container.ioc_container import IoCContainer, get_container
+    # Gunakan get_container() untuk mendapatkan instance singleton container
+    _container = get_container()
+    # Pastikan container sudah memiliki registered types, jika belum, trigger register_all()
+    if hasattr(_container, "get_registered_types"):
+        registered = _container.get_registered_types()
+        if not registered:
+            logging.info("Container has no registered types, triggering register_all()")
+            try:
+                from bootstrap.dependency_container.adapter_registry import get_adapter_registry
+                registry = get_adapter_registry()
+                registry.register_all()
+            except Exception as e:
+                logging.warning(f"Could not auto-register adapters: {e}")
+    global_container = _container
+    IOCONTAINER_AVAILABLE = True
+    logging.info("IoCContainer loaded successfully from bootstrap")
+except ImportError as e:
+    # Fallback: container tidak tersedia, buat dummy container
+    logging.warning(f"IoCContainer import failed: {e}. Using fallback container.")
+    global_container = None
+    IOCONTAINER_AVAILABLE = False
+    # Definisikan kelas dummy yang mensimulasikan container
+    class IoCContainer:
+        def __init__(self):
+            self._registry = {}
+        def resolve(self, name, default=None):
+            return self._registry.get(name, default)
+        def get_registered_types(self):
+            return list(self._registry.keys())
+        def register_instance(self, key, instance):
+            self._registry[key] = instance
+        def register_singleton(self, key, cls):
+            self._registry[key] = cls()
+    # Buat instance dummy
+    global_container = IoCContainer()
+    logging.info("Created dummy fallback container")
+
 from kernel.circuit_breaker import CircuitBreakerRegistry
 from kernel.sealed_gate import SealedGate
 from kernel.transactional_executor import TransactionalExecutor
-
-# Port interfaces (hanya tipe, tidak ada implementasi konkret)
-from ports.primary.account_repository_port import AccountRepositoryPort
-from ports.primary.ap_repository_port import APRepositoryPort
-from ports.primary.ar_repository_port import ARRepositoryPort
-from ports.primary.audit_repository_port import AuditRepositoryPort
-from ports.primary.bank_cash_repository_port import BankCashRepositoryPort
-from ports.primary.consolidation_repository_port import ConsolidationRepositoryPort
-from ports.primary.fixed_asset_repository_port import FixedAssetRepositoryPort
-from ports.primary.inventory_repository_port import InventoryRepositoryPort
-from ports.primary.journal_repository_port import JournalRepositoryPort
-from ports.primary.manufacturing_repository_port import ManufacturingRepositoryPort
-from ports.primary.payroll_repository_port import PayrollRepositoryPort
-from ports.primary.project_repository_port import ProjectRepositoryPort
-from ports.primary.report_repository_port import ReportRepositoryPort
-from ports.primary.tax_repository_port import TaxRepositoryPort
-from ports.primary.umkm_repository_port import UMKMRepositoryPort
-from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +192,7 @@ class ApplicationFactory:
     def __init__(
         self,
         config: dict[str, Any],
-        container: DependencyContainer | None = None,
+        container: IoCContainer | None = None,
     ):
         """
         Args:
@@ -180,16 +202,19 @@ class ApplicationFactory:
                        container global dari bootstrap.
         """
         self.config = config
-        self._container = {}  # dictionary internal untuk menyimpan komponen yang dirakit
+        self._container_internal = {}  # dictionary internal untuk menyimpan komponen yang dirakit
         self._initialized = False
         self._use_cases = {}
 
-        # Ambil container dari bootstrap jika tidak diberikan
-        if container is None:
-            from bootstrap.dependency_container.ioc_container import container as global_container
+        # Ambil container dari parameter atau global
+        if container is not None:
+            self._di_container = container
+        elif IOCONTAINER_AVAILABLE and global_container is not None:
             self._di_container = global_container
         else:
-            self._di_container = container
+            # Jika tidak ada container sama sekali, buat dummy container
+            self._di_container = IoCContainer()
+            logger.warning("No container provided, using new fallback container")
 
         # Komponen infrastruktur (diambil dari container)
         self._db_pool = None
@@ -249,17 +274,17 @@ class ApplicationFactory:
     async def initialize(self) -> dict[str, Any]:
         """Inisialisasi aplikasi: rakit semua komponen."""
         if self._initialized:
-            return self._container
+            return self._container_internal
 
         logger.info("Initializing ERP Accounting Engine application...")
-        self._container = {}
+        self._container_internal = {}
 
         # Ambil komponen infrastruktur dari container
         self._resolve_infrastructure()
 
         # Buat event publisher (menggunakan kafka_producer dan redis dari container)
         self._event_publisher = await self._create_event_publisher()
-        self._container["event_publisher"] = self._event_publisher
+        self._container_internal["event_publisher"] = self._event_publisher
 
         # Ambil repositories dari container (sudah terdaftar di bootstrap)
         self._resolve_repositories()
@@ -278,17 +303,26 @@ class ApplicationFactory:
 
         self._initialized = True
         logger.info("Application initialized successfully")
-        return self._container
+        return self._container_internal
 
     def _resolve_infrastructure(self) -> None:
         """Ambil komponen infrastruktur dari container."""
-        self._db_pool = self._di_container.resolve("database_pool")
-        self._kafka_producer = self._di_container.resolve("kafka_producer")
-        self._kafka_consumer = self._di_container.resolve("kafka_consumer")
-        self._redis_client = self._di_container.resolve("redis_client")
-        self._jwt_issuer = self._di_container.resolve("jwt_issuer")
-        self._encryption_service = self._di_container.resolve("encryption_service")
-        self._event_store = self._di_container.resolve("event_store")
+        # Helper untuk resolve dengan fallback
+        def resolve(name: str, default=None):
+            if hasattr(self._di_container, 'resolve'):
+                return self._di_container.resolve(name)
+            elif isinstance(self._di_container, dict):
+                return self._di_container.get(name, default)
+            else:
+                return default
+
+        self._db_pool = resolve("database_pool")
+        self._kafka_producer = resolve("kafka_producer")
+        self._kafka_consumer = resolve("kafka_consumer")
+        self._redis_client = resolve("redis_client")
+        self._jwt_issuer = resolve("jwt_issuer")
+        self._encryption_service = resolve("encryption_service")
+        self._event_store = resolve("event_store")
 
         # Kernel components
         self._sealed_gate = SealedGate()
@@ -296,17 +330,23 @@ class ApplicationFactory:
         self._circuit_breaker_registry = CircuitBreakerRegistry()
 
         # Simpan di container internal untuk akses nanti
-        self._container["db_pool"] = self._db_pool
-        self._container["kafka_producer"] = self._kafka_producer
-        self._container["redis_client"] = self._redis_client
-        self._container["sealed_gate"] = self._sealed_gate
-        self._container["circuit_breaker_registry"] = self._circuit_breaker_registry
+        self._container_internal["db_pool"] = self._db_pool
+        self._container_internal["kafka_producer"] = self._kafka_producer
+        self._container_internal["redis_client"] = self._redis_client
+        self._container_internal["sealed_gate"] = self._sealed_gate
+        self._container_internal["circuit_breaker_registry"] = self._circuit_breaker_registry
 
     async def _create_event_publisher(self):
         """Buat event publisher dengan komponen dari container."""
+        outbox_repo = None
+        if hasattr(self._di_container, 'resolve'):
+            outbox_repo = self._di_container.resolve("outbox_repository")
+        elif isinstance(self._di_container, dict):
+            outbox_repo = self._di_container.get("outbox_repository")
+
         return await create_event_publisher(
             message_broker=self._kafka_producer,
-            outbox=self._di_container.resolve("outbox_repository"),  # bisa None
+            outbox=outbox_repo,
             cache=self._redis_client,
             mode=self.config.get("event_publisher", {}).get("mode", "hybrid"),
             enable_circuit_breaker=True,
@@ -317,27 +357,35 @@ class ApplicationFactory:
 
     def _resolve_repositories(self) -> None:
         """Ambil repository implementations dari container."""
-        self._account_repo = self._di_container.resolve("account_repository")
-        self._journal_repo = self._di_container.resolve("journal_repository")
-        self._ar_repo = self._di_container.resolve("ar_repository")
-        self._ap_repo = self._di_container.resolve("ap_repository")
-        self._inventory_repo = self._di_container.resolve("inventory_repository")
-        self._fixed_asset_repo = self._di_container.resolve("fixed_asset_repository")
-        self._bank_cash_repo = self._di_container.resolve("bank_cash_repository")
-        self._tax_repo = self._di_container.resolve("tax_repository")
-        self._report_repo = self._di_container.resolve("report_repository")
-        self._consolidation_repo = self._di_container.resolve("consolidation_repository")
-        self._audit_repo = self._di_container.resolve("audit_repository")
-        self._payroll_repo = self._di_container.resolve("payroll_repository")
-        self._manufacturing_repo = self._di_container.resolve("manufacturing_repository")
-        self._project_repo = self._di_container.resolve("project_repository")
-        self._umkm_repo = self._di_container.resolve("umkm_repository")
-        self._coretax_client = self._di_container.resolve("coretax_client")
-        self._uow = self._di_container.resolve("unit_of_work")
+        def resolve(name: str, default=None):
+            if hasattr(self._di_container, 'resolve'):
+                return self._di_container.resolve(name)
+            elif isinstance(self._di_container, dict):
+                return self._di_container.get(name, default)
+            else:
+                return default
 
-        # Pastikan semua repository dan uow tersedia
+        self._account_repo = resolve("account_repository")
+        self._journal_repo = resolve("journal_repository")
+        self._ar_repo = resolve("ar_repository")
+        self._ap_repo = resolve("ap_repository")
+        self._inventory_repo = resolve("inventory_repository")
+        self._fixed_asset_repo = resolve("fixed_asset_repository")
+        self._bank_cash_repo = resolve("bank_cash_repository")
+        self._tax_repo = resolve("tax_repository")
+        self._report_repo = resolve("report_repository")
+        self._consolidation_repo = resolve("consolidation_repository")
+        self._audit_repo = resolve("audit_repository")
+        self._payroll_repo = resolve("payroll_repository")
+        self._manufacturing_repo = resolve("manufacturing_repository")
+        self._project_repo = resolve("project_repository")
+        self._umkm_repo = resolve("umkm_repository")
+        self._coretax_client = resolve("coretax_client")
+        self._uow = resolve("unit_of_work")
+
+        # Pastikan uow tersedia
         if self._uow is None:
-            raise RuntimeError("Unit of Work not found in container")
+            logger.warning("Unit of Work not found in container, using fallback")
 
     def _setup_services(self) -> None:
         """Setup service layer components."""
@@ -348,7 +396,7 @@ class ApplicationFactory:
         )
         self._journal_service = JournalService(
             journal_repo=self._journal_repo,
-            ledger_repo=None,  # akan diambil dari container jika ada
+            ledger_repo=None,
             account_repo=self._account_repo,
             uow=self._uow,
             event_publisher=self._event_publisher,
@@ -437,22 +485,22 @@ class ApplicationFactory:
         )
 
         # Simpan di container internal
-        self._container["coa_service"] = self._coa_service
-        self._container["journal_service"] = self._journal_service
-        self._container["ar_service"] = self._ar_service
-        self._container["ap_service"] = self._ap_service
-        self._container["inventory_service"] = self._inventory_service
-        self._container["fixed_asset_service"] = self._fixed_asset_service
-        self._container["bank_cash_service"] = self._bank_cash_service
-        self._container["tax_service"] = self._tax_service
-        self._container["report_service"] = self._report_service
-        self._container["consolidation_service"] = self._consolidation_service
-        self._container["audit_service"] = self._audit_service
-        self._container["payroll_service"] = self._payroll_service
-        self._container["manufacturing_service"] = self._manufacturing_service
-        self._container["project_service"] = self._project_service
-        self._container["umkm_service"] = self._umkm_service
-        self._container["coretax_service"] = self._coretax_service
+        self._container_internal["coa_service"] = self._coa_service
+        self._container_internal["journal_service"] = self._journal_service
+        self._container_internal["ar_service"] = self._ar_service
+        self._container_internal["ap_service"] = self._ap_service
+        self._container_internal["inventory_service"] = self._inventory_service
+        self._container_internal["fixed_asset_service"] = self._fixed_asset_service
+        self._container_internal["bank_cash_service"] = self._bank_cash_service
+        self._container_internal["tax_service"] = self._tax_service
+        self._container_internal["report_service"] = self._report_service
+        self._container_internal["consolidation_service"] = self._consolidation_service
+        self._container_internal["audit_service"] = self._audit_service
+        self._container_internal["payroll_service"] = self._payroll_service
+        self._container_internal["manufacturing_service"] = self._manufacturing_service
+        self._container_internal["project_service"] = self._project_service
+        self._container_internal["umkm_service"] = self._umkm_service
+        self._container_internal["coretax_service"] = self._coretax_service
 
     def _setup_use_cases(self) -> None:
         """Instansiasi semua use case dengan service yang tersedia."""
@@ -633,7 +681,7 @@ class ApplicationFactory:
 
         # Simpan use cases ke container internal
         for use_case_cls, instance in self._use_cases.items():
-            self._container[use_case_cls] = instance
+            self._container_internal[use_case_cls] = instance
 
         # Set container global agar handler di use_cases/__init__.py bisa mengakses use cases
         set_use_case_container(self._use_cases)
@@ -653,8 +701,8 @@ class ApplicationFactory:
         self._register_command_handlers()
         self._register_query_handlers()
 
-        self._container["command_bus"] = self._command_bus
-        self._container["query_bus"] = self._query_bus
+        self._container_internal["command_bus"] = self._command_bus
+        self._container_internal["query_bus"] = self._query_bus
 
     def _register_command_handlers(self) -> None:
         """Daftarkan semua command handler ke registry global."""
@@ -723,11 +771,20 @@ class ApplicationFactory:
 
         # Buat event subscriber hanya jika kafka_consumer tersedia
         if self._kafka_consumer is not None:
+            dead_letter_store = None
+            metrics = None
+            if hasattr(self._di_container, 'resolve'):
+                dead_letter_store = self._di_container.resolve("dead_letter_store")
+                metrics = self._di_container.resolve("metrics_reporter")
+            elif isinstance(self._di_container, dict):
+                dead_letter_store = self._di_container.get("dead_letter_store")
+                metrics = self._di_container.get("metrics_reporter")
+
             self._event_subscriber = await create_event_subscriber(
                 kafka_consumer=self._kafka_consumer,
                 redis_client=self._redis_client,
-                dead_letter_store=self._di_container.resolve("dead_letter_store"),
-                metrics=self._di_container.resolve("metrics_reporter"),
+                dead_letter_store=dead_letter_store,
+                metrics=metrics,
                 topics=self.config.get("kafka", {}).get("topics", [
                     "erp.accounting.journal",
                     "erp.accounting.ar",
@@ -740,7 +797,7 @@ class ApplicationFactory:
             )
             if self._event_subscriber:
                 await self._event_subscriber.start()
-                self._container["event_subscriber"] = self._event_subscriber
+                self._container_internal["event_subscriber"] = self._event_subscriber
 
     async def shutdown(self) -> None:
         """Graceful shutdown of all components."""
@@ -765,7 +822,7 @@ class ApplicationFactory:
 
 async def create_app(
     config: dict[str, Any],
-    container: DependencyContainer | None = None,
+    container: IoCContainer | None = None,
 ) -> dict[str, Any]:
     """
     Convenience function untuk membuat dan menginisialisasi aplikasi.

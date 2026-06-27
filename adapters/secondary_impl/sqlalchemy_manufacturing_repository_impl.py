@@ -3,23 +3,25 @@
 Module: sqlalchemy_manufacturing_repository_impl.py
 Layer: Infrastructure (Secondary Adapter)
 Responsibility: Implementasi repository Manufacturing (BOM, Work Order, Cost Card, WIP)
-               menggunakan SQLAlchemy ORM. Semua metode diimplementasikan secara nyata
-               tanpa stub, fallback, atau dummy.
+               menggunakan SQLAlchemy ORM. Semua metode diimplementasikan secara nyata.
 """
 
 from __future__ import annotations
 
 import logging
-import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from uuid import UUID, uuid4
 
-from sqlalchemy import and_, func, or_, select, update, delete
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from domain.manufacturing.bill_of_materials_entity import BillOfMaterialsEntity, BOMStatus
+from domain.manufacturing.cost_card_entity import CostCardEntity
+from domain.manufacturing.standard_cost_entity import StandardCostEntity, StandardCostStatus
+from domain.manufacturing.work_in_process_entity import WIPStatus, WorkInProcessEntity
+from domain.manufacturing.work_order_entity import WorkOrderEntity, WorkOrderStatus
 from infrastructure.persistence_orm.bill_of_materials_table import BillOfMaterialsTable
-from infrastructure.persistence_orm.bill_of_materials_line_table import BillOfMaterialsLineTable
 from infrastructure.persistence_orm.manufacturing_cost_card_table import ManufacturingCostCardTable
 from infrastructure.persistence_orm.manufacturing_work_order_table import (
     ManufacturingWorkOrderTable,
@@ -30,8 +32,9 @@ logger = logging.getLogger(__name__)
 
 
 class SQLAlchemyManufacturingRepository(ManufacturingRepositoryPort):
-    def __init__(self, session: AsyncSession | None = None):
+    def __init__(self, session: AsyncSession | None = None, legal_entity_id: UUID | None = None):
         self._session = session
+        self._legal_entity_id = legal_entity_id
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
@@ -39,48 +42,179 @@ class SQLAlchemyManufacturingRepository(ManufacturingRepositoryPort):
             self._session = await get_async_session()
         return self._session
 
+    def _get_legal_entity_id(self) -> UUID:
+        if self._legal_entity_id is None:
+            raise ValueError("legal_entity_id not set in repository")
+        return self._legal_entity_id
+
     # ========================================================================
-    # BILL OF MATERIALS (BOM)
+    # MAPPING: ORM ↔ Domain
     # ========================================================================
 
-    async def save_bom(self, bom: BillOfMaterialsTable) -> BillOfMaterialsTable:
-        """Simpan atau update BOM."""
+    def _bom_to_domain(self, table: BillOfMaterialsTable) -> BillOfMaterialsEntity:
+        return BillOfMaterialsEntity(
+            id=table.id,
+            product_id=table.product_id,
+            product_code=table.product_code,
+            product_name=table.product_name,
+            version=table.version,
+            status=BOMStatus(table.status) if table.status else BOMStatus.DRAFT,
+            effective_date=table.effective_date,
+            expiry_date=table.expiry_date,
+            is_active=table.is_active,
+            created_by=table.created_by,
+            created_at=table.created_at,
+            updated_at=table.updated_at,
+        )
+
+    def _bom_from_domain(self, bom: BillOfMaterialsEntity) -> BillOfMaterialsTable:
+        status_str = bom.status.value if hasattr(bom.status, "value") else str(bom.status)
+        return BillOfMaterialsTable(
+            id=bom.id,
+            product_id=bom.product_id,
+            product_code=bom.product_code,
+            product_name=bom.product_name,
+            version=bom.version,
+            status=status_str,
+            effective_date=bom.effective_date,
+            expiry_date=bom.expiry_date,
+            is_active=bom.is_active,
+            created_by=bom.created_by,
+            created_at=bom.created_at,
+            updated_at=bom.updated_at,
+            legal_entity_id=self._get_legal_entity_id(),
+        )
+
+    def _wo_to_domain(self, table: ManufacturingWorkOrderTable) -> WorkOrderEntity:
+        status_map = {
+            "draft": WorkOrderStatus.DRAFT,
+            "approved": WorkOrderStatus.APPROVED,
+            "in_progress": WorkOrderStatus.IN_PROGRESS,
+            "completed": WorkOrderStatus.COMPLETED,
+            "cancelled": WorkOrderStatus.CANCELLED,
+        }
+        return WorkOrderEntity(
+            id=table.id,
+            work_order_number=table.work_order_number,
+            product_id=table.product_id,
+            product_code=table.product_code,
+            product_name=table.product_name,
+            planned_quantity=table.planned_quantity,
+            completed_quantity=table.completed_quantity or Decimal(0),
+            status=status_map.get(table.status, WorkOrderStatus.DRAFT),
+            bom_id=table.bom_id,
+            start_date=table.start_date,
+            due_date=table.due_date,
+            completed_at=table.completed_at,
+            material_cost=table.material_cost or Decimal(0),
+            labor_cost=table.labor_cost or Decimal(0),
+            overhead_cost=table.overhead_cost or Decimal(0),
+            created_by=table.created_by,
+            created_at=table.created_at,
+            updated_at=table.updated_at,
+        )
+
+    def _wo_from_domain(self, wo: WorkOrderEntity) -> ManufacturingWorkOrderTable:
+        status_str = wo.status.value if hasattr(wo.status, "value") else str(wo.status)
+        return ManufacturingWorkOrderTable(
+            id=wo.id,
+            work_order_number=wo.work_order_number,
+            product_id=wo.product_id,
+            product_code=wo.product_code,
+            product_name=wo.product_name,
+            planned_quantity=wo.planned_quantity,
+            completed_quantity=wo.completed_quantity,
+            status=status_str,
+            bom_id=wo.bom_id,
+            start_date=wo.start_date,
+            due_date=wo.due_date,
+            completed_at=wo.completed_at,
+            material_cost=wo.material_cost,
+            labor_cost=wo.labor_cost,
+            overhead_cost=wo.overhead_cost,
+            created_by=wo.created_by,
+            created_at=wo.created_at,
+            updated_at=wo.updated_at,
+            legal_entity_id=self._get_legal_entity_id(),
+        )
+
+    def _cost_card_to_domain(self, table: ManufacturingCostCardTable) -> CostCardEntity:
+        return CostCardEntity(
+            id=table.id,
+            product_id=table.product_id,
+            product_code=table.product_code,
+            product_name=table.product_name,
+            period=table.period,
+            material_cost=table.material_cost,
+            labor_cost=table.labor_cost,
+            overhead_cost=table.overhead_cost,
+            total_cost=table.total_cost,
+            is_active=table.is_active,
+            created_by=table.created_by,
+            created_at=table.created_at,
+            updated_at=table.updated_at,
+        )
+
+    def _cost_card_from_domain(self, card: CostCardEntity) -> ManufacturingCostCardTable:
+        return ManufacturingCostCardTable(
+            id=card.id,
+            product_id=card.product_id,
+            product_code=card.product_code,
+            product_name=card.product_name,
+            period=card.period,
+            material_cost=card.material_cost,
+            labor_cost=card.labor_cost,
+            overhead_cost=card.overhead_cost,
+            total_cost=card.total_cost,
+            is_active=card.is_active,
+            created_by=card.created_by,
+            created_at=card.created_at,
+            updated_at=card.updated_at,
+            legal_entity_id=self._get_legal_entity_id(),
+        )
+
+    def _wip_to_domain(self, table: ManufacturingWorkOrderTable) -> WorkInProcessEntity:
+        wip_status = WIPStatus.OPEN if table.status in ("approved", "in_progress") else WIPStatus.CLOSED
+        return WorkInProcessEntity(
+            id=uuid4(),  # tidak ada tabel WIP terpisah, kita gunakan work order sebagai sumber WIP
+            work_order_id=table.id,
+            work_order_number=table.work_order_number,
+            product_id=table.product_id,
+            product_code=table.product_code,
+            product_name=table.product_name,
+            quantity_started=table.planned_quantity - table.completed_quantity,
+            quantity_completed=table.completed_quantity,
+            status=wip_status,
+            created_at=table.created_at,
+            updated_at=table.updated_at,
+        )
+
+    # ========================================================================
+    # BILL OF MATERIALS
+    # ========================================================================
+
+    async def save_bom(self, bom: BillOfMaterialsEntity) -> None:
         session = await self._get_session()
+        table = self._bom_from_domain(bom)
         existing = await session.get(BillOfMaterialsTable, bom.id)
         if existing:
-            # Update
-            for key, value in bom.__dict__.items():
+            for key, value in table.__dict__.items():
                 if not key.startswith("_") and key != "id":
                     setattr(existing, key, value)
             existing.updated_at = datetime.utcnow()
         else:
-            session.add(bom)
+            session.add(table)
         await session.flush()
-        return bom
 
-    async def get_bom_by_id(self, bom_id: uuid.UUID) -> BillOfMaterialsTable | None:
+    async def get_bom_by_id(self, bom_id: UUID) -> BillOfMaterialsEntity | None:
         session = await self._get_session()
-        return await session.get(BillOfMaterialsTable, bom_id)
+        table = await session.get(BillOfMaterialsTable, bom_id)
+        if not table or table.deleted_at is not None:
+            return None
+        return self._bom_to_domain(table)
 
-    async def get_bom_by_product(
-        self, product_id: uuid.UUID, legal_entity_id: uuid.UUID
-    ) -> list[BillOfMaterialsTable]:
-        session = await self._get_session()
-        stmt = (
-            select(BillOfMaterialsTable)
-            .where(
-                BillOfMaterialsTable.product_id == product_id,
-                BillOfMaterialsTable.legal_entity_id == legal_entity_id,
-                BillOfMaterialsTable.deleted_at.is_(None),
-            )
-            .order_by(BillOfMaterialsTable.version.desc())
-        )
-        result = await session.execute(stmt)
-        return list(result.scalars().all())
-
-    async def get_active_bom(
-        self, product_id: uuid.UUID, legal_entity_id: uuid.UUID
-    ) -> BillOfMaterialsTable | None:
+    async def get_active_bom(self, product_id: UUID, as_of_date: date) -> BillOfMaterialsEntity | None:
+        legal_entity_id = self._get_legal_entity_id()
         session = await self._get_session()
         stmt = (
             select(BillOfMaterialsTable)
@@ -88,17 +222,23 @@ class SQLAlchemyManufacturingRepository(ManufacturingRepositoryPort):
                 BillOfMaterialsTable.product_id == product_id,
                 BillOfMaterialsTable.legal_entity_id == legal_entity_id,
                 BillOfMaterialsTable.is_active == True,
+                BillOfMaterialsTable.effective_date <= as_of_date,
                 BillOfMaterialsTable.deleted_at.is_(None),
             )
-            .order_by(BillOfMaterialsTable.version.desc())
+            .order_by(BillOfMaterialsTable.effective_date.desc())
             .limit(1)
         )
         result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+        table = result.scalar_one_or_none()
+        if not table:
+            return None
+        # Check expiry
+        if table.expiry_date and table.expiry_date < as_of_date:
+            return None
+        return self._bom_to_domain(table)
 
-    async def get_bom_by_product_and_version(
-        self, product_id: uuid.UUID, version: int, legal_entity_id: uuid.UUID
-    ) -> BillOfMaterialsTable | None:
+    async def get_bom_by_product_and_version(self, product_id: UUID, version: int) -> BillOfMaterialsEntity | None:
+        legal_entity_id = self._get_legal_entity_id()
         session = await self._get_session()
         stmt = (
             select(BillOfMaterialsTable)
@@ -110,93 +250,57 @@ class SQLAlchemyManufacturingRepository(ManufacturingRepositoryPort):
             )
         )
         result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+        table = result.scalar_one_or_none()
+        if not table:
+            return None
+        return self._bom_to_domain(table)
 
     async def list_boms_by_product(
-        self, product_id: uuid.UUID, legal_entity_id: uuid.UUID
-    ) -> list[BillOfMaterialsTable]:
-        return await self.get_bom_by_product(product_id, legal_entity_id)
-
-    async def save_bom_batch(
-        self, boms: list[BillOfMaterialsTable], lines: list[BillOfMaterialsLineTable]
-    ) -> None:
-        """Simpan batch BOM dan line-nya sekaligus."""
-        session = await self._get_session()
-        for bom in boms:
-            session.add(bom)
-        for line in lines:
-            session.add(line)
-        await session.flush()
-
-    # ========================================================================
-    # BOM LINES
-    # ========================================================================
-
-    async def save_bom_line(self, line: BillOfMaterialsLineTable) -> BillOfMaterialsLineTable:
-        session = await self._get_session()
-        existing = await session.get(BillOfMaterialsLineTable, line.id)
-        if existing:
-            for key, value in line.__dict__.items():
-                if not key.startswith("_") and key != "id":
-                    setattr(existing, key, value)
-        else:
-            session.add(line)
-        await session.flush()
-        return line
-
-    async def get_bom_lines(self, bom_id: uuid.UUID) -> list[BillOfMaterialsLineTable]:
+        self, product_id: UUID, limit: int = 100, offset: int = 0
+    ) -> list[BillOfMaterialsEntity]:
+        legal_entity_id = self._get_legal_entity_id()
         session = await self._get_session()
         stmt = (
-            select(BillOfMaterialsLineTable)
+            select(BillOfMaterialsTable)
             .where(
-                BillOfMaterialsLineTable.bom_id == bom_id,
-                BillOfMaterialsLineTable.deleted_at.is_(None),
+                BillOfMaterialsTable.product_id == product_id,
+                BillOfMaterialsTable.legal_entity_id == legal_entity_id,
+                BillOfMaterialsTable.deleted_at.is_(None),
             )
-            .order_by(BillOfMaterialsLineTable.line_number)
+            .order_by(BillOfMaterialsTable.version.desc())
+            .limit(limit)
+            .offset(offset)
         )
         result = await session.execute(stmt)
-        return list(result.scalars().all())
+        tables = result.scalars().all()
+        return [self._bom_to_domain(t) for t in tables]
 
     # ========================================================================
     # WORK ORDER
     # ========================================================================
 
-    async def save_work_order(
-        self, wo: ManufacturingWorkOrderTable
-    ) -> ManufacturingWorkOrderTable:
+    async def save_work_order(self, work_order: WorkOrderEntity) -> None:
         session = await self._get_session()
-        existing = await session.get(ManufacturingWorkOrderTable, wo.id)
+        table = self._wo_from_domain(work_order)
+        existing = await session.get(ManufacturingWorkOrderTable, work_order.id)
         if existing:
-            for key, value in wo.__dict__.items():
+            for key, value in table.__dict__.items():
                 if not key.startswith("_") and key != "id":
                     setattr(existing, key, value)
             existing.updated_at = datetime.utcnow()
         else:
-            session.add(wo)
+            session.add(table)
         await session.flush()
-        return wo
 
-    async def get_work_order_by_id(
-        self, wo_id: uuid.UUID
-    ) -> ManufacturingWorkOrderTable | None:
+    async def get_work_order(self, work_order_id: UUID) -> WorkOrderEntity | None:
         session = await self._get_session()
-        return await session.get(ManufacturingWorkOrderTable, wo_id)
+        table = await session.get(ManufacturingWorkOrderTable, work_order_id)
+        if not table or table.deleted_at is not None:
+            return None
+        return self._wo_to_domain(table)
 
-    async def get_work_order(
-        self, work_order_id: uuid.UUID, legal_entity_id: uuid.UUID
-    ) -> ManufacturingWorkOrderTable | None:
-        session = await self._get_session()
-        stmt = select(ManufacturingWorkOrderTable).where(
-            ManufacturingWorkOrderTable.id == work_order_id,
-            ManufacturingWorkOrderTable.legal_entity_id == legal_entity_id,
-            ManufacturingWorkOrderTable.deleted_at.is_(None),
-        )
-        result = await session.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def get_work_order_by_number(
-        self, work_order_number: str, legal_entity_id: uuid.UUID
-    ) -> ManufacturingWorkOrderTable | None:
+    async def get_work_order_by_number(self, work_order_number: str) -> WorkOrderEntity | None:
+        legal_entity_id = self._get_legal_entity_id()
         session = await self._get_session()
         stmt = select(ManufacturingWorkOrderTable).where(
             ManufacturingWorkOrderTable.work_order_number == work_order_number,
@@ -204,103 +308,90 @@ class SQLAlchemyManufacturingRepository(ManufacturingRepositoryPort):
             ManufacturingWorkOrderTable.deleted_at.is_(None),
         )
         result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+        table = result.scalar_one_or_none()
+        if not table:
+            return None
+        return self._wo_to_domain(table)
 
-    async def get_work_orders_by_status(
-        self, status: str, legal_entity_id: uuid.UUID
-    ) -> list[ManufacturingWorkOrderTable]:
+    async def list_work_orders_by_product(
+        self,
+        product_id: UUID,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        status: WorkOrderStatus | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[WorkOrderEntity]:
+        legal_entity_id = self._get_legal_entity_id()
         session = await self._get_session()
+        conditions = [
+            ManufacturingWorkOrderTable.product_id == product_id,
+            ManufacturingWorkOrderTable.legal_entity_id == legal_entity_id,
+            ManufacturingWorkOrderTable.deleted_at.is_(None),
+        ]
+        if from_date:
+            conditions.append(ManufacturingWorkOrderTable.created_at >= from_date)
+        if to_date:
+            conditions.append(ManufacturingWorkOrderTable.created_at <= to_date)
+        if status:
+            status_str = status.value if hasattr(status, "value") else str(status)
+            conditions.append(ManufacturingWorkOrderTable.status == status_str)
         stmt = (
             select(ManufacturingWorkOrderTable)
-            .where(
-                ManufacturingWorkOrderTable.status == status,
-                ManufacturingWorkOrderTable.legal_entity_id == legal_entity_id,
-                ManufacturingWorkOrderTable.deleted_at.is_(None),
-            )
+            .where(and_(*conditions))
             .order_by(ManufacturingWorkOrderTable.created_at.desc())
-        )
-        result = await session.execute(stmt)
-        return list(result.scalars().all())
-
-    async def list_completed_work_orders(
-        self, legal_entity_id: uuid.UUID, limit: int = 100, offset: int = 0
-    ) -> list[ManufacturingWorkOrderTable]:
-        session = await self._get_session()
-        stmt = (
-            select(ManufacturingWorkOrderTable)
-            .where(
-                ManufacturingWorkOrderTable.status == "completed",
-                ManufacturingWorkOrderTable.legal_entity_id == legal_entity_id,
-                ManufacturingWorkOrderTable.deleted_at.is_(None),
-            )
-            .order_by(ManufacturingWorkOrderTable.completed_at.desc())
             .limit(limit)
             .offset(offset)
         )
         result = await session.execute(stmt)
-        return list(result.scalars().all())
+        tables = result.scalars().all()
+        return [self._wo_to_domain(t) for t in tables]
 
-    async def list_work_orders_by_product(
-        self, product_id: uuid.UUID, legal_entity_id: uuid.UUID
-    ) -> list[ManufacturingWorkOrderTable]:
+    async def list_completed_work_orders(
+        self, legal_entity_id: UUID, from_date: date, to_date: date
+    ) -> list[WorkOrderEntity]:
         session = await self._get_session()
         stmt = (
             select(ManufacturingWorkOrderTable)
             .where(
-                ManufacturingWorkOrderTable.product_id == product_id,
                 ManufacturingWorkOrderTable.legal_entity_id == legal_entity_id,
+                ManufacturingWorkOrderTable.status == "completed",
+                ManufacturingWorkOrderTable.completed_at >= from_date,
+                ManufacturingWorkOrderTable.completed_at <= to_date,
                 ManufacturingWorkOrderTable.deleted_at.is_(None),
             )
-            .order_by(ManufacturingWorkOrderTable.created_at.desc())
+            .order_by(ManufacturingWorkOrderTable.completed_at.desc())
         )
         result = await session.execute(stmt)
-        return list(result.scalars().all())
+        tables = result.scalars().all()
+        return [self._wo_to_domain(t) for t in tables]
 
-    async def update_work_order_status(self, wo_id: uuid.UUID, status: str) -> None:
+    async def get_last_work_order_number(self) -> str | None:
+        legal_entity_id = self._get_legal_entity_id()
         session = await self._get_session()
-        stmt = (
-            update(ManufacturingWorkOrderTable)
-            .where(ManufacturingWorkOrderTable.id == wo_id)
-            .values(status=status, updated_at=datetime.utcnow())
-        )
-        await session.execute(stmt)
-        await session.flush()
-
-    async def save_work_order_batch(
-        self, work_orders: list[ManufacturingWorkOrderTable]
-    ) -> None:
-        session = await self._get_session()
-        session.add_all(work_orders)
-        await session.flush()
-
-    async def get_last_work_order_number(
-        self, legal_entity_id: uuid.UUID, prefix: str = "WO"
-    ) -> str | None:
-        session = await self._get_session()
-        pattern = f"{prefix}-%"
         stmt = (
             select(ManufacturingWorkOrderTable.work_order_number)
             .where(
                 ManufacturingWorkOrderTable.legal_entity_id == legal_entity_id,
-                ManufacturingWorkOrderTable.work_order_number.like(pattern),
                 ManufacturingWorkOrderTable.deleted_at.is_(None),
             )
-            .order_by(ManufacturingWorkOrderTable.work_order_number.desc())
+            .order_by(ManufacturingWorkOrderTable.created_at.desc())
             .limit(1)
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def count_work_orders_by_status(
-        self, legal_entity_id: uuid.UUID, status: str
+        self, status: WorkOrderStatus, legal_entity_id: UUID
     ) -> int:
+        status_str = status.value if hasattr(status, "value") else str(status)
         session = await self._get_session()
         stmt = (
             select(func.count())
             .select_from(ManufacturingWorkOrderTable)
             .where(
                 ManufacturingWorkOrderTable.legal_entity_id == legal_entity_id,
-                ManufacturingWorkOrderTable.status == status,
+                ManufacturingWorkOrderTable.status == status_str,
                 ManufacturingWorkOrderTable.deleted_at.is_(None),
             )
         )
@@ -308,63 +399,82 @@ class SQLAlchemyManufacturingRepository(ManufacturingRepositoryPort):
         return result.scalar() or 0
 
     # ========================================================================
+    # WIP
+    # ========================================================================
+
+    async def save_wip(self, wip: WorkInProcessEntity) -> None:
+        # WIP disimpan sebagai bagian dari work order (update status dan quantity)
+        session = await self._get_session()
+        wo = await session.get(ManufacturingWorkOrderTable, wip.work_order_id)
+        if not wo:
+            raise ValueError(f"Work order {wip.work_order_id} not found")
+        # Update work order dengan data WIP
+        wo.completed_quantity = wip.quantity_completed
+        wo.status = "in_progress" if wip.status == WIPStatus.OPEN else "completed"
+        wo.updated_at = datetime.utcnow()
+        await session.flush()
+
+    async def get_wip_by_work_order(self, work_order_id: UUID) -> WorkInProcessEntity | None:
+        session = await self._get_session()
+        wo = await session.get(ManufacturingWorkOrderTable, work_order_id)
+        if not wo or wo.deleted_at is not None:
+            return None
+        return self._wip_to_domain(wo)
+
+    async def list_open_wip(self, legal_entity_id: UUID) -> list[WorkInProcessEntity]:
+        session = await self._get_session()
+        stmt = select(ManufacturingWorkOrderTable).where(
+            ManufacturingWorkOrderTable.legal_entity_id == legal_entity_id,
+            ManufacturingWorkOrderTable.status.in_(["approved", "in_progress"]),
+            ManufacturingWorkOrderTable.deleted_at.is_(None),
+        )
+        result = await session.execute(stmt)
+        tables = result.scalars().all()
+        return [self._wip_to_domain(t) for t in tables]
+
+    # ========================================================================
     # COST CARD
     # ========================================================================
 
-    async def save_cost_card(
-        self, cost_card: ManufacturingCostCardTable
-    ) -> ManufacturingCostCardTable:
+    async def save_cost_card(self, cost_card: CostCardEntity) -> None:
         session = await self._get_session()
+        table = self._cost_card_from_domain(cost_card)
         existing = await session.get(ManufacturingCostCardTable, cost_card.id)
         if existing:
-            for key, value in cost_card.__dict__.items():
+            for key, value in table.__dict__.items():
                 if not key.startswith("_") and key != "id":
                     setattr(existing, key, value)
             existing.updated_at = datetime.utcnow()
         else:
-            session.add(cost_card)
+            session.add(table)
         await session.flush()
-        return cost_card
 
-    async def get_cost_card_by_id(
-        self, cost_card_id: uuid.UUID
-    ) -> ManufacturingCostCardTable | None:
-        session = await self._get_session()
-        return await session.get(ManufacturingCostCardTable, cost_card_id)
-
-    async def get_cost_card(
-        self, cost_card_id: uuid.UUID, legal_entity_id: uuid.UUID
-    ) -> ManufacturingCostCardTable | None:
+    async def get_cost_card(self, product_id: UUID, period: str) -> CostCardEntity | None:
+        legal_entity_id = self._get_legal_entity_id()
         session = await self._get_session()
         stmt = select(ManufacturingCostCardTable).where(
-            ManufacturingCostCardTable.id == cost_card_id,
+            ManufacturingCostCardTable.product_id == product_id,
+            ManufacturingCostCardTable.period == period,
             ManufacturingCostCardTable.legal_entity_id == legal_entity_id,
             ManufacturingCostCardTable.deleted_at.is_(None),
         )
         result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+        table = result.scalar_one_or_none()
+        if not table:
+            return None
+        return self._cost_card_to_domain(table)
 
-    async def get_cost_card_by_product(
-        self, product_id: uuid.UUID, legal_entity_id: uuid.UUID
-    ) -> ManufacturingCostCardTable | None:
+    async def get_cost_card_by_id(self, cost_card_id: UUID) -> CostCardEntity | None:
         session = await self._get_session()
-        stmt = (
-            select(ManufacturingCostCardTable)
-            .where(
-                ManufacturingCostCardTable.product_id == product_id,
-                ManufacturingCostCardTable.legal_entity_id == legal_entity_id,
-                ManufacturingCostCardTable.is_active == True,
-                ManufacturingCostCardTable.deleted_at.is_(None),
-            )
-            .order_by(ManufacturingCostCardTable.version.desc())
-            .limit(1)
-        )
-        result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+        table = await session.get(ManufacturingCostCardTable, cost_card_id)
+        if not table or table.deleted_at is not None:
+            return None
+        return self._cost_card_to_domain(table)
 
     async def list_cost_cards_by_product(
-        self, product_id: uuid.UUID, legal_entity_id: uuid.UUID
-    ) -> list[ManufacturingCostCardTable]:
+        self, product_id: UUID, limit: int = 100, offset: int = 0
+    ) -> list[CostCardEntity]:
+        legal_entity_id = self._get_legal_entity_id()
         session = await self._get_session()
         stmt = (
             select(ManufacturingCostCardTable)
@@ -373,200 +483,132 @@ class SQLAlchemyManufacturingRepository(ManufacturingRepositoryPort):
                 ManufacturingCostCardTable.legal_entity_id == legal_entity_id,
                 ManufacturingCostCardTable.deleted_at.is_(None),
             )
-            .order_by(ManufacturingCostCardTable.version.desc())
+            .order_by(ManufacturingCostCardTable.period.desc())
+            .limit(limit)
+            .offset(offset)
         )
         result = await session.execute(stmt)
-        return list(result.scalars().all())
+        tables = result.scalars().all()
+        return [self._cost_card_to_domain(t) for t in tables]
 
     # ========================================================================
     # STANDARD COST
     # ========================================================================
 
-    async def save_standard_cost(
-        self, standard_cost: dict[str, Any]
-    ) -> dict[str, Any]:
-        """
-        Simpan standard cost. Karena tidak ada tabel khusus, kita simpan sebagai
-        atribut di cost card atau buat tabel terpisah. Di sini kita asumsikan
-        ada tabel manufacturing_standard_cost, tapi karena tidak ada, kita
-        implementasikan dengan menyimpan ke cost card dengan tipe 'standard'.
-        """
+    async def save_standard_cost(self, standard_cost: StandardCostEntity) -> None:
+        # Simpan sebagai cost card dengan cost_type = 'standard'
         session = await self._get_session()
-        # Cari cost card yang sudah ada untuk produk tersebut dengan tipe standard
+        # Cari existing standard cost card
         stmt = select(ManufacturingCostCardTable).where(
-            ManufacturingCostCardTable.product_id == standard_cost.get("product_id"),
+            ManufacturingCostCardTable.product_id == standard_cost.product_id,
             ManufacturingCostCardTable.cost_type == "standard",
+            ManufacturingCostCardTable.legal_entity_id == self._get_legal_entity_id(),
             ManufacturingCostCardTable.deleted_at.is_(None),
         )
         result = await session.execute(stmt)
         existing = result.scalar_one_or_none()
         if existing:
-            # Update
-            existing.unit_cost = standard_cost.get("unit_cost", existing.unit_cost)
-            existing.total_cost = standard_cost.get("total_cost", existing.total_cost)
-            existing.effective_date = standard_cost.get("effective_date", existing.effective_date)
+            existing.unit_cost = standard_cost.unit_cost
+            existing.total_cost = standard_cost.total_cost
+            existing.effective_date = standard_cost.effective_date
+            existing.is_active = standard_cost.status == StandardCostStatus.ACTIVE
             existing.updated_at = datetime.utcnow()
         else:
-            # Buat baru
-            new_cost = ManufacturingCostCardTable(
-                id=uuid.uuid4(),
-                product_id=standard_cost.get("product_id"),
-                legal_entity_id=standard_cost.get("legal_entity_id"),
+            table = ManufacturingCostCardTable(
+                id=standard_cost.id,
+                product_id=standard_cost.product_id,
+                product_code=standard_cost.product_code,
+                product_name=standard_cost.product_name,
+                period=standard_cost.period,
                 cost_type="standard",
-                unit_cost=standard_cost.get("unit_cost", Decimal(0)),
-                total_cost=standard_cost.get("total_cost", Decimal(0)),
-                effective_date=standard_cost.get("effective_date", datetime.utcnow().date()),
-                is_active=True,
+                unit_cost=standard_cost.unit_cost,
+                total_cost=standard_cost.total_cost,
+                effective_date=standard_cost.effective_date,
+                is_active=standard_cost.status == StandardCostStatus.ACTIVE,
+                created_by=standard_cost.created_by,
                 created_at=datetime.utcnow(),
-                created_by=standard_cost.get("created_by"),
+                legal_entity_id=self._get_legal_entity_id(),
             )
-            session.add(new_cost)
+            session.add(table)
         await session.flush()
-        return standard_cost
-
-    async def get_standard_cost_by_id(
-        self, standard_cost_id: uuid.UUID
-    ) -> dict[str, Any] | None:
-        session = await self._get_session()
-        stmt = select(ManufacturingCostCardTable).where(
-            ManufacturingCostCardTable.id == standard_cost_id,
-            ManufacturingCostCardTable.cost_type == "standard",
-            ManufacturingCostCardTable.deleted_at.is_(None),
-        )
-        result = await session.execute(stmt)
-        cost_card = result.scalar_one_or_none()
-        if cost_card:
-            return {
-                "id": cost_card.id,
-                "product_id": cost_card.product_id,
-                "legal_entity_id": cost_card.legal_entity_id,
-                "unit_cost": cost_card.unit_cost,
-                "total_cost": cost_card.total_cost,
-                "effective_date": cost_card.effective_date,
-            }
-        return None
 
     async def get_standard_cost_by_product(
-        self, product_id: uuid.UUID, legal_entity_id: uuid.UUID
-    ) -> dict[str, Any] | None:
+        self, product_id: UUID, as_of_date: datetime | None = None
+    ) -> StandardCostEntity | None:
+        legal_entity_id = self._get_legal_entity_id()
         session = await self._get_session()
         stmt = (
             select(ManufacturingCostCardTable)
             .where(
                 ManufacturingCostCardTable.product_id == product_id,
-                ManufacturingCostCardTable.legal_entity_id == legal_entity_id,
                 ManufacturingCostCardTable.cost_type == "standard",
                 ManufacturingCostCardTable.is_active == True,
+                ManufacturingCostCardTable.legal_entity_id == legal_entity_id,
                 ManufacturingCostCardTable.deleted_at.is_(None),
             )
             .order_by(ManufacturingCostCardTable.effective_date.desc())
             .limit(1)
         )
         result = await session.execute(stmt)
-        cost_card = result.scalar_one_or_none()
-        if cost_card:
-            return {
-                "id": cost_card.id,
-                "product_id": cost_card.product_id,
-                "legal_entity_id": cost_card.legal_entity_id,
-                "unit_cost": cost_card.unit_cost,
-                "total_cost": cost_card.total_cost,
-                "effective_date": cost_card.effective_date,
-            }
-        return None
-
-    # ========================================================================
-    # WORK IN PROGRESS (WIP)
-    # ========================================================================
-
-    async def save_wip(self, wip: dict[str, Any]) -> dict[str, Any]:
-        """
-        Simpan WIP untuk work order. WIP biasanya disimpan di tabel terpisah,
-        tapi karena tidak ada, kita simpan sebagai atribut di work order.
-        """
-        session = await self._get_session()
-        wo_id = wip.get("work_order_id")
-        if not wo_id:
-            raise ValueError("work_order_id is required")
-        wo = await session.get(ManufacturingWorkOrderTable, wo_id)
-        if not wo:
-            raise ValueError(f"Work order {wo_id} not found")
-        # Update field WIP di work order (misal wip_cost, wip_quantity)
-        wo.wip_cost = wip.get("wip_cost", wo.wip_cost if hasattr(wo, "wip_cost") else Decimal(0))
-        wo.wip_quantity = wip.get("wip_quantity", wo.wip_quantity if hasattr(wo, "wip_quantity") else 0)
-        wo.updated_at = datetime.utcnow()
-        await session.flush()
-        return wip
-
-    async def get_wip_by_work_order(
-        self, work_order_id: uuid.UUID
-    ) -> dict[str, Any] | None:
-        session = await self._get_session()
-        wo = await session.get(ManufacturingWorkOrderTable, work_order_id)
-        if not wo:
+        table = result.scalar_one_or_none()
+        if not table:
             return None
-        return {
-            "work_order_id": wo.id,
-            "wip_cost": getattr(wo, "wip_cost", Decimal(0)),
-            "wip_quantity": getattr(wo, "wip_quantity", 0),
-        }
-
-    async def list_open_wip(
-        self, legal_entity_id: uuid.UUID
-    ) -> list[dict[str, Any]]:
-        """
-        Daftar WIP yang masih terbuka (work order status != completed/cancelled).
-        """
-        session = await self._get_session()
-        stmt = select(ManufacturingWorkOrderTable).where(
-            ManufacturingWorkOrderTable.legal_entity_id == legal_entity_id,
-            ManufacturingWorkOrderTable.status.notin_(["completed", "cancelled"]),
-            ManufacturingWorkOrderTable.deleted_at.is_(None),
+        # Konversi ke StandardCostEntity
+        return StandardCostEntity(
+            id=table.id,
+            product_id=table.product_id,
+            product_code=table.product_code,
+            product_name=table.product_name,
+            unit_cost=table.unit_cost,
+            total_cost=table.total_cost,
+            effective_date=table.effective_date,
+            period=table.period,
+            status=StandardCostStatus.ACTIVE if table.is_active else StandardCostStatus.DRAFT,
+            created_by=table.created_by,
+            created_at=table.created_at,
+            updated_at=table.updated_at,
         )
-        result = await session.execute(stmt)
-        wos = result.scalars().all()
-        return [
-            {
-                "work_order_id": wo.id,
-                "work_order_number": wo.work_order_number,
-                "product_id": wo.product_id,
-                "status": wo.status,
-                "wip_cost": getattr(wo, "wip_cost", Decimal(0)),
-                "wip_quantity": getattr(wo, "wip_quantity", 0),
-            }
-            for wo in wos
-        ]
 
-    # ========================================================================
-    # PERIOD CLOSING
-    # ========================================================================
-
-    async def close_period(self, legal_entity_id: uuid.UUID, period: str) -> None:
-        """
-        Menutup periode manufacturing. Period bisa berupa 'YYYY-MM' atau 'YYYY-Qn'.
-        Di sini kita update work order dan cost card yang statusnya open menjadi closed.
-        """
+    async def get_standard_cost_by_id(self, standard_cost_id: UUID) -> StandardCostEntity | None:
         session = await self._get_session()
-        # Contoh: update work order yang period-nya sama
-        # Karena tidak ada kolom period, kita asumsikan ada kolom fiscal_period
+        table = await session.get(ManufacturingCostCardTable, standard_cost_id)
+        if not table or table.cost_type != "standard" or table.deleted_at is not None:
+            return None
+        return StandardCostEntity(
+            id=table.id,
+            product_id=table.product_id,
+            product_code=table.product_code,
+            product_name=table.product_name,
+            unit_cost=table.unit_cost,
+            total_cost=table.total_cost,
+            effective_date=table.effective_date,
+            period=table.period,
+            status=StandardCostStatus.ACTIVE if table.is_active else StandardCostStatus.DRAFT,
+            created_by=table.created_by,
+            created_at=table.created_at,
+            updated_at=table.updated_at,
+        )
+
+    # ========================================================================
+    # PERIOD OPERATIONS
+    # ========================================================================
+
+    async def close_period(self, legal_entity_id: UUID, period: str, user_id: UUID) -> None:
+        session = await self._get_session()
+        # Update work orders in period
         stmt = (
             update(ManufacturingWorkOrderTable)
             .where(
                 ManufacturingWorkOrderTable.legal_entity_id == legal_entity_id,
                 ManufacturingWorkOrderTable.fiscal_period == period,
-                ManufacturingWorkOrderTable.status.in_(["open", "in_progress"]),
+                ManufacturingWorkOrderTable.status.in_(["approved", "in_progress"]),
             )
-            .values(status="closed", updated_at=datetime.utcnow())
+            .values(status="closed", updated_at=datetime.utcnow(), updated_by=user_id)
         )
         await session.execute(stmt)
         await session.flush()
 
-    async def is_period_closed(
-        self, legal_entity_id: uuid.UUID, period: str
-    ) -> bool:
-        """
-        Cek apakah periode sudah ditutup (tidak ada work order open).
-        """
+    async def is_period_closed(self, legal_entity_id: UUID, period: str) -> bool:
         session = await self._get_session()
         stmt = (
             select(func.count())
@@ -574,7 +616,7 @@ class SQLAlchemyManufacturingRepository(ManufacturingRepositoryPort):
             .where(
                 ManufacturingWorkOrderTable.legal_entity_id == legal_entity_id,
                 ManufacturingWorkOrderTable.fiscal_period == period,
-                ManufacturingWorkOrderTable.status.in_(["open", "in_progress"]),
+                ManufacturingWorkOrderTable.status.in_(["approved", "in_progress"]),
                 ManufacturingWorkOrderTable.deleted_at.is_(None),
             )
         )
@@ -583,36 +625,39 @@ class SQLAlchemyManufacturingRepository(ManufacturingRepositoryPort):
         return count == 0
 
     # ========================================================================
-    # METODE TAMBAHAN (untuk kelengkapan)
+    # BATCH OPERATIONS
     # ========================================================================
 
-    async def delete_bom(self, bom_id: uuid.UUID) -> bool:
-        """Soft delete BOM."""
+    async def save_bom_batch(self, boms: list[BillOfMaterialsEntity]) -> None:
         session = await self._get_session()
-        stmt = (
-            update(BillOfMaterialsTable)
-            .where(BillOfMaterialsTable.id == bom_id)
-            .values(deleted_at=datetime.utcnow())
-        )
-        result = await session.execute(stmt)
+        for bom in boms:
+            table = self._bom_from_domain(bom)
+            existing = await session.get(BillOfMaterialsTable, bom.id)
+            if existing:
+                for key, value in table.__dict__.items():
+                    if not key.startswith("_") and key != "id":
+                        setattr(existing, key, value)
+                existing.updated_at = datetime.utcnow()
+            else:
+                session.add(table)
+            # Save lines? Not implemented yet; assuming BOM entity doesn't have lines in this context.
         await session.flush()
-        return result.rowcount > 0
 
-    async def delete_work_order(self, wo_id: uuid.UUID) -> bool:
-        """Soft delete work order."""
+    async def save_work_order_batch(self, work_orders: list[WorkOrderEntity]) -> None:
         session = await self._get_session()
-        stmt = (
-            update(ManufacturingWorkOrderTable)
-            .where(ManufacturingWorkOrderTable.id == wo_id)
-            .values(deleted_at=datetime.utcnow())
-        )
-        result = await session.execute(stmt)
+        for wo in work_orders:
+            table = self._wo_from_domain(wo)
+            existing = await session.get(ManufacturingWorkOrderTable, wo.id)
+            if existing:
+                for key, value in table.__dict__.items():
+                    if not key.startswith("_") and key != "id":
+                        setattr(existing, key, value)
+                existing.updated_at = datetime.utcnow()
+            else:
+                session.add(table)
         await session.flush()
-        return result.rowcount > 0
 
-    async def find_work_order(self, work_order_id: uuid.UUID) -> ManufacturingWorkOrderTable | None:
-        return await self.get_work_order_by_id(work_order_id)
-    
+
 # ============================================================================
 # ALIAS UNTUK KOMPATIBILITAS DENGAN ADAPTER REGISTRY
 # ============================================================================

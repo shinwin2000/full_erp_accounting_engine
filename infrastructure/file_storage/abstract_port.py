@@ -235,6 +235,72 @@ class FileStoragePort(ABC):
         """
         pass
 
+    # ===== Additional methods from concrete port (file_storage_port.py) =====
+    @abstractmethod
+    async def create_version(self, file_uri: str) -> dict[str, Any]:
+        """Create a new version of a file."""
+        pass
+
+    @abstractmethod
+    async def download_range(self, file_uri: str, start: int, end: int) -> BinaryIO:
+        """Download a byte range of a file."""
+        pass
+
+    @abstractmethod
+    async def get_audit_log(self, file_uri: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        """Get audit log for file operations."""
+        pass
+
+    @abstractmethod
+    async def get_statistics(self) -> dict[str, Any]:
+        """Get storage statistics."""
+        pass
+
+    @abstractmethod
+    async def get_versions(self, file_uri: str) -> list[dict[str, Any]]:
+        """Get all versions of a file."""
+        pass
+
+    @abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """Check storage health."""
+        pass
+
+    @abstractmethod
+    async def start_cleanup_task(self) -> dict[str, Any]:
+        """Start the cleanup task."""
+        pass
+
+    @abstractmethod
+    async def stop_cleanup(self) -> dict[str, Any]:
+        """Stop the cleanup task."""
+        pass
+
+    @abstractmethod
+    async def update_metadata(self, file_uri: str, metadata: dict[str, str]) -> dict[str, Any]:
+        """Update file metadata."""
+        pass
+
+    @abstractmethod
+    async def upload_chunked_start(self, file_name: str, total_size: int) -> dict[str, Any]:
+        """Start a chunked upload."""
+        pass
+
+    @abstractmethod
+    async def upload_chunked_part(self, upload_id: str, part_number: int, data: bytes) -> dict[str, Any]:
+        """Upload a part of a chunked upload."""
+        pass
+
+    @abstractmethod
+    async def upload_chunked_complete(self, upload_id: str) -> dict[str, Any]:
+        """Complete a chunked upload."""
+        pass
+
+    @abstractmethod
+    async def verify_presigned_url(self, url: str) -> bool:
+        """Verify a presigned URL."""
+        pass
+
 
 # ============================================================================
 # BASE IMPLEMENTATION (untuk shared logic)
@@ -277,6 +343,99 @@ class BaseFileStorageAdapter(FileStoragePort):
         import hashlib
 
         return hashlib.sha256(content).hexdigest()
+
+    # ===== Implementasi method yang hilang sebagai stub =====
+    # Method ini akan di-override oleh subclass konkret
+
+    async def upload(
+        self,
+        file_content: BinaryIO,
+        file_name: str,
+        content_type: str = "application/octet-stream",
+        metadata: dict[str, str] | None = None,
+        bucket: str | None = None,
+    ) -> str:
+        raise NotImplementedError("Subclass must implement upload")
+
+    async def download(self, file_uri: str) -> BinaryIO:
+        raise NotImplementedError("Subclass must implement download")
+
+    async def delete(self, file_uri: str) -> bool:
+        raise NotImplementedError("Subclass must implement delete")
+
+    async def get_metadata(self, file_uri: str) -> dict[str, Any]:
+        raise NotImplementedError("Subclass must implement get_metadata")
+
+    async def exists(self, file_uri: str) -> bool:
+        raise NotImplementedError("Subclass must implement exists")
+
+    async def generate_presigned_url(self, file_uri: str, expiration_seconds: int = 3600) -> str:
+        raise NotImplementedError("Subclass must implement generate_presigned_url")
+
+    async def list_files(self, prefix: str = "", limit: int = 100) -> list[dict[str, Any]]:
+        raise NotImplementedError("Subclass must implement list_files")
+
+    async def get_size(self, file_uri: str) -> int:
+        raise NotImplementedError("Subclass must implement get_size")
+
+    async def copy(self, source_uri: str, destination_uri: str) -> bool:
+        raise NotImplementedError("Subclass must implement copy")
+
+    async def move(self, source_uri: str, destination_uri: str) -> bool:
+        raise NotImplementedError("Subclass must implement move")
+
+    async def get_upload_url(
+        self,
+        file_name: str,
+        content_type: str = "application/octet-stream",
+        expiration_seconds: int = 3600,
+    ) -> dict[str, str]:
+        raise NotImplementedError("Subclass must implement get_upload_url")
+
+    # ===== Additional methods (stub) =====
+    async def create_version(self, file_uri: str) -> dict[str, Any]:
+        raise NotImplementedError("Subclass must implement create_version")
+
+    async def download_range(self, file_uri: str, start: int, end: int) -> BinaryIO:
+        raise NotImplementedError("Subclass must implement download_range")
+
+    async def get_audit_log(self, file_uri: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        raise NotImplementedError("Subclass must implement get_audit_log")
+
+    async def get_statistics(self) -> dict[str, Any]:
+        raise NotImplementedError("Subclass must implement get_statistics")
+
+    async def get_versions(self, file_uri: str) -> list[dict[str, Any]]:
+        raise NotImplementedError("Subclass must implement get_versions")
+
+    async def health_check(self) -> dict[str, Any]:
+        raise NotImplementedError("Subclass must implement health_check")
+
+    async def start_cleanup_task(self) -> dict[str, Any]:
+        raise NotImplementedError("Subclass must implement start_cleanup_task")
+
+    # ===== TAMBAHAN: stop_cleanup =====
+    async def stop_cleanup(self) -> dict[str, Any]:
+        """
+        Stop the cleanup task.
+        Base implementation - override in subclass.
+        """
+        return {"status": "not_implemented", "message": "stop_cleanup not implemented in base adapter"}
+
+    async def update_metadata(self, file_uri: str, metadata: dict[str, str]) -> dict[str, Any]:
+        raise NotImplementedError("Subclass must implement update_metadata")
+
+    async def upload_chunked_start(self, file_name: str, total_size: int) -> dict[str, Any]:
+        raise NotImplementedError("Subclass must implement upload_chunked_start")
+
+    async def upload_chunked_part(self, upload_id: str, part_number: int, data: bytes) -> dict[str, Any]:
+        raise NotImplementedError("Subclass must implement upload_chunked_part")
+
+    async def upload_chunked_complete(self, upload_id: str) -> dict[str, Any]:
+        raise NotImplementedError("Subclass must implement upload_chunked_complete")
+
+    async def verify_presigned_url(self, url: str) -> bool:
+        raise NotImplementedError("Subclass must implement verify_presigned_url")
 
 
 # ============================================================================

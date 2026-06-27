@@ -816,7 +816,7 @@ class HealthCheckRegistry:
         async def _run_async_check(name: str, check: Callable[[], Awaitable[bool]]):
             try:
                 return name, await asyncio.wait_for(check(), timeout=self.timeout)
-            except (TimeoutError, asyncio.TimeoutError):
+            except TimeoutError:
                 return name, False
             except Exception:
                 return name, False

@@ -10,9 +10,9 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -23,10 +23,8 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    and_,
     delete,
     func,
-    or_,
     select,
     update,
 )
@@ -128,7 +126,7 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
 
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
-        self._audit_log: List[Dict[str, Any]] = []
+        self._audit_log: list[dict[str, Any]] = []
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
@@ -136,7 +134,7 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
             self._session = await get_async_session()
         return self._session
 
-    async def _log_audit(self, action: str, employee_id: UUID, details: Dict[str, Any]) -> None:
+    async def _log_audit(self, action: str, employee_id: UUID, details: dict[str, Any]) -> None:
         self._audit_log.append({
             "timestamp": datetime.now(UTC).isoformat(),
             "action": action,
@@ -276,7 +274,8 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
             return None
         return row.to_domain()
 
-    async def delete(self, employee_id: UUID, permanent: bool = False) -> bool:
+    # ===== FIX: delete signature sesuai port (2 required: employee_id, user_id) =====
+    async def delete(self, employee_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
         """Delete an employee (soft by default, hard if permanent=True)."""
         session = await self._get_session()
         async with session.begin():
@@ -293,10 +292,11 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
                 result = await session.execute(stmt)
                 success = result.rowcount > 0
             if success:
-                await self._log_audit("DELETE" if permanent else "SOFT_DELETE", employee_id, {"permanent": permanent})
+                await self._log_audit("DELETE" if permanent else "SOFT_DELETE", employee_id, {"permanent": permanent, "user_id": str(user_id)})
             return success
 
-    async def restore(self, employee_id: UUID) -> bool:
+    # ===== FIX: restore signature sesuai port (2 required: employee_id, user_id) =====
+    async def restore(self, employee_id: UUID, user_id: UUID) -> bool:
         """Restore a soft-deleted employee."""
         session = await self._get_session()
         async with session.begin():
@@ -307,7 +307,7 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
             )
             result = await session.execute(stmt)
             if result.rowcount > 0:
-                await self._log_audit("RESTORE", employee_id, {})
+                await self._log_audit("RESTORE", employee_id, {"user_id": str(user_id)})
                 return True
             return False
 
@@ -351,7 +351,7 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
 
     async def get_all(
         self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
-    ) -> List:
+    ) -> list:
         """Get all employees with pagination."""
         session = await self._get_session()
         stmt = select(EmployeeTable).where(
@@ -364,7 +364,7 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
 
     async def find_by_name_contains(
         self, name_fragment: str, legal_entity_id: UUID, limit: int = 50
-    ) -> List:
+    ) -> list:
         """Search employees by name (partial match)."""
         session = await self._get_session()
         stmt = select(EmployeeTable).where(
@@ -378,7 +378,7 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
 
     async def find_by_department(
         self, department: str, legal_entity_id: UUID
-    ) -> List:
+    ) -> list:
         """Find employees by department."""
         session = await self._get_session()
         stmt = select(EmployeeTable).where(
@@ -392,7 +392,7 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
 
     async def find_by_status(
         self, status: str, legal_entity_id: UUID
-    ) -> List:
+    ) -> list:
         """Find employees by employment status."""
         session = await self._get_session()
         stmt = select(EmployeeTable).where(
@@ -406,13 +406,13 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
 
     async def find_by_employment_status(
         self, status: str, legal_entity_id: UUID
-    ) -> List:
+    ) -> list:
         """Alias for find_by_status."""
         return await self.find_by_status(status, legal_entity_id)
 
     async def find_by_supervisor(
         self, supervisor_id: UUID, legal_entity_id: UUID
-    ) -> List:
+    ) -> list:
         """Find employees reporting to a supervisor."""
         session = await self._get_session()
         stmt = select(EmployeeTable).where(
@@ -426,13 +426,13 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
 
     async def get_by_supervisor(
         self, supervisor_id: UUID, legal_entity_id: UUID
-    ) -> List:
+    ) -> list:
         """Get employees by supervisor ID (alias for find_by_supervisor)."""
         return await self.find_by_supervisor(supervisor_id, legal_entity_id)
 
     async def find_active_for_payroll(
         self, legal_entity_id: UUID, cutoff_date: datetime
-    ) -> List:
+    ) -> list:
         """Find active employees that should be included in payroll."""
         session = await self._get_session()
         stmt = select(EmployeeTable).where(
@@ -461,7 +461,7 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
     # STATISTICS & SUMMARY
     # ========================================================================
 
-    async def get_statistics(self, legal_entity_id: UUID) -> Dict[str, Any]:
+    async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
         """Get employee statistics."""
         session = await self._get_session()
         total_stmt = select(func.count()).where(
@@ -508,11 +508,13 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
         total = result.scalar() or 0
         return Decimal(str(total))
 
-    async def get_ptkp_value(self, employee_id: UUID) -> Decimal:
+    # ===== FIX: get_ptkp_value signature sesuai port (2 required: employee_id, year) =====
+    async def get_ptkp_value(self, employee_id: UUID, year: int) -> Decimal:
         """Get PTKP (tax allowance) for employee based on ptkp_status."""
         employee = await self.get_by_id(employee_id)
         if not employee:
             return Decimal(0)
+        # PTKP amounts for 2024 (same for all years, but we could make it configurable)
         ptkp_map = {
             "TK0": Decimal("54000000"),
             "TK1": Decimal("58500000"),
@@ -524,6 +526,8 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
             "K3": Decimal("72000000"),
         }
         status = getattr(employee, "ptkp_status", "TK0")
+        # year parameter can be used for future adjustment (different rates per year)
+        # Currently using fixed rates
         return ptkp_map.get(status, Decimal("54000000"))
 
     # ========================================================================
@@ -615,7 +619,7 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
 
     async def get_audit_log(
         self, employee_id: UUID | None = None, limit: int = 100
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get audit log for employee operations."""
         logs = self._audit_log
         if employee_id:
@@ -627,7 +631,7 @@ class SQLAlchemyEmployeeRepository(EmployeeRepositoryPort):
     # HEALTH CHECK
     # ========================================================================
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Check health of the repository."""
         try:
             session = await self._get_session()

@@ -7,11 +7,11 @@ Handler saat ini hanya mencatat log; Anda dapat menambahkan logika bisnis.
 """
 
 import logging
+
 from application.events.handler_registry import (
-    register_handler,
+    HandlerAlreadyRegisteredError,
     HandlerPriority,
     event_handler_registry,
-    HandlerAlreadyRegisteredError,
 )
 from application.events.publisher_application import EventEnvelope
 
@@ -1302,6 +1302,110 @@ async def handle_WorkOrderStartedEvent(envelope: EventEnvelope) -> None:
     logger.info(f"WorkOrderStartedEvent diterima: {envelope.event}")
 
 
+async def handle_BankTransferExecuted(envelope: EventEnvelope) -> None:
+    """Handler untuk BankTransferExecuted."""
+    logger.info(f"BankTransferExecuted diterima: {envelope.event}")
+
+async def handle_BudgetApproved(envelope: EventEnvelope) -> None:
+    """Handler untuk BudgetApproved."""
+    logger.info(f"BudgetApproved diterima: {envelope.event}")
+
+async def handle_BudgetArchived(envelope: EventEnvelope) -> None:
+    """Handler untuk BudgetArchived."""
+    logger.info(f"BudgetArchived diterima: {envelope.event}")
+
+async def handle_BudgetCancelled(envelope: EventEnvelope) -> None:
+    """Handler untuk BudgetCancelled."""
+    logger.info(f"BudgetCancelled diterima: {envelope.event}")
+
+async def handle_BudgetClosed(envelope: EventEnvelope) -> None:
+    """Handler untuk BudgetClosed."""
+    logger.info(f"BudgetClosed diterima: {envelope.event}")
+
+async def handle_BudgetCreated(envelope: EventEnvelope) -> None:
+    """Handler untuk BudgetCreated."""
+    logger.info(f"BudgetCreated diterima: {envelope.event}")
+
+async def handle_BudgetLineAdded(envelope: EventEnvelope) -> None:
+    """Handler untuk BudgetLineAdded."""
+    logger.info(f"BudgetLineAdded diterima: {envelope.event}")
+
+async def handle_BudgetLineAdjusted(envelope: EventEnvelope) -> None:
+    """Handler untuk BudgetLineAdjusted."""
+    logger.info(f"BudgetLineAdjusted diterima: {envelope.event}")
+
+async def handle_BudgetLineRemoved(envelope: EventEnvelope) -> None:
+    """Handler untuk BudgetLineRemoved."""
+    logger.info(f"BudgetLineRemoved diterima: {envelope.event}")
+
+async def handle_BudgetRejected(envelope: EventEnvelope) -> None:
+    """Handler untuk BudgetRejected."""
+    logger.info(f"BudgetRejected diterima: {envelope.event}")
+
+async def handle_BudgetRevised(envelope: EventEnvelope) -> None:
+    """Handler untuk BudgetRevised."""
+    logger.info(f"BudgetRevised diterima: {envelope.event}")
+
+async def handle_BudgetStatusChanged(envelope: EventEnvelope) -> None:
+    """Handler untuk BudgetStatusChanged."""
+    logger.info(f"BudgetStatusChanged diterima: {envelope.event}")
+
+async def handle_CashDisbursementIssued(envelope: EventEnvelope) -> None:
+    """Handler untuk CashDisbursementIssued."""
+    logger.info(f"CashDisbursementIssued diterima: {envelope.event}")
+
+async def handle_CashReceiptIssued(envelope: EventEnvelope) -> None:
+    """Handler untuk CashReceiptIssued."""
+    logger.info(f"CashReceiptIssued diterima: {envelope.event}")
+
+async def handle_ConsolidationArchived(envelope: EventEnvelope) -> None:
+    """Handler untuk ConsolidationArchived."""
+    logger.info(f"ConsolidationArchived diterima: {envelope.event}")
+
+async def handle_ConsolidationCancelled(envelope: EventEnvelope) -> None:
+    """Handler untuk ConsolidationCancelled."""
+    logger.info(f"ConsolidationCancelled diterima: {envelope.event}")
+
+async def handle_ConsolidationCompleted(envelope: EventEnvelope) -> None:
+    """Handler untuk ConsolidationCompleted."""
+    logger.info(f"ConsolidationCompleted diterima: {envelope.event}")
+
+async def handle_ConsolidationCreated(envelope: EventEnvelope) -> None:
+    """Handler untuk ConsolidationCreated."""
+    logger.info(f"ConsolidationCreated diterima: {envelope.event}")
+
+async def handle_ConsolidationStarted(envelope: EventEnvelope) -> None:
+    """Handler untuk ConsolidationStarted."""
+    logger.info(f"ConsolidationStarted diterima: {envelope.event}")
+
+async def handle_EliminationEntryCreated(envelope: EventEnvelope) -> None:
+    """Handler untuk EliminationEntryCreated."""
+    logger.info(f"EliminationEntryCreated diterima: {envelope.event}")
+
+async def handle_IntercompanyTransactionDetected(envelope: EventEnvelope) -> None:
+    """Handler untuk IntercompanyTransactionDetected."""
+    logger.info(f"IntercompanyTransactionDetected diterima: {envelope.event}")
+
+async def handle_LegalEntityCreated(envelope: EventEnvelope) -> None:
+    """Handler untuk LegalEntityCreated."""
+    logger.info(f"LegalEntityCreated diterima: {envelope.event}")
+
+async def handle_LegalEntityDeactivated(envelope: EventEnvelope) -> None:
+    """Handler untuk LegalEntityDeactivated."""
+    logger.info(f"LegalEntityDeactivated diterima: {envelope.event}")
+
+async def handle_LegalEntityUpdated(envelope: EventEnvelope) -> None:
+    """Handler untuk LegalEntityUpdated."""
+    logger.info(f"LegalEntityUpdated diterima: {envelope.event}")
+
+async def handle_NCICalculated(envelope: EventEnvelope) -> None:
+    """Handler untuk NCICalculated."""
+    logger.info(f"NCICalculated diterima: {envelope.event}")
+
+async def handle_PettyCashFundCreated(envelope: EventEnvelope) -> None:
+    """Handler untuk PettyCashFundCreated."""
+    logger.info(f"PettyCashFundCreated diterima: {envelope.event}")
+
 # ============================================================================
 # REGISTRATION
 # ============================================================================
@@ -1572,6 +1676,32 @@ def register_all_handlers(registry=None) -> int:
         "WorkOrderCompletedEvent": handle_WorkOrderCompletedEvent,
         "WorkOrderCreatedEvent": handle_WorkOrderCreatedEvent,
         "WorkOrderStartedEvent": handle_WorkOrderStartedEvent,
+        "BankTransferExecuted": handle_BankTransferExecuted,
+        "BudgetApproved": handle_BudgetApproved,
+        "BudgetArchived": handle_BudgetArchived,
+        "BudgetCancelled": handle_BudgetCancelled,
+        "BudgetClosed": handle_BudgetClosed,
+        "BudgetCreated": handle_BudgetCreated,
+        "BudgetLineAdded": handle_BudgetLineAdded,
+        "BudgetLineAdjusted": handle_BudgetLineAdjusted,
+        "BudgetLineRemoved": handle_BudgetLineRemoved,
+        "BudgetRejected": handle_BudgetRejected,
+        "BudgetRevised": handle_BudgetRevised,
+        "BudgetStatusChanged": handle_BudgetStatusChanged,
+        "CashDisbursementIssued": handle_CashDisbursementIssued,
+        "CashReceiptIssued": handle_CashReceiptIssued,
+        "ConsolidationArchived": handle_ConsolidationArchived,
+        "ConsolidationCancelled": handle_ConsolidationCancelled,
+        "ConsolidationCompleted": handle_ConsolidationCompleted,
+        "ConsolidationCreated": handle_ConsolidationCreated,
+        "ConsolidationStarted": handle_ConsolidationStarted,
+        "EliminationEntryCreated": handle_EliminationEntryCreated,
+        "IntercompanyTransactionDetected": handle_IntercompanyTransactionDetected,
+        "LegalEntityCreated": handle_LegalEntityCreated,
+        "LegalEntityDeactivated": handle_LegalEntityDeactivated,
+        "LegalEntityUpdated": handle_LegalEntityUpdated,
+        "NCICalculated": handle_NCICalculated,
+        "PettyCashFundCreated": handle_PettyCashFundCreated,
     }
 
     registered_count = 0

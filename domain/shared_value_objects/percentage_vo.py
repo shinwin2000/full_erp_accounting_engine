@@ -115,7 +115,7 @@ class PercentageVO:
             value = Decimal(value)
         elif not isinstance(value, Decimal):
             raise InvalidPercentageError(f"Unsupported type: {type(value)}")
-        return cls(value)    
+        return cls(value)
 
     @classmethod
     def zero(cls) -> PercentageVO:

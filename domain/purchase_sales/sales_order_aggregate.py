@@ -24,6 +24,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+from domain.purchase_sales.domain_events import DomainEvent
 from domain.purchase_sales.sales_delivery_note_entity import DeliveryStatus, SalesDeliveryNoteEntity
 from domain.purchase_sales.sales_order_entity import SalesOrderEntity, SOStatus
 
@@ -58,6 +59,7 @@ class SalesOrderAggregate:
         created_at: Creation timestamp.
         updated_at: Last update timestamp.
         version: Optimistic concurrency version.
+        _events: List of domain events (event sourcing).
     """
 
     aggregate_id: UUID
@@ -67,6 +69,7 @@ class SalesOrderAggregate:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     version: int = 1
+    _events: list[DomainEvent] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         """Validate aggregate invariants."""
@@ -74,6 +77,29 @@ class SalesOrderAggregate:
             raise ValueError(f"Version must be >= 1: {self.version}")
         if self.created_at.tzinfo is None or self.updated_at.tzinfo is None:
             raise ValueError("Timestamps must be timezone-aware")
+
+    # ========================================================================
+    # Event Contract Methods
+    # ========================================================================
+
+    def register_event(self, event: DomainEvent) -> None:
+        """Register a domain event (appends to internal list)."""
+        # Since frozen, we can still modify the list in place.
+        object.__getattribute__(self, '_events').append(event)
+
+    def get_events(self) -> list[DomainEvent]:
+        """Return a copy of the event list."""
+        return self._events.copy()
+
+    def pull_events(self) -> list[DomainEvent]:
+        """Return all events and clear the internal list."""
+        events = self._events.copy()
+        self._events.clear()
+        return events
+
+    def clear_events(self) -> None:
+        """Clear all events."""
+        self._events.clear()
 
     # ------------------------------------------------------------------------
     # Sales Order Management
@@ -111,6 +137,7 @@ class SalesOrderAggregate:
             created_at=self.created_at,
             updated_at=datetime.now(UTC),
             version=self.version + 1,
+            _events=self._events.copy(),  # Preserve events
         )
 
     def update_sales_order(self, so: SalesOrderEntity) -> SalesOrderAggregate:
@@ -137,6 +164,7 @@ class SalesOrderAggregate:
             created_at=self.created_at,
             updated_at=datetime.now(UTC),
             version=self.version + 1,
+            _events=self._events.copy(),
         )
 
     def get_sales_order(self, so_id: UUID) -> SalesOrderEntity | None:
@@ -226,6 +254,7 @@ class SalesOrderAggregate:
             created_at=self.created_at,
             updated_at=datetime.now(UTC),
             version=self.version + 1,
+            _events=self._events.copy(),
         )
 
     def get_total_delivered_quantity(self, so_id: UUID, item_id: UUID) -> Decimal:

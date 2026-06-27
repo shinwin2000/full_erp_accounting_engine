@@ -44,7 +44,7 @@ class RegistrationError(ContainerError):
 
 
 class DependencyDefinition:
-    __slots__ = ("interface", "implementation", "lifetime", "factory", "instance", "_lock")
+    __slots__ = ("_lock", "factory", "implementation", "instance", "interface", "lifetime")
 
     def __init__(
         self,
@@ -62,7 +62,7 @@ class DependencyDefinition:
 
 
 class IoCContainer:
-    __slots__ = ("_parent", "_registrations", "_resolving", "_scoped_instances", "_singletons", "_aliases")
+    __slots__ = ("_aliases", "_parent", "_registrations", "_resolving", "_scoped_instances", "_singletons")
 
     def __init__(self, parent: IoCContainer | None = None):
         self._parent = parent
@@ -301,7 +301,10 @@ def get_container() -> IoCContainer:
         # 1. REGISTRASI ADAPTER (implementasi port)
         # ------------------------------------------------------------
         try:
-            from bootstrap.dependency_container.adapter_registry import AdapterRegistry, set_adapter_registry_instance
+            from bootstrap.dependency_container.adapter_registry import (
+                AdapterRegistry,
+                set_adapter_registry_instance,
+            )
 
             # Buat registry dan set container
             registry = AdapterRegistry(container=_global_container)
@@ -403,9 +406,9 @@ def injectable(cls):
 
 
 __all__ = [
+    "CircularDependencyError",
     "Container",
     "ContainerError",
-    "CircularDependencyError",
     "DependencyNotFoundError",
     "IoCContainer",
     "Lifetime",

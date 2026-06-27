@@ -11,7 +11,6 @@ import importlib
 import inspect
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Set, Any
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,7 @@ EXCLUDE_PORTS = {"BasePort", "BaseRepository", "BaseProtocol"}
 # 1. SCAN PORT CLASSES
 # ============================================================================
 
-def get_all_port_classes() -> Dict[str, Tuple[str, Path]]:
+def get_all_port_classes() -> dict[str, tuple[str, Path]]:
     """Return {port_name: (module_path, file_path)} for all ports."""
     ports = {}
     for base_dir in [PORTS_PRIMARY, PORTS_SECONDARY]:
@@ -57,7 +56,7 @@ def get_all_port_classes() -> Dict[str, Tuple[str, Path]]:
 # 2. SCAN ADAPTER CLASSES
 # ============================================================================
 
-def get_all_adapter_classes() -> Dict[str, Tuple[str, Path, Set[str]]]:
+def get_all_adapter_classes() -> dict[str, tuple[str, Path, set[str]]]:
     """Return {class_name: (module_path, file_path, set_of_methods)} for all adapters."""
     adapters = {}
     for base_dir in [ADAPTERS_IMPL, ADAPTERS_API]:
@@ -89,7 +88,7 @@ def get_all_adapter_classes() -> Dict[str, Tuple[str, Path, Set[str]]]:
 # 3. MATCH PORT → ADAPTER (DYNAMIC WITH SUBCLASS CHECK + SCORING)
 # ============================================================================
 
-def find_matching_adapter(port_name: str, port_methods: Set[str], adapters: Dict) -> Optional[Tuple[str, str]]:
+def find_matching_adapter(port_name: str, port_methods: set[str], adapters: dict) -> tuple[str, str] | None:
     """
     Find the best matching adapter for a port using:
     1. Direct subclass check (most reliable)
@@ -193,15 +192,21 @@ def create_stub(port_name: str):
 # ============================================================================
 
 def instantiate_adapter(impl_class):
-    """Try multiple strategies to instantiate the adapter class."""
+    """
+    Try multiple strategies to instantiate the adapter class.
+    Does NOT call any async methods — that's the responsibility of the caller.
+    """
+    # Coba tanpa argumen
     try:
         return impl_class()
     except TypeError:
         pass
+    # Coba dengan session=None
     try:
         return impl_class(session=None)
     except Exception:
         pass
+    # Coba dengan inspect untuk mengisi parameter yang dibutuhkan dengan None
     try:
         sig = inspect.signature(impl_class.__init__)
         params = {}
@@ -211,6 +216,7 @@ def instantiate_adapter(impl_class):
         return impl_class(**params)
     except Exception:
         pass
+    # Terakhir, coba dengan kwargs kosong
     try:
         return impl_class(**{})
     except Exception:
@@ -221,33 +227,34 @@ def instantiate_adapter(impl_class):
 # 6. MANUAL LOOKUP FOR CORETAX PORTS
 # ============================================================================
 
-def manual_lookup_coretax(port_name: str, adapters: Dict, container, port_class, registered, fallback):
+def manual_lookup_coretax(port_name: str, adapters: dict, container, port_class, registered, fallback):
     """
     Specialized manual lookup for CoreTaxPort and TaxAuthorityCoretaxPort.
     Returns True if successfully registered, False otherwise.
     """
     # Tentukan pola file yang dicari
     if port_name == "CoreTaxPort":
-        file_patterns = ["core_tax", "coretax"]
-        # Prioritas: file yang mengandung "core_tax" lebih tinggi
+        # Cari adapter yang tepat: TaxAuthorityCoretaxAdapter (real implementation)
+        # Atau setidaknya file yang mengandung "coretax" dan bukan in-memory
         candidates = []
         for adapter_name, (mod_path, file_path, methods) in adapters.items():
-            if "core_tax" in str(file_path).lower() or "coretax" in adapter_name.lower():
-                if "schema" in adapter_name.lower() or "response" in adapter_name.lower() or "request" in adapter_name.lower():
-                    continue
-                score = 0
-                if "core_tax" in str(file_path).lower():
-                    score += 10
-                if "coretax" in adapter_name.lower():
-                    score += 5
-                candidates.append((score, adapter_name, mod_path))
+            if "TaxAuthorityCoretaxAdapter" in adapter_name:
+                candidates.append((100, adapter_name, mod_path))
+            elif "coretax" in adapter_name.lower() and "InMemory" not in adapter_name:
+                candidates.append((50, adapter_name, mod_path))
+            elif "core_tax" in str(file_path).lower():
+                candidates.append((30, adapter_name, mod_path))
+        # Prioritaskan yang memiliki skor tertinggi
         candidates.sort(key=lambda x: x[0], reverse=True)
     elif port_name == "TaxAuthorityCoretaxPort":
-        # Hanya cari file yang mengandung "tax_authority_coretax" atau adapter yang tepat
+        # Cari TaxAuthorityCoretaxAdapter secara spesifik
         candidates = []
         for adapter_name, (mod_path, file_path, methods) in adapters.items():
-            if "tax_authority_coretax" in str(file_path).lower() or "TaxAuthorityCoretaxAdapter" in adapter_name:
-                candidates.append((0, adapter_name, mod_path))
+            if "TaxAuthorityCoretaxAdapter" in adapter_name:
+                candidates.append((100, adapter_name, mod_path))
+            elif "tax_authority_coretax" in str(file_path).lower():
+                candidates.append((80, adapter_name, mod_path))
+        candidates.sort(key=lambda x: x[0], reverse=True)
     else:
         return False
 
@@ -271,7 +278,7 @@ def manual_lookup_coretax(port_name: str, adapters: Dict, container, port_class,
 # 7. MAIN REGISTRATION
 # ============================================================================
 
-def auto_register_ports(container) -> Tuple[List[str], List[str]]:
+def auto_register_ports(container) -> tuple[list[str], list[str]]:
     ports = get_all_port_classes()
     adapters = get_all_adapter_classes()
 
@@ -285,6 +292,7 @@ def auto_register_ports(container) -> Tuple[List[str], List[str]]:
     logger.info(f"Auto-register: found {len(ports)} port classes, {len(adapters)} adapter classes")
 
     for port_name, (port_module_path, port_file_path) in ports.items():
+        # Skip if already registered in container
         if hasattr(container, 'has_registration') and container.has_registration(port_name):
             continue
 
@@ -308,7 +316,7 @@ def auto_register_ports(container) -> Tuple[List[str], List[str]]:
                     port_methods.add(method_name)
 
         # ============================================================
-        # SPECIAL HANDLING FOR CORETAX PORTS (to avoid false warnings)
+        # SPECIAL HANDLING FOR CORETAX PORTS
         # ============================================================
         if port_name in ("CoreTaxPort", "TaxAuthorityCoretaxPort"):
             if manual_lookup_coretax(port_name, adapters, container, port_class, registered, fallback):
@@ -319,6 +327,39 @@ def auto_register_ports(container) -> Tuple[List[str], List[str]]:
                 container.register_instance(port_class, stub)
                 fallback.append(port_name)
                 logger.warning(f"Registered {port_name} as STUB (no suitable adapter found)")
+                continue
+
+        # ============================================================
+        # SPECIAL HANDLING FOR TIMESTAMP NOTARY PORT
+        # ============================================================
+        if port_name == "TimestampNotaryPort":
+            # Cari adapter dengan nama TimestampNotaryImpl atau RFC3161TimestampAdapter
+            found = False
+            for adapter_name, (mod_path, file_path, methods) in adapters.items():
+                if "TimestampNotaryImpl" in adapter_name or "RFC3161" in adapter_name:
+                    try:
+                        impl_module = importlib.import_module(mod_path)
+                        impl_class = getattr(impl_module, adapter_name, None)
+                        if impl_class is None:
+                            continue
+                        # JANGAN panggil async method di sini!
+                        # Biarkan container/layer yang memanggil initialize() jika diperlukan.
+                        instance = instantiate_adapter(impl_class)
+                        container.register_instance(port_class, instance)
+                        registered.append(port_name)
+                        logger.info(f"Registered {port_name} -> {adapter_name}")
+                        found = True
+                        break
+                    except Exception as e:
+                        logger.warning(f"Could not instantiate {port_name} with {adapter_name}: {e}")
+            if found:
+                continue
+            else:
+                # Jika tidak ditemukan, buat stub
+                stub = create_stub(port_name)
+                container.register_instance(port_class, stub)
+                fallback.append(port_name)
+                logger.warning(f"Registered {port_name} as STUB (missing adapter)")
                 continue
 
         # ============================================================

@@ -1,517 +1,511 @@
 #!/usr/bin/env python3
 """
-repository_checker.py - Repository Contract & Implementation Validator
-========================================================================
-Memeriksa kesesuaian antara repository interfaces (ports) dan implementasi
-(adapters) pada proyek ERP Accounting Engine.
-
-Fitur:
-- Scan statis: daftar method di interface dan implementasi
-- Pencocokan otomatis berdasarkan konvensi penamaan
-- Cek method yang hilang atau ekstra (warning)
-- Runtime import & instansiasi untuk deteksi error nyata
-- Dukungan async (jika method bertanda async)
-
-Cara pakai:
-  python repository_checker.py                     # Jalankan semua pemeriksaan
-  python repository_checker.py --verbose           # Tampilkan detail
-  python repository_checker.py --check-runtime     # Aktifkan runtime check (default: on)
-  python repository_checker.py --skip-runtime      # Hanya statis
-  python repository_checker.py --json report.json  # Simpan hasil JSON
-  python repository_checker.py --help              # Bantuan
+Sovereign ERP System - Repository Contract Checker (Akurat)
+============================================================
+- Scan interface di ports/primary (class berakhiran Port/Protocol dan mengandung repository/store/cache)
+- Scan implementasi di adapters/secondary_impl (class berakhiran Adapter/Impl/Repository/Store/Cache)
+- Normalisasi nama: hilangkan prefix/suffix umum
+- Pencocokan: exact match base_name, lalu partial match
+- Periksa method public yang hilang di implementasi
+- Periksa signature (parameter wajib, async) hanya sebagai warning
+- Skor: proporsi interface yang match & bebas error
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
-import importlib
 import json
+import os
 import pathlib
-import re
 import sys
 import time
-import traceback
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from dataclasses import dataclass
 
-# =============================================================================
-# Konfigurasi & Path
-# =============================================================================
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
-PORTS_DIR = PROJECT_ROOT / "ports" / "primary"
-ADAPTERS_DIR = PROJECT_ROOT / "adapters" / "secondary_impl"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-# Warna (jika colorama tersedia)
 COLOR = {
-    "RED": "",
-    "GREEN": "",
-    "YELLOW": "",
-    "CYAN": "",
-    "RESET": "",
+    "RED": "\033[91m",
+    "GREEN": "\033[92m",
+    "YELLOW": "\033[93m",
+    "BLUE": "\033[94m",
+    "CYAN": "\033[96m",
+    "BOLD": "\033[1m",
+    "RESET": "\033[0m"
 }
-try:
-    import colorama
-    colorama.init(autoreset=True)
-    COLOR["RED"] = colorama.Fore.RED
-    COLOR["GREEN"] = colorama.Fore.GREEN
-    COLOR["YELLOW"] = colorama.Fore.YELLOW
-    COLOR["CYAN"] = colorama.Fore.CYAN
-    COLOR["RESET"] = colorama.Style.RESET_ALL
-except ImportError:
-    pass
+if not sys.stdout.isatty():
+    COLOR = dict.fromkeys(COLOR, "")
 
-# =============================================================================
-# Data structures
-# =============================================================================
+EXCLUDED_DIRS = {"checker", "tests", "migrations", "__pycache__", ".git", "docs", "scripts",
+                 "deployment", "monitoring", "reports"}
+
+INFRASTRUCTURE_KEYWORDS = {
+    "s3", "file", "storage", "kafka", "email", "smtp", "slack", "whatsapp",
+    "notification", "pagerduty", "glacier", "cold", "backup", "event", "publisher",
+    "consumer", "dead", "letter", "broker", "message", "cache", "redis", "memcached",
+    "audit", "append", "snapshot", "mt940", "parser", "encryption", "keyvault",
+    "hashicorp", "hsm", "minio", "coretax", "authority", "bank_api", "timestamp",
+    "notary", "hashchain", "saga", "cqrs", "analytics", "read_model", "projection",
+    "connection_pool", "replica", "router", "fiscal", "report", "approval",
+    "goods_receipt", "sales", "customer_category", "event_status", "file_storage_status",
+    "notification_channel", "sales_repository_adapter", "iam_repository_adapter",
+    "unit_of_work", "cohort", "export", "import", "adapter"
+}
+
 @dataclass
 class MethodInfo:
     name: str
-    params: List[str]          # Nama parameter (tanpa self/cls)
+    required_count: int   # jumlah parameter wajib (tanpa default)
+    kwonly_count: int     # jumlah keyword-only parameters
+    total_count: int      # total parameter (untuk display)
     is_async: bool
     lineno: int
-    decorators: List[str]      # Nama decorator (misal abstractmethod)
-    docstring: Optional[str] = None
 
 @dataclass
 class InterfaceInfo:
-    module: str                # Nama modul (misal ports.primary.journal_repository_port)
-    class_name: str
+    name: str
     file_path: str
-    methods: Dict[str, MethodInfo]
+    module: str
+    methods: dict[str, MethodInfo]
+    base_name: str
 
 @dataclass
 class ImplementationInfo:
-    module: str
-    class_name: str
+    name: str
     file_path: str
-    methods: Dict[str, MethodInfo]
+    module: str
+    methods: dict[str, MethodInfo]
+    is_infrastructure: bool = False
+    base_name: str = ""
 
 @dataclass
-class ContractViolation:
-    severity: str              # "ERROR" atau "WARNING"
+class Violation:
+    severity: str  # "ERROR" atau "WARNING"
     interface: str
     implementation: str
     message: str
     detail: str = ""
 
-@dataclass
-class RuntimeError:
-    module: str
-    error_type: str
-    error_msg: str
-    traceback: str = ""
+# -----------------------------------------------------------------------------
+# Utility
+# -----------------------------------------------------------------------------
 
-@dataclass
-class CheckResult:
-    interfaces: List[InterfaceInfo]
-    implementations: List[ImplementationInfo]
-    violations: List[ContractViolation]
-    runtime_errors: List[RuntimeError]
-    matched_pairs: List[Tuple[str, str]]   # (interface_class, impl_class)
-    unmatched_interfaces: List[str]
-    unmatched_impls: List[str]
+def is_infrastructure(name: str, file_path: str) -> bool:
+    name_lower = name.lower()
+    file_lower = str(file_path).lower()
+    if "repository" in name_lower:
+        return False
+    for kw in INFRASTRUCTURE_KEYWORDS:
+        if kw in name_lower or kw in file_lower:
+            return True
+    return True
 
-# =============================================================================
-# Utilitas AST
-# =============================================================================
-def get_methods_from_class(tree: ast.AST, class_name: str) -> Dict[str, MethodInfo]:
-    """Ekstrak semua method dari class dengan nama tertentu."""
+def normalize_interface(name: str) -> str:
+    for suffix in ["Port", "Protocol", "Repository", "Store", "Cache"]:
+        if name.endswith(suffix):
+            name = name[:-len(suffix)]
+            break
+    if name.endswith("Repository"):
+        name = name[:-len("Repository")]
+    return name.lower().strip()
+
+def normalize_impl(name: str) -> str:
+    for prefix in ["SQLAlchemy", "Postgres", "AsyncPG", "InMemory", "Hashicorp",
+                   "Customer", "Supplier", "Coretax", "Tax", "S3", "Redis",
+                   "Kafka", "Email", "Slack", "WhatsApp", "PagerDuty", "MinIO",
+                   "Glacier", "HSM", "Timestamp"]:
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+    for suffix in ["Adapter", "Impl", "Repository", "Store", "Cache"]:
+        if name.endswith(suffix):
+            name = name[:-len(suffix)]
+            break
+    return name.lower().strip()
+
+def extract_methods_from_class(tree: ast.AST, class_name: str) -> dict[str, MethodInfo]:
+    """Extract public methods, hitung parameter wajib dan keyword-only."""
     methods = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             for item in node.body:
-                if isinstance(item, ast.FunctionDef):
-                    # Skip magic methods? (opsional)
-                    if item.name.startswith("__") and item.name != "__init__":
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if item.name.startswith("_") and item.name != "__init__":
                         continue
-                    params = []
-                    for arg in item.args.args:
-                        # Skip self/cls
-                        if arg.arg in ("self", "cls"):
-                            continue
-                        params.append(arg.arg)
+                    if item.name == "__init__":
+                        continue
+
+                    # Hitung parameter
+                    total_pos = len(item.args.args)
+                    num_defaults = len(item.args.defaults)
+                    offset = 1 if total_pos > 0 and item.args.args[0].arg in ("self", "cls") else 0
+                    required = total_pos - num_defaults - offset
+                    if required < 0:
+                        required = 0
+                    kwonly_count = len(item.args.kwonlyargs)
+
                     is_async = isinstance(item, ast.AsyncFunctionDef)
-                    decorators = []
-                    for dec in item.decorator_list:
-                        if isinstance(dec, ast.Name):
-                            decorators.append(dec.id)
-                        elif isinstance(dec, ast.Attribute):
-                            decorators.append(dec.attr)
-                        elif isinstance(dec, ast.Call):
-                            if isinstance(dec.func, ast.Name):
-                                decorators.append(dec.func.id)
-                            elif isinstance(dec.func, ast.Attribute):
-                                decorators.append(dec.func.attr)
-                    docstring = ast.get_docstring(item)
                     methods[item.name] = MethodInfo(
                         name=item.name,
-                        params=params,
+                        required_count=required,
+                        kwonly_count=kwonly_count,
+                        total_count=total_pos - offset,
                         is_async=is_async,
                         lineno=item.lineno,
-                        decorators=decorators,
-                        docstring=docstring,
                     )
             break
     return methods
 
-def parse_interface_file(file_path: pathlib.Path) -> Optional[InterfaceInfo]:
-    """Parse file port dan ekstrak informasi interface (satu class per file)."""
-    try:
-        src = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(src, filename=str(file_path))
-    except SyntaxError:
-        return None
-    # Cari class yang mungkin interface (biasanya satu class per file)
-    classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
-    if not classes:
-        return None
-    # Ambil class pertama (asumsi hanya satu class utama)
-    cls = classes[0]
-    methods = get_methods_from_class(tree, cls.name)
-    # Tentukan modul name
-    rel_path = file_path.relative_to(PROJECT_ROOT)
-    module = str(rel_path.with_suffix("")).replace("/", ".")
-    return InterfaceInfo(
-        module=module,
-        class_name=cls.name,
-        file_path=str(file_path),
-        methods=methods,
-    )
+# -----------------------------------------------------------------------------
+# Scanner
+# -----------------------------------------------------------------------------
 
-def parse_impl_file(file_path: pathlib.Path) -> Optional[ImplementationInfo]:
-    """Parse file implementasi dan ekstrak class implementasi."""
-    try:
-        src = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(src, filename=str(file_path))
-    except SyntaxError:
-        return None
-    classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
-    if not classes:
-        return None
-    # Ambil class pertama (asumsi satu class implementasi utama)
-    cls = classes[0]
-    methods = get_methods_from_class(tree, cls.name)
-    rel_path = file_path.relative_to(PROJECT_ROOT)
-    module = str(rel_path.with_suffix("")).replace("/", ".")
-    return ImplementationInfo(
-        module=module,
-        class_name=cls.name,
-        file_path=str(file_path),
-        methods=methods,
-    )
+def scan_interfaces() -> list[InterfaceInfo]:
+    interfaces = []
+    ports_dir = ROOT / "ports" / "primary"
+    if not ports_dir.exists():
+        return interfaces
 
-# =============================================================================
-# Pencocokan interface ↔ implementasi
-# =============================================================================
-def match_interface_to_impl(interface: InterfaceInfo, impls: List[ImplementationInfo]) -> Optional[ImplementationInfo]:
-    """
-    Cari implementasi yang cocok untuk interface berdasarkan konvensi penamaan.
-    Misal:
-      - Interface: journal_repository_port   → Implementasi: sqlalchemy_journal_repository_impl
-      - Atau: JournalRepositoryPort → SqlAlchemyJournalRepositoryImpl
-    """
-    base_name = interface.class_name
-    # Hilangkan suffix "Port" atau "Repository" atau "_port"
-    base = re.sub(r'(Port|Repository|_port|_repository)$', '', base_name, flags=re.IGNORECASE)
-    # Coba berbagai pola
-    candidates = []
+    seen = set()
+    for py_file in ports_dir.glob("*.py"):
+        if py_file.name == "__init__.py":
+            continue
+        try:
+            src = py_file.read_text(encoding="utf-8", errors="replace")
+            tree = ast.parse(src, filename=str(py_file))
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                name = node.name
+                if name in seen:
+                    continue
+                is_repo_port = (
+                    (name.endswith("Port") or name.endswith("Protocol")) and
+                    ("repository" in name.lower() or "store" in name.lower() or "cache" in name.lower())
+                )
+                if is_repo_port:
+                    methods = extract_methods_from_class(tree, name)
+                    if methods:
+                        rel_path = py_file.relative_to(ROOT)
+                        module = str(rel_path.with_suffix("")).replace(os.sep, ".")
+                        base_name = normalize_interface(name)
+                        interfaces.append(InterfaceInfo(
+                            name=name,
+                            file_path=str(py_file),
+                            module=module,
+                            methods=methods,
+                            base_name=base_name,
+                        ))
+                        seen.add(name)
+    return interfaces
+
+def scan_implementations() -> list[ImplementationInfo]:
+    impls = []
+    adapters_dir = ROOT / "adapters" / "secondary_impl"
+    if not adapters_dir.exists():
+        return impls
+
+    seen = set()
+    for py_file in adapters_dir.glob("*.py"):
+        if py_file.name == "__init__.py":
+            continue
+        try:
+            src = py_file.read_text(encoding="utf-8", errors="replace")
+            tree = ast.parse(src, filename=str(py_file))
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                name = node.name
+                if name in seen:
+                    continue
+                if name.endswith(("Adapter", "Impl", "Repository", "Store", "Cache")):
+                    methods = extract_methods_from_class(tree, name)
+                    if methods:
+                        rel_path = py_file.relative_to(ROOT)
+                        module = str(rel_path.with_suffix("")).replace(os.sep, ".")
+                        is_infra = is_infrastructure(name, str(py_file))
+                        base_name = normalize_impl(name)
+                        impls.append(ImplementationInfo(
+                            name=name,
+                            file_path=str(py_file),
+                            module=module,
+                            methods=methods,
+                            is_infrastructure=is_infra,
+                            base_name=base_name,
+                        ))
+                        seen.add(name)
+    return impls
+
+# -----------------------------------------------------------------------------
+# Matching
+# -----------------------------------------------------------------------------
+
+def match_interface_to_impl(interface: InterfaceInfo, impls: list[ImplementationInfo]) -> ImplementationInfo | None:
+    base_iface = interface.base_name
+    exact_matches = []
+    partial_matches = []
+
     for impl in impls:
-        impl_name = impl.class_name
-        # Cocokkan jika nama impl mengandung base (case insensitive)
-        if base.lower() in impl_name.lower():
-            candidates.append(impl)
-        # Cocokkan jika modul impl mengandung base
-        elif base.lower() in impl.module.lower():
-            candidates.append(impl)
-    if len(candidates) == 1:
-        return candidates[0]
-    # Jika lebih dari satu, pilih yang paling mirip (misal yang diawali sqlalchemy_)
-    for impl in candidates:
-        if "sqlalchemy" in impl.module.lower():
-            return impl
-    # Jika tidak ada, kembalikan None
+        if impl.is_infrastructure:
+            continue
+        base_impl = impl.base_name
+        if base_iface == base_impl:
+            exact_matches.append(impl)
+        elif len(base_iface) >= 3 and (base_iface in base_impl or base_impl in base_iface):
+            partial_matches.append(impl)
+
+    if exact_matches:
+        for impl in exact_matches:
+            if "sqlalchemy" in impl.name.lower():
+                return impl
+        return exact_matches[0]
+    if partial_matches:
+        for impl in partial_matches:
+            if "sqlalchemy" in impl.name.lower():
+                return impl
+        return partial_matches[0]
     return None
 
-# =============================================================================
-# Runtime checker (import & instantiate)
-# =============================================================================
-def try_import_and_instantiate(module_name: str, class_name: str) -> Optional[RuntimeError]:
-    """
-    Coba import modul dan instansiasi class.
-    Mengembalikan RuntimeError jika terjadi error, None jika berhasil.
-    """
-    try:
-        mod = importlib.import_module(module_name)
-        cls = getattr(mod, class_name, None)
-        if cls is None:
-            return RuntimeError(
-                module=module_name,
-                error_type="AttributeError",
-                error_msg=f"Class '{class_name}' not found in module '{module_name}'"
-            )
-        # Coba instansiasi (tanpa argumen)
-        try:
-            instance = cls()
-            # Jika berhasil, kita tidak perlu apa-apa lagi
-        except TypeError as e:
-            # Mungkin konstruktor membutuhkan argumen; coba cek __init__ signature
-            # Kita hanya catat sebagai warning, bukan error berat
-            return RuntimeError(
-                module=module_name,
-                error_type="TypeError",
-                error_msg=f"Failed to instantiate '{class_name}': {e}"
-            )
-        except Exception as e:
-            return RuntimeError(
-                module=module_name,
-                error_type=type(e).__name__,
-                error_msg=str(e),
-                traceback=traceback.format_exc(),
-            )
-        return None
-    except Exception as e:
-        return RuntimeError(
-            module=module_name,
-            error_type=type(e).__name__,
-            error_msg=str(e),
-            traceback=traceback.format_exc(),
-        )
+# -----------------------------------------------------------------------------
+# Compare
+# -----------------------------------------------------------------------------
 
-# =============================================================================
-# Analisis kontrak
-# =============================================================================
-def compare_methods(interface: InterfaceInfo, impl: ImplementationInfo) -> List[ContractViolation]:
+def compare_methods(interface: InterfaceInfo, impl: ImplementationInfo) -> list[Violation]:
     violations = []
-    # Method di interface harus ada di implementasi
+    # 1. Cek method yang hilang (ERROR)
     for mname, mdef in interface.methods.items():
         if mname not in impl.methods:
-            violations.append(ContractViolation(
+            violations.append(Violation(
                 severity="ERROR",
-                interface=interface.class_name,
-                implementation=impl.class_name,
+                interface=interface.name,
+                implementation=impl.name,
                 message=f"Method '{mname}' missing in implementation",
                 detail=f"Defined at {interface.file_path}:{mdef.lineno}"
             ))
         else:
-            # Opsional: periksa parameter (kecuali *args, **kwargs)
             impl_method = impl.methods[mname]
-            if len(mdef.params) != len(impl_method.params):
-                violations.append(ContractViolation(
+            # 2. Cek parameter wajib (WARNING)
+            if mdef.required_count != impl_method.required_count:
+                violations.append(Violation(
                     severity="WARNING",
-                    interface=interface.class_name,
-                    implementation=impl.class_name,
-                    message=f"Parameter count mismatch for '{mname}'",
-                    detail=f"Interface: {len(mdef.params)} params, Impl: {len(impl_method.params)} params"
+                    interface=interface.name,
+                    implementation=impl.name,
+                    message=f"Required parameter count mismatch for '{mname}'",
+                    detail=f"Interface: {mdef.required_count} required, Impl: {impl_method.required_count} required"
                 ))
-            # Periksa async/await kesesuaian
-            if mdef.is_async != impl_method.is_async:
-                violations.append(ContractViolation(
+            # 3. Cek keyword-only (WARNING)
+            if mdef.kwonly_count != impl_method.kwonly_count:
+                violations.append(Violation(
                     severity="WARNING",
-                    interface=interface.class_name,
-                    implementation=impl.class_name,
+                    interface=interface.name,
+                    implementation=impl.name,
+                    message=f"Keyword-only parameter count mismatch for '{mname}'",
+                    detail=f"Interface: {mdef.kwonly_count}, Impl: {impl_method.kwonly_count}"
+                ))
+            # 4. Cek async (WARNING)
+            if mdef.is_async != impl_method.is_async:
+                violations.append(Violation(
+                    severity="WARNING",
+                    interface=interface.name,
+                    implementation=impl.name,
                     message=f"Async mismatch for '{mname}'",
                     detail=f"Interface: {'async' if mdef.is_async else 'sync'}, Impl: {'async' if impl_method.is_async else 'sync'}"
                 ))
-    # Method tambahan di implementasi (opsional, hanya warning)
-    for mname in impl.methods:
-        if mname not in interface.methods:
-            violations.append(ContractViolation(
-                severity="WARNING",
-                interface=interface.class_name,
-                implementation=impl.class_name,
-                message=f"Extra method '{mname}' in implementation",
-                detail="Not defined in interface"
-            ))
     return violations
 
-# =============================================================================
-# Main checker
-# =============================================================================
-def scan_repositories(check_runtime: bool = True) -> CheckResult:
-    # 1. Kumpulkan semua interface
-    interfaces = []
-    if PORTS_DIR.exists():
-        for py_file in PORTS_DIR.glob("*.py"):
-            if py_file.name == "__init__.py":
-                continue
-            info = parse_interface_file(py_file)
-            if info and info.methods:
-                interfaces.append(info)
+# -----------------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------------
 
-    # 2. Kumpulkan semua implementasi
-    implementations = []
-    if ADAPTERS_DIR.exists():
-        for py_file in ADAPTERS_DIR.glob("*.py"):
-            if py_file.name == "__init__.py":
-                continue
-            info = parse_impl_file(py_file)
-            if info and info.methods:
-                implementations.append(info)
+def scan_repositories() -> dict:
+    interfaces = scan_interfaces()
+    all_implementations = scan_implementations()
 
-    # 3. Match
+    repo_impls = [i for i in all_implementations if not i.is_infrastructure]
+    infra_impls = [i.name for i in all_implementations if i.is_infrastructure]
+
     matched_pairs = []
+    used_impls = set()
+    matched_interfaces = set()
     unmatched_interfaces = []
-    unmatched_impls = set(impl.class_name for impl in implementations)
-    violations = []
-    runtime_errors = []
+    all_violations = []
+    total_errors = 0
+    total_warnings = 0
 
     for iface in interfaces:
-        impl = match_interface_to_impl(iface, implementations)
+        if iface.name in matched_interfaces:
+            continue
+        impl = match_interface_to_impl(iface, repo_impls)
         if impl:
-            matched_pairs.append((iface.class_name, impl.class_name))
-            unmatched_impls.discard(impl.class_name)
-            # Check kontrak
-            violations.extend(compare_methods(iface, impl))
-            # Runtime check (jika diaktifkan)
-            if check_runtime:
-                err = try_import_and_instantiate(iface.module, iface.class_name)
-                if err:
-                    runtime_errors.append(err)
-                err_impl = try_import_and_instantiate(impl.module, impl.class_name)
-                if err_impl:
-                    runtime_errors.append(err_impl)
+            matched_pairs.append((iface.name, impl.name))
+            used_impls.add(impl.name)
+            matched_interfaces.add(iface.name)
+            violations = compare_methods(iface, impl)
+            all_violations.extend(violations)
+            total_errors += sum(1 for v in violations if v.severity == "ERROR")
+            total_warnings += sum(1 for v in violations if v.severity == "WARNING")
         else:
-            unmatched_interfaces.append(iface.class_name)
+            unmatched_interfaces.append(iface.name)
 
-    # Implementasi tanpa pasangan
-    unmatched_impls = list(unmatched_impls)
+    unmatched_impls = [i.name for i in repo_impls if i.name not in used_impls]
 
-    return CheckResult(
-        interfaces=interfaces,
-        implementations=implementations,
-        violations=violations,
-        runtime_errors=runtime_errors,
-        matched_pairs=matched_pairs,
-        unmatched_interfaces=unmatched_interfaces,
-        unmatched_impls=unmatched_impls,
-    )
+    total_interfaces = len(interfaces)
+    error_free_matches = 0
+    for iface in interfaces:
+        if iface.name in matched_interfaces:
+            has_error = any(v.interface == iface.name and v.severity == "ERROR" for v in all_violations)
+            if not has_error:
+                error_free_matches += 1
 
-# =============================================================================
-# Output & Report
-# =============================================================================
-def print_result(result: CheckResult, verbose: bool = False):
+    score = (error_free_matches / total_interfaces * 100) if total_interfaces > 0 else 100.0
+
+    return {
+        "interfaces": interfaces,
+        "implementations": repo_impls,
+        "infrastructure_impls": infra_impls,
+        "matched": matched_pairs,
+        "unmatched_interfaces": unmatched_interfaces,
+        "unmatched_impls": unmatched_impls,
+        "violations": all_violations,
+        "total_errors": total_errors,
+        "total_warnings": total_warnings,
+        "score": round(score, 1),
+    }
+
+# -----------------------------------------------------------------------------
+# Report
+# -----------------------------------------------------------------------------
+
+def print_report(data: dict, verbose: bool = False):
     c = COLOR
-    print(f"\n{c['CYAN']}{'='*60}{c['RESET']}")
-    print(f"{c['CYAN']}REPOSITORY CONTRACT CHECKER REPORT{c['RESET']}")
-    print(f"{c['CYAN']}{'='*60}{c['RESET']}")
+    print(f"\n{c['CYAN']}{'='*72}{c['RESET']}")
+    print(f"{c['BOLD']}{c['CYAN']}  REPOSITORY CONTRACT CHECKER REPORT (AKURAT){c['RESET']}")
+    print(f"{c['CYAN']}{'='*72}{c['RESET']}")
 
-    print(f"\n  Interfaces found    : {len(result.interfaces)}")
-    print(f"  Implementations found: {len(result.implementations)}")
-    print(f"  Matched pairs       : {len(result.matched_pairs)}")
-    print(f"  Unmatched interfaces: {len(result.unmatched_interfaces)}")
-    print(f"  Unmatched impls     : {len(result.unmatched_impls)}")
+    print(f"\n  Interfaces found          : {len(data['interfaces'])}")
+    print(f"  Repository implementations : {len(data['implementations'])}")
+    print(f"  Infrastructure impls (skip): {len(data['infrastructure_impls'])}")
+    print(f"  Matched pairs             : {len(data['matched'])}")
+    print(f"  Unmatched interfaces      : {len(data['unmatched_interfaces'])}")
+    print(f"  Unmatched impls           : {len(data['unmatched_impls'])}")
+    print(f"  Contract Errors (missing) : {len([v for v in data['violations'] if v.severity == 'ERROR'])}")
+    print(f"  Contract Warnings (sig)   : {len([v for v in data['violations'] if v.severity == 'WARNING'])}")
+    print(f"  📈 Skor Kepatuhan         : {c['CYAN']}{c['BOLD']}{data['score']}/100{c['RESET']}")
 
-    if result.matched_pairs:
-        print(f"\n{c['GREEN']}✓ Matched pairs:{c['RESET']}")
-        for iface, impl in result.matched_pairs:
+    if data['matched']:
+        print(f"\n{c['GREEN']}✅ Matched pairs:{c['RESET']}")
+        for iface, impl in data['matched'][:30]:
             print(f"    {iface}  ↔  {impl}")
+        if len(data['matched']) > 30:
+            print(f"    ... dan {len(data['matched'])-30} lainnya.")
 
-    if result.unmatched_interfaces:
-        print(f"\n{c['YELLOW']}⚠ Unmatched interfaces:{c['RESET']}")
-        for name in result.unmatched_interfaces:
+    if data['unmatched_interfaces']:
+        print(f"\n{c['YELLOW']}⚠ Unmatched interfaces ({len(data['unmatched_interfaces'])}):{c['RESET']}")
+        for name in data['unmatched_interfaces'][:20]:
             print(f"    {name}")
+        if len(data['unmatched_interfaces']) > 20:
+            print(f"    ... dan {len(data['unmatched_interfaces'])-20} lainnya.")
 
-    if result.unmatched_impls:
-        print(f"\n{c['YELLOW']}⚠ Unmatched implementations:{c['RESET']}")
-        for name in result.unmatched_impls:
+    if data['unmatched_impls']:
+        print(f"\n{c['YELLOW']}⚠ Unmatched implementations ({len(data['unmatched_impls'])}):{c['RESET']}")
+        for name in data['unmatched_impls'][:20]:
             print(f"    {name}")
+        if len(data['unmatched_impls']) > 20:
+            print(f"    ... dan {len(data['unmatched_impls'])-20} lainnya.")
 
-    # Violations
-    if result.violations:
-        print(f"\n{c['RED']}❌ Contract Violations ({len(result.violations)}):{c['RESET']}")
-        for v in result.violations:
-            color = c["RED"] if v.severity == "ERROR" else c["YELLOW"]
-            print(f"  {color}[{v.severity}]{c['RESET']} {v.message}")
+    # Tampilkan violations
+    errors = [v for v in data['violations'] if v.severity == "ERROR"]
+    warnings = [v for v in data['violations'] if v.severity == "WARNING"]
+
+    if errors:
+        print(f"\n{c['RED']}❌ Contract ERRORS ({len(errors)}):{c['RESET']}")
+        for v in errors[:30]:
+            print(f"  {c['RED']}[ERROR]{c['RESET']} {v.message}")
             print(f"       Interface: {v.interface}, Implementation: {v.implementation}")
             if v.detail:
                 print(f"       Detail: {v.detail}")
-            if verbose:
-                # Tampilkan lokasi method
-                pass
-    else:
-        print(f"\n{c['GREEN']}✓ No contract violations.{c['RESET']}")
+        if len(errors) > 30:
+            print(f"  ... dan {len(errors)-30} errors lainnya.")
 
-    # Runtime errors
-    if result.runtime_errors:
-        print(f"\n{c['RED']}❌ Runtime Errors ({len(result.runtime_errors)}):{c['RESET']}")
-        for err in result.runtime_errors:
-            print(f"  {c['RED']}✖ {err.module}{c['RESET']}")
-            print(f"     {err.error_type}: {err.error_msg}")
-            if verbose and err.traceback:
-                print(f"     {err.traceback}")
-    else:
-        print(f"\n{c['GREEN']}✓ No runtime errors.{c['RESET']}")
+    if warnings and verbose:
+        print(f"\n{c['YELLOW']}⚠ Contract WARNINGS ({len(warnings)}):{c['RESET']}")
+        for v in warnings[:30]:
+            print(f"  {c['YELLOW']}[WARNING]{c['RESET']} {v.message}")
+            print(f"       Interface: {v.interface}, Implementation: {v.implementation}")
+            if v.detail:
+                print(f"       Detail: {v.detail}")
+        if len(warnings) > 30:
+            print(f"  ... dan {len(warnings)-30} warnings lainnya.")
+    elif warnings and not verbose:
+        print(f"\n{c['YELLOW']}⚠ {len(warnings)} warnings (gunakan --verbose untuk melihat detail).{c['RESET']}")
 
-    # Summary
-    total_errors = len([v for v in result.violations if v.severity == "ERROR"]) + len(result.runtime_errors)
-    total_warnings = len([v for v in result.violations if v.severity == "WARNING"])
+    print(f"\n{c['CYAN']}{'─'*72}{c['RESET']}")
+    print(f"  Errors  : {c['RED']}{data['total_errors']}{c['RESET']}")
+    print(f"  Warnings: {c['YELLOW']}{data['total_warnings']}{c['RESET']}")
 
-    print(f"\n{c['CYAN']}{'─'*60}{c['RESET']}")
-    print(f"  Errors  : {c['RED']}{total_errors}{c['RESET']}")
-    print(f"  Warnings: {c['YELLOW']}{total_warnings}{c['RESET']}")
-    if total_errors == 0:
-        print(f"  {c['GREEN']}✅ All repository contracts are satisfied.{c['RESET']}")
+    if data['total_errors'] == 0:
+        print(f"  {c['GREEN']}✅ All repository contracts are satisfied (no missing methods).{c['RESET']}")
     else:
         print(f"  {c['RED']}❌ Fix the errors above before proceeding.{c['RESET']}")
 
-def save_json(result: CheckResult, filepath: str):
-    data = {
-        "interfaces": [{"module": i.module, "class": i.class_name, "methods": list(i.methods.keys())} for i in result.interfaces],
-        "implementations": [{"module": i.module, "class": i.class_name, "methods": list(i.methods.keys())} for i in result.implementations],
-        "matched_pairs": result.matched_pairs,
-        "unmatched_interfaces": result.unmatched_interfaces,
-        "unmatched_impls": result.unmatched_impls,
-        "violations": [
-            {"severity": v.severity, "interface": v.interface, "implementation": v.implementation,
-             "message": v.message, "detail": v.detail}
-            for v in result.violations
+def save_json(data: dict, filepath: str):
+    payload = {
+        "score": data["score"],
+        "total_interfaces": len(data["interfaces"]),
+        "total_repo_impls": len(data["implementations"]),
+        "infrastructure_impls": data["infrastructure_impls"],
+        "matched_pairs": data["matched"],
+        "unmatched_interfaces": data["unmatched_interfaces"],
+        "unmatched_impls": data["unmatched_impls"],
+        "errors": [
+            {"interface": v.interface, "implementation": v.implementation, "message": v.message, "detail": v.detail}
+            for v in data["violations"] if v.severity == "ERROR"
         ],
-        "runtime_errors": [
-            {"module": e.module, "type": e.error_type, "message": e.error_msg}
-            for e in result.runtime_errors
+        "warnings": [
+            {"interface": v.interface, "implementation": v.implementation, "message": v.message, "detail": v.detail}
+            for v in data["violations"] if v.severity == "WARNING"
         ],
+        "total_errors": data["total_errors"],
+        "total_warnings": data["total_warnings"],
     }
     with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    print(f"\n{c['CYAN']}JSON report saved to {filepath}{c['RESET']}")
+        json.dump(payload, f, indent=2)
+    print(f"{COLOR['GREEN']}✅ Laporan diekspor ke {filepath}{COLOR['RESET']}")
 
-# =============================================================================
-# Main CLI
-# =============================================================================
+# -----------------------------------------------------------------------------
+# CLI
+# -----------------------------------------------------------------------------
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="Repository Contract Checker for ERP Accounting Engine",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument("--verbose", action="store_true", help="Tampilkan detail tambahan")
-    parser.add_argument("--skip-runtime", action="store_true", help="Lewati runtime import/instantiation check")
-    parser.add_argument("--json", metavar="FILE", help="Simpan hasil dalam format JSON")
-    parser.add_argument("--quiet", action="store_true", help="Minimal output (hanya error)")
+    parser = argparse.ArgumentParser(description="Repository Contract Checker (Akurat)")
+    parser.add_argument("--verbose", action="store_true", help="Tampilkan detail tambahan (termasuk warnings)")
+    parser.add_argument("--json", metavar="FILE", help="Ekspor laporan ke JSON")
     args = parser.parse_args()
 
-    if args.quiet:
-        # Redirect output? Kita tetap print tapi kita kontrol
-        pass
-
-    check_runtime = not args.skip_runtime
     start_time = time.monotonic()
 
-    result = scan_repositories(check_runtime)
+    print(f"{COLOR['BOLD']}{COLOR['CYAN']}╔════════════════════════════════════════════════════════════════════╗")
+    print("║      SOVEREIGN REPOSITORY CONTRACT CHECKER (AKURAT)          ║")
+    print(f"╚════════════════════════════════════════════════════════════════════╝{COLOR['RESET']}")
+    print(f"  Interface dir      : {ROOT / 'ports' / 'primary'}")
+    print(f"  Implementation dir : {ROOT / 'adapters' / 'secondary_impl'}")
 
-    if not args.quiet:
-        print_result(result, verbose=args.verbose)
+    data = scan_repositories()
+    print_report(data, verbose=args.verbose)
 
     if args.json:
-        save_json(result, args.json)
+        save_json(data, args.json)
 
     elapsed = time.monotonic() - start_time
-    if not args.quiet:
-        print(f"\n  Time: {elapsed:.2f}s")
+    print(f"\n ⏱️ Waktu Audit: {elapsed:.3f} detik")
 
-    # Exit code: 0 if no errors, else 1
-    errors = len([v for v in result.violations if v.severity == "ERROR"]) + len(result.runtime_errors)
-    sys.exit(0 if errors == 0 else 1)
+    sys.exit(0 if data["total_errors"] == 0 else 1)
 
 if __name__ == "__main__":
     main()

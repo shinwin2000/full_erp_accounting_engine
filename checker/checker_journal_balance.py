@@ -14,15 +14,15 @@ Cara pakai:
 Exit code: 0 jika semua valid, 1 jika ada critical issue.
 """
 
-import sys
-import json
+import ast
 import importlib
 import inspect
-import ast
+import json
 import re
-from pathlib import Path
-from typing import Dict, List, Set, Optional, Any, Tuple
+import sys
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 # ─── Konfigurasi ──────────────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent
@@ -78,7 +78,7 @@ class JournalClassInfo:
     has_debit: bool
     has_credit: bool
     has_lines: bool
-    validate_method: Optional[str]
+    validate_method: str | None
     is_valid: bool = False
     reason: str = ""
 
@@ -111,7 +111,7 @@ def get_ast_tree(path: Path):
     except:
         return None
 
-def is_journal_class(class_node: ast.ClassDef) -> Tuple[bool, bool, bool]:
+def is_journal_class(class_node: ast.ClassDef) -> tuple[bool, bool, bool]:
     """
     Periksa apakah class memiliki field debit/credit atau lines.
     Kembalikan (has_debit, has_credit, has_lines).
@@ -143,7 +143,7 @@ def is_journal_class(class_node: ast.ClassDef) -> Tuple[bool, bool, bool]:
                     has_lines = True
     return has_debit, has_credit, has_lines
 
-def has_validate_method(class_node: ast.ClassDef) -> Optional[str]:
+def has_validate_method(class_node: ast.ClassDef) -> str | None:
     """Cari metode validasi dalam class."""
     for item in class_node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -160,7 +160,7 @@ def is_posting_function(func_node: ast.FunctionDef) -> bool:
     # Hanya fungsi yang secara eksplisit menandakan posting
     return any(kw in name for kw in ["post_journal", "save_journal", "add_journal", "create_journal", "post_entry"])
 
-def is_repository_method(class_node: ast.ClassDef, func_node: ast.FunctionDef) -> Tuple[bool, str]:
+def is_repository_method(class_node: ast.ClassDef, func_node: ast.FunctionDef) -> tuple[bool, str]:
     """True jika method adalah repository save/update."""
     # Class harus bernama *Repository
     if not class_node.name.endswith("Repository"):
@@ -174,7 +174,7 @@ def is_repository_method(class_node: ast.ClassDef, func_node: ast.FunctionDef) -
             return True, entity_arg
     return False, ""
 
-def extract_journal_classes(path: Path) -> List[JournalClassInfo]:
+def extract_journal_classes(path: Path) -> list[JournalClassInfo]:
     tree = get_ast_tree(path)
     if not tree:
         return []
@@ -199,7 +199,7 @@ def extract_journal_classes(path: Path) -> List[JournalClassInfo]:
                 result.append(info)
     return result
 
-def extract_posting_functions(path: Path) -> List[PostingFunction]:
+def extract_posting_functions(path: Path) -> list[PostingFunction]:
     tree = get_ast_tree(path)
     if not tree:
         return []
@@ -235,7 +235,7 @@ def extract_posting_functions(path: Path) -> List[PostingFunction]:
                 ))
     return result
 
-def extract_repository_methods(path: Path) -> List[RepositoryMethod]:
+def extract_repository_methods(path: Path) -> list[RepositoryMethod]:
     tree = get_ast_tree(path)
     if not tree:
         return []
@@ -278,7 +278,7 @@ def import_module(module_name: str):
     except:
         return None
 
-def inspect_journal_class_runtime(class_obj: Any) -> Tuple[bool, str]:
+def inspect_journal_class_runtime(class_obj: Any) -> tuple[bool, str]:
     """Periksa apakah class benar-benar memiliki validasi balance."""
     if not class_obj:
         return False, "Class tidak ditemukan"
@@ -313,16 +313,16 @@ def inspect_journal_class_runtime(class_obj: Any) -> Tuple[bool, str]:
 
 # ─── Main Validator ──────────────────────────────────────────────────────────
 
-def validate_journal_balance(verbose: bool = False, json_out: Optional[str] = None) -> int:
+def validate_journal_balance(verbose: bool = False, json_out: str | None = None) -> int:
     print(f"{BOLD}{CYAN}╔{'═'*78}╗{RESET}")
     print(f"{BOLD}{CYAN}║{' '*20}JOURNAL BALANCE CHECKER — PRECISION{' '*20}║{RESET}")
     print(f"{BOLD}{CYAN}╚{'═'*78}╝{RESET}")
     print()
 
-    findings: List[Finding] = []
-    journal_classes: List[JournalClassInfo] = []
-    posting_funcs: List[PostingFunction] = []
-    repo_methods: List[RepositoryMethod] = []
+    findings: list[Finding] = []
+    journal_classes: list[JournalClassInfo] = []
+    posting_funcs: list[PostingFunction] = []
+    repo_methods: list[RepositoryMethod] = []
 
     # ─── Scan ────────────────────────────────────────────────────────────────
     print("🔍 Scanning project...")

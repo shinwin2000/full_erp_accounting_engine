@@ -39,7 +39,7 @@ def _get_logger():
     global _logger
     if _logger is None:
         mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
-        get_logger_func = getattr(mod, "get_logger")
+        get_logger_func = mod.get_logger
         _logger = get_logger_func(__name__)
     return _logger
 
@@ -48,7 +48,7 @@ def _get_current_correlation_id() -> str | None:
     """Lazy import correlation_id_injector and get current correlation id."""
     try:
         mod = importlib.import_module("infrastructure.telemetry.correlation_id_injector")
-        get_correlation_id = getattr(mod, "get_current_correlation_id")
+        get_correlation_id = mod.get_current_correlation_id
         return get_correlation_id()
     except Exception:
         return None
@@ -85,7 +85,7 @@ class ImmutableEventWriter:
     async def _get_store(self):
         if self._store is None:
             mod = importlib.import_module("infrastructure.event_store.append_only_store")
-            get_audit_store = getattr(mod, "get_audit_store")
+            get_audit_store = mod.get_audit_store
             self._store = await get_audit_store()
         return self._store
 

@@ -18,12 +18,13 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
 
 from ports.primary.core_tax_port import CoreTaxPort
+
 # ============================================================================
 # ENUMS & DATA CLASSES (shared between port and implementations)
 # ============================================================================
@@ -55,10 +56,10 @@ class SubmissionResponse:
     """Response standar untuk submission ke Coretax."""
     submission_id: str
     status: TaxStatus
-    reference_number: Optional[str] = None
-    message: Optional[str] = None
-    timestamp: Optional[datetime] = None
-    additional_data: Optional[Any] = None
+    reference_number: str | None = None
+    message: str | None = None
+    timestamp: datetime | None = None
+    additional_data: Any | None = None
 
 
 class CoretaxEndpoint(Enum):
@@ -1029,7 +1030,9 @@ CoretaxPort = CoreTaxPort
 # ============================================================================
 
 __all__ = [
+    "CoreTaxPort",
     "CoretaxEndpoint",
+    "CoretaxPort",
     "CoretaxRequestLog",
     "FakturResponse",
     "FakturStatus",
@@ -1042,6 +1045,4 @@ __all__ = [
     "TaxAuthorityCoretaxPort",
     "TaxStatus",
     "TaxSubmissionType",
-    "CoreTaxPort",
-    "CoretaxPort",
 ]

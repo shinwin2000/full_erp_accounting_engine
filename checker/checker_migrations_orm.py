@@ -17,10 +17,8 @@ import re
 import subprocess
 import sys
 import textwrap
-import time
 import traceback
 from pathlib import Path
-from typing import Dict, Set, List, Tuple, Optional, Any
 
 # Ensure third-party dependencies are available or gracefully fail with clear warning
 try:
@@ -100,7 +98,7 @@ class AlembicTableExtractor(ast.NodeVisitor):
     - op.execute() yang berisi pernyataan CREATE TABLE (via regex)
     """
     def __init__(self):
-        self.detected_tables: Set[str] = set()
+        self.detected_tables: set[str] = set()
         # Regex to extract table name from CREATE TABLE statements
         self.create_table_re = re.compile(
             r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(["\']?)(?P<table>[a-zA-Z_][a-zA-Z0-9_]*)\1',
@@ -134,7 +132,7 @@ class AlembicTableExtractor(ast.NodeVisitor):
 
         self.generic_visit(node)
 
-    def _concatenate_strings(self, node: ast.BinOp) -> Optional[str]:
+    def _concatenate_strings(self, node: ast.BinOp) -> str | None:
         """Try to evaluate a binary addition of string constants."""
         left = None
         right = None
@@ -168,19 +166,19 @@ class AlembicTableExtractor(ast.NodeVisitor):
                 self.detected_tables.add(table_name)
 
 # ─── 1. NATIVE ALEMBIC GRAPH INTROSPECTION ──────────────────────────────────
-def audit_alembic_graph() -> Tuple[List[str], List[str], List[str]]:
+def audit_alembic_graph() -> tuple[list[str], list[str], list[str]]:
     """
     Menggunakan API internal Alembic secara native untuk menganalisis revision graph.
     Menghilangkan parsing manual yang rentan terhadap false-positives.
     """
-    heads: List[str] = []
-    errors: List[str] = []
-    revisions_log: List[str] = []
-    
+    heads: list[str] = []
+    errors: list[str] = []
+    revisions_log: list[str] = []
+
     try:
-        from alembic.script import ScriptDirectory
         from alembic.config import Config
-        
+        from alembic.script import ScriptDirectory
+
         alembic_ini = ROOT / "alembic.ini"
         if not alembic_ini.exists():
             errors.append(f"Configuration Missing: alembic.ini tidak ditemukan di {alembic_ini}")
@@ -188,29 +186,29 @@ def audit_alembic_graph() -> Tuple[List[str], List[str], List[str]]:
 
         cfg = Config(str(alembic_ini))
         script_dir = ScriptDirectory.from_config(cfg)
-        
+
         # Ambil actual heads langsung dari environment Alembic
         heads = script_dir.get_heads()
-        
+
         # Validasi struktur relasi dependensi seluruh file migrasi
         for rev in script_dir.walk_revisions():
             revisions_log.append(f"Revision: {rev.revision} (Parent: {rev.down_revision})")
-            
-    except Exception as e:
+
+    except Exception:
         errors.append(f"Alembic Programmatic Introspection Failed:\n{traceback.format_exc()}")
-        
+
     return heads, errors, revisions_log
 
 
 # ─── 2. DYNAMIC ORM LOAD WITH STRICT ERROR TRACING ─────────────────────────
-def import_all_orm_modules() -> List[str]:
+def import_all_orm_modules() -> list[str]:
     """
     Mengimpor seluruh modul secara dinamis dari infrastruktur persistence ORM.
     Mengekspos full traceback jika ada modul yang rusak atau broken import.
     """
-    traceback_errors: List[str] = []
+    traceback_errors: list[str] = []
     orm_dir = ROOT / "infrastructure" / "persistence_orm"
-    
+
     if not orm_dir.exists():
         traceback_errors.append(f"Directory Error: {orm_dir} tidak ditemukan.")
         return traceback_errors
@@ -218,24 +216,24 @@ def import_all_orm_modules() -> List[str]:
     for py_file in orm_dir.glob("*.py"):
         if py_file.name.startswith("_") or py_file.name in {"base_model.py", "unit_of_work.py"}:
             continue
-        
+
         mod_name = f"infrastructure.persistence_orm.{py_file.stem}"
         try:
             importlib.import_module(mod_name)
         except Exception:
             traceback_errors.append(f"Failed to import module [{mod_name}]:\n{traceback.format_exc()}")
-            
+
     return traceback_errors
 
 
 # ─── 3. OBJECTIVE RUNTIME ENUM INTROSPECTION ────────────────────────────────
-def audit_runtime_and_ast_enums() -> List[str]:
+def audit_runtime_and_ast_enums() -> list[str]:
     """
     Runtime Introspection MRO + AST Analysis untuk memastikan Enum didefinisikan 
     menggunakan enum.Enum (Python) dan bukan menurunkan langsung dari kelas tipe SQLAlchemy.
     """
     violations = []
-    
+
     # Bagian 1: Runtime Class MRO Check pada Modul Terisi
     for mod_name in list(sys.modules.keys()):
         if mod_name.startswith("infrastructure.persistence_orm"):
@@ -283,17 +281,17 @@ def main() -> int:
     print(f"  SQLAlchemy v   : {sqlalchemy.__version__}")
     print()
 
-    critical_failures: List[str] = []
-    warnings: List[str] = []
+    critical_failures: list[str] = []
+    warnings: list[str] = []
 
     # 1. Audit Alembic Integrity Graph & Multi-Heads via API Native
     print("Executing Phase 1: Native Alembic Graph Introspection...")
     heads, graph_errors, revisions_log = audit_alembic_graph()
-    
+
     if graph_errors:
         for err in graph_errors:
             critical_failures.append(err)
-            
+
     if len(heads) > 1:
         head_err = f"Multiple migration heads detected: {', '.join(heads)}"
         critical_failures.append(head_err)
@@ -318,7 +316,7 @@ def main() -> int:
 
     # 3. Core Database Metadata & Schema Load Verification
     metadata = None
-    orm_tables: Set[str] = set()
+    orm_tables: set[str] = set()
     try:
         base_module = importlib.import_module("infrastructure.persistence_orm.base_model")
         Base = getattr(base_module, "Base", None)
@@ -335,9 +333,9 @@ def main() -> int:
 
     # 4. AST Deep Extraction untuk Tabel Migrasi Alembic (Enhanced)
     print("\nExecuting Phase 3: Advanced AST Structural Migration Analysis (including op.execute)...")
-    migration_tables: Set[str] = set()
+    migration_tables: set[str] = set()
     versions_dir = ROOT / "migrations" / "versions"
-    
+
     if not versions_dir.exists():
         critical_failures.append(f"Directory Missing: {versions_dir}")
         print(f"  {RED}✖ Folder migrations/versions tidak ditemukan.{RESET}")
@@ -365,7 +363,7 @@ def main() -> int:
 
         only_in_orm = filtered_orm_tables - filtered_migration_tables
         only_in_migrations = filtered_migration_tables - filtered_orm_tables
-        
+
         if only_in_orm:
             for t in sorted(only_in_orm):
                 err = f"Schema Mismatch: Tabel '{t}' terdefinisi di ORM Runtime, tetapi tidak ditemukan di file migrasi Alembic!"
@@ -376,14 +374,14 @@ def main() -> int:
                 warn = f"Tabel '{t}' tercatat di skrip migrasi, tetapi tidak terpetakan di ORM model Runtime."
                 warnings.append(warn)
                 print(f"  {YELLOW}⚠ {warn}{RESET}")
-                
+
         if not only_in_orm and not only_in_migrations:
             print(f"  {GREEN}✔ Paritas 100% COCOK (setelah mengabaikan tabel yang diketahui): Seluruh {len(filtered_orm_tables)} tabel sinkron antara ORM & Migrasi.{RESET}")
 
     # 6. Strict Runtime Architectural Enum Safety Audit
     print("\nExecuting Phase 4: Runtime Object & Type MRO Enum Audit...")
     enum_violations = audit_runtime_and_ast_enums()
-    
+
     # Deep column checking on SQLAlchemy mapped items to discover raw string definitions
     if metadata is not None:
         for table_name, table in metadata.tables.items():
@@ -412,7 +410,7 @@ def main() -> int:
                 pk_err = f"Constraint Failure: Tabel '{table_name}' tidak memiliki Primary Key yang terdefinisi!"
                 critical_failures.append(pk_err)
                 print(f"  {RED}✖ {pk_err}{RESET}")
-        
+
         # Check Foreign Keys Validation
         fk_count = 0
         for table_name, table in metadata.tables.items():
@@ -430,7 +428,7 @@ def main() -> int:
                     target_fullname = getattr(fk, 'target_fullname', '')
                     parts = target_fullname.split('.')
                     table_candidate = parts[-2] if len(parts) >= 3 else (parts[0] if parts else '')
-                    
+
                     if table_candidate not in metadata.tables:
                         fk_err = f"Referential Break: Resolusi FK gagal untuk '{table_name}' -> '{target_fullname}':\n{traceback.format_exc()}"
                         critical_failures.append(fk_err)
@@ -466,7 +464,7 @@ def main() -> int:
             if "+asyncpg" in db_url:
                 db_url = db_url.replace("+asyncpg", "")
             engine = create_engine(db_url, pool_size=1, pool_pre_ping=True)
-            
+
             # Cek fungsionalitas dengan melakukan query limit pada tabel pertama
             tables_list = list(metadata.tables.values())
             if tables_list:
@@ -485,7 +483,7 @@ def main() -> int:
     print(banner("SYSTEM AUDIT FINAL REPORT"))
     print(f"  Total Pelanggaran Kritis : {len(critical_failures)}")
     print(f"  Total Peringatan Sistem   : {len(warnings)}")
-    
+
     if critical_failures:
         print(f"\n{RED}{BOLD}✖ AUDIT GAGAL — Sistem mendeteksi {len(critical_failures)} masalah integritas fatal.{RESET}\n")
         print(f"{RED}Daftar Akar Masalah Detail:{RESET}")

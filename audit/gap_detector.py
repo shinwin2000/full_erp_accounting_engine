@@ -41,7 +41,7 @@ def _get_logger():
     global _logger
     if _logger is None:
         mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
-        get_logger_func = getattr(mod, "get_logger")
+        get_logger_func = mod.get_logger
         _logger = get_logger_func(__name__)
     return _logger
 
@@ -92,7 +92,7 @@ class GapDetector:
         try:
             # Lazy import config loader
             mod = importlib.import_module("config.loader_yaml")
-            load_yaml_config = getattr(mod, "load_yaml_config")
+            load_yaml_config = mod.load_yaml_config
             config = load_yaml_config(config_path)
             gap_config = config.get("gap_detector", {})
             result = DEFAULT_CONFIG.copy()
@@ -104,7 +104,7 @@ class GapDetector:
     async def _get_event_store(self):
         if self._event_store is None:
             mod = importlib.import_module("infrastructure.event_store.append_only_store")
-            get_event_store = getattr(mod, "get_event_store")
+            get_event_store = mod.get_event_store
             self._event_store = await get_event_store()
         return self._event_store
 
@@ -207,9 +207,9 @@ class GapDetector:
 
         # Lazy import SQLAlchemy and ORM table
         sqlalchemy_mod = importlib.import_module("sqlalchemy")
-        select = getattr(sqlalchemy_mod, "select")
+        select = sqlalchemy_mod.select
         orm_mod = importlib.import_module("infrastructure.persistence_orm.event_store_table")
-        EventStoreTable = getattr(orm_mod, "EventStoreTable")
+        EventStoreTable = orm_mod.EventStoreTable
 
         # Get all streams
         session_factory = store._session_factory
@@ -267,7 +267,7 @@ class GapDetector:
         # Trigger alert for large number of gaps
         if total_sequence_gaps > 100 or total_timestamp_gaps > 100:
             alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
-            trigger_alert = getattr(alert_mod, "trigger_alert")
+            trigger_alert = alert_mod.trigger_alert
             await trigger_alert(
                 title="Large Number of Gaps Detected",
                 message=f"Scan found {total_sequence_gaps} sequence gaps and {total_timestamp_gaps} timestamp gaps",
@@ -282,7 +282,7 @@ class GapDetector:
         Send alert for a detected gap.
         """
         alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
-        trigger_alert = getattr(alert_mod, "trigger_alert")
+        trigger_alert = alert_mod.trigger_alert
 
         if gap_type == "sequence":
             title = f"Sequence Gap Detected in {gap['stream_name']}"

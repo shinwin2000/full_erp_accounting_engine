@@ -9,18 +9,18 @@ import asyncio
 import logging
 import os
 import time
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Dict, Any, Optional, List
+from typing import Any
 from uuid import uuid4
 
 import httpx
 
 from ports.primary.tax_authority_coretax_port import (
-    TaxAuthorityCoretaxPort,
-    TaxSubmissionType,
-    TaxStatus,
     SubmissionResponse,
+    TaxAuthorityCoretaxPort,
+    TaxStatus,
+    TaxSubmissionType,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
             logger.error(f"Coretax auth failed: {e}")
             raise RuntimeError(f"Coretax auth failed: {e}")
 
-    async def _request(self, method: str, path: str, data: Optional[Dict] = None, params: Optional[Dict] = None) -> Dict:
+    async def _request(self, method: str, path: str, data: dict | None = None, params: dict | None = None) -> dict:
         if not self._enabled:
             logger.info(f"[SIM] {method} {path}")
             return {"status": "success", "submission_id": str(uuid4()), "message": "simulated"}
@@ -113,7 +113,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
     # HEALTH CHECK
     # ================================================================
 
-    async def check_health(self) -> Dict[str, Any]:
+    async def check_health(self) -> dict[str, Any]:
         """
         Memeriksa kesehatan koneksi ke Coretax API.
         """
@@ -142,7 +142,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
     # CORE METHODS (dari port)
     # ================================================================
 
-    async def submit_tax(self, submission_type: TaxSubmissionType, data: Dict[str, Any]) -> SubmissionResponse:
+    async def submit_tax(self, submission_type: TaxSubmissionType, data: dict[str, Any]) -> SubmissionResponse:
         submission_id = str(uuid4())
         timestamp = datetime.now(UTC)
         endpoint_map = {
@@ -219,7 +219,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
             additional_data=response.get("details"),
         )
 
-    async def get_tax_rate(self, tax_code: str, effective_date: Optional[str] = None) -> float:
+    async def get_tax_rate(self, tax_code: str, effective_date: str | None = None) -> float:
         if not effective_date:
             effective_date = datetime.now(UTC).strftime("%Y-%m-%d")
         try:
@@ -249,7 +249,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
     # NSF (Nomor Seri Faktur Pajak) MANAGEMENT
     # ================================================================
 
-    async def request_nsfp(self, quantity: int, legal_entity_id: str) -> List[str]:
+    async def request_nsfp(self, quantity: int, legal_entity_id: str) -> list[str]:
         """
         Meminta NSF (Nomor Seri Faktur Pajak) dari Coretax.
         """
@@ -276,12 +276,12 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
                 return result
             raise
 
-    async def get_available_nsfp(self, legal_entity_id: str) -> List[str]:
+    async def get_available_nsfp(self, legal_entity_id: str) -> list[str]:
         """
         Mendapatkan daftar NSF yang tersedia.
         """
         try:
-            response = await self._request("GET", f"/nsfp/available", params={"legal_entity_id": legal_entity_id})
+            response = await self._request("GET", "/nsfp/available", params={"legal_entity_id": legal_entity_id})
             return response.get("nsfp_list", [])
         except Exception as e:
             logger.warning(f"Failed to get available NSF: {e}")
@@ -292,7 +292,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
     # FAKTUR KELUARAN (Output Tax Invoice)
     # ================================================================
 
-    async def submit_faktur_keluaran(self, faktur_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_faktur_keluaran(self, faktur_data: dict[str, Any]) -> dict[str, Any]:
         """
         Submit faktur keluaran ke Coretax.
         """
@@ -313,7 +313,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
                 "error": str(e),
             }
 
-    async def get_faktur_keluaran_status(self, faktur_id: str) -> Dict[str, Any]:
+    async def get_faktur_keluaran_status(self, faktur_id: str) -> dict[str, Any]:
         """
         Mendapatkan status faktur keluaran.
         """
@@ -334,7 +334,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
     # FAKTUR MASUKAN (Input Tax Invoice)
     # ================================================================
 
-    async def submit_faktur_masukan(self, faktur_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_faktur_masukan(self, faktur_data: dict[str, Any]) -> dict[str, Any]:
         """
         Submit faktur masukan ke Coretax.
         """
@@ -355,7 +355,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
                 "error": str(e),
             }
 
-    async def get_faktur_masukan_status(self, faktur_id: str) -> Dict[str, Any]:
+    async def get_faktur_masukan_status(self, faktur_id: str) -> dict[str, Any]:
         """
         Mendapatkan status faktur masukan.
         """
@@ -375,7 +375,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
     # BUPOT (Withholding Tax Certificate)
     # ================================================================
 
-    async def generate_bupot(self, bupot_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def generate_bupot(self, bupot_data: dict[str, Any]) -> dict[str, Any]:
         """
         Generate Bupot (Withholding Tax Certificate).
         """
@@ -396,7 +396,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
                 "error": str(e),
             }
 
-    async def submit_bupot_batch(self, bupot_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def submit_bupot_batch(self, bupot_list: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Submit batch bupot ke Coretax.
         """
@@ -428,7 +428,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
     # SPT MASA (Monthly Tax Returns)
     # ================================================================
 
-    async def submit_spt_masa_ppn(self, spt_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_spt_masa_ppn(self, spt_data: dict[str, Any]) -> dict[str, Any]:
         """
         Submit SPT Masa PPN.
         """
@@ -449,7 +449,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
                 "error": str(e),
             }
 
-    async def submit_spt_masa_pph21(self, spt_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_spt_masa_pph21(self, spt_data: dict[str, Any]) -> dict[str, Any]:
         """
         Submit SPT Masa PPh21.
         """
@@ -470,7 +470,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
                 "error": str(e),
             }
 
-    async def submit_spt_masa_pph23(self, spt_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_spt_masa_pph23(self, spt_data: dict[str, Any]) -> dict[str, Any]:
         """
         Submit SPT Masa PPh23.
         """
@@ -495,7 +495,7 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
     # NTPN VALIDATION (Payment Confirmation)
     # ================================================================
 
-    async def validate_ntpn(self, ntpn: str, amount: Decimal, payment_date: str) -> Dict[str, Any]:
+    async def validate_ntpn(self, ntpn: str, amount: Decimal, payment_date: str) -> dict[str, Any]:
         """
         Validasi NTPN (Nomor Transaksi Penerimaan Negara).
         """
@@ -533,19 +533,19 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
     # LEGACY METHODS (kompatibilitas)
     # ================================================================
 
-    async def submit_faktur(self, faktur_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_faktur(self, faktur_data: dict[str, Any]) -> dict[str, Any]:
         """Legacy method - use submit_faktur_keluaran instead."""
         return await self.submit_faktur_keluaran(faktur_data)
 
-    async def get_faktur_status(self, faktur_id: str) -> Dict[str, Any]:
+    async def get_faktur_status(self, faktur_id: str) -> dict[str, Any]:
         """Legacy method - use get_faktur_keluaran_status instead."""
         return await self.get_faktur_keluaran_status(faktur_id)
 
-    async def submit_spt(self, spt_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_spt(self, spt_data: dict[str, Any]) -> dict[str, Any]:
         """Legacy method - use submit_spt_masa_ppn instead."""
         return await self.submit_spt_masa_ppn(spt_data)
 
-    async def get_spt_status(self, spt_id: str) -> Dict[str, Any]:
+    async def get_spt_status(self, spt_id: str) -> dict[str, Any]:
         """Legacy method - get SPT status."""
         try:
             response = await self._request("GET", f"/spt/{spt_id}")
@@ -557,20 +557,20 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
         except Exception as e:
             return {"spt_id": spt_id, "status": "unknown", "error": str(e)}
 
-    async def get_notification(self) -> List[Dict[str, Any]]:
+    async def get_notification(self) -> list[dict[str, Any]]:
         try:
             response = await self._request("GET", "/notifications")
             return response.get("notifications", [])
         except Exception:
             return []
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         return await self.check_health()
 
     # ================================================================
     # Stub method to satisfy checker (false positive for CoreTaxPort)
     # ================================================================
-    async def register_webhook(self, event_type: str, url: str) -> Dict[str, Any]:
+    async def register_webhook(self, event_type: str, url: str) -> dict[str, Any]:
         """Stub: register webhook for Coretax events (not used in this adapter)."""
         return {"status": "stub", "message": f"Webhook for {event_type} registered (stub)"}
 

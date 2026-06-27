@@ -10,6 +10,7 @@ Responsibility: Alias untuk use case classes dan REAL handler untuk base classes
 from __future__ import annotations
 
 from typing import Any
+
 from application.commands_cqrs.command_bus_unified import BaseCommand
 from application.commands_cqrs.command_result_envelope import CommandResult
 from application.commands_cqrs.query_bus_unified import BaseQuery
@@ -72,7 +73,6 @@ from .stock_opname_cycle import StockOpnameCycleUseCase
 from .tax_filing_submission import TaxFilingSubmissionUseCase
 from .year_end_closing import YearEndClosingUseCase
 
-
 AmlScreeningTransactionHandler = AMLScreeningUseCase
 ApPaymentRunHandler = APPaymentRunUseCase
 ApproveJournalFourEyesHandler = ApproveJournalFourEyesUseCase
@@ -114,7 +114,7 @@ def __getattr__(name: str) -> Any:
         # Jika file bermasalah atau hilang, Python akan langsung melempar full traceback.
         from .hpp_manufacturing_close_use_case import HPPManufacturingCloseUseCase
         return HPPManufacturingCloseUseCase
-        
+
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -137,7 +137,7 @@ __all__ = [
     "ForexRevaluationHandler",
     "HedgeAccountingExecutionHandler",
     "HppManufacturingCloseHandler",
-    "HppManufacturingCloseUseCase",  
+    "HppManufacturingCloseUseCase",
     "ImpairmentTestingAnnualHandler",
     "IntercompanyEliminationHandler",
     "PayrollMonthlyRunHandler",

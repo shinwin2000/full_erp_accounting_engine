@@ -242,7 +242,7 @@ class QuantityVO:
                 raise QuantityError(f"Unknown unit: {unit}")
             unit = unit_enum
 
-        return cls(value, unit) 
+        return cls(value, unit)
 
     @classmethod
     def zero(cls, unit: UnitOfMeasure) -> QuantityVO:

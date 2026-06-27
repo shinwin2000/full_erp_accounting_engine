@@ -42,7 +42,7 @@ class HandlerPriority(IntEnum):
     NORMAL = 50    # Default priority
     LOW = 90       # Low priority (misal logging, analytics)
     MONITORING = 100  # Terakhir (metrics, tracing)
-    LOWEST = 110 
+    LOWEST = 110
 
 # === 2. EXCEPTIONS ===
 
@@ -153,7 +153,7 @@ class EventHandlerRegistry:
                 # Registrasi dilakukan secara eksplisit dari luar
                 # (misal di checker_event_handler.py atau startup)
                 # untuk menghindari circular import dan error dependency.
-                # 
+                #
                 # Jika Anda ingin registrasi otomatis, aktifkan kembali
                 # dengan membuka komentar di bawah, pastikan tidak ada circular import.
                 # =============================================================
@@ -162,7 +162,7 @@ class EventHandlerRegistry:
                 #     register_all_handlers(self)
                 # except Exception as e:
                 #     logger.warning(f"Failed to register specific handlers: {e}")
-                # 
+                #
                 # try:
                 #     from application.events.global_event_subscribers import register_all_subscribers
                 #     register_all_subscribers(self)

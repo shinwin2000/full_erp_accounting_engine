@@ -19,7 +19,6 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 # =============================================================================
 # Konfigurasi Terminal
@@ -35,7 +34,7 @@ COLOR = {
 }
 
 if not sys.stdout.isatty():
-    COLOR = {k: "" for k in COLOR}
+    COLOR = dict.fromkeys(COLOR, "")
 
 # =============================================================================
 # Matriks Layer & Aturan Dependensi
@@ -108,7 +107,7 @@ class ModuleReport:
     module_path: str
     file_path: str
     layer: str
-    violations: List[ViolationInfo] = field(default_factory=list)
+    violations: list[ViolationInfo] = field(default_factory=list)
 
 @dataclass
 class ComprehensiveDriftReport:
@@ -116,9 +115,9 @@ class ComprehensiveDriftReport:
     clean_modules: int = 0
     corrupted_modules: int = 0
     total_ast_violations: int = 0
-    inter_layer_cycles: List[List[str]] = field(default_factory=list)
-    intra_layer_cycles: List[List[str]] = field(default_factory=list)
-    modules: Dict[str, ModuleReport] = field(default_factory=dict)
+    inter_layer_cycles: list[list[str]] = field(default_factory=list)
+    intra_layer_cycles: list[list[str]] = field(default_factory=list)
+    modules: dict[str, ModuleReport] = field(default_factory=dict)
     score: int = 100
 
 # =============================================================================
@@ -137,14 +136,14 @@ class SovereignArchitectureVerifier:
         top_level = module_name.split(".")[0]
         return LAYER_MAP.get(top_level, "unknown")
 
-    def resolve_relative_import(self, source_module: str, level: int, target_module: Optional[str]) -> str:
+    def resolve_relative_import(self, source_module: str, level: int, target_module: str | None) -> str:
         parts = source_module.split(".")
         if len(parts) >= level:
             base = ".".join(parts[:-level])
             return f"{base}.{target_module}" if target_module else base
         return source_module
 
-    def scan_module(self, file_path: pathlib.Path) -> Optional[ModuleReport]:
+    def scan_module(self, file_path: pathlib.Path) -> ModuleReport | None:
         try:
             source_code = file_path.read_text(encoding="utf-8", errors="replace")
             tree = ast.parse(source_code, filename=str(file_path))
@@ -193,20 +192,20 @@ class SovereignArchitectureVerifier:
 
         return report
 
-    def build_import_graph(self, all_edges: List[ImportEdge]) -> Dict[str, Set[str]]:
-        graph: Dict[str, Set[str]] = defaultdict(set)
+    def build_import_graph(self, all_edges: list[ImportEdge]) -> dict[str, set[str]]:
+        graph: dict[str, set[str]] = defaultdict(set)
         for edge in all_edges:
             if edge.source_module != edge.target_module and edge.target_layer not in SKIP_LAYERS:
                 graph[edge.source_module].add(edge.target_module)
         return graph
 
-    def tarjan_scc(self, graph: Dict[str, Set[str]]) -> List[List[str]]:
+    def tarjan_scc(self, graph: dict[str, set[str]]) -> list[list[str]]:
         index = 0
-        indices: Dict[str, int] = {}
-        lowlinks: Dict[str, int] = {}
-        stack: List[str] = []
-        onstack: Set[str] = set()
-        sccs: List[List[str]] = []
+        indices: dict[str, int] = {}
+        lowlinks: dict[str, int] = {}
+        stack: list[str] = []
+        onstack: set[str] = set()
+        sccs: list[list[str]] = []
 
         def strongconnect(v: str) -> None:
             nonlocal index
@@ -239,7 +238,7 @@ class SovereignArchitectureVerifier:
                 strongconnect(v)
         return sccs
 
-    def classify_cycles(self, cycles: List[List[str]]) -> Tuple[List[List[str]], List[List[str]]]:
+    def classify_cycles(self, cycles: list[list[str]]) -> tuple[list[list[str]], list[list[str]]]:
         inter_layer = []
         intra_layer = []
         for cycle in cycles:
@@ -272,7 +271,7 @@ def main():
     verifier = SovereignArchitectureVerifier(root_dir, strict_mode=args.strict)
 
     print(f"{COLOR['BOLD']}{COLOR['CYAN']}╔════════════════════════════════════════════════════════════════════╗")
-    print(f"║        SOVEREIGN ARCHITECTURE DRIFT & BOUNDARY VALIDATOR           ║")
+    print("║        SOVEREIGN ARCHITECTURE DRIFT & BOUNDARY VALIDATOR           ║")
     print(f"╚════════════════════════════════════════════════════════════════════╝{COLOR['RESET']}")
 
     exclude_set = {d.strip() for d in args.exclude.split(",") if d.strip()}
@@ -285,7 +284,7 @@ def main():
         py_files.append(path)
 
     master_report = ComprehensiveDriftReport()
-    all_edges: List[ImportEdge] = []
+    all_edges: list[ImportEdge] = []
 
     # === SCAN MODULES ===
     for file_path in py_files:
@@ -325,7 +324,7 @@ def main():
     # dari semua file. Saya akan buat scan ulang khusus untuk edges di sini, atau modifikasi
     # di atas. Mari kita lakukan scan kedua untuk edges (atau integrasikan ke dalam scan pertama).
     # Untuk kesederhanaan, saya akan scan ulang.
-    all_import_edges: List[ImportEdge] = []
+    all_import_edges: list[ImportEdge] = []
     for file_path in py_files:
         try:
             code = file_path.read_text(encoding="utf-8", errors="replace")

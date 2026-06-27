@@ -18,7 +18,6 @@ import json
 import pathlib
 import sys
 from dataclasses import dataclass, field
-from typing import List
 
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
 try:
@@ -44,10 +43,10 @@ class Finding:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: int = 100
 
-def check_file(file_path: pathlib.Path) -> List[Finding]:
+def check_file(file_path: pathlib.Path) -> list[Finding]:
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(src, filename=str(file_path))

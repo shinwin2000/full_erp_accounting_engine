@@ -36,7 +36,7 @@ def _get_current_user() -> str | None:
     """Lazy import kernel.context_holder.get_current_user."""
     try:
         mod = importlib.import_module("kernel.context_holder")
-        get_current_user = getattr(mod, "get_current_user")
+        get_current_user = mod.get_current_user
         return get_current_user()
     except Exception:
         return None
@@ -502,19 +502,14 @@ class IntentCaptureService:
             self._captured_intents.clear()
 
 
-# ============================================================================
-# SINGLETON ACCESSOR
-# ============================================================================
-
-_intent_capture_service_instance: IntentCaptureService | None = None
-
-
 def get_intent_capture_service() -> IntentCaptureService:
     global _intent_capture_service_instance
     if _intent_capture_service_instance is None:
         _intent_capture_service_instance = IntentCaptureService()
     return _intent_capture_service_instance
 
+
+_intent_capture_service_instance: IntentCaptureService | None = None
 
 __all__ = [
     "CapturedIntent",

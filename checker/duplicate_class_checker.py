@@ -20,9 +20,7 @@ import ast
 import json
 import pathlib
 import sys
-from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 # Warna
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
@@ -42,7 +40,7 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
 @dataclass
 class MethodInfo:
     name: str
-    params: List[str]
+    params: list[str]
     is_async: bool
     lineno: int
 
@@ -52,22 +50,22 @@ class ClassInfo:
     module: str
     file_path: str
     lineno: int
-    methods: List[MethodInfo]
-    bases: List[str]   # nama base class
+    methods: list[MethodInfo]
+    bases: list[str]   # nama base class
     has_init: bool
 
 @dataclass
 class DuplicateGroup:
     class_name: str
-    locations: List[Tuple[str, int]]  # (file_path, line)
+    locations: list[tuple[str, int]]  # (file_path, line)
     similarity_score: float  # 1.0 = identik
 
 @dataclass
 class Report:
-    duplicate_groups: List[DuplicateGroup] = field(default_factory=list)
+    duplicate_groups: list[DuplicateGroup] = field(default_factory=list)
     score: int = 100
 
-def extract_class_info(file_path: pathlib.Path, module: str) -> List[ClassInfo]:
+def extract_class_info(file_path: pathlib.Path, module: str) -> list[ClassInfo]:
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(src, filename=str(file_path))
@@ -141,7 +139,7 @@ def compute_similarity(c1: ClassInfo, c2: ClassInfo) -> float:
         score = min(1.0, score + 0.1)
     return round(score, 2)
 
-def find_duplicates(class_list: List[ClassInfo], threshold: float = 0.8) -> List[DuplicateGroup]:
+def find_duplicates(class_list: list[ClassInfo], threshold: float = 0.8) -> list[DuplicateGroup]:
     groups = []
     used = set()
     n = len(class_list)
@@ -171,7 +169,7 @@ def find_duplicates(class_list: List[ClassInfo], threshold: float = 0.8) -> List
             ))
     return groups
 
-def scan_project(exclude_dirs: List[str] = None) -> Report:
+def scan_project(exclude_dirs: list[str] = None) -> Report:
     if exclude_dirs is None:
         exclude_dirs = ['.venv', 'venv', '__pycache__', '.git', 'node_modules', 'dist', 'build', 'migrations', 'deployment', 'docs', 'tests']
     exclude_set = set(exclude_dirs)

@@ -22,11 +22,8 @@ import ast
 import importlib
 import json
 import pathlib
-import re
 import sys
-import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 # Warna
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
@@ -60,14 +57,14 @@ class RuntimeError:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
-    runtime_errors: List[RuntimeError] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
+    runtime_errors: list[RuntimeError] = field(default_factory=list)
     score: int = 100
 
 # =============================================================================
 # 1. Idempotency Key Detector
 # =============================================================================
-def check_idempotency_key(file_path: pathlib.Path) -> List[Finding]:
+def check_idempotency_key(file_path: pathlib.Path) -> list[Finding]:
     """Cari apakah ada deklarasi atau penggunaan idempotency key."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -95,7 +92,7 @@ def check_idempotency_key(file_path: pathlib.Path) -> List[Finding]:
             # Cari parameter dengan nama idempotency_key atau header
             for arg in node.args.args:
                 arg_name = arg.arg.lower()
-                if 'idempotency' in arg_name or 'key' in arg_name and 'idempotent' in func_name:
+                if 'idempotency' in arg_name or ('key' in arg_name and 'idempotent' in func_name):
                     findings.append(Finding(
                         file=str(file_path),
                         line=node.lineno,
@@ -122,7 +119,7 @@ def check_idempotency_key(file_path: pathlib.Path) -> List[Finding]:
 # =============================================================================
 # 2. Storage Checker (Cache/DB for idempotency)
 # =============================================================================
-def check_idempotency_storage(file_path: pathlib.Path) -> List[Finding]:
+def check_idempotency_storage(file_path: pathlib.Path) -> list[Finding]:
     """Cari apakah ada penyimpanan hasil operasi berdasarkan key."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -168,7 +165,7 @@ def check_idempotency_storage(file_path: pathlib.Path) -> List[Finding]:
 # =============================================================================
 # 3. Validation Checker (Check if key exists)
 # =============================================================================
-def check_idempotency_validation(file_path: pathlib.Path) -> List[Finding]:
+def check_idempotency_validation(file_path: pathlib.Path) -> list[Finding]:
     """Cari apakah ada pengecekan key existence sebelum eksekusi."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -218,7 +215,7 @@ def check_idempotency_validation(file_path: pathlib.Path) -> List[Finding]:
 # =============================================================================
 # 4. Response Consistency Checker
 # =============================================================================
-def check_response_consistency(file_path: pathlib.Path) -> List[Finding]:
+def check_response_consistency(file_path: pathlib.Path) -> list[Finding]:
     """Cari apakah response sama untuk operasi duplikat."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -253,7 +250,7 @@ def check_response_consistency(file_path: pathlib.Path) -> List[Finding]:
 # =============================================================================
 # 5. Missing Idempotency Implementation
 # =============================================================================
-def check_missing_idempotency(file_path: pathlib.Path) -> List[Finding]:
+def check_missing_idempotency(file_path: pathlib.Path) -> list[Finding]:
     """Cari operasi write yang tidak memiliki idempotensi."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -294,7 +291,7 @@ def check_missing_idempotency(file_path: pathlib.Path) -> List[Finding]:
 # =============================================================================
 # Runtime Import Check (Opsional)
 # =============================================================================
-def try_import_module(module_name: str) -> Optional[RuntimeError]:
+def try_import_module(module_name: str) -> RuntimeError | None:
     try:
         importlib.import_module(module_name)
         return None
@@ -305,7 +302,7 @@ def try_import_module(module_name: str) -> Optional[RuntimeError]:
             error_msg=str(e)[:100]
         )
 
-def check_runtime_imports(target_dirs: List[pathlib.Path]) -> List[RuntimeError]:
+def check_runtime_imports(target_dirs: list[pathlib.Path]) -> list[RuntimeError]:
     errors = []
     for dir_path in target_dirs:
         if not dir_path.exists():

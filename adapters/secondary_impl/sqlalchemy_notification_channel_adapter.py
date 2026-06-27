@@ -7,8 +7,8 @@ Responsibility: Real SQLAlchemy implementation of NotificationChannel port.
 
 from __future__ import annotations
 
-import uuid
 import logging
+import uuid
 from datetime import datetime
 from typing import Any
 

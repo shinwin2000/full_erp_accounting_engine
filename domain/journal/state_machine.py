@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
-from enum import Enum
+
+from domain.journal.journal_entity import JournalStatus  # canonical
 
 logger = logging.getLogger(__name__)
 
@@ -20,35 +21,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 
-class JournalStatus(Enum):
-    """Status dari sebuah jurnal."""
-
-    DRAFT = "draft"
-    SUBMITTED = "submitted"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    POSTED = "posted"
-    REVERSED = "reversed"
-    ARCHIVED = "archived"
-    CANCELLED = "cancelled"
-
-    @classmethod
-    def from_string(cls, value: str) -> JournalStatus:
-        for member in cls:
-            if member.value == value.lower():
-                return member
-        return cls.DRAFT
-
-    def can_transition_to(self, to_status: JournalStatus) -> bool:
-        """Cek apakah transisi dari status ini ke status lain diperbolehkan."""
-        return JournalStateMachine.can_transition(self, to_status)
-
-
-# ============================================================================
-# STATE TRANSITION RULES
-# ============================================================================
-
-
+# JournalStatus uses canonical from journal_entity (import above)
 @dataclass
 class StateTransitionRule:
     """Aturan untuk transisi antar status."""

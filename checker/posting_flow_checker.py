@@ -17,10 +17,8 @@ import argparse
 import ast
 import json
 import pathlib
-import re
 import sys
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 # Warna
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
@@ -48,9 +46,9 @@ class FlowStep:
 @dataclass
 class FlowCheck:
     entity: str            # Journal, AR, AP, etc.
-    steps: List[FlowStep]
+    steps: list[FlowStep]
     complete: bool
-    missing_steps: List[str]
+    missing_steps: list[str]
 
 @dataclass
 class Finding:
@@ -62,14 +60,14 @@ class Finding:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
-    flow_checks: List[FlowCheck] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
+    flow_checks: list[FlowCheck] = field(default_factory=list)
     score: int = 100
 
 # ----------------------------------------------------------------------
 # Step 1: Capture / Intent
 # ----------------------------------------------------------------------
-def find_capture_functions(file_path: pathlib.Path) -> List[Tuple[str, int]]:
+def find_capture_functions(file_path: pathlib.Path) -> list[tuple[str, int]]:
     """Cari fungsi yang menangani capture/intent journal."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -106,7 +104,7 @@ def find_capture_functions(file_path: pathlib.Path) -> List[Tuple[str, int]]:
 # ----------------------------------------------------------------------
 # Step 2: Validation
 # ----------------------------------------------------------------------
-def find_validation_functions(file_path: pathlib.Path) -> List[Tuple[str, int]]:
+def find_validation_functions(file_path: pathlib.Path) -> list[tuple[str, int]]:
     """Cari fungsi validasi journal."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -132,7 +130,7 @@ def find_validation_functions(file_path: pathlib.Path) -> List[Tuple[str, int]]:
 # ----------------------------------------------------------------------
 # Step 3: Approval (Four-Eyes)
 # ----------------------------------------------------------------------
-def find_approval_functions(file_path: pathlib.Path) -> List[Tuple[str, int]]:
+def find_approval_functions(file_path: pathlib.Path) -> list[tuple[str, int]]:
     """Cari fungsi approval (four-eyes)."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -157,7 +155,7 @@ def find_approval_functions(file_path: pathlib.Path) -> List[Tuple[str, int]]:
 # ----------------------------------------------------------------------
 # Step 4: Posting
 # ----------------------------------------------------------------------
-def find_posting_functions(file_path: pathlib.Path) -> List[Tuple[str, int]]:
+def find_posting_functions(file_path: pathlib.Path) -> list[tuple[str, int]]:
     """Cari fungsi posting journal."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -181,7 +179,7 @@ def find_posting_functions(file_path: pathlib.Path) -> List[Tuple[str, int]]:
 # ----------------------------------------------------------------------
 # Step 5: GL Update
 # ----------------------------------------------------------------------
-def find_gl_update_functions(file_path: pathlib.Path) -> List[Tuple[str, int]]:
+def find_gl_update_functions(file_path: pathlib.Path) -> list[tuple[str, int]]:
     """Cari fungsi update GL."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -205,7 +203,7 @@ def find_gl_update_functions(file_path: pathlib.Path) -> List[Tuple[str, int]]:
 # ----------------------------------------------------------------------
 # Step 6: Audit Trail
 # ----------------------------------------------------------------------
-def find_audit_functions(file_path: pathlib.Path) -> List[Tuple[str, int]]:
+def find_audit_functions(file_path: pathlib.Path) -> list[tuple[str, int]]:
     """Cari fungsi audit trail."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")

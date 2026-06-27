@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 class TimestampNotaryImpl(TimestampNotaryPort):
     """
     Implementasi konkret TimestampNotaryPort dengan penyimpanan in-memory.
+    Inisialisasi dilakukan secara async melalui metode initialize().
     """
 
     def __init__(self):
@@ -39,26 +40,35 @@ class TimestampNotaryImpl(TimestampNotaryPort):
         self._active_cert_id: UUID | None = None
         self._lock = asyncio.Lock()
         self._initialized = False
-        # Inisialisasi default
-        asyncio.create_task(self._init_default_certificate())
+        # Jangan panggil async di constructor!
 
-    async def _init_default_certificate(self) -> None:
-        """Inisialisasi sertifikat default jika belum ada."""
-        if not self._certificates:
-            cert_id = uuid.uuid4()
-            self._certificates[cert_id] = {
-                "id": cert_id,
-                "name": "Default Timestamp Certificate",
-                "details": {"type": "self-signed"},
-                "created_at": datetime.now(UTC),
-                "is_active": True,
-                "revoked": False,
-                "revoked_at": None,
-                "revocation_reason": None,
-            }
-            self._active_cert_id = cert_id
-            await self._log_audit("certificate_created", f"Default certificate {cert_id} created", "system")
+    async def initialize(self) -> None:
+        """Inisialisasi sertifikat default secara async."""
+        if self._initialized:
+            return
+        async with self._lock:
+            if self._initialized:
+                return
+            if not self._certificates:
+                cert_id = uuid.uuid4()
+                self._certificates[cert_id] = {
+                    "id": cert_id,
+                    "name": "Default Timestamp Certificate",
+                    "details": {"type": "self-signed"},
+                    "created_at": datetime.now(UTC),
+                    "is_active": True,
+                    "revoked": False,
+                    "revoked_at": None,
+                    "revocation_reason": None,
+                }
+                self._active_cert_id = cert_id
+                await self._log_audit("certificate_created", f"Default certificate {cert_id} created", "system")
             self._initialized = True
+
+    async def _ensure_initialized(self) -> None:
+        """Pastikan inisialisasi sudah dilakukan."""
+        if not self._initialized:
+            await self.initialize()
 
     async def _log_audit(self, action: str, message: str, user_id: str = "system") -> None:
         """Catat audit log."""
@@ -107,8 +117,7 @@ class TimestampNotaryImpl(TimestampNotaryPort):
 
     async def timestamp(self, data_hash: str, metadata: dict[str, Any] | None = None) -> TimestampToken:
         """Timestamp a data hash."""
-        if not self._initialized:
-            await self._init_default_certificate()
+        await self._ensure_initialized()
         request_id = uuid.uuid4()
         request = TimestampRequest(
             id=request_id,
@@ -312,6 +321,7 @@ class TimestampNotaryImpl(TimestampNotaryPort):
     async def health_check(self) -> dict[str, Any]:
         """Check the health of the timestamp service."""
         try:
+            await self._ensure_initialized()
             test_hash = hashlib.sha256(b"health_check").hexdigest()
             token = await self.timestamp(test_hash, {"health": "check"})
             if token:

@@ -361,7 +361,7 @@ async def ar_collection_workflow_handler(
 
 # Buat alias eksplisit agar kompatibel dengan penamaan di lapisan FastAPI Router
 ARCollectionWorkflow = ARCollectionWorkflowUseCase
-ArCollectionWorkflow = ARCollectionWorkflowUseCase 
+ArCollectionWorkflow = ARCollectionWorkflowUseCase
 ArCollectionWorkflowUseCase = ARCollectionWorkflowUseCase
 
 __all__ = [

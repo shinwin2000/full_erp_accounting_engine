@@ -120,6 +120,25 @@ services:
     networks:
       - erp_network
 
+# ==================== HASHICORP VAULT (Secured Credentials) ====================
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: erp_vault
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: "root"
+      VAULT_LOCAL_CONFIG: '{"ui": true, "default_lease_ttl": "168h", "max_lease_ttl": "720h"}'
+    capabilities:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - erp_network
+
   # ==================== ERP ACCOUNTING ENGINE APP (optional, di-comment jika jalankan dari host) ====================
   # erp_app:
   #   image: erp_app_new

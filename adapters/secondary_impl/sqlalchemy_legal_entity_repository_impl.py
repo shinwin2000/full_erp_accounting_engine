@@ -11,12 +11,12 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import datetime, UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, or_, select, update, and_, text
+from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +29,7 @@ from infrastructure.persistence_orm.consolidation_group_member_table import (
 from infrastructure.persistence_orm.consolidation_group_table import ConsolidationGroupTable
 from infrastructure.persistence_orm.legal_entity_branch_table import LegalEntityBranchTable
 from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
-from ports.primary.legal_entity_repository_port import LegalEntityRepositoryPort
+from ports.primary.legal_entity_repository_port import LegalEntityRepositoryPort, TaxProfile
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class OptimisticLockError(LegalEntityRepositoryError):
 class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
-        self._audit_log: List[Dict[str, Any]] = []
+        self._audit_log: list[dict[str, Any]] = []
 
     @property
     def session(self) -> AsyncSession:
@@ -184,7 +184,7 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
             version=aggregate.version,
         )
 
-    async def _log_audit(self, action: str, entity_id: UUID, details: Dict[str, Any]) -> None:
+    async def _log_audit(self, action: str, entity_id: UUID, details: dict[str, Any]) -> None:
         self._audit_log.append({
             "timestamp": datetime.now(UTC).isoformat(),
             "action": action,
@@ -286,32 +286,48 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
             await self.session.rollback()
             raise LegalEntityRepositoryError(f"Failed to update legal entity: {e}") from e
 
-    async def delete(self, entity_id: UUID) -> bool:
+    # ===== FIX: delete signature sesuai port (2 required: entity_id, user_id) =====
+    async def delete(self, entity_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
+        """Soft or hard delete entity."""
         try:
-            branch_stmt = select(func.count()).select_from(LegalEntityBranchTable).where(
-                LegalEntityBranchTable.parent_entity_id == entity_id,
-                LegalEntityBranchTable.deleted_at.is_(None),
-            )
-            branch_result = await self.session.execute(branch_stmt)
-            if branch_result.scalar() > 0:
-                raise LegalEntityHasBranchesError(f"Legal entity {entity_id} has branches")
-            stmt = update(LegalEntityTable).where(LegalEntityTable.id == entity_id).values(
-                deleted_at=datetime.utcnow(), is_active=False, status="inactive"
-            )
-            result = await self.session.execute(stmt)
-            await self.session.flush()
-            deleted = result.rowcount > 0
-            if deleted:
-                await self._log_audit("DELETE", entity_id, {})
-                logger.info("Legal entity %s soft deleted", entity_id)
-            return deleted
+            if not permanent:
+                # Check branches
+                branch_stmt = select(func.count()).select_from(LegalEntityBranchTable).where(
+                    LegalEntityBranchTable.parent_entity_id == entity_id,
+                    LegalEntityBranchTable.deleted_at.is_(None),
+                )
+                branch_result = await self.session.execute(branch_stmt)
+                if branch_result.scalar() > 0:
+                    raise LegalEntityHasBranchesError(f"Legal entity {entity_id} has branches")
+                stmt = update(LegalEntityTable).where(LegalEntityTable.id == entity_id).values(
+                    deleted_at=datetime.utcnow(), is_active=False, status="inactive"
+                )
+                result = await self.session.execute(stmt)
+                await self.session.flush()
+                if result.rowcount > 0:
+                    await self._log_audit("DELETE_SOFT", entity_id, {"user_id": str(user_id)})
+                    logger.info("Legal entity %s soft deleted by %s", entity_id, user_id)
+                return result.rowcount > 0
+            else:
+                # Permanent delete
+                stmt = select(LegalEntityTable).where(LegalEntityTable.id == entity_id)
+                result = await self.session.execute(stmt)
+                table = result.scalar_one_or_none()
+                if not table:
+                    return False
+                await self.session.delete(table)
+                await self.session.flush()
+                await self._log_audit("DELETE_PERMANENT", entity_id, {"user_id": str(user_id)})
+                logger.info("Legal entity %s permanently deleted by %s", entity_id, user_id)
+                return True
         except LegalEntityHasBranchesError:
             raise
         except Exception as e:
             await self.session.rollback()
             raise LegalEntityRepositoryError(f"Failed to delete legal entity: {e}") from e
 
-    async def restore(self, entity_id: UUID) -> bool:
+    # ===== FIX: restore signature sesuai port (2 required: entity_id, user_id) =====
+    async def restore(self, entity_id: UUID, user_id: UUID) -> bool:
         """Restore a soft-deleted entity."""
         try:
             stmt = update(LegalEntityTable).where(
@@ -326,8 +342,8 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
             result = await self.session.execute(stmt)
             await self.session.flush()
             if result.rowcount > 0:
-                await self._log_audit("RESTORE", entity_id, {})
-                logger.info("Legal entity %s restored", entity_id)
+                await self._log_audit("RESTORE", entity_id, {"user_id": str(user_id)})
+                logger.info("Legal entity %s restored by %s", entity_id, user_id)
                 return True
             return False
         except Exception as e:
@@ -374,7 +390,7 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
         except Exception as e:
             raise LegalEntityRepositoryError(f"Failed to get children: {e}") from e
 
-    async def get_tree(self, root_entity_id: UUID) -> Dict[str, Any]:
+    async def get_tree(self, root_entity_id: UUID) -> dict[str, Any]:
         """Get hierarchical tree of entities."""
         try:
             root = await self.get_by_id(root_entity_id)
@@ -432,46 +448,73 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
             return None
         return entity.tax_profile
 
-    async def update_tax_profile(self, entity_id: UUID, tax_profile: CompanyTaxProfile) -> bool:
+    # ===== FIX: update_tax_profile signature sesuai port (3 required: entity_id, tax_profile, user_id) =====
+    async def update_tax_profile(self, entity_id: UUID, tax_profile: TaxProfile, user_id: UUID) -> bool:
         """Update tax profile of a legal entity."""
         entity = await self.get_by_id(entity_id)
         if not entity:
             return False
-        entity.tax_profile = tax_profile
+        # Convert TaxProfile (port) to CompanyTaxProfile (domain) if needed
+        # Since both are similar, we create a new CompanyTaxProfile from the port object
+        # For simplicity, we assume tax_profile is already CompanyTaxProfile or compatible
+        # But actually port uses TaxProfile (different class). We need to map.
+        # For now, we'll update entity.tax_profile with the new data.
+        # If types are incompatible, we can copy fields.
+        if hasattr(tax_profile, 'npwp'):
+            entity.tax_profile = CompanyTaxProfile(
+                npwp=NPWPVO(tax_profile.npwp) if tax_profile.npwp else None,
+                tax_office=getattr(tax_profile, 'tax_office', None),
+                tax_office_code=getattr(tax_profile, 'tax_office_code', None),
+                tax_classification=getattr(tax_profile, 'tax_regime', None),
+                taxable_date=getattr(tax_profile, 'taxable_date', None),
+                annual_tax_return_due_date=getattr(tax_profile, 'annual_tax_return_due_date', None),
+                monthly_tax_due_date=getattr(tax_profile, 'monthly_tax_due_date', None),
+                is_vat_collector=getattr(tax_profile, 'is_pkp', False),
+                vat_collector_number=getattr(tax_profile, 'pkp_number', None),
+                is_withholding_agent=getattr(tax_profile, 'is_withholding_agent', False),
+            )
+        else:
+            # Fallback: assume it's already CompanyTaxProfile
+            entity.tax_profile = tax_profile
+        entity.updated_by = user_id
+        entity.updated_at = datetime.utcnow()
+        entity.version += 1
         await self.update(entity)
-        await self._log_audit("UPDATE_TAX_PROFILE", entity_id, {})
+        await self._log_audit("UPDATE_TAX_PROFILE", entity_id, {"user_id": str(user_id)})
         return True
 
-    # ========================================================================
-    # FISCAL YEAR METHODS
-    # ========================================================================
-
-    async def get_fiscal_year_range(self, entity_id: UUID) -> Tuple[int, int]:
-        """Get fiscal year start and end (as integers)."""
+    # ===== FIX: get_fiscal_year_range signature sesuai port (2 required: entity_id, fiscal_year) =====
+    async def get_fiscal_year_range(self, entity_id: UUID, fiscal_year: int) -> tuple[date, date]:
+        """Get fiscal year start and end dates for a given fiscal year."""
         entity = await self.get_by_id(entity_id)
         if not entity:
             raise LegalEntityNotFoundError(f"Entity {entity_id} not found")
-        if not entity.fiscal_year_start or not entity.fiscal_year_end:
-            # Default to calendar year
-            return 1, 12
-        return entity.fiscal_year_start, entity.fiscal_year_end
-
-    async def get_previous_fiscal_year(self, entity_id: UUID) -> Tuple[int, int]:
-        """Get previous fiscal year period."""
-        start_month, end_month = await self.get_fiscal_year_range(entity_id)
-        current_year = datetime.now(UTC).year
-        if start_month > datetime.now(UTC).month:
-            # If current month is before fiscal year start, previous year is current_year - 1
-            prev_year = current_year - 1
+        start_month = entity.fiscal_year_start or 1
+        end_month = entity.fiscal_year_end or 12
+        start_date = date(fiscal_year, start_month, 1)
+        if end_month == 12:
+            end_date = date(fiscal_year, 12, 31)
         else:
-            prev_year = current_year
-        return prev_year, prev_year - 1  # returns (year, previous_year)
+            end_date = date(fiscal_year, end_month, 1) - timedelta(days=1)
+        return start_date, end_date
+
+    # ===== FIX: get_previous_fiscal_year signature sesuai port (2 required: entity_id, fiscal_year) =====
+    async def get_previous_fiscal_year(self, entity_id: UUID, fiscal_year: int) -> int:
+        """Get the previous fiscal year number for an entity."""
+        entity = await self.get_by_id(entity_id)
+        if not entity:
+            raise LegalEntityNotFoundError(f"Entity {entity_id} not found")
+        start_month = entity.fiscal_year_start or 1
+        if start_month == 1:
+            return fiscal_year - 1
+        else:
+            return fiscal_year
 
     # ========================================================================
     # STATISTICS
     # ========================================================================
 
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self) -> dict[str, Any]:
         """Get statistics about legal entities."""
         try:
             total_stmt = select(func.count()).select_from(LegalEntityTable).where(LegalEntityTable.deleted_at.is_(None))
@@ -499,9 +542,9 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
     # EXPORT / IMPORT
     # ========================================================================
 
-    async def export_to_csv(self, include_inactive: bool = False) -> str:
+    async def export_to_csv(self) -> str:
         """Export legal entities to CSV string."""
-        entities = await self.get_all(include_inactive, limit=10000)
+        entities = await self.get_all(include_inactive=True, limit=10000)
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
@@ -711,14 +754,14 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
     # AUDIT LOG & HEALTH
     # ========================================================================
 
-    async def get_audit_log(self, entity_id: UUID | None = None, limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_audit_log(self, entity_id: UUID | None = None, limit: int = 100) -> list[dict[str, Any]]:
         logs = self._audit_log
         if entity_id:
             logs = [l for l in logs if l.get("entity_id") == str(entity_id)]
         logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         return logs[:limit]
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         try:
             await self.session.execute(text("SELECT 1"))
             return {"status": "healthy", "repository": "LegalEntityRepository"}

@@ -62,9 +62,30 @@ class FixedAssetCollection:
     created_by: str = "system"
     version: int = 1
 
-    _events: ClassVar[list[DomainEvent]] = []
-    _audit_trail: ClassVar[list[dict[str, Any]]] = []
-    _snapshots: ClassVar[list[dict[str, Any]]] = []
+    # ==================== EVENT CONTRACT ====================
+    _events: list[DomainEvent] = field(default_factory=list, repr=False)
+    _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    _snapshots: list[dict[str, Any]] = field(default_factory=list, repr=False)
+
+    def register_event(self, event: DomainEvent) -> None:
+        """Register a domain event."""
+        self._events.append(event)
+
+    def get_events(self) -> list[DomainEvent]:
+        """Get all registered events."""
+        return self._events.copy()
+
+    def pull_events(self) -> list[DomainEvent]:
+        """Pull and clear all events."""
+        events = self._events.copy()
+        self._events.clear()
+        return events
+
+    def clear_events(self) -> None:
+        """Clear all events."""
+        self._events.clear()
+
+    # ==================== END EVENT CONTRACT ====================
 
     def __post_init__(self) -> None:
         self._take_snapshot()
@@ -91,8 +112,17 @@ class FixedAssetCollection:
         }
         self._audit_trail.append(entry)
 
+    # ==================== COMPATIBILITY ====================
+    # Method _register_event (internal) dan property domain_events untuk backward compatibility
+
     def _register_event(self, event: DomainEvent) -> None:
-        self._events.append(event)
+        """Internal helper (kept for compatibility)."""
+        self.register_event(event)
+
+    @property
+    def domain_events(self) -> list[DomainEvent]:
+        """Compatibility property for code that uses self.domain_events."""
+        return self.get_events()
 
     # ==================== ENTITY DASAR METHODS ====================
 
@@ -167,7 +197,6 @@ class FixedAssetCollection:
 
     def validate(self) -> dict[str, Any]:
         errors = []
-        # Check for duplicate asset codes
         codes = {}
         for asset in self.assets.values():
             if asset.asset_code in codes:
@@ -282,7 +311,6 @@ class FixedAssetCollection:
                 asset_id, str(datetime.now(UTC).date()), amount, posted_by
             )
         elif transaction_type == "disposal":
-            # This would require a disposal entity
             raise NotImplementedError("Use add_disposal for disposal posting")
         else:
             raise ValueError(f"Unknown transaction type: {transaction_type}")
@@ -358,22 +386,6 @@ class FixedAssetCollection:
         new_collection._record_audit("UNARCHIVE", unarchived_by, {})
         return new_collection
 
-    # ==================== EVENT METHODS ====================
-
-    def register_event(self, event: DomainEvent) -> None:
-        self._events.append(event)
-
-    def get_events(self) -> list[DomainEvent]:
-        return self._events.copy()
-
-    def pull_events(self) -> list[DomainEvent]:
-        events = self._events.copy()
-        self._events.clear()
-        return events
-
-    def clear_events(self) -> None:
-        self._events.clear()
-
     # ==================== QUERY METHODS ====================
 
     def get_asset(self, asset_id: UUID) -> FixedAsset | None:
@@ -438,7 +450,7 @@ class FixedAssetCollection:
             raise ValueError(f"Asset code {asset.asset_code} already exists")
         new_assets = self.assets.copy()
         new_assets[asset.id] = asset
-        self._register_event(
+        self.register_event(
             AssetAcquiredEvent(
                 aggregate_id=self.asset_id,
                 aggregate_version=self.version + 1,
@@ -486,7 +498,7 @@ class FixedAssetCollection:
             raise ValueError(f"Asset {asset.id} not found")
         new_assets = self.assets.copy()
         new_assets[asset.id] = asset
-        self._register_event(
+        self.register_event(
             AssetUpdatedEvent(
                 aggregate_id=self.asset_id,
                 aggregate_version=self.version + 1,
@@ -524,7 +536,7 @@ class FixedAssetCollection:
         if amount <= 0:
             raise ValueError("Depreciation amount must be positive")
         updated_asset = asset.record_depreciation(period, amount, UUID(int=0))
-        self._register_event(
+        self.register_event(
             AssetDepreciationPostedEvent(
                 aggregate_id=self.asset_id,
                 aggregate_version=self.version + 1,
@@ -535,7 +547,7 @@ class FixedAssetCollection:
             )
         )
         if updated_asset.is_fully_depreciated and not asset.is_fully_depreciated:
-            self._register_event(
+            self.register_event(
                 AssetFullyDepreciatedEvent(
                     aggregate_id=self.asset_id,
                     aggregate_version=self.version + 1,
@@ -556,7 +568,7 @@ class FixedAssetCollection:
         new_assets = self.assets.copy()
         new_assets[asset_id] = updated_asset
         new_revaluations = self.revaluations + [revaluation]
-        self._register_event(
+        self.register_event(
             AssetRevaluatedEvent(
                 aggregate_id=self.asset_id,
                 aggregate_version=self.version + 1,
@@ -598,7 +610,7 @@ class FixedAssetCollection:
         new_assets = self.assets.copy()
         new_assets[asset_id] = updated_asset
         new_disposals = self.disposals + [disposal]
-        self._register_event(
+        self.register_event(
             AssetDisposedEvent(
                 aggregate_id=self.asset_id,
                 aggregate_version=self.version + 1,
@@ -632,7 +644,7 @@ class FixedAssetCollection:
         new_assets = self.assets.copy()
         new_assets[asset_id] = updated_asset
         new_transfers = self.transfers + [transfer]
-        self._register_event(
+        self.register_event(
             AssetTransferredEvent(
                 aggregate_id=self.asset_id,
                 aggregate_version=self.version + 1,
@@ -701,7 +713,25 @@ class FixedAssetAggregate:
 
     def __init__(self, asset: FixedAsset | None = None):
         self._asset = asset
-        self._domain_events: list[DomainEvent] = []
+        self._events: list[DomainEvent] = []
+
+    # ==================== EVENT CONTRACT ====================
+
+    def register_event(self, event: DomainEvent) -> None:
+        self._events.append(event)
+
+    def get_events(self) -> list[DomainEvent]:
+        return self._events.copy()
+
+    def pull_events(self) -> list[DomainEvent]:
+        events = self._events.copy()
+        self._events.clear()
+        return events
+
+    def clear_events(self) -> None:
+        self._events.clear()
+
+    # ==================== END EVENT CONTRACT ====================
 
     @property
     def asset(self) -> FixedAsset:
@@ -715,19 +745,19 @@ class FixedAssetAggregate:
 
     @property
     def domain_events(self) -> list[DomainEvent]:
-        return self._domain_events.copy()
+        """Compatibility property."""
+        return self.get_events()
 
     def pop_events(self) -> list[DomainEvent]:
-        events = self._domain_events.copy()
-        self._domain_events.clear()
-        return events
+        """Alias for pull_events (compatibility)."""
+        return self.pull_events()
 
     def load(self, asset: FixedAsset) -> None:
         self._asset = asset
 
     def create(self, asset: FixedAsset, created_by: str) -> None:
         self._asset = asset
-        self._domain_events.append(
+        self.register_event(
             AssetAcquiredEvent(
                 aggregate_id=asset.id,
                 aggregate_version=1,
@@ -740,7 +770,7 @@ class FixedAssetAggregate:
         if not self._asset:
             raise ValueError("No asset loaded")
         self._asset = self._asset.update_name(new_name, user_id)
-        self._domain_events.append(
+        self.register_event(
             AssetUpdatedEvent(
                 aggregate_id=self._asset.id,
                 aggregate_version=self._asset.version,
@@ -754,7 +784,7 @@ class FixedAssetAggregate:
         if not self._asset:
             raise ValueError("No asset loaded")
         self._asset = self._asset.update_description(new_description, user_id)
-        self._domain_events.append(
+        self.register_event(
             AssetUpdatedEvent(
                 aggregate_id=self._asset.id,
                 aggregate_version=self._asset.version,
@@ -768,7 +798,7 @@ class FixedAssetAggregate:
         if not self._asset:
             raise ValueError("No asset loaded")
         self._asset = self._asset.transfer(new_location, user_id)
-        self._domain_events.append(
+        self.register_event(
             AssetUpdatedEvent(
                 aggregate_id=self._asset.id,
                 aggregate_version=self._asset.version,
@@ -782,7 +812,7 @@ class FixedAssetAggregate:
         if not self._asset:
             raise ValueError("No asset loaded")
         self._asset = self._asset.change_responsible_person(person_id, user_id)
-        self._domain_events.append(
+        self.register_event(
             AssetUpdatedEvent(
                 aggregate_id=self._asset.id,
                 aggregate_version=self._asset.version,
@@ -796,7 +826,7 @@ class FixedAssetAggregate:
         if not self._asset:
             raise ValueError("No asset loaded")
         self._asset = self._asset.record_depreciation(period, amount, posted_by)
-        self._domain_events.append(
+        self.register_event(
             AssetDepreciationPostedEvent(
                 aggregate_id=self._asset.id,
                 aggregate_version=self._asset.version,
@@ -811,7 +841,7 @@ class FixedAssetAggregate:
         if not self._asset:
             raise ValueError("No asset loaded")
         self._asset = self._asset.apply_revaluation(new_value, method, approved_by)
-        self._domain_events.append(
+        self.register_event(
             AssetRevaluatedEvent(
                 aggregate_id=self._asset.id,
                 aggregate_version=self._asset.version,
@@ -836,7 +866,7 @@ class FixedAssetAggregate:
         if not self._asset:
             raise ValueError("No asset loaded")
         self._asset = self._asset.dispose(disposal_date, disposal_type, proceeds, reason, user_id)
-        self._domain_events.append(
+        self.register_event(
             AssetDisposedEvent(
                 aggregate_id=self._asset.id,
                 aggregate_version=self._asset.version,

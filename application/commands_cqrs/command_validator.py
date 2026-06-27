@@ -563,7 +563,7 @@ def validate_field(field_name: str, rule_name: str, error_message: str | None = 
 __all__ = [
     "CommandValidationError",
     "CommandValidator",
-    "ValidationError",          
+    "ValidationError",
     "ValidationResult",
     "ValidationRule",
     "ValidationRuleError",

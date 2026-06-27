@@ -19,11 +19,11 @@ from sqlalchemy import (
     Date,
     DateTime,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
-    Integer,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship

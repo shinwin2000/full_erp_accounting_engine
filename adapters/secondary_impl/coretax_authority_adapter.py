@@ -2,24 +2,26 @@
 """
 Module: coretax_authority_adapter.py
 Layer: Adapters (Secondary)
-Responsibility: Implementasi TaxAuthorityCoretaxPort untuk Coretax DJP.
+Responsibility: Implementasi TaxAuthorityCoretaxPort dan CoreTaxPort untuk Coretax DJP.
 """
 
 import asyncio
 import logging
 import os
 import time
-from datetime import datetime, UTC
-from typing import Dict, Any, Optional, List
+from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import httpx
 
+# === TAMBAHAN: import CoreTaxPort ===
+from ports.primary.core_tax_port import CoreTaxPort
 from ports.primary.tax_authority_coretax_port import (
-    TaxAuthorityCoretaxPort,
-    TaxSubmissionType,
-    TaxStatus,
     SubmissionResponse,
+    TaxAuthorityCoretaxPort,
+    TaxStatus,
+    TaxSubmissionType,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,7 +39,8 @@ class CoretaxConfig:
             logger.warning("Coretax credentials not configured. Running in simulation mode.")
 
 
-class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort):
+# === PERUBAHAN: tambahkan CoreTaxPort sebagai base class ===
+class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort, CoreTaxPort):
     def __init__(self):
         self.config = CoretaxConfig()
         self._client = None
@@ -78,7 +81,7 @@ class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort):
             logger.error(f"Coretax auth failed: {e}")
             raise RuntimeError(f"Coretax auth failed: {e}")
 
-    async def _request(self, method: str, path: str, data: Optional[Dict] = None, params: Optional[Dict] = None) -> Dict:
+    async def _request(self, method: str, path: str, data: dict | None = None, params: dict | None = None) -> dict:
         if not self.config.enabled:
             logger.info(f"[SIM] {method} {path}")
             return {"status": "success", "submission_id": str(uuid4()), "message": "simulated"}
@@ -100,7 +103,7 @@ class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort):
             logger.error(f"Coretax request failed: {e}")
             raise
 
-    async def submit_tax(self, submission_type: TaxSubmissionType, data: Dict[str, Any]) -> SubmissionResponse:
+    async def submit_tax(self, submission_type: TaxSubmissionType, data: dict[str, Any]) -> SubmissionResponse:
         submission_id = str(uuid4())
         timestamp = datetime.now(UTC)
         endpoint_map = {
@@ -177,7 +180,7 @@ class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort):
             additional_data=response.get("details"),
         )
 
-    async def get_tax_rate(self, tax_code: str, effective_date: Optional[str] = None) -> float:
+    async def get_tax_rate(self, tax_code: str, effective_date: str | None = None) -> float:
         if not effective_date:
             effective_date = datetime.now(UTC).strftime("%Y-%m-%d")
         try:
@@ -196,7 +199,7 @@ class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort):
         except Exception:
             return len(tax_id) == 15 and tax_id.isdigit()
 
-    async def submit_faktur(self, faktur_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_faktur(self, faktur_data: dict[str, Any]) -> dict[str, Any]:
         try:
             response = await self._request("POST", "/faktur", data=faktur_data)
             return {"faktur_id": response.get("faktur_id"), "status": response.get("status", "pending"), "reference_number": response.get("reference_number")}
@@ -204,35 +207,35 @@ class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort):
             logger.error(f"Faktur submission failed: {e}")
             return {"faktur_id": str(uuid4()), "status": "failed", "error": str(e)}
 
-    async def get_faktur_status(self, faktur_id: str) -> Dict[str, Any]:
+    async def get_faktur_status(self, faktur_id: str) -> dict[str, Any]:
         try:
             response = await self._request("GET", f"/faktur/{faktur_id}")
             return {"faktur_id": faktur_id, "status": response.get("status", "unknown"), "details": response.get("details")}
         except Exception as e:
             return {"faktur_id": faktur_id, "status": "unknown", "error": str(e)}
 
-    async def submit_spt(self, spt_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_spt(self, spt_data: dict[str, Any]) -> dict[str, Any]:
         try:
             response = await self._request("POST", "/spt", data=spt_data)
             return {"spt_id": response.get("spt_id"), "status": response.get("status", "pending"), "reference_number": response.get("reference_number")}
         except Exception as e:
             return {"spt_id": str(uuid4()), "status": "failed", "error": str(e)}
 
-    async def get_spt_status(self, spt_id: str) -> Dict[str, Any]:
+    async def get_spt_status(self, spt_id: str) -> dict[str, Any]:
         try:
             response = await self._request("GET", f"/spt/{spt_id}")
             return {"spt_id": spt_id, "status": response.get("status", "unknown"), "details": response.get("details")}
         except Exception as e:
             return {"spt_id": spt_id, "status": "unknown", "error": str(e)}
 
-    async def get_notification(self) -> List[Dict[str, Any]]:
+    async def get_notification(self) -> list[dict[str, Any]]:
         try:
             response = await self._request("GET", "/notifications")
             return response.get("notifications", [])
         except Exception:
             return []
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         if not self.config.enabled:
             return {"status": "healthy", "mode": "simulation", "message": "Coretax not configured"}
         try:
@@ -242,8 +245,25 @@ class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort):
             return {"status": "unhealthy", "mode": "real", "error": str(e)}
 
     # ================================================================
-    # Stub method to satisfy checker (false positive for CoreTaxPort)
+    # METHOD UNTUK CoreTaxPort (calculate_tax)
     # ================================================================
-    async def register_webhook(self, event_type: str, url: str) -> Dict[str, Any]:
+    async def calculate_tax(self, tax_data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Calculate tax using Coretax API or local logic.
+        Memenuhi kontrak CoreTaxPort.
+        """
+        tax_code = tax_data.get("tax_code", "PPN")
+        amount = tax_data.get("amount", 0)
+        rate = await self.get_tax_rate(tax_code)
+        tax_amount = amount * rate
+        return {
+            "tax_code": tax_code,
+            "rate": rate,
+            "taxable_amount": amount,
+            "tax_amount": tax_amount,
+            "calculated_at": datetime.now(UTC).isoformat(),
+        }
+
+    async def register_webhook(self, event_type: str, url: str) -> dict[str, Any]:
         """Stub: register webhook for Coretax events (not used in this adapter)."""
         return {"status": "stub", "message": f"Webhook for {event_type} registered (stub)"}

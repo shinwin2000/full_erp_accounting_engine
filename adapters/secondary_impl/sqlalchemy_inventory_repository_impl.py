@@ -11,12 +11,12 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, func, or_, select, update, delete, text
+from sqlalchemy import and_, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +31,7 @@ from infrastructure.persistence_orm.inventory_item_table import InventoryItemTab
 from infrastructure.persistence_orm.inventory_movement_table import InventoryMovementTable
 from infrastructure.persistence_orm.stock_opname_table import StockOpnameTable
 from infrastructure.persistence_orm.warehouse_table import WarehouseTable
+from ports.primary.inventory_repository_port import InventoryMovement as PortInventoryMovement
 from ports.primary.inventory_repository_port import InventoryRepositoryPort
 
 logger = logging.getLogger(__name__)
@@ -76,9 +77,10 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
     Implementasi repository Inventory dengan SQLAlchemy - LENGKAP.
     """
 
-    def __init__(self, session: AsyncSession | None = None):
+    def __init__(self, session: AsyncSession | None = None, legal_entity_id: UUID | None = None):
         self._session = session
-        self._audit_log: List[Dict[str, Any]] = []
+        self._legal_entity_id = legal_entity_id
+        self._audit_log: list[dict[str, Any]] = []
 
     @property
     def session(self) -> AsyncSession:
@@ -89,6 +91,14 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
     @session.setter
     def session(self, value: AsyncSession) -> None:
         self._session = value
+
+    def _get_legal_entity_id(self, provided: UUID | None = None) -> UUID:
+        """Get legal_entity_id from provided or fallback to instance attribute."""
+        if provided is not None:
+            return provided
+        if self._legal_entity_id is not None:
+            return self._legal_entity_id
+        raise ValueError("legal_entity_id is required but not provided and not set in repository")
 
     # ========================================================================
     # HELPER MAPPING METHODS
@@ -233,11 +243,52 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             created_at=table.created_at,
         )
 
+    def _port_movement_to_domain(self, movement: PortInventoryMovement) -> StockMovement:
+        """Convert port InventoryMovement to domain StockMovement."""
+        # Map movement_type from port enum to domain enum
+        from ports.primary.inventory_repository_port import (
+            InventoryMovementType as PortMovementType,
+        )
+        type_map = {
+            PortMovementType.PURCHASE_IN: StockMovementType.IN,
+            PortMovementType.SALES_OUT: StockMovementType.OUT,
+            PortMovementType.PRODUCTION_IN: StockMovementType.IN,
+            PortMovementType.PRODUCTION_OUT: StockMovementType.OUT,
+            PortMovementType.ADJUSTMENT_IN: StockMovementType.ADJUSTMENT,
+            PortMovementType.ADJUSTMENT_OUT: StockMovementType.ADJUSTMENT,
+            PortMovementType.TRANSFER_IN: StockMovementType.TRANSFER_IN,
+            PortMovementType.TRANSFER_OUT: StockMovementType.TRANSFER_OUT,
+            PortMovementType.RETURN_IN: StockMovementType.IN,
+            PortMovementType.RETURN_OUT: StockMovementType.OUT,
+            PortMovementType.SCRAP: StockMovementType.OUT,
+            PortMovementType.SAMPLE: StockMovementType.OUT,
+        }
+        domain_type = type_map.get(movement.movement_type, StockMovementType.IN)
+        return StockMovement(
+            id=movement.id,
+            movement_number=None,  # akan digenerate saat save
+            item_id=movement.item_id,
+            movement_type=domain_type,
+            quantity=Quantity(value=movement.quantity, uom="PCS"),  # uom from item later
+            unit_cost=Money(amount=movement.unit_cost, currency="IDR"),
+            total_cost=Money(amount=movement.total_cost, currency="IDR"),
+            movement_date=movement.movement_date,
+            reference_type=movement.reference_type,
+            reference_id=movement.reference_id,
+            warehouse_id=movement.warehouse_id,
+            to_warehouse_id=None,
+            batch_number=movement.lot_number,
+            expiry_date=movement.expiry_date,
+            notes=movement.notes,
+            created_at=movement.created_at,
+            created_by=movement.created_by,
+        )
+
     # ========================================================================
     # AUDIT LOG
     # ========================================================================
 
-    async def _log_audit(self, action: str, item_id: UUID, details: Dict[str, Any]) -> None:
+    async def _log_audit(self, action: str, item_id: UUID, details: dict[str, Any]) -> None:
         self._audit_log.append({
             "timestamp": datetime.utcnow().isoformat(),
             "action": action,
@@ -248,7 +299,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             self._audit_log = self._audit_log[-5000:]
 
     # ========================================================================
-    # ITEM METHODS (EXISTING)
+    # ITEM METHODS (EXISTING, renamed to match port)
     # ========================================================================
 
     async def add_item(self, item: InventoryItemAggregate) -> None:
@@ -344,10 +395,15 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             raise InventoryRepositoryError(f"Failed to check item code: {e}") from e
 
     # ========================================================================
-    # QUERY METHODS (BARU)
+    # QUERY METHODS (with signatures matching port)
     # ========================================================================
 
-    async def get_all_items(self, legal_entity_id: UUID, limit: int = 100, offset: int = 0) -> List[InventoryItemAggregate]:
+    async def get_all_items(
+        self, legal_entity_id: UUID | None = None, limit: int = 100, offset: int = 0
+    ) -> list[InventoryItemAggregate]:
+        """Get all items for a legal entity with pagination."""
+        if legal_entity_id is None:
+            legal_entity_id = self._get_legal_entity_id()
         try:
             stmt = select(InventoryItemTable).where(
                 InventoryItemTable.legal_entity_id == legal_entity_id,
@@ -359,7 +415,10 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         except Exception as e:
             raise InventoryRepositoryError(f"Failed to get all items: {e}") from e
 
-    async def find_items_by_category(self, category: str, legal_entity_id: UUID) -> List[InventoryItemAggregate]:
+    async def find_items_by_category(self, category: str, legal_entity_id: UUID | None = None) -> list[InventoryItemAggregate]:
+        """Find items by category. legal_entity_id optional with fallback."""
+        if legal_entity_id is None:
+            legal_entity_id = self._get_legal_entity_id()
         try:
             stmt = select(InventoryItemTable).where(
                 InventoryItemTable.category == category,
@@ -372,14 +431,14 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         except Exception as e:
             raise InventoryRepositoryError(f"Failed to find items by category: {e}") from e
 
-    async def get_items_below_reorder_point(self, legal_entity_id: UUID, warehouse_id: UUID | None = None) -> List[InventoryItemAggregate]:
+    # ===== FIX 1: get_items_below_reorder_point dengan legal_entity_id wajib =====
+    async def get_items_below_reorder_point(self, legal_entity_id: UUID) -> list[InventoryItemAggregate]:
+        """Get items with stock below reorder point for a legal entity."""
         conditions = [
             InventoryItemTable.legal_entity_id == legal_entity_id,
             InventoryItemTable.deleted_at.is_(None),
             InventoryItemTable.current_stock <= InventoryItemTable.reorder_point,
         ]
-        if warehouse_id:
-            conditions.append(InventoryItemTable.warehouse_id == warehouse_id)
         try:
             stmt = select(InventoryItemTable).where(and_(*conditions)).order_by(InventoryItemTable.current_stock)
             result = await self.session.execute(stmt)
@@ -388,8 +447,10 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         except Exception as e:
             raise InventoryRepositoryError(f"Failed to get items below reorder point: {e}") from e
 
-    async def get_recommended_po_items(self, legal_entity_id: UUID, warehouse_id: UUID | None = None) -> List[Dict[str, Any]]:
-        items = await self.get_items_below_reorder_point(legal_entity_id, warehouse_id)
+    # ===== FIX 2: get_recommended_po_items dengan legal_entity_id wajib =====
+    async def get_recommended_po_items(self, legal_entity_id: UUID) -> list[dict[str, Any]]:
+        """Get items recommended for purchase order."""
+        items = await self.get_items_below_reorder_point(legal_entity_id)
         result = []
         for item in items:
             shortage = item.reorder_point.value - item.current_stock.value
@@ -408,10 +469,11 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         return result
 
     # ========================================================================
-    # STOCK MOVEMENT METHODS
+    # STOCK MOVEMENT METHODS (matching port signatures)
     # ========================================================================
 
     async def add_movement(self, movement: StockMovement) -> None:
+        """Internal: save movement to DB."""
         try:
             table = await self._to_orm_movement(movement)
             self.session.add(table)
@@ -422,58 +484,68 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to add movement: {e}") from e
 
-    async def record_movement(self, item_id: UUID, movement_type: str, quantity: Decimal, unit_cost: Decimal, reference_type: str, reference_id: UUID, warehouse_id: UUID, notes: str | None = None, created_by: UUID | None = None) -> StockMovement:
-        """Record stock movement and update stock."""
-        item = await self.get_item_by_id(item_id)
+    async def record_movement(self, movement: PortInventoryMovement) -> None:
+        """
+        Record a stock movement from port DTO.
+        Signature matches InventoryRepositoryPort.record_movement.
+        """
+        # Convert port movement to domain StockMovement
+        domain_movement = self._port_movement_to_domain(movement)
+        # Ensure movement_number is generated
+        domain_movement.movement_number = await self.get_next_movement_number()
+        # Update item stock
+        item = await self.get_item_by_id(domain_movement.item_id)
         if not item:
-            raise ItemNotFoundError(f"Item {item_id} not found")
-        # Determine movement direction
-        qty = Quantity(value=quantity, uom=item.unit_of_measure)
-        movement_type_enum = StockMovementType(movement_type.upper())
-        if movement_type_enum in (StockMovementType.OUT, StockMovementType.TRANSFER_OUT):
-            if item.current_stock.value < quantity:
-                raise InsufficientStockError(f"Insufficient stock: {item.current_stock.value} < {quantity}")
-            # Update stock (decrease)
-            await self.update_stock(item_id, -quantity, item.current_stock.value - quantity, item.average_cost.amount)
+            raise ItemNotFoundError(f"Item {domain_movement.item_id} not found")
+        # Determine sign
+        if domain_movement.movement_type in (StockMovementType.IN, StockMovementType.TRANSFER_IN):
+            delta = domain_movement.quantity.value
         else:
-            # Update stock (increase)
-            new_avg = ((item.average_cost.amount * item.current_stock.value) + (unit_cost * quantity)) / (item.current_stock.value + quantity) if (item.current_stock.value + quantity) > 0 else unit_cost
-            await self.update_stock(item_id, quantity, item.current_stock.value + quantity, new_avg)
-        # Create movement record
-        movement = StockMovement(
-            id=uuid4(),
-            movement_number=await self.get_next_movement_number(),
-            item_id=item_id,
-            movement_type=movement_type_enum,
-            quantity=qty,
-            unit_cost=Money(amount=unit_cost, currency=item.standard_cost.currency),
-            total_cost=Money(amount=unit_cost * quantity, currency=item.standard_cost.currency),
-            movement_date=datetime.utcnow().date(),
-            reference_type=reference_type,
-            reference_id=reference_id,
-            warehouse_id=warehouse_id,
-            notes=notes,
-            created_by=created_by or UUID(int=0),
-        )
-        await self.add_movement(movement)
-        await self._log_audit("RECORD_MOVEMENT", item_id, {"movement_type": movement_type, "quantity": float(quantity)})
-        return movement
+            delta = -domain_movement.quantity.value
+        # Compute unit cost if not set (for OUT movements, use FIFO or avg)
+        if delta < 0:
+            # For out movements, we might need to calculate cost from FIFO layers
+            # Use average cost as fallback
+            domain_movement.unit_cost = Money(amount=item.average_cost.amount, currency=item.average_cost.currency)
+            domain_movement.total_cost = Money(
+                amount=domain_movement.unit_cost.amount * domain_movement.quantity.value,
+                currency=domain_movement.unit_cost.currency
+            )
+        # Update stock
+        new_stock = item.current_stock.value + delta
+        if new_stock < 0:
+            raise InsufficientStockError(f"Insufficient stock: {item.current_stock.value} < {-delta}")
+        # Update average cost for IN movements
+        if delta > 0:
+            total_value = item.average_cost.amount * item.current_stock.value + domain_movement.total_cost.amount
+            new_avg = total_value / new_stock if new_stock > 0 else domain_movement.unit_cost.amount
+            item.average_cost = Money(amount=new_avg, currency=item.average_cost.currency)
+        item.current_stock = Quantity(value=new_stock, uom=item.unit_of_measure)
+        item.version += 1
+        await self.update_item(item)
+        # Save movement
+        await self.add_movement(domain_movement)
 
-    async def get_movements_by_item(self, item_id: UUID, start_date: date | None = None, end_date: date | None = None, limit: int = 100) -> List[StockMovement]:
+    async def get_movements_by_item(
+        self, item_id: UUID, start_date: date, end_date: date, limit: int = 100
+    ) -> list[StockMovement]:
+        """Get movements for an item within date range. Signature matches port."""
         conditions = [InventoryMovementTable.item_id == item_id]
         if start_date:
             conditions.append(InventoryMovementTable.movement_date >= start_date)
         if end_date:
             conditions.append(InventoryMovementTable.movement_date <= end_date)
         try:
-            stmt = select(InventoryMovementTable).where(and_(*conditions)).order_by(InventoryMovementTable.movement_date.desc()).limit(limit)
+            stmt = select(InventoryMovementTable).where(and_(*conditions)).order_by(
+                InventoryMovementTable.movement_date.desc()
+            ).limit(limit)
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
             return [self._to_domain_movement(t) for t in tables]
         except Exception as e:
             raise InventoryRepositoryError(f"Failed to get movements: {e}") from e
 
-    async def get_movements_by_reference(self, reference_type: str, reference_id: UUID) -> List[StockMovement]:
+    async def get_movements_by_reference(self, reference_type: str, reference_id: UUID) -> list[StockMovement]:
         try:
             stmt = select(InventoryMovementTable).where(
                 InventoryMovementTable.reference_type == reference_type,
@@ -485,26 +557,44 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         except Exception as e:
             raise InventoryRepositoryError(f"Failed to get movements by reference: {e}") from e
 
-    async def get_current_stock(self, item_id: UUID, warehouse_id: UUID) -> Decimal:
+    async def get_current_stock(self, item_id: UUID, warehouse_id: UUID | None = None) -> Decimal:
+        """Get current stock for item, optionally per warehouse."""
         try:
-            stmt = select(InventoryItemTable.current_stock).where(
-                InventoryItemTable.id == item_id, InventoryItemTable.warehouse_id == warehouse_id
-            )
-            result = await self.session.execute(stmt)
-            stock = result.scalar_one_or_none()
-            return Decimal(str(stock)) if stock else Decimal(0)
+            if warehouse_id is None:
+                stmt = select(InventoryItemTable.current_stock).where(InventoryItemTable.id == item_id)
+                result = await self.session.execute(stmt)
+                stock = result.scalar_one_or_none()
+                return Decimal(str(stock)) if stock else Decimal(0)
+            else:
+                # For specific warehouse, sum movements
+                stmt = select(
+                    func.coalesce(
+                        func.sum(
+                            case(
+                                (InventoryMovementTable.movement_type.in_(['IN', 'TRANSFER_IN']), InventoryMovementTable.quantity),
+                                else_=-InventoryMovementTable.quantity
+                            )
+                        ), 0
+                    )
+                ).where(
+                    InventoryMovementTable.item_id == item_id,
+                    InventoryMovementTable.warehouse_id == warehouse_id,
+                )
+                result = await self.session.execute(stmt)
+                return Decimal(str(result.scalar() or 0))
         except Exception as e:
             raise InventoryRepositoryError(f"Failed to get current stock: {e}") from e
 
     # ========================================================================
-    # FIFO LAYERS (NEWLY ADDED)
+    # FIFO LAYERS (matching port signature)
     # ========================================================================
 
-    async def get_fifo_layers(self, item_id: UUID) -> List[FIFOLayer]:
-        """Get all FIFO layers for an item with remaining quantity > 0."""
+    async def get_fifo_layers(self, item_id: UUID, warehouse_id: UUID) -> list[FIFOLayer]:
+        """Get FIFO layers for item and warehouse."""
         try:
             stmt = select(InventoryFIFOLayerTable).where(
                 InventoryFIFOLayerTable.item_id == item_id,
+                InventoryFIFOLayerTable.warehouse_id == warehouse_id,
                 InventoryFIFOLayerTable.remaining_quantity > 0,
             ).order_by(InventoryFIFOLayerTable.layer_date)
             result = await self.session.execute(stmt)
@@ -541,78 +631,51 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         return True
 
     # ========================================================================
-    # STOCK OPNAME
+    # STOCK OPNAME (matching port signature)
     # ========================================================================
 
-    async def create_stock_opname(self, opname: StockOpname) -> UUID:
+    async def create_stock_opname(self, warehouse_id: UUID, created_by: UUID, notes: str | None = None) -> UUID:
+        """Create a new stock opname."""
         try:
+            opname = StockOpname(
+                id=uuid4(),
+                warehouse_id=warehouse_id,
+                opname_date=datetime.utcnow().date(),
+                status="draft",
+                lines=[],
+                total_adjustments=Decimal(0),
+                adjustment_value=Money(amount=Decimal(0), currency="IDR"),
+                created_at=datetime.utcnow(),
+                created_by=created_by,
+            )
             table = StockOpnameTable(
                 id=opname.id,
-                opname_number=opname.opname_number,
+                opname_number=f"OPN-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
                 warehouse_id=opname.warehouse_id,
                 opname_date=opname.opname_date,
                 status=opname.status,
                 lines=opname.lines,
                 total_adjustments=opname.total_adjustments,
-                adjustment_value=opname.adjustment_value.amount if opname.adjustment_value else 0,
-                created_at=datetime.utcnow(),
+                adjustment_value=opname.adjustment_value.amount,
+                created_at=opname.created_at,
                 created_by=opname.created_by,
             )
             self.session.add(table)
             await self.session.flush()
-            await self._log_audit("CREATE_OPNAME", opname.id, {"opname_number": opname.opname_number})
+            await self._log_audit("CREATE_OPNAME", opname.id, {"warehouse_id": str(warehouse_id)})
             return opname.id
         except Exception as e:
             await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to create stock opname: {e}") from e
 
-    async def approve_stock_opname(self, opname_id: UUID, approved_by: UUID) -> None:
-        try:
-            stmt = update(StockOpnameTable).where(StockOpnameTable.id == opname_id).values(
-                status="approved", approved_by=approved_by, approved_at=datetime.utcnow()
-            )
-            await self.session.execute(stmt)
-            await self.session.flush()
-            await self._log_audit("APPROVE_OPNAME", opname_id, {"approved_by": str(approved_by)})
-        except Exception as e:
-            await self.session.rollback()
-            raise InventoryRepositoryError(f"Failed to approve stock opname: {e}") from e
-
-    async def complete_stock_opname(self, opname_id: UUID, adjustments: List[Dict[str, Any]], approved_by: UUID) -> bool:
-        """Complete stock opname and apply adjustments."""
-        try:
-            # Apply adjustments to stock
-            for adj in adjustments:
-                item_id = UUID(adj["item_id"])
-                quantity = Decimal(str(adj["adjustment"]))
-                await self.adjust_stock(item_id, quantity)
-            # Mark opname as completed
-            stmt = update(StockOpnameTable).where(StockOpnameTable.id == opname_id).values(
-                status="completed",
-                approved_by=approved_by,
-                approved_at=datetime.utcnow(),
-                adjustments_applied=True,
-            )
-            await self.session.execute(stmt)
-            await self.session.flush()
-            await self._log_audit("COMPLETE_OPNAME", opname_id, {"adjustments": len(adjustments)})
-            return True
-        except Exception as e:
-            await self.session.rollback()
-            raise InventoryRepositoryError(f"Failed to complete stock opname: {e}") from e
-
     async def record_opname_item(self, opname_id: UUID, item_id: UUID, physical_count: Decimal, system_count: Decimal, notes: str | None = None) -> None:
-        """Record an item in stock opname (adds to opname lines)."""
-        # We need to append to lines in opname
-        # For simplicity, we'll retrieve opname, update lines, and save back
+        """Record an item in stock opname."""
         try:
             stmt = select(StockOpnameTable).where(StockOpnameTable.id == opname_id)
             result = await self.session.execute(stmt)
             opname_table = result.scalar_one_or_none()
             if not opname_table:
                 raise InventoryRepositoryError(f"Opname {opname_id} not found")
-            # Update lines (append new line)
-            # lines is a JSON field
             lines = opname_table.lines or []
             lines.append({
                 "item_id": str(item_id),
@@ -622,7 +685,6 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 "notes": notes,
                 "recorded_at": datetime.utcnow().isoformat(),
             })
-            # Recalculate total adjustments
             total_adj = sum(Decimal(str(l["difference"])) for l in lines)
             stmt_update = update(StockOpnameTable).where(StockOpnameTable.id == opname_id).values(
                 lines=lines,
@@ -636,64 +698,118 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             await self.session.rollback()
             raise InventoryRepositoryError(f"Failed to record opname item: {e}") from e
 
+    async def complete_stock_opname(self, opname_id: UUID, closed_by: UUID, auto_adjust: bool = True) -> dict[str, Any]:
+        """Complete stock opname, optionally apply adjustments."""
+        try:
+            stmt = select(StockOpnameTable).where(StockOpnameTable.id == opname_id)
+            result = await self.session.execute(stmt)
+            opname_table = result.scalar_one_or_none()
+            if not opname_table:
+                raise InventoryRepositoryError(f"Opname {opname_id} not found")
+            if opname_table.status != "draft":
+                raise InventoryRepositoryError("Opname already completed")
+            adjustments = []
+            for line in opname_table.lines or []:
+                diff = Decimal(str(line["difference"]))
+                if diff != 0 and auto_adjust:
+                    item_id = UUID(line["item_id"])
+                    if diff > 0:
+                        await self.adjust_stock(item_id, diff)
+                    else:
+                        await self.adjust_stock(item_id, diff)
+                    adjustments.append({
+                        "item_id": line["item_id"],
+                        "difference": float(diff),
+                    })
+            stmt_update = update(StockOpnameTable).where(StockOpnameTable.id == opname_id).values(
+                status="completed",
+                approved_by=closed_by,
+                approved_at=datetime.utcnow(),
+                adjustments_applied=auto_adjust,
+            )
+            await self.session.execute(stmt_update)
+            await self.session.flush()
+            await self._log_audit("COMPLETE_OPNAME", opname_id, {"auto_adjust": auto_adjust, "adjustments": len(adjustments)})
+            return {"opname_id": str(opname_id), "adjustments": adjustments}
+        except Exception as e:
+            await self.session.rollback()
+            raise InventoryRepositoryError(f"Failed to complete stock opname: {e}") from e
+
     # ========================================================================
-    # TRANSFER STOCK
+    # TRANSFER STOCK (matching port signature)
     # ========================================================================
 
-    async def transfer_stock(self, item_id: UUID, from_warehouse_id: UUID, to_warehouse_id: UUID, quantity: Decimal, transferred_by: UUID) -> bool:
+    async def transfer_stock(
+        self,
+        item_id: UUID,
+        from_warehouse_id: UUID,
+        to_warehouse_id: UUID,
+        quantity: Decimal,
+        user_id: UUID,
+        reference_type: str,
+        reference_id: UUID,
+        unit_cost: Decimal | None = None,
+    ) -> tuple[UUID, UUID]:
         """Transfer stock between warehouses."""
         if from_warehouse_id == to_warehouse_id:
             raise ValueError("Source and destination warehouses are the same")
-        # Check current stock in source
-        current = await self.get_current_stock(item_id, from_warehouse_id)
-        if current < quantity:
-            raise InsufficientStockError(f"Insufficient stock in source warehouse: {current} < {quantity}")
-        # Decrease stock in source
-        # Increase stock in destination
-        # For simplicity, we update item's stock (if only one warehouse per item)
-        # Or we can implement warehouse stock separately. We'll use a simple approach:
-        # We'll assume each item has a single warehouse, so transfer changes warehouse_id
-        # For a more complex system, you'd have stock per warehouse.
-        # We'll implement by recording movements.
         item = await self.get_item_by_id(item_id)
         if not item:
             raise ItemNotFoundError(f"Item {item_id} not found")
-        # Record transfer out
-        await self.record_movement(
-            item_id,
-            "TRANSFER_OUT",
-            quantity,
-            item.average_cost.amount,
-            "transfer",
-            uuid4(),
-            from_warehouse_id,
-            f"Transfer to {to_warehouse_id}",
-            transferred_by
+        cost = unit_cost if unit_cost is not None else item.average_cost.amount
+        # Create transfer out movement
+        mov_out = StockMovement(
+            id=uuid4(),
+            movement_number=await self.get_next_movement_number("TRF_OUT"),
+            item_id=item_id,
+            movement_type=StockMovementType.TRANSFER_OUT,
+            quantity=Quantity(value=quantity, uom=item.unit_of_measure),
+            unit_cost=Money(amount=cost, currency=item.average_cost.currency),
+            total_cost=Money(amount=cost * quantity, currency=item.average_cost.currency),
+            movement_date=datetime.utcnow().date(),
+            reference_type=reference_type,
+            reference_id=reference_id,
+            warehouse_id=from_warehouse_id,
+            to_warehouse_id=to_warehouse_id,
+            notes=f"Transfer out to {to_warehouse_id}",
+            created_by=user_id,
         )
-        # Record transfer in
-        await self.record_movement(
-            item_id,
-            "TRANSFER_IN",
-            quantity,
-            item.average_cost.amount,
-            "transfer",
-            uuid4(),
-            to_warehouse_id,
-            f"Transfer from {from_warehouse_id}",
-            transferred_by
+        await self.add_movement(mov_out)
+        # Create transfer in movement
+        mov_in = StockMovement(
+            id=uuid4(),
+            movement_number=await self.get_next_movement_number("TRF_IN"),
+            item_id=item_id,
+            movement_type=StockMovementType.TRANSFER_IN,
+            quantity=Quantity(value=quantity, uom=item.unit_of_measure),
+            unit_cost=Money(amount=cost, currency=item.average_cost.currency),
+            total_cost=Money(amount=cost * quantity, currency=item.average_cost.currency),
+            movement_date=datetime.utcnow().date(),
+            reference_type=reference_type,
+            reference_id=reference_id,
+            warehouse_id=to_warehouse_id,
+            to_warehouse_id=from_warehouse_id,
+            notes=f"Transfer in from {from_warehouse_id}",
+            created_by=user_id,
         )
-        # Update item warehouse if it was the only warehouse (for simplicity)
-        # We'll update the warehouse_id to destination if the item was only in source
-        # Actually we should support multiple warehouses, but for simplicity we'll just log.
+        await self.add_movement(mov_in)
+        # Update item stock (decrease then increase)
+        # Use record_movement via port? Better to manually update.
+        new_stock = item.current_stock.value  # no change if both in and out same warehouse? Actually warehouse-specific, but for simplicity we keep item current_stock unchanged.
+        # But we need to log audit
         await self._log_audit("TRANSFER", item_id, {"from": str(from_warehouse_id), "to": str(to_warehouse_id), "qty": float(quantity)})
-        return True
+        return mov_out.id, mov_in.id
 
     # ========================================================================
-    # INVENTORY VALUE
+    # INVENTORY VALUE (matching port signature)
     # ========================================================================
 
-    async def get_inventory_value(self, legal_entity_id: UUID, as_of_date: date | None = None) -> Decimal:
-        """Get total inventory value (current stock * average cost)."""
+    async def get_inventory_value(
+        self, legal_entity_id: UUID, as_of_date: date, valuation_method: str = "AVERAGE"
+    ) -> Decimal:
+        """Get total inventory value as of date."""
+        # For simplicity, we ignore as_of_date and use current stock
+        # because we don't have historical stock snapshots.
         try:
             stmt = select(
                 func.coalesce(func.sum(InventoryItemTable.current_stock * InventoryItemTable.average_cost), 0)
@@ -709,10 +825,13 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             raise InventoryRepositoryError(f"Failed to get inventory value: {e}") from e
 
     # ========================================================================
-    # STATISTICS
+    # STATISTICS (matching port signature)
     # ========================================================================
 
-    async def get_statistics(self, legal_entity_id: UUID) -> Dict[str, Any]:
+    async def get_statistics(self, legal_entity_id: UUID | None = None) -> dict[str, Any]:
+        """Get inventory statistics."""
+        if legal_entity_id is None:
+            legal_entity_id = self._get_legal_entity_id()
         try:
             total_items = await self.session.execute(
                 select(func.count()).where(
@@ -729,7 +848,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
                 )
             )
             active_count = active.scalar() or 0
-            total_value = await self.get_inventory_value(legal_entity_id)
+            total_value = await self.get_inventory_value(legal_entity_id, date.today())
             low_stock = len(await self.get_items_below_reorder_point(legal_entity_id))
             total_movements = await self.session.execute(
                 select(func.count()).select_from(InventoryMovementTable).where(
@@ -754,10 +873,13 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             raise InventoryRepositoryError(f"Failed to get statistics: {e}") from e
 
     # ========================================================================
-    # EXPORT / IMPORT
+    # EXPORT / IMPORT (matching port signature)
     # ========================================================================
 
-    async def export_items_to_csv(self, legal_entity_id: UUID) -> str:
+    async def export_items_to_csv(self, legal_entity_id: UUID | None = None) -> str:
+        """Export items to CSV."""
+        if legal_entity_id is None:
+            legal_entity_id = self._get_legal_entity_id()
         items = await self.get_all_items(legal_entity_id, limit=10000)
         output = io.StringIO()
         writer = csv.writer(output)
@@ -817,7 +939,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
     # AUDIT LOG
     # ========================================================================
 
-    async def get_audit_log(self, item_id: UUID | None = None, limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_audit_log(self, item_id: UUID | None = None, limit: int = 100) -> list[dict[str, Any]]:
         logs = self._audit_log
         if item_id:
             logs = [l for l in logs if l.get("item_id") == str(item_id)]
@@ -827,7 +949,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
     # HEALTH CHECK
     # ========================================================================
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         try:
             await self.session.execute(text("SELECT 1"))
             return {"status": "healthy", "repository": "InventoryRepository"}
@@ -867,7 +989,7 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
         else:
             await self.add_item(item)
 
-    async def get_warehouses(self, legal_entity_id: UUID) -> List[Dict[str, Any]]:
+    async def get_warehouses(self, legal_entity_id: UUID) -> list[dict[str, Any]]:
         try:
             stmt = select(WarehouseTable).where(WarehouseTable.legal_entity_id == legal_entity_id, WarehouseTable.is_active == True)
             result = await self.session.execute(stmt)
@@ -878,6 +1000,61 @@ class SQLAlchemyInventoryRepository(InventoryRepositoryPort):
             ]
         except Exception as e:
             raise InventoryRepositoryError(f"Failed to get warehouses: {e}") from e
+
+    # ========================================================================
+    # INVENTORY VALUATION (dari InventoryValuationRepositoryPort) - FIX 3
+    # ========================================================================
+
+    # ===== FIX 3: get_inventory_valuation dengan as_of_date wajib =====
+    async def get_inventory_valuation(self, legal_entity_id: UUID, as_of_date: date) -> dict[str, Any]:
+        """
+        Get inventory valuation summary as of given date.
+        Returns total value, breakdown by category, and details.
+        """
+        try:
+            conditions = [
+                InventoryItemTable.legal_entity_id == legal_entity_id,
+                InventoryItemTable.deleted_at.is_(None),
+                InventoryItemTable.is_active == True,
+            ]
+            # For now, we ignore as_of_date and use current stock.
+            # In future, we can implement historical valuation.
+            total_value = await self.get_inventory_value(legal_entity_id, as_of_date)
+
+            # Breakdown by category
+            stmt = select(
+                InventoryItemTable.category,
+                func.sum(InventoryItemTable.current_stock * InventoryItemTable.average_cost).label('value')
+            ).where(and_(*conditions)).group_by(InventoryItemTable.category)
+            result = await self.session.execute(stmt)
+            rows = result.all()
+            by_category = {row.category or "Uncategorized": float(row.value) for row in rows}
+
+            # Breakdown by warehouse
+            stmt_wh = select(
+                InventoryItemTable.warehouse_id,
+                func.sum(InventoryItemTable.current_stock * InventoryItemTable.average_cost).label('value')
+            ).where(and_(*conditions)).group_by(InventoryItemTable.warehouse_id)
+            result_wh = await self.session.execute(stmt_wh)
+            rows_wh = result_wh.all()
+            by_warehouse = {str(row.warehouse_id): float(row.value) for row in rows_wh if row.warehouse_id}
+
+            # Count items with stock > 0
+            stmt_count = select(func.count()).where(
+                and_(*conditions, InventoryItemTable.current_stock > 0)
+            )
+            count = await self.session.scalar(stmt_count) or 0
+
+            return {
+                "total_value": float(total_value),
+                "item_count": count,
+                "by_category": by_category,
+                "by_warehouse": by_warehouse,
+                "as_of_date": as_of_date.isoformat(),
+                "currency": "IDR",
+            }
+        except Exception as e:
+            raise InventoryRepositoryError(f"Failed to get inventory valuation: {e}") from e
 
 
 # ============================================================================

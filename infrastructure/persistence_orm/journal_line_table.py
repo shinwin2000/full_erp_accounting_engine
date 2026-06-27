@@ -74,12 +74,12 @@ class JournalLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
     audit_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Relasi
-    journal: Mapped["JournalHeaderTable"] = relationship(
+    journal: Mapped[JournalHeaderTable] = relationship(
         "JournalHeaderTable",
         back_populates="lines",
         foreign_keys=[journal_id],
     )
-    account: Mapped["AccountTable"] = relationship(
+    account: Mapped[AccountTable] = relationship(
         "AccountTable",
         back_populates="journal_lines",
         primaryjoin="and_(JournalLineTable.account_code == AccountTable.account_code, "

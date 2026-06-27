@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Module: application.commands_cqrs.__init__
@@ -21,7 +20,13 @@ from __future__ import annotations
 
 # Command & Query Buses
 from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
-from application.commands_cqrs.query_bus_unified import UnifiedQueryBus
+
+# Command Executor with Audit
+from application.commands_cqrs.command_executor_with_audit import (
+    CommandExecutionError,
+    CommandExecutionResult,
+    CommandExecutorWithAudit,
+)
 
 # Command & Query Handler Registries
 from application.commands_cqrs.command_handler_registry import (
@@ -31,26 +36,11 @@ from application.commands_cqrs.command_handler_registry import (
     register_command_handler,
     unregister_command_handler,
 )
-from application.commands_cqrs.query_handler_registry import (
-    QueryHandlerRegistry,
-    query_handler_registry,
-    get_query_handler,
-    register_query_handler,
-    unregister_query_handler,
-)
 
-# Command Executor with Audit
-from application.commands_cqrs.command_executor_with_audit import (
-    CommandExecutorWithAudit,
-    CommandExecutionError,
-    CommandExecutionResult,
-)
-
-# Query Executor (read‑only)
-from application.commands_cqrs.query_executor_readonly import (
-    QueryExecutorReadOnly,
-    QueryExecutionError,
-    QueryExecutionResult,
+# Command Result Envelope
+from application.commands_cqrs.command_result_envelope import (
+    CommandResultEnvelope,
+    CommandStatus,
 )
 
 # Command Validator
@@ -58,11 +48,20 @@ from application.commands_cqrs.command_validator import (
     CommandValidator,
     ValidationError,
 )
+from application.commands_cqrs.query_bus_unified import UnifiedQueryBus
 
-# Command Result Envelope
-from application.commands_cqrs.command_result_envelope import (
-    CommandResultEnvelope,
-    CommandStatus,
+# Query Executor (read‑only)
+from application.commands_cqrs.query_executor_readonly import (
+    QueryExecutionError,
+    QueryExecutionResult,
+    QueryExecutorReadOnly,
+)
+from application.commands_cqrs.query_handler_registry import (
+    QueryHandlerRegistry,
+    get_query_handler,
+    query_handler_registry,
+    register_query_handler,
+    unregister_query_handler,
 )
 
 # ============================================================================
@@ -82,8 +81,8 @@ __all__ = [
     # Buses
     "UnifiedCommandBus",
     "UnifiedQueryBus",
-    "CommandBusUnified",          
-    "QueryBusUnified",            
+    "CommandBusUnified",
+    "QueryBusUnified",
     # Registries
     "CommandHandlerRegistry",
     "command_handler_registry",

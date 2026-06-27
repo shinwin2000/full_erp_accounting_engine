@@ -4,23 +4,40 @@ Module: sqlalchemy_consolidation_repository_impl.py
 Layer: Adapters (Secondary Implementation)
 Responsibility: Implementasi repository untuk konsolidasi menggunakan SQLAlchemy.
                Mendukung pengelolaan grup konsolidasi, entitas, kepemilikan,
-               transaksi antar perusahaan, dan ekuitas.
+               transaksi antar perusahaan, dan hasil konsolidasi.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Numeric, String, Text, func, select, and_, or_
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    and_,
+    func,
+    or_,
+    select,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
 
 from domain.consolidation.aggregate_root import ConsolidationGroup
+from domain.consolidation.elimination_entry import EliminationEntry
+from domain.consolidation.intercompany_transaction import IntercompanyTransaction
 from ports.primary.consolidation_repository_port import ConsolidationRepositoryPort
 
 logger = logging.getLogger(__name__)
@@ -86,6 +103,21 @@ class OwnershipTable(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class ConsolidationResultTable(Base):
+    """Tabel untuk menyimpan hasil konsolidasi (rows, eliminations, NCI)."""
+    __tablename__ = "consolidation_results"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    consolidation_id = Column(PGUUID(as_uuid=True), nullable=False)  # refer ke ConsolidationGroupTable.id
+    group_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
+    period_end_date = Column(Date, nullable=False)
+    currency = Column(String(3), nullable=False, default="IDR")
+    rows_json = Column(Text, nullable=False)  # JSON array of rows
+    eliminations_json = Column(Text, nullable=False)  # JSON array of EliminationEntry
+    nci_total = Column(Numeric(20, 2), nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_by = Column(PGUUID(as_uuid=True), nullable=True)
+
+
 # ============================================================================
 # REPOSITORY IMPLEMENTATION
 # ============================================================================
@@ -105,16 +137,314 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
         return self._session
 
     # ========================================================================
-    # PORT METHODS
+    # INTERNAL HELPERS
     # ========================================================================
 
-    # ----- save_group (alias untuk save_consolidation) -----
-    async def save_group(self, group: ConsolidationGroup) -> None:
-        """Simpan grup konsolidasi (alias untuk save_consolidation)."""
-        await self.save_consolidation(group)
+    def _to_domain_transaction(self, row: IntercompanyTransactionTable) -> IntercompanyTransaction:
+        return IntercompanyTransaction(
+            id=row.id,
+            from_entity_id=row.from_entity_id,
+            to_entity_id=row.to_entity_id,
+            amount=row.amount,
+            currency=row.currency,
+            transaction_date=row.transaction_date,
+            transaction_type=row.transaction_type,
+            description=row.description,
+            eliminated=row.eliminated,
+            elimination_journal_id=row.elimination_journal_id,
+        )
 
-    async def save_consolidation(self, group: ConsolidationGroup) -> None:
-        """Simpan atau update grup konsolidasi."""
+    # ========================================================================
+    # PORT METHODS (sesuai signature)
+    # ========================================================================
+
+    # ---- get_intercompany_transactions ----
+    async def get_intercompany_transactions(
+        self, entity_ids: list[UUID], as_of_date: date
+    ) -> list[IntercompanyTransaction]:
+        """Get all intercompany transactions between entities up to a date."""
+        if not entity_ids:
+            return []
+        session = await self._get_session()
+        # Cari transaksi di mana dari atau ke entitas ada dalam list
+        stmt = (
+            select(IntercompanyTransactionTable)
+            .where(
+                and_(
+                    or_(
+                        IntercompanyTransactionTable.from_entity_id.in_(entity_ids),
+                        IntercompanyTransactionTable.to_entity_id.in_(entity_ids),
+                    ),
+                    IntercompanyTransactionTable.transaction_date <= as_of_date,
+                )
+            )
+            .order_by(IntercompanyTransactionTable.transaction_date)
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_domain_transaction(row) for row in rows]
+
+    # ---- get_intercompany_balances ----
+    async def get_intercompany_balances(
+        self, entity_id: UUID, as_of_date: date
+    ) -> list[dict[str, Any]]:
+        """Get intercompany balances for an entity as of a date."""
+        session = await self._get_session()
+        # Agregasi dari transaksi: total receivable dan payable per counterparty
+        stmt = (
+            select(
+                IntercompanyTransactionTable.to_entity_id.label("counterparty_id"),
+                IntercompanyTransactionTable.currency,
+                func.sum(
+                    IntercompanyTransactionTable.amount
+                ).label("total_amount"),
+            )
+            .where(
+                IntercompanyTransactionTable.from_entity_id == entity_id,
+                IntercompanyTransactionTable.transaction_date <= as_of_date,
+                IntercompanyTransactionTable.eliminated == False,
+            )
+            .group_by(
+                IntercompanyTransactionTable.to_entity_id,
+                IntercompanyTransactionTable.currency,
+            )
+        )
+        result = await session.execute(stmt)
+        rows = result.all()
+
+        # Tambahkan payable (from counterparty to entity)
+        stmt2 = (
+            select(
+                IntercompanyTransactionTable.from_entity_id.label("counterparty_id"),
+                IntercompanyTransactionTable.currency,
+                func.sum(
+                    IntercompanyTransactionTable.amount
+                ).label("total_amount"),
+            )
+            .where(
+                IntercompanyTransactionTable.to_entity_id == entity_id,
+                IntercompanyTransactionTable.transaction_date <= as_of_date,
+                IntercompanyTransactionTable.eliminated == False,
+            )
+            .group_by(
+                IntercompanyTransactionTable.from_entity_id,
+                IntercompanyTransactionTable.currency,
+            )
+        )
+        result2 = await session.execute(stmt2)
+        rows2 = result2.all()
+
+        # Gabungkan dan format
+        balances = []
+        for row in rows:
+            balances.append({
+                "counterparty_id": str(row.counterparty_id),
+                "currency": row.currency,
+                "receivable": float(row.total_amount),
+                "payable": 0.0,
+            })
+        for row in rows2:
+            # Cek apakah counterparty sudah ada
+            found = False
+            for b in balances:
+                if b["counterparty_id"] == str(row.counterparty_id) and b["currency"] == row.currency:
+                    b["payable"] = float(row.total_amount)
+                    found = True
+                    break
+            if not found:
+                balances.append({
+                    "counterparty_id": str(row.counterparty_id),
+                    "currency": row.currency,
+                    "receivable": 0.0,
+                    "payable": float(row.total_amount),
+                })
+        return balances
+
+    # ---- save_consolidation ----
+    async def save_consolidation(
+        self,
+        id: UUID,
+        group_entity_id: UUID,
+        period_end_date: date,
+        currency: str,
+        rows: list[Any],
+        eliminations: list[EliminationEntry],
+        nci_total: Decimal,
+        created_at: datetime,
+    ) -> None:
+        """Save a consolidation result."""
+        session = await self._get_session()
+        # Simpan hasil konsolidasi ke ConsolidationResultTable
+        # rows dan eliminations di-serialize ke JSON
+        rows_json = json.dumps([r.to_dict() if hasattr(r, "to_dict") else r for r in rows], default=str)
+        eliminations_json = json.dumps(
+            [e.to_dict() if hasattr(e, "to_dict") else e for e in eliminations],
+            default=str
+        )
+        result = ConsolidationResultTable(
+            id=uuid.uuid4(),
+            consolidation_id=id,
+            group_entity_id=group_entity_id,
+            period_end_date=period_end_date,
+            currency=currency,
+            rows_json=rows_json,
+            eliminations_json=eliminations_json,
+            nci_total=nci_total,
+            created_at=created_at or datetime.utcnow(),
+            created_by=None,  # bisa ditambahkan jika ada user context
+        )
+        # Cek apakah sudah ada (update jika ada)
+        existing = await session.execute(
+            select(ConsolidationResultTable).where(
+                ConsolidationResultTable.consolidation_id == id
+            )
+        )
+        existing_row = existing.scalar_one_or_none()
+        if existing_row:
+            existing_row.rows_json = rows_json
+            existing_row.eliminations_json = eliminations_json
+            existing_row.nci_total = nci_total
+            existing_row.period_end_date = period_end_date
+            existing_row.currency = currency
+            existing_row.created_at = datetime.utcnow()
+        else:
+            session.add(result)
+        await session.flush()
+
+    # ---- get_consolidation ----
+    async def get_consolidation(self, consolidation_id: UUID) -> dict[str, Any] | None:
+        """Retrieve a consolidation result by ID."""
+        session = await self._get_session()
+        stmt = select(ConsolidationResultTable).where(
+            ConsolidationResultTable.consolidation_id == consolidation_id
+        )
+        result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            return None
+        return {
+            "id": row.id,
+            "consolidation_id": row.consolidation_id,
+            "group_entity_id": row.group_entity_id,
+            "period_end_date": row.period_end_date,
+            "currency": row.currency,
+            "rows": json.loads(row.rows_json),
+            "eliminations": json.loads(row.eliminations_json),
+            "nci_total": row.nci_total,
+            "created_at": row.created_at,
+        }
+
+    # ---- list_consolidations ----
+    async def list_consolidations(
+        self,
+        group_entity_id: UUID,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> list[dict[str, Any]]:
+        """List consolidations for a group entity."""
+        session = await self._get_session()
+        conditions = [ConsolidationResultTable.group_entity_id == group_entity_id]
+        if from_date:
+            conditions.append(ConsolidationResultTable.period_end_date >= from_date)
+        if to_date:
+            conditions.append(ConsolidationResultTable.period_end_date <= to_date)
+        stmt = select(ConsolidationResultTable).where(and_(*conditions)).order_by(
+            ConsolidationResultTable.period_end_date.desc()
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [
+            {
+                "id": r.id,
+                "consolidation_id": r.consolidation_id,
+                "group_entity_id": r.group_entity_id,
+                "period_end_date": r.period_end_date,
+                "currency": r.currency,
+                "nci_total": r.nci_total,
+                "created_at": r.created_at,
+            }
+            for r in rows
+        ]
+
+    # ---- get_ownership_percentage ----
+    async def get_ownership_percentage(self, parent_id: UUID, child_id: UUID) -> Decimal:
+        """Get ownership percentage of parent in child entity."""
+        session = await self._get_session()
+        stmt = select(OwnershipTable.ownership_percentage).where(
+            OwnershipTable.parent_entity_id == parent_id,
+            OwnershipTable.subsidiary_entity_id == child_id,
+        ).order_by(OwnershipTable.effective_date.desc()).limit(1)
+        result = await session.execute(stmt)
+        val = result.scalar_one_or_none()
+        return Decimal(str(val)) if val is not None else Decimal(0)
+
+    # ---- get_entity_equity ----
+    async def get_entity_equity(self, entity_id: UUID, as_of_date: date) -> Decimal:
+        """Get total equity of an entity as of date (from trial balance)."""
+        session = await self._get_session()
+        try:
+            from infrastructure.persistence_orm.account_table import AccountTable
+            stmt = select(
+                func.coalesce(func.sum(AccountTable.balance), 0)
+            ).where(
+                AccountTable.legal_entity_id == entity_id,
+                AccountTable.account_type == "EQUITY",
+                AccountTable.balance_date <= as_of_date,
+            )
+            result = await session.execute(stmt)
+            return Decimal(str(result.scalar() or 0))
+        except ImportError:
+            logger.debug("AccountTable not available, returning 0 for equity")
+            return Decimal(0)
+        except Exception as e:
+            logger.warning(f"Failed to get entity equity: {e!s}")
+            return Decimal(0)
+
+    # ---- save_intercompany_transaction ----
+    async def save_intercompany_transaction(self, tx: IntercompanyTransaction) -> None:
+        """Save an intercompany transaction."""
+        session = await self._get_session()
+        # Cek apakah sudah ada
+        stmt = select(IntercompanyTransactionTable).where(IntercompanyTransactionTable.id == tx.id)
+        existing = await session.execute(stmt)
+        existing_row = existing.scalar_one_or_none()
+        if existing_row:
+            # Update
+            existing_row.from_entity_id = tx.from_entity_id
+            existing_row.to_entity_id = tx.to_entity_id
+            existing_row.amount = tx.amount
+            existing_row.currency = tx.currency
+            existing_row.transaction_date = tx.transaction_date
+            existing_row.transaction_type = tx.transaction_type
+            existing_row.description = tx.description
+            existing_row.eliminated = tx.eliminated
+            existing_row.elimination_journal_id = tx.elimination_journal_id
+        else:
+            # Insert
+            new_tx = IntercompanyTransactionTable(
+                id=tx.id,
+                group_id=None,  # group_id tidak ada di domain tx, bisa diisi dari context
+                from_entity_id=tx.from_entity_id,
+                to_entity_id=tx.to_entity_id,
+                transaction_date=tx.transaction_date,
+                amount=tx.amount,
+                currency=tx.currency,
+                transaction_type=tx.transaction_type,
+                description=tx.description,
+                eliminated=tx.eliminated,
+                elimination_journal_id=tx.elimination_journal_id,
+            )
+            session.add(new_tx)
+        await session.flush()
+
+    # ========================================================================
+    # LEGACY/INTERNAL METHODS (untuk kompatibilitas)
+    # ========================================================================
+
+    async def save_group(self, group: ConsolidationGroup) -> None:
+        """Simpan grup konsolidasi (alias untuk save_consolidation dengan domain)."""
+        # Karena save_consolidation sekarang menerima parameter berbeda, kita panggil dengan konversi
+        # Tapi kita tetap simpan ke ConsolidationGroupTable untuk kompatibilitas
         session = await self._get_session()
         orm_group = ConsolidationGroupTable(
             id=group.id,
@@ -137,12 +467,7 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
             session.add(orm_group)
         await session.flush()
 
-    # ----- find_group (alias untuk get_consolidation) -----
-    async def find_group(self, group_id: uuid.UUID) -> ConsolidationGroup | None:
-        """Ambil grup konsolidasi berdasarkan ID (alias untuk get_consolidation)."""
-        return await self.get_consolidation(group_id)
-
-    async def get_consolidation(self, group_id: uuid.UUID) -> ConsolidationGroup | None:
+    async def find_group(self, group_id: UUID) -> ConsolidationGroup | None:
         """Ambil grup konsolidasi berdasarkan ID."""
         session = await self._get_session()
         stmt = select(ConsolidationGroupTable).where(ConsolidationGroupTable.id == group_id)
@@ -163,132 +488,6 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
             created_by=row.created_by,
         )
 
-    async def list_consolidations(self, legal_entity_id: uuid.UUID) -> list[ConsolidationGroup]:
-        """Daftar semua grup konsolidasi untuk entitas hukum."""
-        session = await self._get_session()
-        stmt = select(ConsolidationGroupTable).where(
-            ConsolidationGroupTable.legal_entity_id == legal_entity_id
-        ).order_by(ConsolidationGroupTable.consolidation_date.desc())
-        result = await session.execute(stmt)
-        rows = result.scalars().all()
-        return [
-            ConsolidationGroup(
-                id=r.id,
-                legal_entity_id=r.legal_entity_id,
-                group_code=r.group_code,
-                group_name=r.group_name,
-                parent_entity_id=r.parent_entity_id,
-                consolidation_date=r.consolidation_date,
-                status=r.status,
-                description=r.description,
-                created_at=r.created_at,
-                created_by=r.created_by,
-            ) for r in rows
-        ]
-
-    async def get_entity_equity(self, entity_id: uuid.UUID, as_of_date: date) -> Decimal:
-        """Hitung ekuitas entitas pada tanggal tertentu."""
-        session = await self._get_session()
-        try:
-            from infrastructure.persistence_orm.account_table import AccountTable
-            stmt = select(
-                func.coalesce(func.sum(AccountTable.balance), 0)
-            ).where(
-                AccountTable.legal_entity_id == entity_id,
-                AccountTable.account_type == "EQUITY",
-                AccountTable.balance_date <= as_of_date,
-            )
-            result = await session.execute(stmt)
-            return Decimal(str(result.scalar() or 0))
-        except ImportError:
-            logger.debug("AccountTable not available, returning 0 for equity")
-            return Decimal(0)
-        except Exception as e:
-            logger.warning(f"Failed to get entity equity: {str(e)}")
-            return Decimal(0)
-
-    async def get_intercompany_balances(self, group_id: uuid.UUID) -> list[dict[str, Any]]:
-        """Ambil saldo antar perusahaan dalam grup (agregasi transaksi)."""
-        session = await self._get_session()
-        stmt = (
-            select(
-                IntercompanyTransactionTable.from_entity_id,
-                IntercompanyTransactionTable.to_entity_id,
-                func.sum(IntercompanyTransactionTable.amount).label("total_amount"),
-                IntercompanyTransactionTable.currency,
-            )
-            .where(IntercompanyTransactionTable.group_id == group_id)
-            .group_by(
-                IntercompanyTransactionTable.from_entity_id,
-                IntercompanyTransactionTable.to_entity_id,
-                IntercompanyTransactionTable.currency,
-            )
-        )
-        result = await session.execute(stmt)
-        rows = result.all()
-        return [
-            {
-                "from_entity_id": row.from_entity_id,
-                "to_entity_id": row.to_entity_id,
-                "total_amount": row.total_amount,
-                "currency": row.currency,
-            }
-            for row in rows
-        ]
-
-    async def get_intercompany_transactions(self, group_id: uuid.UUID) -> list[dict[str, Any]]:
-        """Ambil semua transaksi antar perusahaan dalam grup."""
-        session = await self._get_session()
-        stmt = select(IntercompanyTransactionTable).where(
-            IntercompanyTransactionTable.group_id == group_id
-        ).order_by(IntercompanyTransactionTable.transaction_date)
-        result = await session.execute(stmt)
-        rows = result.scalars().all()
-        return [
-            {
-                "id": r.id,
-                "from_entity_id": r.from_entity_id,
-                "to_entity_id": r.to_entity_id,
-                "transaction_date": r.transaction_date,
-                "amount": r.amount,
-                "currency": r.currency,
-                "transaction_type": r.transaction_type,
-                "description": r.description,
-                "eliminated": r.eliminated,
-            }
-            for r in rows
-        ]
-
-    async def get_ownership_percentage(self, parent_id: uuid.UUID, subsidiary_id: uuid.UUID) -> Decimal:
-        """Ambil persentase kepemilikan parent terhadap subsidiary."""
-        session = await self._get_session()
-        stmt = select(OwnershipTable.ownership_percentage).where(
-            OwnershipTable.parent_entity_id == parent_id,
-            OwnershipTable.subsidiary_entity_id == subsidiary_id,
-        ).order_by(OwnershipTable.effective_date.desc()).limit(1)
-        result = await session.execute(stmt)
-        val = result.scalar_one_or_none()
-        return Decimal(str(val)) if val is not None else Decimal(0)
-
-    async def save_intercompany_transaction(self, transaction: dict[str, Any]) -> None:
-        """Simpan transaksi antar perusahaan."""
-        session = await self._get_session()
-        trx = IntercompanyTransactionTable(
-            id=transaction.get("id", uuid.uuid4()),
-            group_id=transaction["group_id"],
-            from_entity_id=transaction["from_entity_id"],
-            to_entity_id=transaction["to_entity_id"],
-            transaction_date=transaction["transaction_date"],
-            amount=transaction["amount"],
-            currency=transaction.get("currency", "IDR"),
-            transaction_type=transaction["transaction_type"],
-            description=transaction.get("description"),
-            eliminated=transaction.get("eliminated", False),
-            elimination_journal_id=transaction.get("elimination_journal_id"),
-        )
-        session.add(trx)
-        await session.flush()
-
 
 # ============================================================================
 # ALIAS UNTUK KOMPATIBILITAS
@@ -299,6 +498,6 @@ SQLAlchemyConsolidationRepositoryImpl = SQLAlchemyConsolidationRepository
 
 __all__ = [
     "SQLAlchemyConsolidationRepository",
-    "SqlAlchemyConsolidationRepository",
     "SQLAlchemyConsolidationRepositoryImpl",
+    "SqlAlchemyConsolidationRepository",
 ]

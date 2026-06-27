@@ -222,7 +222,7 @@ class ChartOfAccounts:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version(self) -> int:
         return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -674,7 +674,7 @@ class ChartOfAccounts:
 
 
 # ============================================================================
-# COAAggregate (Command Aggregate)
+# COAAggregate (Command Aggregate) - FIXED
 # ============================================================================
 
 
@@ -689,15 +689,35 @@ class COAAggregate:
     def coa(self) -> ChartOfAccounts | None:
         return self._coa
 
-    @property
-    def domain_events(self) -> list[DomainEvent]:
+    # ---- Standar Event Contract ----
+    def register_event(self, event: DomainEvent) -> None:
+        """Tambahkan event ke daftar internal."""
+        self._events.append(event)
+
+    def get_events(self) -> list[DomainEvent]:
+        """Kembalikan salinan daftar event."""
         return self._events.copy()
 
-    def pop_events(self) -> list[DomainEvent]:
+    def pull_events(self) -> list[DomainEvent]:
+        """Ambil semua event dan kosongkan daftar."""
         events = self._events.copy()
         self._events.clear()
         return events
 
+    def clear_events(self) -> None:
+        """Kosongkan daftar event."""
+        self._events.clear()
+
+    # ---- Legacy method (compatibility) ----
+    @property
+    def domain_events(self) -> list[DomainEvent]:
+        return self.get_events()
+
+    def pop_events(self) -> list[DomainEvent]:
+        """Alias untuk pull_events (kompatibilitas)."""
+        return self.pull_events()
+
+    # ---- Business methods ----
     def load(self, coa: ChartOfAccounts) -> None:
         self._coa = coa
 
@@ -716,18 +736,25 @@ class COAAggregate:
         if not self._coa:
             raise ValueError("COA not loaded")
         self._coa = self._coa.add_child(account, created_by)
-        self._events.extend(self._coa.pull_events())
+        # Ambil event dari COA dan daftarkan ke aggregate command
+        for evt in self._coa.pull_events():
+            self.register_event(evt)
 
     def update_account(self, account: Account, updated_by: str) -> None:
         if not self._coa:
             raise ValueError("COA not loaded")
-        # Implement update account
-        self._coa = self._coa.update_account(account, updated_by)  # method needs to be added
+        # Asumsikan ada method update_account di ChartOfAccounts
+        # Untuk sementara, kita simulasikan dengan replace
+        # Sebaiknya implementasikan update_account di ChartOfAccounts
+        # Di sini kita hanya melempar NotImplementedError agar developer sadar
+        raise NotImplementedError("update_account belum diimplementasikan di ChartOfAccounts")
 
     def deactivate_account(self, account_id: UUID, deactivated_by: str) -> None:
         if not self._coa:
             raise ValueError("COA not loaded")
-        self._coa = self._coa.deactivate_account(account_id, deactivated_by)
+        self._coa = self._coa.remove_child(account_id, deactivated_by)
+        for evt in self._coa.pull_events():
+            self.register_event(evt)
 
     def lock(self, locked_by: str, reason: str) -> None:
         if not self._coa:

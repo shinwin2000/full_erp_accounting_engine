@@ -99,7 +99,7 @@ def _get_logger():
     global _logger
     if _logger is None:
         mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
-        get_logger_func = getattr(mod, "get_logger")
+        get_logger_func = mod.get_logger
         _logger = get_logger_func(__name__)
     return _logger
 
@@ -107,25 +107,25 @@ def _get_logger():
 def _get_event_gate():
     """Lazy import event_gate_singleton.get_event_gate."""
     mod = importlib.import_module("event_gateway.event_gate_singleton")
-    return getattr(mod, "get_event_gate")
+    return mod.get_event_gate
 
 
 def _get_event_envelope():
     """Lazy import EventEnvelope for type checking (minimal)."""
     mod = importlib.import_module("event_gateway.event_envelope")
-    return getattr(mod, "EventEnvelope")
+    return mod.EventEnvelope
 
 
 def _get_redis_manager():
     """Lazy import redis_manager.get_redis_manager."""
     mod = importlib.import_module("infrastructure.caching.redis_manager")
-    return getattr(mod, "get_redis_manager")
+    return mod.get_redis_manager
 
 
 def _get_alert_trigger():
     """Lazy import alert_manager_router.trigger_alert."""
     mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
-    return getattr(mod, "trigger_alert")
+    return mod.trigger_alert
 
 
 # ============================================================================

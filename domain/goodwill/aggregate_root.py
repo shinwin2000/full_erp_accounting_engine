@@ -429,12 +429,32 @@ class GoodwillAggregate:
 
     _audit_trail: ClassVar[list[dict[str, Any]]] = []
     _snapshots: ClassVar[list[dict[str, Any]]] = []
-    _events: ClassVar[list[Any]] = []
 
     def __init__(self, goodwill: Goodwill):
         self._goodwill = goodwill
-        self._domain_events: list[Any] = []
-        self._take_snapshot()
+        self._events: list[Any] = []
+
+    # ==================== EVENT CONTRACT ====================
+
+    def register_event(self, event: Any) -> None:
+        """Register a domain event."""
+        self._events.append(event)
+
+    def get_events(self) -> list[Any]:
+        """Get all registered events."""
+        return self._events.copy()
+
+    def pull_events(self) -> list[Any]:
+        """Pull and clear all events."""
+        events = self._events.copy()
+        self._events.clear()
+        return events
+
+    def clear_events(self) -> None:
+        """Clear all events."""
+        self._events.clear()
+
+    # ==================== END EVENT CONTRACT ====================
 
     @property
     def goodwill(self) -> Goodwill:
@@ -446,12 +466,12 @@ class GoodwillAggregate:
 
     @property
     def domain_events(self) -> list[Any]:
-        return self._domain_events.copy()
+        """Compatibility property."""
+        return self.get_events()
 
     def pop_events(self) -> list[Any]:
-        events = self._domain_events.copy()
-        self._domain_events.clear()
-        return events
+        """Alias for pull_events (compatibility)."""
+        return self.pull_events()
 
     def _take_snapshot(self) -> None:
         snapshot = {
@@ -477,8 +497,11 @@ class GoodwillAggregate:
         }
         self._audit_trail.append(entry)
 
+    # ==================== INTERNAL HELPER ====================
+
     def _register_event(self, event: Any) -> None:
-        self._domain_events.append(event)
+        """Internal helper (kept for compatibility)."""
+        self.register_event(event)
 
     # ==================== ENTITY DASAR METHODS ====================
 
@@ -586,7 +609,6 @@ class GoodwillAggregate:
         return self.delete(deactivated_by, reason)
 
     def lock(self, locked_by: str, reason: str) -> GoodwillAggregate:
-        # Add lock metadata
         metadata = getattr(self._goodwill, "metadata", {}) or {}
         metadata["locked_by"] = locked_by
         metadata["locked_at"] = datetime.now(UTC).isoformat()
@@ -706,7 +728,6 @@ class GoodwillAggregate:
         return self._goodwill.status == GoodwillStatus.ACTIVE
 
     def post(self, posted_by: str) -> GoodwillAggregate:
-        # Posting goodwill to GL (no state change)
         if not self.can_post():
             raise GoodwillError(f"Cannot post goodwill in status {self._goodwill.status.value}")
         self._record_audit("POST", posted_by, {})
@@ -794,18 +815,8 @@ class GoodwillAggregate:
         return self
 
     # ==================== EVENT METHODS ====================
-
-    def register_event(self, event: Any) -> None:
-        self._register_event(event)
-
-    def get_events(self) -> list[Any]:
-        return self._domain_events.copy()
-
-    def pull_events(self) -> list[Any]:
-        return self.pop_events()
-
-    def clear_events(self) -> None:
-        self._domain_events.clear()
+    # register_event, get_events, pull_events, clear_events sudah di atas
+    # _register_event juga sudah sebagai alias
 
     # ==================== BUSINESS METHODS ====================
 
@@ -836,7 +847,7 @@ class GoodwillAggregate:
             else None,
         )
         agg = cls(goodwill)
-        agg._register_event(
+        agg.register_event(
             {
                 "event_type": "GoodwillRecognized",
                 "goodwill_id": str(goodwill.id),
@@ -927,7 +938,7 @@ class GoodwillAggregate:
             version=self._goodwill.version + 1,
         )
         self._goodwill = new_goodwill
-        self._register_event(
+        self.register_event(
             {
                 "event_type": "GoodwillImpaired",
                 "goodwill_id": str(self._goodwill.id),
@@ -972,7 +983,7 @@ class GoodwillAggregate:
             version=self._goodwill.version + 1,
         )
         self._goodwill = new_goodwill
-        self._register_event(
+        self.register_event(
             {
                 "event_type": "GoodwillImpairmentReversed",
                 "goodwill_id": str(self._goodwill.id),
@@ -1022,7 +1033,7 @@ class GoodwillAggregate:
             version=self._goodwill.version + 1,
         )
         self._goodwill = new_goodwill
-        self._register_event(
+        self.register_event(
             {
                 "event_type": "GoodwillAmortized",
                 "goodwill_id": str(self._goodwill.id),

@@ -11,12 +11,12 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import datetime, date
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select, update, and_, or_
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,11 +24,11 @@ from domain.coa.account_code_vo import AccountCode
 from domain.coa.account_entity import AccountStatus, NormalBalance
 from domain.coa.account_type_enum import AccountType
 from domain.coa.aggregate_root import AccountAggregate
+from domain.shared_value_objects.money_vo import Money
 from infrastructure.persistence_orm.account_table import AccountTable
 from ports.primary.account_repository_port import AccountRepositoryPort
 from ports.primary.bank_cash_repository_port import BankAccountRepositoryPort
 from ports.primary.customer_supplier_repository_port import CustomerRepositoryPort
-from domain.shared_value_objects.money_vo import Money
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class SQLAlchemyAccountRepository(
 ):
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
-        self._audit_log: List[Dict[str, Any]] = []
+        self._audit_log: list[dict[str, Any]] = []
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
@@ -128,7 +128,7 @@ class SQLAlchemyAccountRepository(
             is_active=aggregate.status == AccountStatus.ACTIVE,
         )
 
-    async def _log_audit(self, action: str, account_id: UUID, details: Dict[str, Any]) -> None:
+    async def _log_audit(self, action: str, account_id: UUID, details: dict[str, Any]) -> None:
         self._audit_log.append({
             "timestamp": datetime.utcnow().isoformat(),
             "action": action,
@@ -222,9 +222,11 @@ class SQLAlchemyAccountRepository(
             await session.rollback()
             raise AccountRepositoryError(f"Failed to update account: {e}") from e
 
-    async def delete(self, account_id: UUID) -> bool:
+    # ===== PERBAIKAN: delete dengan 2 parameter wajib (user_id) dan permanent opsional =====
+    async def delete(self, account_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
         session = await self._get_session()
         try:
+            # Cek anak
             children_stmt = select(func.count()).select_from(AccountTable).where(
                 AccountTable.parent_account_id == account_id, AccountTable.deleted_at.is_(None)
             )
@@ -232,24 +234,45 @@ class SQLAlchemyAccountRepository(
             children_count = children_result.scalar()
             if children_count > 0:
                 raise AccountHasChildrenError(f"Account {account_id} has {children_count} children")
+
             acct = await self.get_by_id(account_id)
             if acct and acct.is_used_in_transaction:
                 raise AccountHasTransactionsError(f"Account {account_id} has transactions")
-            stmt = update(AccountTable).where(AccountTable.id == account_id).values(deleted_at=datetime.utcnow(), status="inactive", is_active=False)
-            result = await session.execute(stmt)
+
+            if permanent:
+                # Permanent delete: hapus baris dari tabel
+                stmt = delete(AccountTable).where(AccountTable.id == account_id)
+                result = await session.execute(stmt)
+                deleted = result.rowcount > 0
+                if deleted:
+                    await self._log_audit("DELETE_PERMANENT", account_id, {"user_id": str(user_id)})
+                    logger.info("Account %s permanently deleted by %s", account_id, user_id)
+            else:
+                # Soft delete: set deleted_at dan status inactive
+                stmt = update(AccountTable).where(AccountTable.id == account_id).values(
+                    deleted_at=datetime.utcnow(),
+                    status="inactive",
+                    is_active=False,
+                    updated_at=datetime.utcnow(),
+                    updated_by=user_id,
+                )
+                result = await session.execute(stmt)
+                deleted = result.rowcount > 0
+                if deleted:
+                    await self._log_audit("DELETE_SOFT", account_id, {"user_id": str(user_id)})
+                    logger.info("Account %s soft deleted by %s", account_id, user_id)
+
             await session.flush()
-            deleted = result.rowcount > 0
-            if deleted:
-                await self._log_audit("DELETE", account_id, {})
-                logger.info("Account %s soft deleted", account_id)
             return deleted
+
         except (AccountHasChildrenError, AccountHasTransactionsError):
             raise
         except Exception as e:
             await session.rollback()
             raise AccountRepositoryError(f"Failed to delete account: {e}") from e
 
-    async def restore(self, account_id: UUID) -> bool:
+    # ===== PERBAIKAN: restore dengan 2 parameter wajib (user_id) =====
+    async def restore(self, account_id: UUID, user_id: UUID) -> bool:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(AccountTable.id == account_id, AccountTable.deleted_at.is_not(None))
@@ -260,11 +283,17 @@ class SQLAlchemyAccountRepository(
             await session.execute(
                 update(AccountTable)
                 .where(AccountTable.id == account_id)
-                .values(deleted_at=None, status="active", is_active=True, updated_at=datetime.utcnow())
+                .values(
+                    deleted_at=None,
+                    status="active",
+                    is_active=True,
+                    updated_at=datetime.utcnow(),
+                    updated_by=user_id,
+                )
             )
             await session.flush()
-            await self._log_audit("RESTORE", account_id, {})
-            logger.info("Account %s restored", account_id)
+            await self._log_audit("RESTORE", account_id, {"user_id": str(user_id)})
+            logger.info("Account %s restored by %s", account_id, user_id)
             return True
         except Exception as e:
             await session.rollback()
@@ -491,7 +520,7 @@ class SQLAlchemyAccountRepository(
     # STATISTICS (AccountRepositoryPort)
     # ========================================================================
 
-    async def get_statistics(self, legal_entity_id: UUID) -> Dict[str, Any]:
+    async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
         session = await self._get_session()
         try:
             stmt_total = select(func.count()).select_from(AccountTable).where(
@@ -599,7 +628,7 @@ class SQLAlchemyAccountRepository(
     # AUDIT & HEALTH (AccountRepositoryPort)
     # ========================================================================
 
-    async def get_audit_log(self, account_id: UUID | None = None, limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_audit_log(self, account_id: UUID | None = None, limit: int = 100) -> list[dict[str, Any]]:
         logs = self._audit_log
         if account_id:
             logs = [l for l in logs if l.get("account_id") == str(account_id)]
@@ -683,8 +712,6 @@ class SQLAlchemyAccountRepository(
 
     async def get_balance(self, account_id: UUID, as_of_date: date | None = None) -> Decimal:
         """Get current balance of a bank account (simplified)."""
-        # In real implementation, we would sum transactions from a bank transaction table.
-        # Since we don't have that, we use opening_balance as balance (stub).
         account = await self.get_by_id(account_id)
         if not account:
             raise AccountNotFoundError(f"Account {account_id} not found")
@@ -701,10 +728,8 @@ class SQLAlchemyAccountRepository(
         end_date: date | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get transactions for a bank account (stub - no transaction table)."""
-        # In real implementation, query bank_transactions table.
-        # For stub, return empty list with a warning.
         logger.warning("get_transactions is a stub - no bank transaction table implemented")
         return []
 
@@ -713,13 +738,12 @@ class SQLAlchemyAccountRepository(
         account_id: UUID,
         statement_date: date,
         ending_balance: Decimal,
-        transactions: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        transactions: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """Perform bank reconciliation (stub)."""
         account = await self.get_by_id(account_id)
         if not account:
             raise AccountNotFoundError(f"Account {account_id} not found")
-        # Stub: always successful
         return {
             "status": "reconciled",
             "account_id": str(account_id),
@@ -739,9 +763,8 @@ class SQLAlchemyAccountRepository(
         reference: str | None = None,
         transaction_type: str = "other",
         created_by: UUID | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Record a bank transaction (stub - no actual storage)."""
-        # In real implementation, insert into bank_transactions table.
         logger.info("Recording transaction for account %s: amount %s, description %s", account_id, amount, description)
         return {
             "id": UUID(int=0),
@@ -761,24 +784,19 @@ class SQLAlchemyAccountRepository(
 
     async def add_order(self, customer_id: UUID, order_id: UUID, amount: Decimal) -> None:
         """Add an order to a customer's history (stub)."""
-        # In real implementation, we'd store orders in a separate table.
         logger.info("Adding order %s for customer %s amount %s", order_id, customer_id, amount)
 
     async def blacklist(self, customer_id: UUID, reason: str) -> bool:
         """Mark a customer as blacklisted (stub)."""
-        # Could update a customer table, but here we just log.
         account = await self.get_by_id(customer_id)
         if not account:
             return False
-        # Simulate blacklist: set status to "inactive" or add a flag.
-        # We'll just log and return True.
         await self._log_audit("BLACKLIST", customer_id, {"reason": reason})
         logger.info("Customer %s blacklisted: %s", customer_id, reason)
         return True
 
     async def find_by_category(self, category: str, legal_entity_id: UUID) -> list[AccountAggregate]:
         """Find customers by category (stub)."""
-        # Since we don't have category field in AccountTable, we return empty.
         logger.warning("find_by_category is a stub - no customer category field")
         return []
 
@@ -787,7 +805,6 @@ class SQLAlchemyAccountRepository(
         account = await self.get_by_id(customer_id)
         if not account:
             raise AccountNotFoundError(f"Customer {customer_id} not found")
-        # In real implementation, we'd update a credit_usage field.
         logger.info("Updating credit usage for customer %s: %s", customer_id, amount_used)
 
 

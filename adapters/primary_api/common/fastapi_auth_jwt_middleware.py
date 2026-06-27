@@ -214,7 +214,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             try:
                 # Lazy import untuk menghindari import langsung dari bootstrap
                 mod = importlib.import_module("bootstrap.dependency_container.ioc_container")
-                get_container = getattr(mod, "get_container")
+                get_container = mod.get_container
                 container = get_container()
                 self._iam_service = container.resolve(IAMService)
             except Exception as e:

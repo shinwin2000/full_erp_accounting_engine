@@ -31,7 +31,7 @@ from infrastructure.persistence_orm.ap_invoice_table import APInvoiceTable
 from infrastructure.persistence_orm.ap_payment_table import APPaymentTable
 from infrastructure.persistence_orm.goods_receipt_note_table import GoodsReceiptNoteTable
 from infrastructure.persistence_orm.purchase_order_table import PurchaseOrderTable
-from ports.primary.ap_repository_port import APRepositoryPort
+from ports.primary.ap_repository_port import APRepositoryPort, MatchingStatus
 
 logger = logging.getLogger(__name__)
 
@@ -343,8 +343,34 @@ class SQLAlchemyAPRepository(APRepositoryPort):
     async def approve(self, invoice_id: UUID, approved_by: UUID) -> None:
         await self._transition_status(invoice_id, "approved", approved_by, "approved_at", "approved_by")
 
-    async def cancel(self, invoice_id: UUID, cancelled_by: UUID) -> None:
-        await self._transition_status(invoice_id, "cancelled", cancelled_by, "cancelled_at", "cancelled_by")
+    # ========== PERBAIKAN: cancel ==========
+    async def cancel(self, invoice_id: UUID, reason: str, user_id: UUID) -> bool:
+        """Membatalkan invoice dengan alasan."""
+        try:
+            invoice = await self.get_by_id(invoice_id)
+            if not invoice:
+                raise APInvoiceNotFoundError(f"Invoice {invoice_id} not found")
+            # Cek status, tidak boleh cancel jika sudah paid
+            if invoice.status == APInvoiceStatus.PAID:
+                return False
+            # Transisi ke cancelled
+            await self._transition_status(invoice_id, "cancelled", user_id, "cancelled_at", "cancelled_by")
+            # Tambahkan alasan ke description
+            current_desc = invoice.description or ""
+            new_desc = f"{current_desc} [CANCELLED: {reason}]".strip()
+            await self.session.execute(
+                update(APInvoiceTable)
+                .where(APInvoiceTable.id == invoice_id)
+                .values(description=new_desc, updated_at=datetime.utcnow())
+            )
+            await self.session.flush()
+            logger.info("Invoice %s cancelled with reason: %s", invoice_id, reason)
+            return True
+        except (APInvoiceNotFoundError, InvalidStatusTransitionError):
+            return False
+        except Exception as e:
+            logger.error("Failed to cancel invoice %s: %s", invoice_id, e)
+            raise APRepositoryError(f"Failed to cancel invoice: {e}") from e
 
     async def submit(self, invoice_id: UUID, submitted_by: UUID) -> None:
         await self._transition_status(invoice_id, "submitted", submitted_by, "submitted_at", "submitted_by")
@@ -397,7 +423,6 @@ class SQLAlchemyAPRepository(APRepositoryPort):
 
     # === SUBMIT FOR APPROVAL ===
     async def submit_for_approval(self, invoice_id: UUID, submitted_by: UUID) -> None:
-        """Mengirim invoice untuk approval (alias untuk submit)."""
         await self.submit(invoice_id, submitted_by)
 
     # === PAYMENTS & CREDIT NOTES ===
@@ -584,20 +609,31 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             logger.error("Failed to find invoices by payment run %s: %s", payment_run_id, e)
             raise APRepositoryError(f"Failed to find invoices: {e}") from e
 
-    async def mark_as_paid(self, invoice_id: UUID, payment_id: UUID, paid_amount: Decimal, paid_date: date) -> None:
+    # ========== PERBAIKAN: mark_as_paid ==========
+    async def mark_as_paid(self, invoice_id: UUID, payment_id: UUID, paid_amount: Decimal, paid_date: date, user_id: UUID) -> bool:
         try:
             invoice = await self.get_by_id(invoice_id)
             if not invoice:
                 raise APInvoiceNotFoundError(f"Invoice {invoice_id} not found")
+            if invoice.status not in (APInvoiceStatus.APPROVED, APInvoiceStatus.PARTIALLY_PAID):
+                return False
             new_paid_amount = invoice.paid_amount.amount + paid_amount
             new_status = "paid" if new_paid_amount >= invoice.total_amount.amount else "partially_paid"
             await self.session.execute(
                 update(APInvoiceTable)
                 .where(APInvoiceTable.id == invoice_id)
-                .values(paid_amount=new_paid_amount, status=new_status, updated_at=datetime.utcnow())
+                .values(
+                    paid_amount=new_paid_amount,
+                    status=new_status,
+                    updated_at=datetime.utcnow(),
+                    updated_by=user_id,
+                )
             )
             await self.session.flush()
-            logger.info("Invoice %s marked as %s with payment %s", invoice_id, new_status, payment_id)
+            logger.info("Invoice %s marked as %s with payment %s by %s", invoice_id, new_status, payment_id, user_id)
+            return True
+        except APInvoiceNotFoundError:
+            return False
         except Exception as e:
             logger.error("Failed to mark invoice as paid: %s", e)
             raise APRepositoryError(f"Failed to update invoice status: {e}") from e
@@ -617,6 +653,7 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             raise APRepositoryError(f"Failed to check invoice number: {e}") from e
 
     async def validate_three_way_match(self, invoice_id: UUID) -> ThreeWayMatchResult:
+        # Existing implementation (kept for internal use)
         try:
             invoice = await self.get_by_id(invoice_id)
             if not invoice:
@@ -665,9 +702,39 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             logger.error("Failed to validate 3-way match for invoice %s: %s", invoice_id, e)
             raise APRepositoryError(f"Failed to validate 3-way match: {e}") from e
 
-    async def perform_three_way_match(self, invoice_id: UUID) -> ThreeWayMatchResult:
-        """Alias untuk validate_three_way_match."""
-        return await self.validate_three_way_match(invoice_id)
+    # ========== PERBAIKAN: perform_three_way_match ==========
+    async def perform_three_way_match(self, invoice_id: UUID, po_total: Decimal, grn_total: Decimal) -> MatchingStatus:
+        """
+        Melakukan three-way match dengan membandingkan total invoice, PO total, dan GRN total.
+        Mengembalikan MatchingStatus sesuai dengan port.
+        """
+        try:
+            invoice = await self.get_by_id(invoice_id)
+            if not invoice:
+                raise APInvoiceNotFoundError(f"Invoice {invoice_id} not found")
+            invoice_total = invoice.total_amount.amount
+            # Logika matching seperti di in-memory repository
+            if (invoice_total == po_total == grn_total) or \
+               (invoice_total <= po_total and invoice_total <= grn_total) or \
+               (abs(invoice_total - po_total) < Decimal('0.01') and abs(invoice_total - grn_total) < Decimal('0.01')):
+                status = MatchingStatus.MATCHED
+            elif invoice_total > po_total or invoice_total > grn_total:
+                status = MatchingStatus.MISMATCH
+            else:
+                status = MatchingStatus.PARTIAL_MATCH
+            # Simpan status ke tabel invoice
+            await self.session.execute(
+                update(APInvoiceTable)
+                .where(APInvoiceTable.id == invoice_id)
+                .values(three_way_match_status=status.value, updated_at=datetime.utcnow())
+            )
+            await self.session.flush()
+            return status
+        except APInvoiceNotFoundError:
+            raise
+        except Exception as e:
+            logger.error("Failed to perform 3-way match for invoice %s: %s", invoice_id, e)
+            raise APRepositoryError(f"Failed to perform 3-way match: {e}") from e
 
     async def get_aging_buckets(self, legal_entity_id: UUID, as_of_date: date) -> list[dict[str, Any]]:
         try:
@@ -722,8 +789,15 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             raise APRepositoryError(f"Failed to generate invoice number: {e}") from e
 
     # === EXPORT / IMPORT ===
-    async def export_to_csv(self, legal_entity_id: UUID, from_date: date, to_date: date) -> str:
+    # ========== PERBAIKAN: export_to_csv ==========
+    async def export_to_csv(self, legal_entity_id: UUID) -> str:
+        """
+        Ekspor semua invoice untuk legal entity ke CSV.
+        Menggunakan rentang tanggal yang sangat lebar untuk mencakup semua data.
+        """
         try:
+            from_date = date(1900, 1, 1)
+            to_date = date(2100, 12, 31)
             invoices = await self.find_by_date_range(from_date, to_date, legal_entity_id)
             output = io.StringIO()
             writer = csv.writer(output)
@@ -791,9 +865,13 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             raise APRepositoryError(f"Failed to import from CSV: {e}") from e
 
     # === AUDIT & STATISTICS ===
-    async def get_audit_log(self, invoice_id: UUID, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-        # Since audit log is not stored in AP tables (but in event store), we return empty list for now.
-        # In real implementation, fetch from event store.
+    # ========== PERBAIKAN: get_audit_log ==========
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """
+        Mengambil log audit (tanpa filter invoice_id, sesuai port).
+        Di sini dikembalikan list kosong karena audit log belum diimplementasikan di SQL.
+        """
+        # TODO: Implementasi audit log seharusnya mengambil dari event store atau tabel audit.
         return [
             {
                 "timestamp": datetime.utcnow().isoformat(),

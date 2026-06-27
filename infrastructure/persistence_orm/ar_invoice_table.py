@@ -133,21 +133,21 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # ========================================================================
 
     # Customer
-    customer: Mapped["CustomerTable"] = relationship(
+    customer: Mapped[CustomerTable] = relationship(
         "CustomerTable",
         back_populates="ar_invoices",
         foreign_keys=[customer_id],
     )
 
     # Sales Order (optional)
-    sales_order: Mapped["SalesOrderTable | None"] = relationship(
+    sales_order: Mapped[SalesOrderTable | None] = relationship(
         "SalesOrderTable",
         back_populates="ar_invoices",
         foreign_keys=[sales_order_id],
     )
 
     # Invoice lines
-    lines: Mapped[list["ARInvoiceLineTable"]] = relationship(
+    lines: Mapped[list[ARInvoiceLineTable]] = relationship(
         "ARInvoiceLineTable",
         back_populates="invoice",
         cascade="all, delete-orphan",
@@ -155,14 +155,14 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     )
 
     # Payments
-    payments: Mapped[list["ARPaymentTable"]] = relationship(
+    payments: Mapped[list[ARPaymentTable]] = relationship(
         "ARPaymentTable",
         back_populates="invoice",
         cascade="all, delete-orphan",
     )
 
     # Credit Notes
-    credit_notes: Mapped[list["ARCreditNoteTable"]] = relationship(
+    credit_notes: Mapped[list[ARCreditNoteTable]] = relationship(
         "ARCreditNoteTable",
         back_populates="invoice",
         cascade="all, delete-orphan",
@@ -171,7 +171,7 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # ========================================================================
     # Bupots (Coretax) � ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
     # ========================================================================
-    bupots: Mapped[list["CoretaxBupotTable"]] = relationship(
+    bupots: Mapped[list[CoretaxBupotTable]] = relationship(
         "CoretaxBupotTable",
         back_populates="invoice",
         foreign_keys="[CoretaxBupotTable.invoice_id]",

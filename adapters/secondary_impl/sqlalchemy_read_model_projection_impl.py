@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, UTC
-from typing import Any, Dict, List, Optional, Set
+from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,12 +38,12 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
     def __init__(self):
         self._session_factory = None
         # In-memory state for projector management
-        self._projectors: Dict[str, Dict[str, Any]] = {}  # name -> {status, last_run, error, etc}
-        self._queue: List[Dict[str, Any]] = []
-        self._worker_task: Optional[asyncio.Task] = None
+        self._projectors: dict[str, dict[str, Any]] = {}  # name -> {status, last_run, error, etc}
+        self._queue: list[dict[str, Any]] = []
+        self._worker_task: asyncio.Task | None = None
         self._worker_running: bool = False
-        self._audit_log: List[Dict[str, Any]] = []
-        self._metrics: Dict[str, Any] = {
+        self._audit_log: list[dict[str, Any]] = []
+        self._metrics: dict[str, Any] = {
             "total_events_processed": 0,
             "total_batches_processed": 0,
             "errors": 0,
@@ -55,7 +55,7 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             self._session_factory = await get_session_factory()
         return self._session_factory()
 
-    async def _log_audit(self, action: str, details: Dict[str, Any]) -> None:
+    async def _log_audit(self, action: str, details: dict[str, Any]) -> None:
         self._audit_log.append({
             "timestamp": datetime.now(UTC).isoformat(),
             "action": action,
@@ -68,7 +68,7 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
     # EXISTING METHODS (from original)
     # ========================================================================
 
-    async def save_projection(self, projection_name: str, data: Dict[str, Any]) -> None:
+    async def save_projection(self, projection_name: str, data: dict[str, Any]) -> None:
         from infrastructure.persistence_orm.projection_read_models import ProjectionReadModelTable
         async with await self._get_session() as session:
             stmt = insert(ProjectionReadModelTable).values(
@@ -84,7 +84,7 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             await self._log_audit("SAVE_PROJECTION", {"projection_name": projection_name})
             logger.debug("Projection %s saved", projection_name)
 
-    async def get_projection(self, projection_name: str) -> Optional[Dict[str, Any]]:
+    async def get_projection(self, projection_name: str) -> dict[str, Any] | None:
         from infrastructure.persistence_orm.projection_read_models import ProjectionReadModelTable
         async with await self._get_session() as session:
             stmt = select(ProjectionReadModelTable.data).where(
@@ -106,7 +106,7 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
                 logger.info("Projection %s deleted", projection_name)
             return result.rowcount > 0
 
-    async def list_projections(self) -> List[str]:
+    async def list_projections(self) -> list[str]:
         from infrastructure.persistence_orm.projection_read_models import ProjectionReadModelTable
         async with await self._get_session() as session:
             stmt = select(ProjectionReadModelTable.projection_name)
@@ -128,7 +128,7 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             await session.commit()
             await self._log_audit("SAVE_CHECKPOINT", {"projection_name": projection_name, "checkpoint": checkpoint})
 
-    async def get_checkpoint(self, projection_name: str) -> Optional[str]:
+    async def get_checkpoint(self, projection_name: str) -> str | None:
         from infrastructure.persistence_orm.projection_read_models import ProjectionCheckpointTable
         async with await self._get_session() as session:
             stmt = select(ProjectionCheckpointTable.checkpoint).where(
@@ -168,14 +168,14 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             logger.info("Projector %s unregistered", name)
             return True
 
-    async def get_projector_status(self, name: str) -> Dict[str, Any]:
+    async def get_projector_status(self, name: str) -> dict[str, Any]:
         """Get status of a specific projector."""
         async with self._lock:
             if name not in self._projectors:
                 return {"status": "not_found"}
             return self._projectors[name].copy()
 
-    async def get_all_status(self) -> Dict[str, Dict[str, Any]]:
+    async def get_all_status(self) -> dict[str, dict[str, Any]]:
         """Get status of all registered projectors."""
         async with self._lock:
             return {name: info.copy() for name, info in self._projectors.items()}
@@ -229,7 +229,7 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
         logger.info("Rebuilt %d projectors", count)
         return count
 
-    async def submit_event(self, event: Dict[str, Any]) -> None:
+    async def submit_event(self, event: dict[str, Any]) -> None:
         """Submit a single event to the processing queue."""
         async with self._lock:
             event_id = str(uuid4())
@@ -242,7 +242,7 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             await self._log_audit("SUBMIT_EVENT", {"event_id": event_id})
             logger.debug("Event %s submitted", event_id)
 
-    async def submit_batch(self, events: List[Dict[str, Any]]) -> int:
+    async def submit_batch(self, events: list[dict[str, Any]]) -> int:
         """Submit a batch of events to the processing queue."""
         count = 0
         for event in events:
@@ -324,7 +324,7 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
                 self._metrics["errors"] += 1
                 await asyncio.sleep(1)
 
-    async def _process_event(self, item: Dict[str, Any]) -> None:
+    async def _process_event(self, item: dict[str, Any]) -> None:
         """Process a single event (stub implementation)."""
         # In a real implementation, this would call the appropriate projector handler
         # For now, we just log and update metrics
@@ -334,18 +334,18 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
     # METRICS, AUDIT, HEALTH
     # ========================================================================
 
-    async def get_metrics(self) -> Dict[str, Any]:
+    async def get_metrics(self) -> dict[str, Any]:
         """Get metrics about projection processing."""
         async with self._lock:
             return self._metrics.copy()
 
-    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """Get audit log of projection operations."""
         logs = self._audit_log.copy()
         logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         return logs[offset:offset + limit]
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Check health of the projection system."""
         try:
             # Check database connection

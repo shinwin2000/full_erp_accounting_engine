@@ -27,7 +27,7 @@ def _get_current_user() -> str | None:
     """Lazy import kernel.context_holder.get_current_user."""
     try:
         mod = importlib.import_module("kernel.context_holder")
-        get_current_user = getattr(mod, "get_current_user")
+        get_current_user = mod.get_current_user
         return get_current_user()
     except Exception:
         return None
@@ -37,7 +37,7 @@ def _get_correlation_id() -> str | None:
     """Lazy import kernel.context_holder.get_correlation_id."""
     try:
         mod = importlib.import_module("kernel.context_holder")
-        get_correlation_id = getattr(mod, "get_correlation_id")
+        get_correlation_id = mod.get_correlation_id
         return get_correlation_id()
     except Exception:
         return None

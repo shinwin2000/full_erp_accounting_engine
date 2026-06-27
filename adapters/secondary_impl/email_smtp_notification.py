@@ -9,12 +9,12 @@ import asyncio
 import logging
 import os
 import smtplib
-from datetime import datetime, UTC
+from datetime import UTC, datetime
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
-from typing import List, Dict, Any, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from ports.primary.notification_port import NotificationPort, NotificationPriority
@@ -32,12 +32,12 @@ class EmailSMTPNotification(NotificationPort):
         self._smtp_password = os.getenv("SMTP_PASSWORD", "")
         self._from_email = os.getenv("SMTP_FROM_EMAIL", self._smtp_user)
         self._from_name = os.getenv("SMTP_FROM_NAME", "ERP Accounting Engine")
-        self._history: List[Dict] = []
-        self._templates: Dict[str, Dict] = {}
+        self._history: list[dict] = []
+        self._templates: dict[str, dict] = {}
         self._lock = asyncio.Lock()
         self._enabled = bool(self._smtp_user and self._smtp_password)
         self._worker_running = False
-        self._channel_configs: Dict[str, Dict] = {
+        self._channel_configs: dict[str, dict] = {
             "email": {"enabled": True},
             "sms": {"enabled": False},
             "whatsapp": {"enabled": False},
@@ -51,13 +51,13 @@ class EmailSMTPNotification(NotificationPort):
     # ========== CORE METHODS ==========
     async def send_email(
         self,
-        to: str | List[str],
+        to: str | list[str],
         subject: str,
         body: str,
-        html_body: Optional[str] = None,
-        attachments: Optional[List[Dict]] = None,
+        html_body: str | None = None,
+        attachments: list[dict] | None = None,
         priority: NotificationPriority = NotificationPriority.NORMAL,
-    ) -> Dict:
+    ) -> dict:
         if isinstance(to, str):
             to_list = [to]
         else:
@@ -110,7 +110,7 @@ class EmailSMTPNotification(NotificationPort):
             })
         return {"id": nid, "status": status, "message": f"Email {status}", "timestamp": ts.isoformat()}
 
-    async def send_sms(self, phone_number: str, message: str, priority: NotificationPriority = NotificationPriority.NORMAL) -> Dict:
+    async def send_sms(self, phone_number: str, message: str, priority: NotificationPriority = NotificationPriority.NORMAL) -> dict:
         nid = str(uuid4())
         ts = datetime.now(UTC)
         async with self._lock:
@@ -122,7 +122,7 @@ class EmailSMTPNotification(NotificationPort):
         logger.info(f"[SMS] To {phone_number}: {message[:100]}")
         return {"id": nid, "status": "logged", "message": "SMS provider not configured", "timestamp": ts.isoformat()}
 
-    async def send_whatsapp(self, phone_number: str, message: str, priority: NotificationPriority = NotificationPriority.NORMAL) -> Dict:
+    async def send_whatsapp(self, phone_number: str, message: str, priority: NotificationPriority = NotificationPriority.NORMAL) -> dict:
         nid = str(uuid4())
         ts = datetime.now(UTC)
         async with self._lock:
@@ -139,9 +139,9 @@ class EmailSMTPNotification(NotificationPort):
         user_id: UUID,
         title: str,
         body: str,
-        data: Optional[Dict] = None,
+        data: dict | None = None,
         priority: NotificationPriority = NotificationPriority.NORMAL,
-    ) -> Dict:
+    ) -> dict:
         nid = str(uuid4())
         ts = datetime.now(UTC)
         async with self._lock:
@@ -155,7 +155,7 @@ class EmailSMTPNotification(NotificationPort):
         return {"id": nid, "status": "logged", "message": "Push provider not configured", "timestamp": ts.isoformat()}
 
     # ========== EXTRA METHODS FOR COMPLETE CONTRACT ==========
-    async def add_template(self, template_id: str, subject: str, body: str, html_body: Optional[str] = None) -> bool:
+    async def add_template(self, template_id: str, subject: str, body: str, html_body: str | None = None) -> bool:
         """Menambahkan template notifikasi."""
         async with self._lock:
             self._templates[template_id] = {
@@ -167,7 +167,7 @@ class EmailSMTPNotification(NotificationPort):
         logger.info(f"[TEMPLATE] Added: {template_id}")
         return True
 
-    async def get_template(self, template_id: str) -> Optional[Dict]:
+    async def get_template(self, template_id: str) -> dict | None:
         """Mendapatkan template notifikasi."""
         async with self._lock:
             return self._templates.get(template_id)
@@ -183,11 +183,11 @@ class EmailSMTPNotification(NotificationPort):
 
     async def get_notification_history(
         self,
-        user_id: Optional[UUID] = None,
-        channel: Optional[str] = None,
+        user_id: UUID | None = None,
+        channel: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Mengambil history notifikasi."""
         async with self._lock:
             result = self._history.copy()
@@ -212,7 +212,7 @@ class EmailSMTPNotification(NotificationPort):
         async with self._lock:
             return sum(1 for n in self._history if n.get("user_id") == str(user_id) and not n.get("read", False))
 
-    async def health_check(self) -> Dict:
+    async def health_check(self) -> dict:
         """Cek kesehatan service."""
         return {
             "status": "healthy",
@@ -237,9 +237,9 @@ class EmailSMTPNotification(NotificationPort):
         self,
         limit: int = 100,
         offset: int = 0,
-        channel: Optional[str] = None,
-        status: Optional[str] = None,
-    ) -> List[Dict]:
+        channel: str | None = None,
+        status: str | None = None,
+    ) -> list[dict]:
         """Dapatkan audit log notifikasi (mirip history dengan filter tambahan)."""
         async with self._lock:
             result = self._history.copy()
@@ -250,14 +250,14 @@ class EmailSMTPNotification(NotificationPort):
         result.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         return result[offset:offset+limit]
 
-    async def get_failed_notifications(self, limit: int = 100) -> List[Dict]:
+    async def get_failed_notifications(self, limit: int = 100) -> list[dict]:
         """Dapatkan notifikasi yang gagal."""
         async with self._lock:
             failed = [n for n in self._history if n.get("status") == "failed"]
         failed.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         return failed[:limit]
 
-    async def get_notification(self, notification_id: str) -> Optional[Dict]:
+    async def get_notification(self, notification_id: str) -> dict | None:
         """Dapatkan notifikasi berdasarkan ID."""
         async with self._lock:
             for n in self._history:
@@ -267,12 +267,12 @@ class EmailSMTPNotification(NotificationPort):
 
     async def get_notifications(
         self,
-        user_id: Optional[UUID] = None,
-        channel: Optional[str] = None,
-        status: Optional[str] = None,
+        user_id: UUID | None = None,
+        channel: str | None = None,
+        status: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Dapatkan daftar notifikasi dengan filter."""
         # Reuse get_audit_log with similar signature
         return await self.get_audit_log(limit=limit, offset=offset, channel=channel, status=status)
@@ -282,7 +282,7 @@ class EmailSMTPNotification(NotificationPort):
         # In this implementation we never have pending, only logged/sent/failed.
         return 0
 
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self) -> dict[str, Any]:
         """Dapatkan statistik notifikasi."""
         async with self._lock:
             total = len(self._history)
@@ -301,7 +301,7 @@ class EmailSMTPNotification(NotificationPort):
             "smtp_enabled": self._enabled,
         }
 
-    async def render_template(self, template_id: str, context: Dict[str, Any]) -> Dict[str, str]:
+    async def render_template(self, template_id: str, context: dict[str, Any]) -> dict[str, str]:
         """Render template dengan context."""
         template = await self.get_template(template_id)
         if not template:
@@ -323,9 +323,9 @@ class EmailSMTPNotification(NotificationPort):
         user_id: UUID,
         title: str,
         body: str,
-        data: Optional[Dict] = None,
+        data: dict | None = None,
         priority: NotificationPriority = NotificationPriority.NORMAL,
-    ) -> Dict:
+    ) -> dict:
         """Alias untuk send_push_notification."""
         return await self.send_push_notification(user_id, title, body, data, priority)
 
@@ -333,9 +333,9 @@ class EmailSMTPNotification(NotificationPort):
         self,
         webhook_url: str,
         message: str,
-        channel: Optional[str] = None,
+        channel: str | None = None,
         priority: NotificationPriority = NotificationPriority.NORMAL,
-    ) -> Dict:
+    ) -> dict:
         """Kirim notifikasi ke Slack (stub)."""
         nid = str(uuid4())
         ts = datetime.now(UTC)
@@ -351,10 +351,10 @@ class EmailSMTPNotification(NotificationPort):
     async def send_webhook(
         self,
         url: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         method: str = "POST",
         priority: NotificationPriority = NotificationPriority.NORMAL,
-    ) -> Dict:
+    ) -> dict:
         """Kirim notifikasi melalui webhook (stub)."""
         nid = str(uuid4())
         ts = datetime.now(UTC)
@@ -370,11 +370,11 @@ class EmailSMTPNotification(NotificationPort):
     async def send_with_template(
         self,
         template_id: str,
-        context: Dict[str, Any],
-        to: str | List[str],
+        context: dict[str, Any],
+        to: str | list[str],
         priority: NotificationPriority = NotificationPriority.NORMAL,
-        attachments: Optional[List[Dict]] = None,
-    ) -> Dict:
+        attachments: list[dict] | None = None,
+    ) -> dict:
         """Kirim notifikasi menggunakan template."""
         rendered = await self.render_template(template_id, context)
         # Kirim sebagai email
@@ -397,7 +397,7 @@ class EmailSMTPNotification(NotificationPort):
         self._worker_running = False
         logger.info("[WORKER] Stopped")
 
-    async def update_channel_config(self, channel: str, config: Dict[str, Any]) -> bool:
+    async def update_channel_config(self, channel: str, config: dict[str, Any]) -> bool:
         """Perbarui konfigurasi channel notifikasi."""
         if channel not in self._channel_configs:
             logger.warning(f"Unknown channel: {channel}")

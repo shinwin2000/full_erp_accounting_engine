@@ -1031,9 +1031,9 @@ __all__ = [
     "SODSeverity",
     "SODViolation",
     "SoDEnforcer",
+    "SodEnforcer",
+    "check_segregation",
+    "enforce_sod",
     "get_sod_enforcer",
-    "SodEnforcer",         
-    "enforce_sod",          
-    "check_segregation",   
 
 ]

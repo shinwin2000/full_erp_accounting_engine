@@ -23,7 +23,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, TimestampMixin
 
 if TYPE_CHECKING:
-    from infrastructure.persistence_orm.consolidation_group_member_table import ConsolidationGroupMemberTable
+    from infrastructure.persistence_orm.consolidation_group_member_table import (
+        ConsolidationGroupMemberTable,
+    )
 
 
 class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
@@ -42,7 +44,7 @@ class ConsolidationGroupTable(Base, TimestampMixin, SoftDeleteMixin):
     # =========================================================================
     # RELATIONSHIPS � menggunakan string reference
     # =========================================================================
-    members: Mapped[list["ConsolidationGroupMemberTable"]] = relationship(
+    members: Mapped[list[ConsolidationGroupMemberTable]] = relationship(
         "ConsolidationGroupMemberTable",
         back_populates="group",
         cascade="all, delete-orphan",

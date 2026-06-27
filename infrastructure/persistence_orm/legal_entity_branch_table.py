@@ -7,8 +7,6 @@ Responsibility: SQLAlchemy ORM model untuk tabel legal_entity_branch.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import uuid
 from datetime import datetime
 from typing import Any
@@ -52,7 +50,7 @@ class LegalEntityBranchTable(Base):
     # =========================================================================
     # RELATIONSHIP
     # parent_entity: explicit relationship with back_populates
-    parent_entity: Mapped["LegalEntityTable"] = relationship(
+    parent_entity: Mapped[LegalEntityTable] = relationship(
         "LegalEntityTable",
         back_populates="branches",
     )

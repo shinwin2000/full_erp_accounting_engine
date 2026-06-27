@@ -347,7 +347,7 @@ class ConsolidationGroup:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version(self) -> int:
         return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:

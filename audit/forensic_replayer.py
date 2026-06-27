@@ -44,7 +44,7 @@ def _get_logger():
     global _logger
     if _logger is None:
         mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
-        get_logger_func = getattr(mod, "get_logger")
+        get_logger_func = mod.get_logger
         _logger = get_logger_func(__name__)
     return _logger
 
@@ -52,28 +52,28 @@ def _get_logger():
 def _get_event_store():
     """Lazy import and get event store."""
     mod = importlib.import_module("infrastructure.event_store.append_only_store")
-    get_event_store = getattr(mod, "get_event_store")
+    get_event_store = mod.get_event_store
     return get_event_store
 
 
 def _get_alert_trigger():
     """Lazy import alert manager trigger."""
     mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
-    trigger_alert = getattr(mod, "trigger_alert")
+    trigger_alert = mod.trigger_alert
     return trigger_alert
 
 
 def _get_event_store_table():
     """Lazy import ORM EventStoreTable."""
     mod = importlib.import_module("infrastructure.persistence_orm.event_store_table")
-    EventStoreTable = getattr(mod, "EventStoreTable")
+    EventStoreTable = mod.EventStoreTable
     return EventStoreTable
 
 
 def _get_sqlalchemy_select():
     """Lazy import sqlalchemy select."""
     mod = importlib.import_module("sqlalchemy")
-    select = getattr(mod, "select")
+    select = mod.select
     return select
 
 

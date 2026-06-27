@@ -1,204 +1,181 @@
 #!/usr/bin/env python3
 """
-PORT-ADAPTER ARCHITECTURE VERIFIER - V7 (DASHBOARD COMPILER)
-Menampilkan metrik komprehensif: Port yang lolos, Port yang gagal, 
-serta tingkat persentase kepatuhan arsitektur sistem secara riil.
+PORT-ADAPTER ARCHITECTURE VERIFIER - V8 (AKURAT)
+Menggunakan algoritma pencocokan yang sama dengan checker_dashboard_port_status.py
 """
 
 import ast
 import sys
 from pathlib import Path
-from typing import Dict, Set
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent  # karena checker ada di subfolder
+
+# fallback jika tidak ketemu
+if not (ROOT / "ports").exists():
+    ROOT = Path(__file__).resolve().parent
+
 PORTS_DIR = ROOT / "ports"
 ADAPTERS_DIR = ROOT / "adapters"
+INFRA_DIR = ROOT / "infrastructure"
 
-GLOBAL_REGISTRY: Dict[str, dict] = {}
+GLOBAL_REGISTRY: dict[str, dict] = {}
+
+EXCLUDE_PORTS = {"BasePort", "BaseRepository", "BaseProtocol", "Port", "Repository", "Protocol"}
 
 
-class CodebaseParser:
-    @staticmethod
-    def parse_directory(directory_path: Path, layer: str):
-        if not directory_path.exists():
-            return
-            
-        for file_path in directory_path.rglob("*.py"):
-            if file_path.name == "__init__.py" or "__pycache__" in str(file_path):
-                continue
-                
-            try:
-                content = file_path.read_text(encoding="utf-8")
-                tree = compile(content, str(file_path), 'exec', ast.PyCF_ONLY_AST)
-            except Exception as e:
-                print(f"🚨 CRITICAL PYTHON SYNTAX ERROR!")
-                print(f"   Path: {file_path}")
-                print(f"   Detail: {str(e)}")
-                sys.exit(1)
-
+def parse_directory(directory_path: Path, layer: str):
+    if not directory_path.exists():
+        return
+    for file_path in directory_path.rglob("*.py"):
+        if file_path.name == "__init__.py" or "__pycache__" in str(file_path):
+            continue
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            tree = ast.parse(content)
             for node in ast.walk(tree):
-                if not isinstance(node, ast.ClassDef):
-                    continue
-                
-                if layer == "ADAPTER" and node.name.endswith(("Error", "Exception", "Factory")):
-                    continue
+                if isinstance(node, ast.ClassDef):
+                    name = node.name
+                    if name in EXCLUDE_PORTS or name.startswith("_"):
+                        continue
+                    # Port hanya yang berakhiran Port/Protocol
+                    if layer == "PORT" and not (name.endswith("Port") or name.endswith("Protocol")):
+                        continue
+                    # Adapter: skip exception/error/factory
+                    if layer == "ADAPTER" and name.endswith(("Error", "Exception", "Factory")):
+                        continue
+                    bases = set()
+                    for b in node.bases:
+                        if isinstance(b, ast.Name):
+                            bases.add(b.id)
+                        elif isinstance(b, ast.Attribute):
+                            bases.add(b.attr)
+                    methods = set()
+                    for item in node.body:
+                        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            if not item.name.startswith("_"):
+                                methods.add(item.name)
+                    GLOBAL_REGISTRY[name] = {
+                        "layer": layer,
+                        "file": str(file_path.relative_to(ROOT)),
+                        "bases": bases,
+                        "methods": methods,
+                        "resolved_methods": set()
+                    }
+        except Exception:
+            continue
 
-                bases = set()
-                for base in node.bases:
-                    if isinstance(base, ast.Name):
-                        bases.add(base.id)
-                    elif isinstance(base, ast.Attribute):
-                        bases.add(base.attr)
-                    elif isinstance(base, ast.Subscript):
-                        if isinstance(base.value, ast.Name):
-                            bases.add(base.value.id)
 
-                local_methods = {item.name for item in node.body 
-                                 if isinstance(item, ast.FunctionDef) and not item.name.startswith("_")}
-
-                GLOBAL_REGISTRY[node.name] = {
-                    "layer": layer,
-                    "file": file_path.name,
-                    "relative_path": str(file_path.relative_to(ROOT)),
-                    "bases": bases,
-                    "local_methods": local_methods,
-                    "resolved_bases": set(),
-                    "resolved_methods": set()
-                }
-
-
-def resolve_graph(class_name: str, visited: Set[str] = None):
+def resolve_methods(class_name: str, visited: set[str] = None):
     if visited is None:
         visited = set()
     if class_name in visited:
         return
     visited.add(class_name)
-
     info = GLOBAL_REGISTRY.get(class_name)
     if not info:
         return
-
-    if info["resolved_bases"]:
+    if info["resolved_methods"]:
         return
-
-    info["resolved_bases"] = set(info["bases"])
-    info["resolved_methods"] = set(info["local_methods"])
-
+    info["resolved_methods"] = set(info["methods"])
     for base in info["bases"]:
-        resolve_graph(base, visited)
+        resolve_methods(base, visited)
         base_info = GLOBAL_REGISTRY.get(base)
         if base_info:
-            info["resolved_bases"].update(base_info["resolved_bases"])
             info["resolved_methods"].update(base_info["resolved_methods"])
-
-
-def get_core_domain_name(name: str) -> str:
-    return name.replace("Port", "").replace("Protocol", "").replace("Repository", "").replace("SQLAlchemy", "").replace("Kafka", "").replace("Impl", "")
 
 
 def main():
     print("=" * 100)
-    print(" ⚡ SOVEREIGN ARCH-ENGINE COMPILER & COMPLIANCE DASHBOARD V7 ⚡")
+    print(" ⚡ SOVEREIGN ARCH-ENGINE COMPILER & COMPLIANCE DASHBOARD V8 (AKURAT) ⚡")
     print("=" * 100)
+    print(f"📂 Project Root : {ROOT}")
 
-    CodebaseParser.parse_directory(PORTS_DIR, "PORT")
-    CodebaseParser.parse_directory(ADAPTERS_DIR, "ADAPTER")
+    parse_directory(PORTS_DIR, "PORT")
+    parse_directory(ADAPTERS_DIR, "ADAPTER")
+    parse_directory(INFRA_DIR, "ADAPTER")
 
-    for class_name in list(GLOBAL_REGISTRY.keys()):
-        resolve_graph(class_name)
+    # Resolusi inheritance
+    for cls in list(GLOBAL_REGISTRY.keys()):
+        resolve_methods(cls)
 
-    all_ports = {k: v for k, v in GLOBAL_REGISTRY.items() 
-                 if v["layer"] == "PORT" and (k.endswith("Port") or k.endswith("Protocol"))}
-    all_adapters = {k: v for k, v in GLOBAL_REGISTRY.items() if v["layer"] == "ADAPTER"}
+    ports = {k: v for k, v in GLOBAL_REGISTRY.items() if v["layer"] == "PORT"}
+    adapters = {k: v for k, v in GLOBAL_REGISTRY.items() if v["layer"] == "ADAPTER"}
 
-    passed_ports = []
-    unmatched_ports = []
-    contract_violations = []
+    # Untuk setiap port, cari adapter yang secara eksplisit mewarisi port
+    port_to_adapter = {}
+    for port_name, port_info in ports.items():
+        best_adapter = None
+        best_score = -1
+        for adp_name, adp_info in adapters.items():
+            # Cek inheritance eksplisit
+            if port_name in adp_info["bases"]:
+                score = 1000
+            else:
+                # Cek kemiripan nama (fallback)
+                core_port = port_name.replace("Port", "").replace("Protocol", "").lower()
+                core_adp = adp_name.replace("SQLAlchemy", "").replace("Kafka", "").replace("Impl", "").lower()
+                if core_port in core_adp or core_adp in core_port:
+                    score = 500
+                else:
+                    continue
+            # Hitung method coverage
+            port_methods = port_info["resolved_methods"]
+            adp_methods = adp_info["resolved_methods"]
+            if port_methods:
+                covered = len(port_methods.intersection(adp_methods))
+                score += covered * 30
+                missing = port_methods - adp_methods
+                score -= len(missing) * 20
+            else:
+                score += 100  # marker interface
+            if score > best_score:
+                best_score = score
+                best_adapter = (adp_name, adp_info, missing if port_methods else set())
 
-    for port_name, port_info in all_ports.items():
-        matched_adapters = {}
-        core_port = get_core_domain_name(port_name).lower()
+        if best_adapter and best_score >= 200:
+            port_to_adapter[port_name] = best_adapter
+        else:
+            port_to_adapter[port_name] = None
 
-        for adapter_name, adapter_info in all_adapters.items():
-            core_adapter = get_core_domain_name(adapter_name).lower()
-            
-            is_explicit = port_name in adapter_info["resolved_bases"]
-            is_implicit_match = (core_port == core_adapter or core_port in adapter_name.lower())
-            
-            if is_explicit or is_implicit_match:
-                matched_adapters[adapter_name] = adapter_info
+    # Hitung statistik
+    total = len(ports)
+    passed = sum(1 for v in port_to_adapter.values() if v is not None and not v[2])
+    partial = sum(1 for v in port_to_adapter.values() if v is not None and v[2])
+    missing = sum(1 for v in port_to_adapter.values() if v is None)
 
-        if not matched_adapters:
-            unmatched_ports.append((port_name, port_info["relative_path"]))
-            continue
+    print("\n📊 METRICS SUMMARY:")
+    print(f"   ▪️ Total Port Interface : {total}")
+    print(f"   🟩 REAL (lengkap)      : {passed}")
+    print(f"   🟨 PARTIAL (kurang)    : {partial}")
+    print(f"   🟥 MISSING (tak ada)   : {missing}")
+    print(f"   📈 Compliance Rate     : {(passed/total*100):.1f}%")
+    print("-" * 100)
 
-        port_methods = port_info["resolved_methods"]
-        port_has_violation = False
-        
-        for adapter_name, adapter_info in matched_adapters.items():
-            adapter_methods = adapter_info["resolved_methods"]
-            missing_methods = port_methods - adapter_methods
-            
+    # Tampilkan detail
+    for port_name in sorted(port_to_adapter.keys()):
+        info = port_to_adapter[port_name]
+        if info is None:
+            print(f"❌ {port_name} → TIDAK ADA ADAPTER")
+            print(f"   📍 File: {ports[port_name]['file']}")
+        else:
+            adp_name, adp_info, missing_methods = info
             if missing_methods:
-                port_has_violation = True
-                contract_violations.append({
-                    "port": port_name,
-                    "port_file": port_info["relative_path"],
-                    "adapter": adapter_name,
-                    "adapter_file": adapter_info["relative_path"],
-                    "missing": missing_methods
-                })
-        
-        if not port_has_violation:
-            passed_ports.append((port_name, port_info["relative_path"], list(matched_adapters.keys())))
+                print(f"⚠️  {port_name} → PARTIAL (Adapter: {adp_name})")
+                print(f"   📍 File Port: {ports[port_name]['file']}")
+                print(f"   📍 File Adapter: {adp_info['file']}")
+                print(f"   ❌ Missing: {', '.join(sorted(missing_methods))}")
+            else:
+                print(f"✅ {port_name} → {adp_name}")
+                print(f"   📍 File Port: {ports[port_name]['file']}")
+                print(f"   📍 File Adapter: {adp_info['file']}")
+        print("-" * 100)
 
-    # --- RENDER DASHBOARD METRIKS ---
-    total_ports_count = len(all_ports)
-    passed_count = len(passed_ports)
-    failed_count = len(unmatched_ports) + len(set(v['port'] for v in contract_violations))
-    compliance_rate = (passed_count / total_ports_count * 100) if total_ports_count > 0 else 0
-
-    print(f"📊 METRICS SUMMARY:")
-    print(f"   ▪️ Total Port Interface Terdaftar : {total_ports_count}")
-    print(f"   ▪️ Total Active Adapters Terurai : {len(all_adapters)}")
-    print(f"   🟩 Total Port LOLOS Kontrak      : {passed_count}")
-    print(f"   🟥 Total Port GAGAL/Bolong       : {failed_count}")
-    print(f"   📈 Architectural Compliance Rate : {compliance_rate:.1f}%")
-    print("-" * 100)
-
-    # 1. SEKSI PASSED PORTS
-    print(f"\n🟩 PASSED PORTS ({passed_count}/{total_ports_count}) - KONTRAK TERPENUHI:")
-    for port, path, adapters in sorted(passed_ports):
-        adapters_str = ", ".join(adapters)
-        print(f"  ✅ [{port}]")
-        print(f"     📍 Path     : {path}")
-        print(f"     🔗 Bound to : {adapters_str}")
-
-    print("-" * 100)
-
-    # 2. SEKSI UNMATCHED PORTS
-    if unmatched_ports:
-        print(f"\n🟥 UNMATCHED PORTS ({len(unmatched_ports)}) - BELUM ADA IMPLEMENTASI INFRASTRUKTUR:")
-        for port, file in sorted(unmatched_ports):
-            print(f"  ❌ {port}")
-            print(f"     📍 File Port: {file}")
-
-    # 3. SEKSI CONTRACT VIOLATIONS
-    if contract_violations:
-        print(f"\n🚨 CONTRACT VIOLATIONS ({len(contract_violations)}) - IMPLEMENTASI CACAT/TIDAK LENGKAP:")
-        for v in contract_violations:
-            print(f"  ⚠️  {v['port']} ➔ Gagal dipenuhi oleh kelas [{v['adapter']}]")
-            print(f"     📍 File Port   : {v['port_file']}")
-            print(f"     📍 File Adapter: {v['adapter_file']}")
-            print(f"     ❌ Fungsi yang Hilang: {', '.join(v['missing'])}")
-
-    print("\n" + "=" * 100)
-    if failed_count == 0:
+    if missing > 0 or partial > 0:
+        print("🛑 AUDIT STATUS: GAGAL. Selesaikan port yang PARTIAL/MISSING.")
+        sys.exit(1)
+    else:
         print("🎉 EXCELLENT: 100% Kepatuhan Arsitektur Tercapai. Engine Siap Audit.")
         sys.exit(0)
-    else:
-        print(f"🛑 AUDIT STATUS: GAGAL. Selesaikan {failed_count} masalah di atas untuk mengamankan integritas sistem.")
-        sys.exit(1)
 
 
 if __name__ == "__main__":

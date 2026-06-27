@@ -492,7 +492,7 @@ class StartupOrchestrator:
         try:
             # Lazy import untuk menghindari AST drift
             context_module = importlib.import_module("kernel.context_holder")
-            get_context = getattr(context_module, "get_context_holder")
+            get_context = context_module.get_context_holder
             context = get_context()
             constitution = context.get_component("supreme_law")
             if constitution is None:
@@ -510,7 +510,7 @@ class StartupOrchestrator:
             logger.warning(f"Kernel context not ready, initializing minimal constitution: {e}")
             # Lazy import constitution
             supreme_law_mod = importlib.import_module("constitution.supreme_law")
-            get_supreme_law = getattr(supreme_law_mod, "get_supreme_law")
+            get_supreme_law = supreme_law_mod.get_supreme_law
             constitution = get_supreme_law()
             integrity = constitution.verify_integrity()
             if not integrity.get("is_valid", False):
@@ -526,7 +526,7 @@ class StartupOrchestrator:
         logger.info("Loading axioms via kernel...")
         try:
             context_module = importlib.import_module("kernel.context_holder")
-            get_context = getattr(context_module, "get_context_holder")
+            get_context = context_module.get_context_holder
             context = get_context()
             axioms = context.get_component("axioms")
             if axioms is None:
@@ -535,7 +535,7 @@ class StartupOrchestrator:
             logger.warning(f"Kernel context not ready, initializing minimal axioms: {e}")
             # Lazy import axioms
             double_entry_mod = importlib.import_module("axioms.double_entry")
-            get_double_entry = getattr(double_entry_mod, "get_double_entry_axiom")
+            get_double_entry = double_entry_mod.get_double_entry_axiom
             axioms = {"double_entry": get_double_entry()}
         self._context.components["axioms"] = axioms
         return {"loaded_axioms": len(axioms)}
@@ -548,7 +548,7 @@ class StartupOrchestrator:
         logger.info("Loading configuration...")
         # Lazy import config loader
         config_mod = importlib.import_module("config.loader_yaml")
-        get_loader = getattr(config_mod, "get_config_loader")
+        get_loader = config_mod.get_config_loader
         loader = get_loader()
         config = loader.load_all()
         self._context.config = config
@@ -564,9 +564,9 @@ class StartupOrchestrator:
         logger.info("Connecting to database...")
         # Lazy import infrastructure
         pool_mod = importlib.import_module("infrastructure.database.connection_pool_asyncpg")
-        get_pool = getattr(pool_mod, "get_connection_pool")
+        get_pool = pool_mod.get_connection_pool
         session_mod = importlib.import_module("infrastructure.database.session_factory_sqlalchemy")
-        get_session = getattr(session_mod, "get_session_factory")
+        get_session = session_mod.get_session_factory
 
         pool = await get_pool()
         session_factory = await get_session()
@@ -591,7 +591,7 @@ class StartupOrchestrator:
             kafka_mod = importlib.import_module(
                 "infrastructure.message_broker.kafka_producer_wrapper"
             )
-            get_producer = getattr(kafka_mod, "get_kafka_producer")
+            get_producer = kafka_mod.get_kafka_producer
             producer = get_producer()
             if producer:
                 self._context.components["kafka_producer"] = producer
@@ -613,7 +613,7 @@ class StartupOrchestrator:
         logger.info("Connecting to cache...")
         try:
             redis_mod = importlib.import_module("infrastructure.caching.redis_manager")
-            get_redis = getattr(redis_mod, "get_redis_client")
+            get_redis = redis_mod.get_redis_client
             redis_client = get_redis()
             redis_client.ping()
             self._context.components["redis_client"] = redis_client
@@ -641,13 +641,11 @@ class StartupOrchestrator:
         )
         uow_mod = importlib.import_module("adapters.secondary_impl.sqlalchemy_unit_of_work_impl")
 
-        SQLAlchemyAccountRepository = getattr(
-            account_mod, "SQLAlchemyAccountRepository"
-        )
-        SQLAlchemyAPRepository = getattr(ap_mod, "SQLAlchemyAPRepository")
-        SQLAlchemyARRepository = getattr(ar_mod, "SQLAlchemyARRepository")
-        SQLAlchemyJournalRepository = getattr(journal_mod, "SQLAlchemyJournalRepository")
-        SQLAlchemyUnitOfWork = getattr(uow_mod, "SQLAlchemyUnitOfWork")
+        SQLAlchemyAccountRepository = account_mod.SQLAlchemyAccountRepository
+        SQLAlchemyAPRepository = ap_mod.SQLAlchemyAPRepository
+        SQLAlchemyARRepository = ar_mod.SQLAlchemyARRepository
+        SQLAlchemyJournalRepository = journal_mod.SQLAlchemyJournalRepository
+        SQLAlchemyUnitOfWork = uow_mod.SQLAlchemyUnitOfWork
 
         session_factory = self._context.components["session_factory"]
         uow = SQLAlchemyUnitOfWork(session_factory)
@@ -673,9 +671,9 @@ class StartupOrchestrator:
         ar_mod = importlib.import_module("application.service_layer.service_ar")
         journal_mod = importlib.import_module("application.service_layer.service_journal")
 
-        APService = getattr(ap_mod, "APService")
-        ARService = getattr(ar_mod, "ARService")
-        JournalService = getattr(journal_mod, "JournalService")
+        APService = ap_mod.APService
+        ARService = ar_mod.ARService
+        JournalService = journal_mod.JournalService
 
         repositories = self._context.components.get("repositories", {})
         uow = self._context.components.get("unit_of_work")
@@ -700,7 +698,7 @@ class StartupOrchestrator:
         logger.info("Initializing kernel...")
         # Lazy import kernel
         gate_mod = importlib.import_module("kernel.sealed_gate")
-        get_gate = getattr(gate_mod, "get_sealed_gate")
+        get_gate = gate_mod.get_sealed_gate
         gate = get_gate()
         self._context.components["sealed_gate"] = gate
         return {"kernel_ready": True}
@@ -716,7 +714,7 @@ class StartupOrchestrator:
 
         # Lazy import fastapi app factory
         app_mod = importlib.import_module("adapters.primary_api.common.fastapi_app_factory")
-        create_app = getattr(app_mod, "create_app")
+        create_app = app_mod.create_app
 
         app = create_app(self._context.components)
 

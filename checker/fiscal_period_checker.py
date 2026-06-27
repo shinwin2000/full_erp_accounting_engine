@@ -21,10 +21,8 @@ import argparse
 import ast
 import json
 import pathlib
-import re
 import sys
 from dataclasses import dataclass, field
-from typing import List, Optional, Set, Dict
 
 # Warna
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
@@ -52,13 +50,13 @@ class Finding:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: int = 100
 
 # =============================================================================
 # 1. Period Status Lifecycle Checker
 # =============================================================================
-def check_period_status_lifecycle(file_path: pathlib.Path) -> List[Finding]:
+def check_period_status_lifecycle(file_path: pathlib.Path) -> list[Finding]:
     """
     Cari apakah ada definisi status period: DRAFT, OPEN, CLOSED, LOCKED.
     Status harus ada di enum atau class constants.
@@ -146,7 +144,7 @@ def check_period_status_lifecycle(file_path: pathlib.Path) -> List[Finding]:
 # =============================================================================
 # 2. Period Validation Checker
 # =============================================================================
-def check_period_validation(file_path: pathlib.Path) -> List[Finding]:
+def check_period_validation(file_path: pathlib.Path) -> list[Finding]:
     """
     Cari apakah ada validasi period status sebelum posting jurnal.
     """
@@ -212,7 +210,7 @@ def check_period_validation(file_path: pathlib.Path) -> List[Finding]:
 # =============================================================================
 # 3. Fiscal Year Consistency Checker
 # =============================================================================
-def check_fiscal_year_consistency(file_path: pathlib.Path) -> List[Finding]:
+def check_fiscal_year_consistency(file_path: pathlib.Path) -> list[Finding]:
     """
     Cari apakah ada definisi fiscal year yang konsisten.
     """
@@ -283,7 +281,7 @@ def check_fiscal_year_consistency(file_path: pathlib.Path) -> List[Finding]:
 # =============================================================================
 # 4. Period Closure Constraints Checker
 # =============================================================================
-def check_period_closure_constraints(file_path: pathlib.Path) -> List[Finding]:
+def check_period_closure_constraints(file_path: pathlib.Path) -> list[Finding]:
     """
     Cari apakah ada aturan bahwa period yang sudah CLOSED tidak bisa dibuka kembali.
     """
@@ -344,7 +342,7 @@ def check_period_closure_constraints(file_path: pathlib.Path) -> List[Finding]:
 # =============================================================================
 # 5. Year-End Closing Procedure Checker
 # =============================================================================
-def check_year_end_closing(file_path: pathlib.Path) -> List[Finding]:
+def check_year_end_closing(file_path: pathlib.Path) -> list[Finding]:
     """
     Cari apakah ada prosedur year-end closing.
     """
@@ -453,7 +451,7 @@ def print_report(report: Report, verbose: bool = False):
 
     if report.findings:
         # Group by category
-        categories: Dict[str, List[Finding]] = {}
+        categories: dict[str, list[Finding]] = {}
         for f in report.findings:
             categories.setdefault(f.category, []).append(f)
 

@@ -10,8 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, UTC
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from ports.secondary.analytics_export_port import AnalyticsExportPort
@@ -26,10 +26,10 @@ class SQLAlchemyAnalyticsExport(AnalyticsExportPort):
     """
 
     def __init__(self):
-        self._jobs: Dict[UUID, Dict[str, Any]] = {}
-        self._outputs: Dict[UUID, str] = {}
+        self._jobs: dict[UUID, dict[str, Any]] = {}
+        self._outputs: dict[UUID, str] = {}
         self._data_provider: Any = None
-        self._scheduler_task: Optional[asyncio.Task] = None
+        self._scheduler_task: asyncio.Task | None = None
         self._scheduler_running: bool = False
         self._scheduler_interval: int = 60  # seconds
 

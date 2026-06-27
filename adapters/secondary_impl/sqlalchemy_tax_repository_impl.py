@@ -32,6 +32,7 @@ from infrastructure.persistence_orm.coretax_faktur_table import CoretaxFakturTab
 from infrastructure.persistence_orm.coretax_nsfp_table import CoretaxNSFPTable
 from infrastructure.persistence_orm.coretax_ntpn_table import CoretaxNTPNTable
 from infrastructure.persistence_orm.coretax_spt_table import CoretaxSPTTable
+from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
 from ports.primary.tax_repository_port import TaxRepositoryPort
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,19 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
     @session.setter
     def session(self, value: AsyncSession) -> None:
         self._session = value
+
+    # ========================================================================
+    # HELPER
+    # ========================================================================
+
+    async def _get_npwp_by_legal_entity(self, legal_entity_id: UUID) -> str | None:
+        """Ambil NPWP dari legal entity."""
+        stmt = select(LegalEntityTable.npwp).where(
+            LegalEntityTable.id == legal_entity_id,
+            LegalEntityTable.deleted_at.is_(None),
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     # ========================================================================
     # FAKTUR PAJAK - KELUARAN & MASUKAN
@@ -433,60 +447,120 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
         return fakturs
 
     # ========================================================================
-    # NSFP
+    # NSFP (FIXED: signature sesuai port)
     # ========================================================================
 
-    async def save_nsfp_range(self, nsfp_range: dict) -> None:
-        """Simpan range NSFP (bisa multiple)."""
+    async def save_nsfp_range(
+        self, legal_entity_id: UUID, start: str, end: str, requested_at: datetime
+    ) -> None:
+        """
+        Simpan range NSFP (start sampai end) untuk legal entity.
+        Generate semua nomor NSFP dalam range dan simpan satu per satu.
+        """
         try:
-            for nsfp in nsfp_range.get("nsfp_list", []):
+            # Cari NPWP dari legal_entity
+            npwp = await self._get_npwp_by_legal_entity(legal_entity_id)
+            if not npwp:
+                raise TaxRepositoryError(f"Legal entity {legal_entity_id} has no NPWP")
+
+            # Parse start dan end menjadi integer (asumsi format angka)
+            try:
+                start_num = int(start)
+                end_num = int(end)
+            except ValueError:
+                raise TaxRepositoryError("Start and end must be numeric strings")
+
+            if start_num > end_num:
+                raise TaxRepositoryError("Start must be less than or equal to end")
+
+            # Simpan setiap nomor NSFP
+            request_id = str(uuid4())
+            for nsfp_num in range(start_num, end_num + 1):
+                nsfp_str = str(nsfp_num).zfill(16)  # typical 16-digit format
                 table = CoretaxNSFPTable(
                     id=uuid4(),
-                    npwp=nsfp_range["npwp"],
-                    nsfp=nsfp,
-                    tahun=nsfp_range["tahun"],
-                    bulan=nsfp_range["bulan"],
+                    npwp=npwp,
+                    nsfp=nsfp_str,
+                    tahun=requested_at.year,
+                    bulan=requested_at.month,
                     status="available",
-                    request_id=nsfp_range.get("request_id", str(uuid4())),
-                    requested_at=datetime.utcnow(),
-                    requested_by=nsfp_range.get("requested_by"),
+                    request_id=request_id,
+                    requested_at=requested_at,
+                    requested_by=None,
                 )
                 self.session.add(table)
             await self.session.flush()
-            logger.info("NSFP range saved: %d numbers", len(nsfp_range.get("nsfp_list", [])))
+            logger.info("NSFP range saved: %d numbers for legal entity %s", end_num - start_num + 1, legal_entity_id)
+
         except Exception as e:
             await self.session.rollback()
             raise TaxRepositoryError(f"Failed to save NSFP range: {e}") from e
 
-    async def get_current_nsfp_range(self, npwp: str, tahun: int, bulan: int) -> dict:
-        """Ambil range NSFP yang tersedia untuk periode."""
-        stmt = (
-            select(CoretaxNSFPTable)
-            .where(
-                CoretaxNSFPTable.npwp == npwp,
-                CoretaxNSFPTable.tahun == tahun,
-                CoretaxNSFPTable.bulan == bulan,
-                CoretaxNSFPTable.status == "available",
-            )
-            .order_by(CoretaxNSFPTable.nsfp)
-        )
-        result = await self.session.execute(stmt)
-        nsfps = result.scalars().all()
-        return {
-            "available_nsfp": [n.nsfp for n in nsfps],
-            "count": len(nsfps),
-            "first_available": nsfps[0].nsfp if nsfps else None,
-        }
+    async def get_current_nsfp_range(self, legal_entity_id: UUID) -> dict | None:
+        """
+        Ambil range NSFP yang tersedia untuk legal entity.
+        Return dict dengan start, end, current (nomor pertama available).
+        """
+        try:
+            npwp = await self._get_npwp_by_legal_entity(legal_entity_id)
+            if not npwp:
+                return None
 
-    async def update_nsfp_current(self, nsfp: str, faktur_id: UUID) -> None:
-        """Tandai NSFP sebagai sudah digunakan."""
-        stmt = (
-            update(CoretaxNSFPTable)
-            .where(CoretaxNSFPTable.nsfp == nsfp)
-            .values(status="used", used_at=datetime.utcnow(), faktur_id=faktur_id)
-        )
-        await self.session.execute(stmt)
-        await self.session.flush()
+            # Ambil semua NSFP available yang belum digunakan
+            stmt = (
+                select(CoretaxNSFPTable)
+                .where(
+                    CoretaxNSFPTable.npwp == npwp,
+                    CoretaxNSFPTable.status == "available",
+                )
+                .order_by(CoretaxNSFPTable.nsfp)
+            )
+            result = await self.session.execute(stmt)
+            nsfps = result.scalars().all()
+            if not nsfps:
+                return None
+
+            # Ambil start = nsfp terkecil, end = nsfp terbesar, current = nsfp terkecil (akan digunakan)
+            start = nsfps[0].nsfp
+            end = nsfps[-1].nsfp
+            current = start
+            return {
+                "start": start,
+                "end": end,
+                "current": current,
+                "available_count": len(nsfps),
+            }
+        except Exception as e:
+            raise TaxRepositoryError(f"Failed to get NSFP range: {e}") from e
+
+    async def update_nsfp_current(self, legal_entity_id: UUID, current: str) -> None:
+        """
+        Tandai NSFP dengan nomor `current` sebagai sudah digunakan.
+        Hapus dari daftar available (set status used).
+        """
+        try:
+            npwp = await self._get_npwp_by_legal_entity(legal_entity_id)
+            if not npwp:
+                raise TaxRepositoryError(f"Legal entity {legal_entity_id} has no NPWP")
+
+            stmt = (
+                update(CoretaxNSFPTable)
+                .where(
+                    CoretaxNSFPTable.npwp == npwp,
+                    CoretaxNSFPTable.nsfp == current,
+                    CoretaxNSFPTable.status == "available",
+                )
+                .values(status="used", used_at=datetime.utcnow())
+            )
+            result = await self.session.execute(stmt)
+            if result.rowcount == 0:
+                raise NSFPNotFoundError(f"NSFP {current} not available for legal entity {legal_entity_id}")
+            await self.session.flush()
+        except NSFPNotFoundError:
+            raise
+        except Exception as e:
+            await self.session.rollback()
+            raise TaxRepositoryError(f"Failed to update NSFP current: {e}") from e
 
     # ========================================================================
     # SPT
@@ -604,14 +678,22 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
         result = await self.session.execute(stmt)
         return result.scalar() or 0
 
-    async def get_last_submission_date(self, npwp: str, spt_type: str) -> date | None:
-        """Ambil tanggal submission terakhir untuk SPT jenis tertentu."""
-        stmt = select(func.max(CoretaxSPTTable.submitted_at)).where(
-            CoretaxSPTTable.npwp == npwp, CoretaxSPTTable.spt_type == spt_type
-        )
-        result = await self.session.execute(stmt)
-        last = result.scalar()
-        return last.date() if last else None
+    async def get_last_submission_date(self, legal_entity_id: UUID) -> datetime | None:
+        """
+        Ambil tanggal submission terakhir untuk legal entity (semua jenis SPT).
+        """
+        try:
+            npwp = await self._get_npwp_by_legal_entity(legal_entity_id)
+            if not npwp:
+                return None
+            stmt = select(func.max(CoretaxSPTTable.submitted_at)).where(
+                CoretaxSPTTable.npwp == npwp
+            )
+            result = await self.session.execute(stmt)
+            last = result.scalar()
+            return last if last else None
+        except Exception as e:
+            raise TaxRepositoryError(f"Failed to get last submission date: {e}") from e
 
     # ========================================================================
     # E-BUPOT

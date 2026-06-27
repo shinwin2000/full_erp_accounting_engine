@@ -46,7 +46,7 @@ def _get_logger():
     global _logger
     if _logger is None:
         mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
-        get_logger_func = getattr(mod, "get_logger")
+        get_logger_func = mod.get_logger
         _logger = get_logger_func(__name__)
     return _logger
 
@@ -54,21 +54,21 @@ def _get_logger():
 def _get_event_store():
     """Lazy import and get audit store."""
     mod = importlib.import_module("infrastructure.event_store.append_only_store")
-    get_audit_store = getattr(mod, "get_audit_store")
+    get_audit_store = mod.get_audit_store
     return get_audit_store
 
 
 def _get_digital_signer():
     """Lazy import and get digital signer."""
     mod = importlib.import_module("infrastructure.security.digital_signer_rsa_pss")
-    get_digital_signer = getattr(mod, "get_digital_signer")
+    get_digital_signer = mod.get_digital_signer
     return get_digital_signer
 
 
 def _get_alert_trigger():
     """Lazy import alert manager trigger."""
     mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
-    trigger_alert = getattr(mod, "trigger_alert")
+    trigger_alert = mod.trigger_alert
     return trigger_alert
 
 

@@ -286,7 +286,7 @@ class MaterialityThreshold:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version(self) -> int:
         return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -514,7 +514,7 @@ class MaterialityJudgment:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version(self) -> int:
         return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -719,7 +719,7 @@ class MaterialityViolation:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version(self) -> int:
         return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:

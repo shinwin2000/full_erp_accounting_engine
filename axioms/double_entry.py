@@ -288,7 +288,7 @@ class JournalLine:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version(self) -> int:
         return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -557,7 +557,7 @@ class JournalEntry:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version(self) -> int:
         return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -643,7 +643,8 @@ class DoubleEntryVerificationRecord:
     def _validate(self) -> None:
         if self.version < 1:
             raise ValueError("Version must be >= 1")
-        if self.cryptographic_hash != self.compute_hash():
+        # Skip hash validation during initial construction (hash="" means not yet computed)
+        if self.cryptographic_hash and self.cryptographic_hash != self.compute_hash():
             raise ValueError("Hash mismatch")
 
     def compute_hash(self) -> str:
@@ -783,7 +784,7 @@ class DoubleEntryVerificationRecord:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version(self) -> int:
         return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -1121,94 +1122,7 @@ class DoubleEntryValidator:
         return abs(diff) <= tolerance, diff
 
 
-# === 6. STANDALONE FUNCTIONS (for easy import) ===
-
-def validate_balance(
-    debit: Decimal, credit: Decimal, tolerance: Decimal = Decimal("0.0001")
-) -> tuple[bool, Decimal]:
-    """
-    Validate that total debit equals total credit within tolerance.
-
-    This is a standalone function that mirrors DoubleEntryValidator.validate_balance
-    for convenience and backward compatibility.
-
-    Args:
-        debit: Total debit amount
-        credit: Total credit amount
-        tolerance: Allowed difference (default: 0.0001)
-
-    Returns:
-        Tuple of (is_balanced, difference)
-    """
-    return DoubleEntryValidator.validate_balance(debit, credit, tolerance)
-
-
-def validate_journal(
-    journal: JournalEntry, tolerance: Decimal = Decimal("0.0001")
-) -> tuple[bool, str | None]:
-    """
-    Validate a complete journal entry.
-
-    This is a standalone function that mirrors DoubleEntryValidator.validate_journal.
-
-    Args:
-        journal: JournalEntry instance
-        tolerance: Allowed difference (default: 0.0001)
-
-    Returns:
-        Tuple of (is_valid, error_message)
-    """
-    return DoubleEntryValidator.validate_journal(journal, tolerance)
-
-
-def validate_journal_lines(lines: list[JournalLine]) -> tuple[bool, str | None]:
-    """
-    Validate journal lines.
-
-    Returns:
-        Tuple of (is_valid, error_message)
-    """
-    return DoubleEntryValidator.validate_lines(lines)
-
-
-def enforce_double_entry(
-    journal: JournalEntry,
-    tolerance: Decimal = Decimal("0.0001"),
-    raise_on_violation: bool = True,
-) -> tuple[bool, str | None]:
-    """
-    Enforce double-entry rule on a journal. Raise error if not balanced.
-
-    Args:
-        journal: JournalEntry instance
-        tolerance: Allowed difference (default: 0.0001)
-        raise_on_violation: If True, raise DoubleEntryViolationError on failure
-
-    Returns:
-        Tuple of (is_balanced, error_message)
-
-    Raises:
-        DoubleEntryViolationError if not balanced and raise_on_violation is True.
-    """
-    is_balanced, diff = DoubleEntryValidator.validate_balance(
-        journal.total_debit, journal.total_credit, tolerance
-    )
-    if is_balanced:
-        return True, None
-    error_msg = f"Journal not balanced: debit={journal.total_debit}, credit={journal.total_credit}, diff={diff}"
-    if raise_on_violation:
-        raise DoubleEntryViolationError(
-            message=error_msg,
-            total_debit=journal.total_debit,
-            total_credit=journal.total_credit,
-            difference=diff,
-            journal_id=journal.journal_id,
-            severity=DoubleEntryViolationSeverity.CRITICAL,
-        )
-    return False, error_msg
-
-
-# === 7. SINGLETON ACCESSOR ===
+# === 6. SINGLETON ACCESSOR ===
 
 _double_entry_axiom_instance: DoubleEntryAxiom | None = None
 
@@ -1220,7 +1134,7 @@ def get_double_entry_axiom() -> DoubleEntryAxiom:
     return _double_entry_axiom_instance
 
 
-# === 8. HELPER FUNCTIONS ===
+# === 7. HELPER FUNCTIONS ===
 
 
 def create_journal_line(
@@ -1299,6 +1213,11 @@ def create_journal_line_dict(
     }
 
 
+# === 8. SINGLETON INSTANCE ALIAS (untuk import langsung) ===
+# Ini adalah perbaikan utama: menyediakan instance singleton dengan nama 'double_entry'
+double_entry = get_double_entry_axiom()
+
+
 # === 9. EXPORTS ===
 
 __all__ = [
@@ -1317,9 +1236,6 @@ __all__ = [
     "create_debit_line",
     "create_journal_line",
     "create_journal_line_dict",
-    "enforce_double_entry",
+    "double_entry",
     "get_double_entry_axiom",
-    "validate_balance",         
-    "validate_journal",          
-    "validate_journal_lines",    
 ]

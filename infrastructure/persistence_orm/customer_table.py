@@ -180,7 +180,7 @@ class CustomerTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
     def credit_utilization_percent(self) -> Decimal:
         if self.credit_limit == 0:
             return Decimal(0)
-        return (self.used_credit / self.credit_limit) * Decimal(100) 
+        return (self.used_credit / self.credit_limit) * Decimal(100)
 
     # ========================================================================
     # METHODS

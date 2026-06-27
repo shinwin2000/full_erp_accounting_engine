@@ -8,9 +8,9 @@ Responsibility: Mengkalkulasi HPP (Cost of Goods Manufactured) akhir periode dan
 from __future__ import annotations
 
 import logging
+from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
-from datetime import date
 
 logger = logging.getLogger(__name__)
 
@@ -37,21 +37,21 @@ class HppManufacturingCloseUseCase:
         closing_date: date = getattr(command, 'closing_date', date.today())
 
         logger.info(
-            "Menginisialisasi kalkulasi HPP riil untuk Legal Entity %s Periode %s", 
+            "Menginisialisasi kalkulasi HPP riil untuk Legal Entity %s Periode %s",
             legal_entity_id, period
         )
 
         try:
             # 1. KUMPULKAN DATA BIAYA AKTUAL MANUFAKTUR (Standar COGM)
-            raw_material_cost = Decimal("150000000.00")  
+            raw_material_cost = Decimal("150000000.00")
             direct_labor_cost = Decimal("45000000.00")
             factory_overhead = Decimal("30000000.00")
-            
+
             total_manufacturing_costs = raw_material_cost + direct_labor_cost + factory_overhead
-            
+
             wip_beginning = Decimal("20000000.00")
             wip_ending = Decimal("15000000.00")
-            
+
             cost_of_goods_manufactured = wip_beginning + total_manufacturing_costs - wip_ending
 
             logger.info("Kalkulasi HPP Selesai: %s", cost_of_goods_manufactured)
@@ -106,4 +106,4 @@ class HppManufacturingCloseUseCase:
 
         except Exception as e:
             logger.error("Gagal mengeksekusi penutupan HPP riil: %s", str(e), exc_info=True)
-            raise RuntimeError(f"HPP Close Failure: {str(e)}")
+            raise RuntimeError(f"HPP Close Failure: {e!s}")

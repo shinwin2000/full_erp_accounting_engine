@@ -21,7 +21,7 @@ import email.utils
 import mimetypes
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Email sending
 try:
@@ -113,7 +113,7 @@ class ReportDistributor:
     - Tracking distribusi
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Inisialisasi distributor dengan konfigurasi yang diinjeksi.
 
@@ -125,9 +125,9 @@ class ReportDistributor:
         self._whatsapp_config = self.config.get("whatsapp", DEFAULT_CONFIG["whatsapp"])
         self._slack_config = self.config.get("slack", DEFAULT_CONFIG["slack"])
         self._retry_config = self.config.get("retry", DEFAULT_CONFIG["retry"])
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
 
-    def _prepare_config(self, config: Optional[dict]) -> dict:
+    def _prepare_config(self, config: dict | None) -> dict:
         """Siapkan konfigurasi dari parameter atau default."""
         if config is not None:
             # Merge dengan default untuk memastikan semua key ada
@@ -533,8 +533,8 @@ class ReportDistributor:
 # SINGLETON INSTANCE dengan injeksi konfigurasi dari luar
 # ============================================================================
 
-_report_distributor: Optional[ReportDistributor] = None
-_distributor_config: Optional[dict] = None
+_report_distributor: ReportDistributor | None = None
+_distributor_config: dict | None = None
 
 
 def set_distributor_config(config: dict) -> None:
@@ -569,6 +569,6 @@ __all__ = [
     "ReportDistributor",
     "WhatsAppSendError",
     "get_report_distributor",
-    "shutdown_report_distributor",
     "set_distributor_config",
+    "shutdown_report_distributor",
 ]

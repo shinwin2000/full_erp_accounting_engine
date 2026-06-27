@@ -89,13 +89,13 @@ class IntangibleAssetTable(Base, TimestampMixin):
     supporting_document_url: Mapped[str | None] = mapped_column(String(500))
     created_by: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
 
-    amortization_schedules: Mapped[list["AmortizationScheduleTable"]] = relationship(
+    amortization_schedules: Mapped[list[AmortizationScheduleTable]] = relationship(
         "AmortizationScheduleTable",
         backref="asset",
         cascade="all, delete-orphan",
     )
 
-    revaluations: Mapped[list["IntangibleRevaluationTable"]] = relationship(
+    revaluations: Mapped[list[IntangibleRevaluationTable]] = relationship(
         "IntangibleRevaluationTable",
         backref="asset",
         cascade="all, delete-orphan",

@@ -9,26 +9,22 @@ import importlib
 import asyncio
 import os
 import sys
-import pkgutil
 from logging.config import fileConfig
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-from alembic import context
-from dotenv import load_dotenv
 
-# Load env variables
-load_dotenv()
+# Alembic imports
+from alembic import context
 
 # Add project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
 # ============================================================================
-# METADATA LOADING (Dynamic Automatic Discovery)
+# METADATA LOADING (safe, done at module level)
 # ============================================================================
-
 target_metadata = None
 
 try:
@@ -38,45 +34,83 @@ try:
 except ImportError as e:
     print(f"[WARNING] Could not import Base metadata: {e}")
 
-# Automatically import all models in infrastructure.persistence_orm
+# Register all table models if metadata available
 if target_metadata is not None:
-    import infrastructure.persistence_orm
-    
-    path = infrastructure.persistence_orm.__path__
-    
-    for _, name, is_pkg in pkgutil.iter_modules(path):
-        # Skip if it's a sub-package or the base_model itself (to avoid double import)
-        if not is_pkg and name != "base_model":
-            module_path = f"infrastructure.persistence_orm.{name}"
-            try:
-                importlib.import_module(module_path)
-                print(f"[INFO] Dynamically loaded: {module_path}")
-            except Exception as e:
-                print(f"[!!!] FAILED TO LOAD {module_path}: {e}")
-                continue
-
-
-# ============================================================================
-# OBJECT FILTER HOOK (Mencegah modifikasi tabel & indeks partisi dinamis)
-# ============================================================================
-
-def include_object(object, name, type_, reflected, compare_to):
-    """Filter out dynamically generated child partition tables and their indexes."""
-    if type_ == "table":
-        # Abaikan tabel anak dari klaster ledger atau journal terpartisi
-        if ("ledger_entry_" in name and name != "ledger_entry_partitioned") or \
-           ("journal_line_" in name and name != "journal_line_partitioned"):
-            return False
-    elif type_ == "index":
-        # Abaikan indeks yang melekat pada partisi dinamis berdasarkan nama indeks atau relasi tabel
-        if name and ("ledger_entry_20" in name or "journal_line_20" in name):
-            return False
-        if hasattr(object, "table") and object.table is not None:
-            tname = object.table.name
-            if ("ledger_entry_" in tname and tname != "ledger_entry_partitioned") or \
-               ("journal_line_" in tname and tname != "journal_line_partitioned"):
-                return False
-    return True
+    orm_modules = [
+        "infrastructure.persistence_orm.account_table",
+        "infrastructure.persistence_orm.amortization_schedule_table",
+        "infrastructure.persistence_orm.ap_credit_note_table",
+        "infrastructure.persistence_orm.ap_invoice_line_table",
+        "infrastructure.persistence_orm.ap_invoice_table",
+        "infrastructure.persistence_orm.ap_payment_table",
+        "infrastructure.persistence_orm.ar_credit_note_table",
+        "infrastructure.persistence_orm.ar_invoice_line_table",
+        "infrastructure.persistence_orm.ar_invoice_table",
+        "infrastructure.persistence_orm.ar_payment_table",
+        "infrastructure.persistence_orm.asset_category_table",
+        "infrastructure.persistence_orm.audit_event_table",
+        "infrastructure.persistence_orm.bank_account_table",
+        "infrastructure.persistence_orm.bank_reconciliation_table",
+        "infrastructure.persistence_orm.bank_transaction_table",
+        "infrastructure.persistence_orm.bill_of_materials_table",
+        "infrastructure.persistence_orm.cash_book_table",
+        "infrastructure.persistence_orm.consolidation_group_member_table",
+        "infrastructure.persistence_orm.consolidation_group_table",
+        "infrastructure.persistence_orm.coretax_bupot_table",
+        "infrastructure.persistence_orm.coretax_emeterai_table",
+        "infrastructure.persistence_orm.coretax_faktur_line_table",
+        "infrastructure.persistence_orm.coretax_faktur_table",
+        "infrastructure.persistence_orm.coretax_nsfp_table",
+        "infrastructure.persistence_orm.coretax_ntpn_table",
+        "infrastructure.persistence_orm.coretax_spt_table",
+        "infrastructure.persistence_orm.cost_card_table",
+        "infrastructure.persistence_orm.customer_table",
+        "infrastructure.persistence_orm.dead_letter_table",
+        "infrastructure.persistence_orm.depreciation_schedule_table",
+        "infrastructure.persistence_orm.disposal_table",
+        "infrastructure.persistence_orm.employee_table",
+        "infrastructure.persistence_orm.event_store_table",
+        "infrastructure.persistence_orm.fiscal_period_table",
+        "infrastructure.persistence_orm.fixed_asset_table",
+        "infrastructure.persistence_orm.goods_receipt_note_table",
+        "infrastructure.persistence_orm.hash_chain_table",
+        "infrastructure.persistence_orm.iam_user_table",
+        "infrastructure.persistence_orm.impairment_test_table",
+        "infrastructure.persistence_orm.intangible_asset_table",
+        "infrastructure.persistence_orm.inventory_fifo_layer_table",
+        "infrastructure.persistence_orm.inventory_item_table",
+        "infrastructure.persistence_orm.inventory_movement_table",
+        "infrastructure.persistence_orm.journal_header_table",
+        "infrastructure.persistence_orm.journal_line_table",
+        "infrastructure.persistence_orm.ledger_entry_table",
+        "infrastructure.persistence_orm.legal_entity_branch_table",
+        "infrastructure.persistence_orm.legal_entity_table",
+        "infrastructure.persistence_orm.login_attempt_table",
+        "infrastructure.persistence_orm.outbox_checkpoint_table",
+        "infrastructure.persistence_orm.outbox_table",
+        "infrastructure.persistence_orm.payroll_run_table",
+        "infrastructure.persistence_orm.petty_cash_fund_table",
+        "infrastructure.persistence_orm.projection_checkpoint_table",
+        "infrastructure.persistence_orm.project_table",
+        "infrastructure.persistence_orm.purchase_order_table",
+        "infrastructure.persistence_orm.retainer_contract_table",
+        "infrastructure.persistence_orm.revaluation_table",
+        "infrastructure.persistence_orm.saga_state_table",
+        "infrastructure.persistence_orm.salary_component_table",
+        "infrastructure.persistence_orm.sales_order_table",
+        "infrastructure.persistence_orm.stock_opname_table",
+        "infrastructure.persistence_orm.supplier_table",
+        "infrastructure.persistence_orm.system_setting_table",
+        "infrastructure.persistence_orm.tax_transaction_table",
+        "infrastructure.persistence_orm.time_entry_table",
+        "infrastructure.persistence_orm.warehouse_table",
+        "infrastructure.persistence_orm.work_order_table",
+    ]
+    for mod in orm_modules:
+        try:
+            importlib.import_module(mod)
+        except ImportError:
+            pass
 
 
 # ============================================================================
@@ -94,7 +128,6 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
         compare_server_default=True,
-        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -107,7 +140,6 @@ def do_run_migrations(connection: Connection) -> None:
         target_metadata=target_metadata,
         compare_type=True,
         compare_server_default=True,
-        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -132,17 +164,22 @@ def run_migrations_online() -> None:
 
 
 # ============================================================================
-# MAIN ENTRY POINT
+# MAIN ENTRY POINT - only executed when Alembic calls this script
 # ============================================================================
 
-if hasattr(context, "config") and context.config is not None:
+# Alembic sets 'context' environment only when running migrations.
+# We check if context has the required attributes before proceeding.
+if hasattr(context, 'config') and context.config is not None:
+    # Override database URL from environment if needed
     db_url = os.environ.get("DATABASE_URL")
     if db_url:
         context.config.set_main_option("sqlalchemy.url", db_url)
     
+    # Configure logging if alembic.ini has loggers
     if context.config.config_file_name:
         fileConfig(context.config.config_file_name)
 
+    # Determine mode and run
     if context.is_offline_mode():
         run_migrations_offline()
     else:

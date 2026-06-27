@@ -21,10 +21,8 @@ import argparse
 import ast
 import json
 import pathlib
-import re
 import sys
 from dataclasses import dataclass, field
-from typing import List, Optional, Set, Tuple
 
 # Warna
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
@@ -52,13 +50,13 @@ class Finding:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: int = 100
 
 # ----------------------------------------------------------------------
 # 1. Negative Stock Prevention Checker
 # ----------------------------------------------------------------------
-def check_negative_stock_prevention(file_path: pathlib.Path) -> List[Finding]:
+def check_negative_stock_prevention(file_path: pathlib.Path) -> list[Finding]:
     """Cari validasi stock tidak boleh negatif di method movement."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -119,7 +117,7 @@ def check_negative_stock_prevention(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 2. Valuation Method Checker
 # ----------------------------------------------------------------------
-def check_valuation_method(file_path: pathlib.Path) -> List[Finding]:
+def check_valuation_method(file_path: pathlib.Path) -> list[Finding]:
     """Cari implementasi metode valuasi (FIFO, Weighted Average, Moving Average)."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -196,7 +194,7 @@ def check_valuation_method(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 3. COGS Calculation Checker
 # ----------------------------------------------------------------------
-def check_cogs_calculation(file_path: pathlib.Path) -> List[Finding]:
+def check_cogs_calculation(file_path: pathlib.Path) -> list[Finding]:
     """Cari implementasi COGS (Cost of Goods Sold) calculation."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -243,7 +241,7 @@ def check_cogs_calculation(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 4. Reconciliation Checker (Stock Opname)
 # ----------------------------------------------------------------------
-def check_reconciliation(file_path: pathlib.Path) -> List[Finding]:
+def check_reconciliation(file_path: pathlib.Path) -> list[Finding]:
     """Cari apakah ada stock opname reconciliation."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -294,7 +292,7 @@ def check_reconciliation(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 5. Audit Trail for Inventory Movements
 # ----------------------------------------------------------------------
-def check_audit_trail_inventory(file_path: pathlib.Path) -> List[Finding]:
+def check_audit_trail_inventory(file_path: pathlib.Path) -> list[Finding]:
     """Cari apakah setiap movement mencatat audit trail."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")

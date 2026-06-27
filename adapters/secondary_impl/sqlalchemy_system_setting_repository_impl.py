@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, or_, select, update
@@ -130,8 +131,8 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
         self._session = session
         self._validator = SettingValueValidator()
         self._redis = None
-        self._validation_hooks: Dict[str, Callable] = {}
-        self._audit_log: List[Dict[str, Any]] = []
+        self._validation_hooks: dict[str, Callable[[Any], bool]] = {}
+        self._audit_log: list[dict[str, Any]] = []
 
     @property
     def session(self) -> AsyncSession:
@@ -277,7 +278,7 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
         except Exception as e:
             logger.warning("Failed to invalidate cache: %s", e)
 
-    async def _log_audit(self, action: str, setting_id: UUID, details: Dict[str, Any]) -> None:
+    async def _log_audit(self, action: str, setting_id: UUID, details: dict[str, Any]) -> None:
         self._audit_log.append({
             "timestamp": datetime.utcnow().isoformat(),
             "action": action,
@@ -387,18 +388,23 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             await self.session.rollback()
             raise SystemSettingRepositoryError(f"Failed to update setting: {e}") from e
 
-    async def delete(self, setting_id: UUID) -> bool:
+    async def delete(self, setting_id: UUID, user_id: UUID) -> bool:
+        """Soft delete setting with user_id. Signature sesuai port."""
         try:
             setting = await self.get_by_id(setting_id)
             if setting and setting.is_readonly:
                 raise SettingReadOnlyError(f"Setting '{setting.key}' is read-only")
-            stmt = update(SystemSettingTable).where(SystemSettingTable.id == setting_id).values(deleted_at=datetime.utcnow())
+            stmt = update(SystemSettingTable).where(SystemSettingTable.id == setting_id).values(
+                deleted_at=datetime.utcnow(),
+                updated_by=user_id,
+                updated_at=datetime.utcnow(),
+            )
             result = await self.session.execute(stmt)
             await self.session.flush()
             if result.rowcount > 0 and setting:
                 await self._invalidate_cache(setting.key, setting.legal_entity_id)
-                await self._log_audit("DELETE", setting_id, {"key": setting.key})
-                logger.info("System setting %s deleted", setting_id)
+                await self._log_audit("DELETE", setting_id, {"key": setting.key, "user_id": str(user_id)})
+                logger.info("System setting %s deleted by %s", setting_id, user_id)
             return result.rowcount > 0
         except SettingReadOnlyError:
             raise
@@ -531,7 +537,7 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
     # NEW METHODS FOR PORT CONTRACT
     # ========================================================================
 
-    async def get_all(self, legal_entity_id: UUID | None = None, include_hidden: bool = False) -> Dict[str, Any]:
+    async def get_all(self, legal_entity_id: UUID | None = None, include_hidden: bool = False) -> dict[str, Any]:
         """Get all settings as a flat dictionary."""
         try:
             conditions = [SystemSettingTable.deleted_at.is_(None)]
@@ -553,11 +559,11 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
         except Exception as e:
             raise SystemSettingRepositoryError(f"Failed to get all settings: {e}") from e
 
-    async def get_by_category(self, category: str, legal_entity_id: UUID | None = None) -> Dict[str, Any]:
+    async def get_by_category(self, category: str, legal_entity_id: UUID | None = None) -> dict[str, Any]:
         """Alias for get_settings_by_category."""
         return await self.get_settings_by_category(category, legal_entity_id)
 
-    async def get_public_settings(self, legal_entity_id: UUID | None = None) -> Dict[str, Any]:
+    async def get_public_settings(self, legal_entity_id: UUID | None = None) -> dict[str, Any]:
         """Get only non-sensitive, public settings (not encrypted)."""
         try:
             conditions = [
@@ -579,7 +585,7 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
         except Exception as e:
             raise SystemSettingRepositoryError(f"Failed to get public settings: {e}") from e
 
-    async def get_secrets(self, legal_entity_id: UUID | None = None) -> Dict[str, str]:
+    async def get_secrets(self, legal_entity_id: UUID | None = None) -> dict[str, str]:
         """Get only encrypted/sensitive settings (secrets)."""
         try:
             conditions = [
@@ -603,7 +609,7 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
         except Exception as e:
             raise SystemSettingRepositoryError(f"Failed to get secrets: {e}") from e
 
-    async def check_dependencies(self, key: str) -> List[str]:
+    async def check_dependencies(self, key: str) -> list[str]:
         """Check which other settings depend on this key."""
         # For now, return empty list (no dependency tracking yet)
         # Could be extended to scan keys containing the prefix or having references
@@ -630,7 +636,7 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
         except Exception as e:
             raise SystemSettingRepositoryError(f"Failed to import from JSON: {e}") from e
 
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self) -> dict[str, Any]:
         """Get statistics about settings."""
         try:
             total_stmt = select(func.count()).select_from(SystemSettingTable).where(SystemSettingTable.deleted_at.is_(None))
@@ -653,14 +659,14 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
         except Exception as e:
             raise SystemSettingRepositoryError(f"Failed to get statistics: {e}") from e
 
-    async def get_audit_log(self, setting_id: UUID | None = None, limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_audit_log(self, setting_id: UUID | None = None, limit: int = 100) -> list[dict[str, Any]]:
         """Get audit log for settings."""
         logs = self._audit_log
         if setting_id:
             logs = [l for l in logs if l.get("setting_id") == str(setting_id)]
         return logs[-limit:]
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Check health of the repository."""
         try:
             await self.session.execute(select(1))
@@ -673,8 +679,9 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
         await self.reload_cache()
         logger.info("Hot reload completed")
 
-    async def register_validation_hook(self, key: str, hook: Callable[[Any], bool]) -> None:
-        """Register a validation hook for a specific setting key."""
+    # ===== FIX: register_validation_hook menjadi sync =====
+    def register_validation_hook(self, key: str, hook: Callable[[Any], bool]) -> None:
+        """Register a validation hook for a specific setting key (sync)."""
         self._validation_hooks[key] = hook
         logger.info("Validation hook registered for key: %s", key)
 

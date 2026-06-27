@@ -23,7 +23,6 @@ import pathlib
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 # Warna
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
@@ -51,22 +50,22 @@ class EnumInfo:
     module: str
     file_path: str
     lineno: int
-    members: List[EnumMember]
+    members: list[EnumMember]
     base_type: str  # 'Enum', 'IntEnum', 'StrEnum', 'class'
 
 @dataclass
 class DuplicateGroup:
     group_key: str
-    enums: List[Tuple[str, str, int]]  # (file_path, module, line)
+    enums: list[tuple[str, str, int]]  # (file_path, module, line)
     duplicate_type: str  # 'exact_name', 'same_values', 'similar_structure'
     similarity_score: float
 
 @dataclass
 class Report:
-    duplicate_groups: List[DuplicateGroup] = field(default_factory=list)
+    duplicate_groups: list[DuplicateGroup] = field(default_factory=list)
     score: int = 100
 
-def extract_enum_info(file_path: pathlib.Path, module: str) -> List[EnumInfo]:
+def extract_enum_info(file_path: pathlib.Path, module: str) -> list[EnumInfo]:
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(src, filename=str(file_path))
@@ -167,7 +166,7 @@ def compute_enum_similarity(e1: EnumInfo, e2: EnumInfo) -> float:
     score = 0.5 * name_jaccard + 0.5 * val_jaccard
     return round(score, 2)
 
-def find_duplicate_enums(enum_list: List[EnumInfo], threshold: float = 0.8) -> List[DuplicateGroup]:
+def find_duplicate_enums(enum_list: list[EnumInfo], threshold: float = 0.8) -> list[DuplicateGroup]:
     groups = []
     used = set()
     n = len(enum_list)
@@ -215,7 +214,7 @@ def find_duplicate_enums(enum_list: List[EnumInfo], threshold: float = 0.8) -> L
 
     return groups
 
-def scan_project(exclude_dirs: List[str] = None) -> Report:
+def scan_project(exclude_dirs: list[str] = None) -> Report:
     if exclude_dirs is None:
         exclude_dirs = ['.venv', 'venv', '__pycache__', '.git', 'node_modules', 'dist', 'build', 'migrations', 'deployment', 'docs', 'tests']
     exclude_set = set(exclude_dirs)

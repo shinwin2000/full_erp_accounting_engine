@@ -8,10 +8,11 @@ Responsibility: Implementasi konkret dari UnitOfWorkPort menggunakan SQLAlchemy
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import asynccontextmanager
-from typing import Any, Callable, Dict, List, Optional, AsyncContextManager
+from datetime import datetime
+from typing import Any, AsyncContextManager
 from uuid import uuid4
-from datetime import datetime  
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -47,19 +48,19 @@ class UnitOfWorkRollbackError(UnitOfWorkError):
 
 class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
     __slots__ = (
+        "_after_commit_hooks",
+        "_after_rollback_hooks",
+        "_before_commit_hooks",
+        "_change_log",
         "_event_collector",
+        "_is_active",
         "_is_period_closing",
         "_repositories",
         "_savepoint_depth",
         "_session",
         "_session_factory",
-        "_transaction_manager",
-        "_before_commit_hooks",
-        "_after_commit_hooks",
-        "_after_rollback_hooks",
-        "_change_log",
         "_transaction_id",
-        "_is_active",
+        "_transaction_manager",
     )
 
     def __init__(
@@ -73,11 +74,11 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
         self._savepoint_depth: int = 0
         self._is_period_closing = is_period_closing
         # Hooks
-        self._before_commit_hooks: List[Callable] = []
-        self._after_commit_hooks: List[Callable] = []
-        self._after_rollback_hooks: List[Callable] = []
-        self._change_log: List[Dict[str, Any]] = []
-        self._transaction_id: Optional[str] = None
+        self._before_commit_hooks: list[Callable] = []
+        self._after_commit_hooks: list[Callable] = []
+        self._after_rollback_hooks: list[Callable] = []
+        self._change_log: list[dict[str, Any]] = []
+        self._transaction_id: str | None = None
         self._is_active: bool = False
         self._init_repositories()
 
@@ -344,7 +345,7 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
     # TRANSACTION INFO
     # ========================================================================
 
-    def get_transaction_id(self) -> Optional[str]:
+    def get_transaction_id(self) -> str | None:
         """Get current transaction ID. Required by UnitOfWorkPort."""
         return self._transaction_id
 

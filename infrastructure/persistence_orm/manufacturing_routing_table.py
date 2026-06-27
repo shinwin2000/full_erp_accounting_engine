@@ -8,12 +8,10 @@ Routing adalah urutan langkah produksi untuk membuat suatu produk.
 
 from __future__ import annotations
 
-from datetime import datetime
-from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, DateTime, Integer, Numeric, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
+from sqlalchemy import String, Text
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.persistence_orm.base_model import Base, TimestampMixin, VersionMixin
@@ -38,7 +36,7 @@ class RoutingTable(Base, TimestampMixin, VersionMixin):
     updated_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
 
     # Relationships
-    steps: Mapped[list["RoutingStepTable"]] = relationship(
+    steps: Mapped[list[RoutingStepTable]] = relationship(
         "RoutingStepTable",
         back_populates="routing",
         cascade="all, delete-orphan",

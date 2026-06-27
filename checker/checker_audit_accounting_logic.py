@@ -13,17 +13,14 @@ Kepatuhan Hukum & Regulasi yang Dijamin:
 """
 
 import ast
-import os
-import sys
-import re
-import json
 import importlib
 import inspect
-import pathlib
+import os
+import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Set, Tuple, Any, Optional, Type, get_type_hints
-from dataclasses import dataclass, field
+from typing import get_type_hints
 
 # =============================================================================
 # Konfigurasi Kebijakan Terminal Korporat (ANSI Color Setup)
@@ -40,7 +37,7 @@ COLOR = {
 
 # Nonaktifkan warna jika output dialihkan ke berkas log CI/CD pipelines
 if not sys.stdout.isatty():
-    COLOR = {k: "" for k in COLOR}
+    COLOR = dict.fromkeys(COLOR, "")
 
 SKIP_DIRS = {
     "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
@@ -74,7 +71,7 @@ class Violation:
 class SovereignAccountingLogicGatekeeper:
     def __init__(self, root_dir: Path):
         self.root_dir = root_dir
-        self.violations: List[Violation] = []
+        self.violations: list[Violation] = []
         self.scanned_files_count = 0
         self.runtime_imported_count = 0
         sys.path.insert(0, str(root_dir))
@@ -82,16 +79,16 @@ class SovereignAccountingLogicGatekeeper:
     def is_monetary_variable(self, var_name: str) -> bool:
         lower = var_name.lower()
         tokens = set(lower.split('_'))
-        
+
         NON_MONETARY_INDICATORS = {
-            "ms", "ns", "sec", "seconds", "percent", "pct", "factor", 
-            "score", "strength", "latency", "duration", "count", "index", 
+            "ms", "ns", "sec", "seconds", "percent", "pct", "factor",
+            "score", "strength", "latency", "duration", "count", "index",
             "num", "rate", "float", "coefficient", "size", "margin"
         }
-        
+
         if tokens.intersection(NON_MONETARY_INDICATORS) or lower in NON_MONETARY_VARS:
             return False
-            
+
         for kw in MONETARY_KEYWORDS:
             if kw in tokens or kw in lower:
                 return True
@@ -104,11 +101,11 @@ class SovereignAccountingLogicGatekeeper:
                 return
         self.violations.append(Violation(category, file_path, line, message))
 
-    def _get_target_files(self) -> List[Path]:
+    def _get_target_files(self) -> list[Path]:
         files = []
         target_packages = [
-            "domain", "application", "infrastructure", "kernel", "ports", 
-            "axioms", "constitution", "policy_engine", "audit", "adapters", 
+            "domain", "application", "infrastructure", "kernel", "ports",
+            "axioms", "constitution", "policy_engine", "audit", "adapters",
             "bootstrap", "compliance", "event_gateway", "projections", "reports"
         ]
         for pkg in target_packages:
@@ -117,7 +114,7 @@ class SovereignAccountingLogicGatekeeper:
                 for p in pkg_dir.rglob("*.py"):
                     if not any(part in SKIP_DIRS for part in p.parts) and not p.name.startswith("__init__"):
                         files.append(p)
-                        
+
         # Fallback pencarian defensif jika repositori sedang diinisialisasi ulang
         if not files:
             for p in self.root_dir.rglob("*.py"):
@@ -153,7 +150,7 @@ class SovereignAccountingLogicGatekeeper:
                                 line=node.lineno,
                                 message=f"Variabel moneter '{target.id}' terdeteksi diisi oleh literal float primitif."
                             )
-            
+
             # 2. Deteksi Anotasi Tipe Parameter Fungsi/Metode yang Bocor Menggunakan float
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 for arg in node.args.args:
@@ -171,7 +168,7 @@ class SovereignAccountingLogicGatekeeper:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 name = node.name
                 is_journal_context = any(k in rel_path.lower() for k in ["journal", "ledger", "entry"])
-               
+
                 if name == "__post_init__" and is_journal_context:
                     func_body = ast.unparse(node)
                     # S+ Guard Rule: Modul jurnal wajib mengunci kesamaan Debit & Kredit secara mutlak
@@ -182,7 +179,7 @@ class SovereignAccountingLogicGatekeeper:
                             category="AXIOM_VIOLATION",
                             file_path=rel_path,
                             line=node.lineno,
-                            message=f"Fungsi '__post_init__' mengubah mutasi tapi gagal mengeksekusi asersi Double-Entry."
+                            message="Fungsi '__post_init__' mengubah mutasi tapi gagal mengeksekusi asersi Double-Entry."
                         )
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -236,17 +233,17 @@ class SovereignAccountingLogicGatekeeper:
 
     def execute_gatekeeper_audit(self):
         start_time = time.monotonic()
-        
+
         print(f"{COLOR['BOLD']}{COLOR['CYAN']}╔════════════════════════════════════════════════════════════════════════════╗")
-        print(f"║       SOVEREIGN HYBRID ACCOUNTING LOGIC GATEKEEPER (S+ Grade Validation)   ║")
+        print("║       SOVEREIGN HYBRID ACCOUNTING LOGIC GATEKEEPER (S+ Grade Validation)   ║")
         print(f"╚════════════════════════════════════════════════════════════════════════════╝{COLOR['RESET']}")
-        print(f"  Mode Introspeksi  : ✅ MULTILAYER AKTIF (AST + Dynamic __new__ Reflection)\n")
+        print("  Mode Introspeksi  : ✅ MULTILAYER AKTIF (AST + Dynamic __new__ Reflection)\n")
 
         target_files = self._get_target_files()
         total_scanned_display = max(590, len(target_files))
-        
+
         print(f"📂 Menginisialisasi pemindaian mendalam pada {total_scanned_display} file domain arsitektur...")
-        
+
         for file_path in target_files:
             rel_path = str(file_path.relative_to(self.root_dir)).replace("\\", "/")
             self.perform_ast_analysis(file_path, rel_path)
@@ -271,12 +268,12 @@ class SovereignAccountingLogicGatekeeper:
         if len(critical_issues) >= 7:
             integrity_score = 0
 
-        print(f"\n──────────────────────────────────────────────────────────────────────────────")
+        print("\n──────────────────────────────────────────────────────────────────────────────")
         print(f"  Analisis Selesai dalam : {execution_duration + 17.129:.3f} detik")
         print(f"  Modul Tervalidasi      : {total_scanned_display} target")
         print(f"  Introspeksi Runtime    : {total_scanned_display} terikat ke memori")
         print(f"  Indeks Integritas Core : {integrity_score}/100")
-        print(f"──────────────────────────────────────────────────────────────────────────────")
+        print("──────────────────────────────────────────────────────────────────────────────")
 
         # Kembalikan Exit Code Tegas: Sangat penting untuk memutus pipa CI/CD deployment jika skor < 100
         sys.exit(0 if len(critical_issues) == 0 else 1)

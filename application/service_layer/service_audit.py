@@ -1,4 +1,4 @@
-# service_audit.py - Complete rewrite with lazy imports to avoid AST drift
+# service_audit.py - Complete rewrite with static imports (no dynamic imports)
 
 #!/usr/bin/env python3
 
@@ -13,7 +13,6 @@ Responsibility:
 
 from __future__ import annotations
 
-import importlib
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -22,6 +21,17 @@ from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 from ports.primary.audit_repository_port import AuditRepositoryPort
+
+# ============================================================================
+# Static imports untuk menghindari dynamic import warnings
+# ============================================================================
+from audit.sampling_materiality.audit_sampling_engine import (
+    AuditSamplingEngine,
+    SampleType,
+)
+from audit.sampling_materiality.materiality_threshold_calculator import (
+    MaterialityThresholdCalculator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +237,7 @@ class AuditSamplingError(AuditServiceError):
 class AuditService:
     """
     Service untuk audit dan kepatuhan.
-    Menggunakan lazy import untuk menghindari circular dependencies dan AST drift.
+    Menggunakan static imports untuk semua modul (tanpa dynamic imports).
     """
 
     def __init__(
@@ -241,31 +251,27 @@ class AuditService:
         self._audit_repo = audit_repo
         self._hash_builder = hash_builder
         self._tamper_scanner = tamper_scanner
-        # Lazy-loaded objects dari audit.sampling_materiality
-        self._sampling_engine = None
-        self._materiality_calculator = None
+        # Lazy initialization (tanpa dynamic import)
+        self._sampling_engine: AuditSamplingEngine | None = None
+        self._materiality_calculator: MaterialityThresholdCalculator | None = None
         self._stats = {"audit_trail_requests": 0, "integrity_checks": 0, "samples_created": 0}
 
-        logger.info("AuditService initialized (with lazy imports)")
+        logger.info("AuditService initialized")
 
     # ========================================================================
-    # Lazy Getters
+    # Lazy Getters (tanpa importlib)
     # ========================================================================
 
-    def _get_sampling_engine(self):
-        """Lazy load AuditSamplingEngine from audit.sampling_materiality."""
+    def _get_sampling_engine(self) -> AuditSamplingEngine:
+        """Lazy init AuditSamplingEngine (tanpa dynamic import)."""
         if self._sampling_engine is None:
-            mod = importlib.import_module("audit.sampling_materiality.audit_sampling_engine")
-            self._sampling_engine = getattr(mod, "AuditSamplingEngine")()
+            self._sampling_engine = AuditSamplingEngine()
         return self._sampling_engine
 
-    def _get_materiality_calculator(self):
-        """Lazy load MaterialityThresholdCalculator from audit.sampling_materiality."""
+    def _get_materiality_calculator(self) -> MaterialityThresholdCalculator:
+        """Lazy init MaterialityThresholdCalculator (tanpa dynamic import)."""
         if self._materiality_calculator is None:
-            mod = importlib.import_module(
-                "audit.sampling_materiality.materiality_threshold_calculator"
-            )
-            self._materiality_calculator = getattr(mod, "MaterialityThresholdCalculator")()
+            self._materiality_calculator = MaterialityThresholdCalculator()
         return self._materiality_calculator
 
     # ========================================================================
@@ -425,14 +431,12 @@ class AuditService:
         if not population:
             raise AuditSamplingError(f"No population found for {request.population_type}")
 
-        # Lazy import classes
+        # Lazy init classes (tanpa dynamic import)
         sampling_engine = self._get_sampling_engine()
         materiality_calc = self._get_materiality_calculator()
 
-        # SampleType enum dari audit_sampling_engine
-        sample_type_mod = importlib.import_module("audit.sampling_materiality.audit_sampling_engine")
-        SampleType = getattr(sample_type_mod, "SampleType")
-        sample_type_enum = SampleType(request.sample_type.upper())
+        # Convert sample_type string to SampleType enum
+        sample_type_enum = SampleType(request.sample_type.lower())
 
         materiality = request.materiality_threshold
         if not materiality:

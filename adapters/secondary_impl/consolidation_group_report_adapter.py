@@ -8,7 +8,7 @@ Adapter untuk menghasilkan laporan konsolidasi grup perusahaan.
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from infrastructure.telemetry.structured_json_logging import get_logger
@@ -23,7 +23,7 @@ class ConsolidationGroupReportAdapter(ConsolidationGroupReportPort):
     Menerima service melalui konstruktor (dependency injection).
     """
 
-    def __init__(self, consolidation_service: Optional[Any] = None):
+    def __init__(self, consolidation_service: Any | None = None):
         """
         Args:
             consolidation_service: Instance service konsolidasi (dari application layer).

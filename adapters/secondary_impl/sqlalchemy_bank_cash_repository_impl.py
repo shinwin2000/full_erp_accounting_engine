@@ -7,17 +7,6 @@ Responsibility: Implementasi repository untuk Bank & Cash Management menggunakan
                cash book, petty cash fund, bank transactions, bank reconciliation,
                dan cash flow tracking. Mendukung multiple currency, soft delete,
                dan optimistic locking untuk bank account master.
-Dependencies:
-- sqlalchemy.ext.asyncio (AsyncSession)
-- sqlalchemy import select, update, func, and_, or_
-- ports.primary.bank_cash_repository_port (BankCashRepositoryPort)
-- domain.bank_cash.bank_aggregate_root (BankAccountAggregate, BankTransaction)
-- infrastructure.persistence_orm.bank_account_table, bank_transaction_table
-- infrastructure.persistence_orm.cash_book_table, petty_cash_fund_table
-- infrastructure.persistence_orm.bank_reconciliation_table
-- domain.shared_value_objects.money_vo (Money)
-Audit: Setiap transaksi bank/kas (deposit, withdrawal, transfer, reconciliation)
-       dicatat di event store. Saldo akhir setelah transaksi diverifikasi.
 """
 
 from __future__ import annotations
@@ -25,7 +14,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, case, func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -52,7 +41,7 @@ from infrastructure.persistence_orm.cash_book_table import CashBookTable
 from infrastructure.persistence_orm.petty_cash_fund_table import PettyCashFundTable
 
 # Ports
-from ports.primary.bank_cash_repository_port import BankCashRepositoryPort
+from ports.primary.bank_cash_repository_port import BankAccountRepositoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -69,43 +58,36 @@ DEFAULT_CURRENCY = "IDR"
 
 class BankCashRepositoryError(Exception):
     """Base exception untuk repository bank & cash."""
-
     pass
 
 
 class DuplicateAccountNumberError(BankCashRepositoryError):
     """Nomor rekening sudah ada."""
-
     pass
 
 
 class BankAccountNotFoundError(BankCashRepositoryError):
     """Rekening bank tidak ditemukan."""
-
     pass
 
 
 class CashBookNotFoundError(BankCashRepositoryError):
     """Cash book tidak ditemukan."""
-
     pass
 
 
 class InsufficientBalanceError(BankCashRepositoryError):
     """Saldo tidak mencukupi untuk transaksi."""
-
     pass
 
 
 class ReconciliationNotFoundError(BankCashRepositoryError):
     """Rekonsiliasi tidak ditemukan."""
-
     pass
 
 
 class OptimisticLockError(BankCashRepositoryError):
     """Version mismatch saat update."""
-
     pass
 
 
@@ -114,15 +96,15 @@ class OptimisticLockError(BankCashRepositoryError):
 # ============================================================================
 
 
-class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
+class SQLAlchemyBankAccountRepository(BankAccountRepositoryPort):
     """
     Implementasi repository Bank & Cash dengan SQLAlchemy.
+    Mengimplementasi BankAccountRepositoryPort.
     """
 
     def __init__(self, session: AsyncSession | None = None):
         self._session = None
         if session is not None:
-            # Accept either an AsyncSession or a UoW with a session attribute
             if hasattr(session, "session"):
                 self._session = session.session
             else:
@@ -143,9 +125,6 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
     # ========================================================================
 
     def _to_domain_bank_account(self, table: BankAccountTable) -> BankAccountAggregate:
-        """
-        Mapping dari ORM model ke domain BankAccountAggregate.
-        """
         status_map = {
             "active": BankAccountStatus.ACTIVE,
             "inactive": BankAccountStatus.INACTIVE,
@@ -153,7 +132,7 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             "closed": BankAccountStatus.CLOSED,
         }
 
-        aggregate = BankAccountAggregate(
+        return BankAccountAggregate(
             id=table.id,
             account_number=table.account_number,
             bank_name=table.bank_name,
@@ -176,15 +155,13 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             version=table.version,
             legal_entity_id=table.legal_entity_id,
         )
-        return aggregate
 
     async def _to_orm_bank_account(self, aggregate: BankAccountAggregate) -> BankAccountTable:
-        """Mapping dari domain ke ORM bank account."""
         status_str = (
             aggregate.status.value if hasattr(aggregate.status, "value") else str(aggregate.status)
         )
 
-        table = BankAccountTable(
+        return BankAccountTable(
             id=aggregate.id,
             account_number=aggregate.account_number,
             bank_name=aggregate.bank_name,
@@ -207,14 +184,12 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             version=aggregate.version,
             legal_entity_id=aggregate.legal_entity_id,
         )
-        return table
 
     # ========================================================================
     # HELPER MAPPING METHODS - BANK TRANSACTION
     # ========================================================================
 
     def _to_domain_transaction(self, table: BankTransactionTable) -> BankTransaction:
-        """Mapping ORM transaction ke domain."""
         type_map = {
             "deposit": BankTransactionType.DEPOSIT,
             "withdrawal": BankTransactionType.WITHDRAWAL,
@@ -244,7 +219,6 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
         )
 
     async def _to_orm_transaction(self, transaction: BankTransaction) -> BankTransactionTable:
-        """Mapping domain transaction ke ORM."""
         type_str = (
             transaction.transaction_type.value
             if hasattr(transaction.transaction_type, "value")
@@ -276,7 +250,6 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
     # ========================================================================
 
     def _to_domain_cash_book(self, table: CashBookTable) -> CashBookAggregate:
-        """Mapping ORM cash book ke domain."""
         return CashBookAggregate(
             id=table.id,
             legal_entity_id=table.legal_entity_id,
@@ -293,15 +266,11 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
         )
 
     # ========================================================================
-    # BANK ACCOUNT METHODS
+    # BANK ACCOUNT METHODS (Implementasi Internal)
     # ========================================================================
 
     async def add_bank_account(self, account: BankAccountAggregate) -> None:
-        """
-        Menambahkan rekening bank baru.
-        """
         try:
-            # Cek duplikasi account number
             exists = await self.exists_by_account_number(
                 account.account_number, account.legal_entity_id
             )
@@ -313,11 +282,7 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             table = await self._to_orm_bank_account(account)
             self.session.add(table)
             await self.session.flush()
-            logger.info(
-                "Bank account added: %s - %s",
-                account.account_number,
-                account.bank_name
-            )
+            logger.info("Bank account added: %s - %s", account.account_number, account.bank_name)
 
         except DuplicateAccountNumberError:
             raise
@@ -326,30 +291,25 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             raise BankCashRepositoryError(f"Integrity error: {e}") from e
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to add bank account: %s", e)
             raise BankCashRepositoryError(f"Failed to add bank account: {e}") from e
 
     async def get_bank_account_by_id(self, account_id: UUID) -> BankAccountAggregate | None:
-        """Mengambil rekening bank berdasarkan ID."""
         try:
             stmt = select(BankAccountTable).where(
                 BankAccountTable.id == account_id, BankAccountTable.deleted_at.is_(None)
             )
             result = await self.session.execute(stmt)
             table = result.scalar_one_or_none()
-
             if not table:
                 return None
             return self._to_domain_bank_account(table)
 
         except Exception as e:
-            logger.error("Failed to get bank account by id %s: %s", account_id, e)
             raise BankCashRepositoryError(f"Failed to get bank account: {e}") from e
 
     async def get_bank_account_by_number(
         self, account_number: str, legal_entity_id: UUID
     ) -> BankAccountAggregate | None:
-        """Mengambil rekening bank berdasarkan nomor rekening."""
         try:
             stmt = select(BankAccountTable).where(
                 BankAccountTable.account_number == account_number,
@@ -358,19 +318,15 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             )
             result = await self.session.execute(stmt)
             table = result.scalar_one_or_none()
-
             if not table:
                 return None
             return self._to_domain_bank_account(table)
 
         except Exception as e:
-            logger.error("Failed to get bank account by number %s: %s", account_number, e)
             raise BankCashRepositoryError(f"Failed to get bank account: {e}") from e
 
     async def update_bank_account(self, account: BankAccountAggregate) -> None:
-        """Memperbarui rekening bank."""
         try:
-            # Get current version
             stmt = select(BankAccountTable.version).where(BankAccountTable.id == account.id)
             result = await self.session.execute(stmt)
             current_version = result.scalar_one_or_none()
@@ -391,15 +347,13 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             await self.session.flush()
             logger.info("Bank account updated: %s", account.account_number)
 
-        except OptimisticLockError:
+        except (OptimisticLockError, BankAccountNotFoundError):
             raise
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to update bank account %s: %s", account.id, e)
             raise BankCashRepositoryError(f"Failed to update bank account: {e}") from e
 
     async def delete_bank_account(self, account_id: UUID) -> bool:
-        """Soft delete rekening bank."""
         try:
             stmt = (
                 update(BankAccountTable)
@@ -412,13 +366,11 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
 
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to delete bank account %s: %s", account_id, e)
             raise BankCashRepositoryError(f"Failed to delete bank account: {e}") from e
 
     async def list_bank_accounts(
         self, legal_entity_id: UUID, is_active: bool | None = True
     ) -> list[BankAccountAggregate]:
-        """List semua rekening bank untuk entitas hukum."""
         try:
             conditions = [
                 BankAccountTable.legal_entity_id == legal_entity_id,
@@ -434,17 +386,14 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             )
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
-
             return [self._to_domain_bank_account(table) for table in tables]
 
         except Exception as e:
-            logger.error("Failed to list bank accounts: %s", e)
             raise BankCashRepositoryError(f"Failed to list bank accounts: {e}") from e
 
     async def update_bank_balance(
         self, account_id: UUID, new_balance: Decimal, new_available_balance: Decimal, version: int
     ) -> None:
-        """Update saldo rekening bank."""
         try:
             stmt = (
                 update(BankAccountTable)
@@ -459,9 +408,7 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             result = await self.session.execute(stmt)
 
             if result.rowcount == 0:
-                raise OptimisticLockError(
-                    f"Failed to update balance for account {account_id}"
-                )
+                raise OptimisticLockError(f"Failed to update balance for account {account_id}")
 
             await self.session.flush()
 
@@ -469,11 +416,9 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             raise
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to update bank balance: %s", e)
             raise BankCashRepositoryError(f"Failed to update balance: {e}") from e
 
     async def exists_by_account_number(self, account_number: str, legal_entity_id: UUID) -> bool:
-        """Check apakah nomor rekening sudah ada."""
         try:
             stmt = (
                 select(func.count())
@@ -489,15 +434,13 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             return count > 0
 
         except Exception as e:
-            logger.error("Failed to check account number %s: %s", account_number, e)
             raise BankCashRepositoryError(f"Failed to check account number: {e}") from e
 
     # ========================================================================
-    # BANK TRANSACTION METHODS
+    # BANK TRANSACTION METHODS (Implementasi Internal)
     # ========================================================================
 
     async def add_bank_transaction(self, transaction: BankTransaction) -> None:
-        """Menambahkan transaksi bank baru."""
         try:
             table = await self._to_orm_transaction(transaction)
             self.session.add(table)
@@ -506,22 +449,18 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
 
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to add bank transaction: %s", e)
             raise BankCashRepositoryError(f"Failed to add bank transaction: {e}") from e
 
     async def get_bank_transaction_by_id(self, transaction_id: UUID) -> BankTransaction | None:
-        """Mengambil transaksi bank berdasarkan ID."""
         try:
             stmt = select(BankTransactionTable).where(BankTransactionTable.id == transaction_id)
             result = await self.session.execute(stmt)
             table = result.scalar_one_or_none()
-
             if not table:
                 return None
             return self._to_domain_transaction(table)
 
         except Exception as e:
-            logger.error("Failed to get bank transaction by id %s: %s", transaction_id, e)
             raise BankCashRepositoryError(f"Failed to get transaction: {e}") from e
 
     async def get_bank_transactions_by_account(
@@ -532,7 +471,6 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
         is_reconciled: bool | None = None,
         limit: int = 100,
     ) -> list[BankTransaction]:
-        """Mendapatkan transaksi bank untuk suatu rekening."""
         try:
             conditions = [BankTransactionTable.bank_account_id == bank_account_id]
             if start_date:
@@ -551,19 +489,12 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
 
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
-
             return [self._to_domain_transaction(table) for table in tables]
 
         except Exception as e:
-            logger.error(
-                "Failed to get bank transactions for account %s: %s",
-                bank_account_id,
-                e
-            )
             raise BankCashRepositoryError(f"Failed to get transactions: {e}") from e
 
     async def get_balance_before_date(self, bank_account_id: UUID, as_of_date: date) -> Decimal:
-        """Mendapatkan saldo sebelum tanggal tertentu."""
         try:
             stmt = select(
                 func.coalesce(
@@ -589,7 +520,6 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             result = await self.session.execute(stmt)
             balance = result.scalar() or 0
 
-            # Add opening balance
             account_stmt = select(BankAccountTable.opening_balance).where(
                 BankAccountTable.id == bank_account_id
             )
@@ -599,13 +529,11 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             return Decimal(str(opening_balance)) + Decimal(str(balance))
 
         except Exception as e:
-            logger.error("Failed to get balance before date: %s", e)
             raise BankCashRepositoryError(f"Failed to get balance: {e}") from e
 
     async def mark_transaction_as_reconciled(
         self, transaction_id: UUID, reconciliation_id: UUID
     ) -> None:
-        """Menandai transaksi sebagai sudah direkonsiliasi."""
         try:
             stmt = (
                 update(BankTransactionTable)
@@ -620,15 +548,13 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             await self.session.flush()
 
         except Exception as e:
-            logger.error("Failed to mark transaction as reconciled: %s", e)
             raise BankCashRepositoryError(f"Failed to mark transaction: {e}") from e
 
     # ========================================================================
-    # BANK RECONCILIATION METHODS
+    # BANK RECONCILIATION METHODS (Implementasi Internal)
     # ========================================================================
 
     async def add_reconciliation(self, reconciliation: BankReconciliation) -> UUID:
-        """Menambahkan record rekonsiliasi bank."""
         try:
             table = BankReconciliationTable(
                 id=reconciliation.id,
@@ -648,7 +574,6 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             self.session.add(table)
             await self.session.flush()
 
-            # Update bank account last reconciliation date
             stmt = (
                 update(BankAccountTable)
                 .where(BankAccountTable.id == reconciliation.bank_account_id)
@@ -661,21 +586,16 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             await self.session.execute(stmt)
             await self.session.flush()
 
-            logger.info(
-                "Bank reconciliation added for account %s",
-                reconciliation.bank_account_id
-            )
+            logger.info("Bank reconciliation added for account %s", reconciliation.bank_account_id)
             return reconciliation.id
 
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to add reconciliation: %s", e)
             raise BankCashRepositoryError(f"Failed to add reconciliation: {e}") from e
 
     async def get_reconciliation_history(
         self, bank_account_id: UUID, limit: int = 12
     ) -> list[BankReconciliation]:
-        """Mendapatkan history rekonsiliasi bank."""
         try:
             stmt = (
                 select(BankReconciliationTable)
@@ -712,15 +632,13 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             return reconciliations
 
         except Exception as e:
-            logger.error("Failed to get reconciliation history: %s", e)
             raise BankCashRepositoryError(f"Failed to get history: {e}") from e
 
     # ========================================================================
-    # CASH BOOK METHODS
+    # CASH BOOK METHODS (Implementasi Internal)
     # ========================================================================
 
     async def add_cash_book(self, cash_book: CashBookAggregate) -> UUID:
-        """Menambahkan cash book baru."""
         try:
             table = CashBookTable(
                 id=cash_book.id,
@@ -738,21 +656,16 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             )
             self.session.add(table)
             await self.session.flush()
-            logger.info(
-                "Cash book added for legal entity %s",
-                cash_book.legal_entity_id
-            )
+            logger.info("Cash book added for legal entity %s", cash_book.legal_entity_id)
             return cash_book.id
 
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to add cash book: %s", e)
             raise BankCashRepositoryError(f"Failed to add cash book: {e}") from e
 
     async def get_cash_book(
         self, legal_entity_id: UUID, currency_code: str = DEFAULT_CURRENCY
     ) -> CashBookAggregate | None:
-        """Mendapatkan cash book untuk entitas hukum dan mata uang."""
         try:
             stmt = select(CashBookTable).where(
                 CashBookTable.legal_entity_id == legal_entity_id,
@@ -760,19 +673,16 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             )
             result = await self.session.execute(stmt)
             table = result.scalar_one_or_none()
-
             if not table:
                 return None
             return self._to_domain_cash_book(table)
 
         except Exception as e:
-            logger.error("Failed to get cash book: %s", e)
             raise BankCashRepositoryError(f"Failed to get cash book: {e}") from e
 
     async def update_cash_balance(
         self, cash_book_id: UUID, new_balance: Decimal, version: int
     ) -> None:
-        """Update saldo cash book."""
         try:
             stmt = (
                 update(CashBookTable)
@@ -784,9 +694,7 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             result = await self.session.execute(stmt)
 
             if result.rowcount == 0:
-                raise OptimisticLockError(
-                    f"Failed to update cash balance for {cash_book_id}"
-                )
+                raise OptimisticLockError(f"Failed to update cash balance for {cash_book_id}")
 
             await self.session.flush()
 
@@ -794,15 +702,13 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             raise
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to update cash balance: %s", e)
             raise BankCashRepositoryError(f"Failed to update cash balance: {e}") from e
 
     # ========================================================================
-    # PETTY CASH FUND METHODS
+    # PETTY CASH FUND METHODS (Implementasi Internal)
     # ========================================================================
 
     async def add_petty_cash_fund(self, fund: PettyCashFund) -> UUID:
-        """Menambahkan petty cash fund baru."""
         try:
             table = PettyCashFundTable(
                 id=fund.id,
@@ -827,11 +733,9 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
 
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to add petty cash fund: %s", e)
             raise BankCashRepositoryError(f"Failed to add petty cash fund: {e}") from e
 
     async def get_petty_cash_funds(self, legal_entity_id: UUID) -> list[PettyCashFund]:
-        """Mendapatkan semua petty cash fund untuk entitas hukum."""
         try:
             stmt = select(PettyCashFundTable).where(
                 PettyCashFundTable.legal_entity_id == legal_entity_id
@@ -869,13 +773,11 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             return funds
 
         except Exception as e:
-            logger.error("Failed to get petty cash funds: %s", e)
             raise BankCashRepositoryError(f"Failed to get petty cash funds: {e}") from e
 
     async def update_petty_cash_balance(
         self, fund_id: UUID, new_balance: Decimal, version: int
     ) -> None:
-        """Update saldo petty cash fund."""
         try:
             stmt = (
                 update(PettyCashFundTable)
@@ -887,9 +789,7 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             result = await self.session.execute(stmt)
 
             if result.rowcount == 0:
-                raise OptimisticLockError(
-                    f"Failed to update petty cash balance for {fund_id}"
-                )
+                raise OptimisticLockError(f"Failed to update petty cash balance for {fund_id}")
 
             await self.session.flush()
 
@@ -897,7 +797,6 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             raise
         except Exception as e:
             await self.session.rollback()
-            logger.error("Failed to update petty cash balance: %s", e)
             raise BankCashRepositoryError(f"Failed to update balance: {e}") from e
 
     # ========================================================================
@@ -905,12 +804,10 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
     # ========================================================================
 
     async def get_next_transaction_number(self, prefix: str = "TRX", year: int = None) -> str:
-        """Generate transaction number berikutnya."""
         if year is None:
             year = date.today().year
 
         try:
-            # Use func.concat to avoid f-string interpolation in SQL
             pattern = func.concat(prefix, '-', year, '-%')
             stmt = (
                 select(BankTransactionTable.transaction_number)
@@ -930,15 +827,119 @@ class SQLAlchemyBankCashRepository(BankCashRepositoryPort):
             return f"{prefix}-{year}-{seq:06d}"
 
         except Exception as e:
-            logger.error("Failed to generate transaction number: %s", e)
             raise BankCashRepositoryError(f"Failed to generate number: {e}") from e
 
+    # ========================================================================
+    # FORWARDING METHODS UNTUK BANKACCOUNTREPOSITORYPORT (INTERFACE)
+    # ========================================================================
+
+    async def add(self, bank_account: BankAccountAggregate) -> None:
+        """Forward ke add_bank_account."""
+        await self.add_bank_account(bank_account)
+
+    async def get_by_id(self, account_id: UUID) -> BankAccountAggregate | None:
+        """Forward ke get_bank_account_by_id."""
+        return await self.get_bank_account_by_id(account_id)
+
+    async def get_by_account_number(self, account_number: str, bank_code: str) -> BankAccountAggregate | None:
+        """Forward ke get_bank_account_by_number dengan bank_code."""
+        try:
+            stmt = select(BankAccountTable).where(
+                BankAccountTable.account_number == account_number,
+                BankAccountTable.bank_code == bank_code,
+                BankAccountTable.deleted_at.is_(None),
+            )
+            result = await self.session.execute(stmt)
+            table = result.scalar_one_or_none()
+            if not table:
+                return None
+            return self._to_domain_bank_account(table)
+        except Exception as e:
+            logger.error("Failed to get bank account by number: %s", e)
+            return None
+
+    async def update(self, bank_account: BankAccountAggregate) -> None:
+        """Forward ke update_bank_account."""
+        await self.update_bank_account(bank_account)
+
+    async def delete(self, account_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
+        """Forward ke delete_bank_account."""
+        return await self.delete_bank_account(account_id)
+
+    async def find_by_legal_entity(self, legal_entity_id: UUID) -> list[BankAccountAggregate]:
+        """Forward ke list_bank_accounts."""
+        return await self.list_bank_accounts(legal_entity_id)
+
+    async def get_balance(self, bank_account_id: UUID, as_of_date: date) -> Decimal:
+        """Forward ke get_balance_before_date."""
+        return await self.get_balance_before_date(bank_account_id, as_of_date)
+
+    async def record_transaction(self, transaction: BankTransaction) -> None:
+        """Forward ke add_bank_transaction."""
+        await self.add_bank_transaction(transaction)
+
+    async def get_transactions(
+        self, bank_account_id: UUID, start_date: date, end_date: date
+    ) -> list[BankTransaction]:
+        """Forward ke get_bank_transactions_by_account."""
+        return await self.get_bank_transactions_by_account(
+            bank_account_id, start_date, end_date, limit=1000
+        )
+
+    async def reconcile(
+        self,
+        bank_account_id: UUID,
+        statement_date: date,
+        statement_balance: Decimal,
+        user_id: UUID,
+        journal_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        """Forward ke add_reconciliation dengan return dict."""
+        reconciliation = BankReconciliation(
+            id=uuid4(),
+            bank_account_id=bank_account_id,
+            statement_date=statement_date,
+            book_balance=Money(amount=Decimal(0), currency=DEFAULT_CURRENCY),
+            statement_balance=Money(amount=statement_balance, currency=DEFAULT_CURRENCY),
+            difference=Money(amount=Decimal(0), currency=DEFAULT_CURRENCY),
+            matched_count=0,
+            unmatched_book=[],
+            unmatched_statement=[],
+            adjustment_journal_id=journal_id,
+            status="completed",
+            created_by=user_id,
+            created_at=datetime.utcnow(),
+        )
+        reconciliation_id = await self.add_reconciliation(reconciliation)
+        return {
+            "account_id": str(bank_account_id),
+            "statement_date": statement_date.isoformat(),
+            "statement_balance": float(statement_balance),
+            "system_balance": 0.0,
+            "difference": 0.0,
+            "transactions_reconciled": 0,
+            "reconciliation_id": str(reconciliation_id),
+        }
+
+    async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
+        """Get statistics untuk bank account."""
+        accounts = await self.list_bank_accounts(legal_entity_id)
+        total_balance = sum(acc.current_balance.amount for acc in accounts)
+        return {
+            "total_accounts": len(accounts),
+            "total_balance": float(total_balance),
+            "active_accounts": sum(1 for acc in accounts if acc.is_active),
+            "by_currency": {},
+            "by_type": {},
+        }
+
 
 # ============================================================================
-# ALIAS FOR TEST COMPATIBILITY (lowercase 'l')
+# ALIAS FOR BACKWARD COMPATIBILITY
 # ============================================================================
 
-SqlAlchemyBankCashRepository = SQLAlchemyBankCashRepository
+SQLAlchemyBankCashRepository = SQLAlchemyBankAccountRepository
+SqlAlchemyBankCashRepository = SQLAlchemyBankAccountRepository
 
 
 # ============================================================================
@@ -953,6 +954,7 @@ __all__ = [
     "InsufficientBalanceError",
     "OptimisticLockError",
     "ReconciliationNotFoundError",
+    "SQLAlchemyBankAccountRepository",
     "SQLAlchemyBankCashRepository",
     "SqlAlchemyBankCashRepository",
 ]

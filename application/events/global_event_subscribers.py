@@ -121,8 +121,8 @@ def register_all_subscribers(registry=None) -> None:
 # Tidak ada auto-registrasi di sini.
 
 __all__ = [
-    "handle_any_event",
     "handle_account_reactivated_event",
+    "handle_any_event",
     "handle_bank_account_updated_event",
     "handle_dividend_paid_event",
     "handle_faktur_rejected_event",
@@ -132,6 +132,6 @@ __all__ = [
     "handle_role_revoked_event",
     "handle_time_entry_approved_event",
     "handle_work_order_completed_event",
-    "register_global_subscribers",
     "register_all_subscribers",
+    "register_global_subscribers",
 ]

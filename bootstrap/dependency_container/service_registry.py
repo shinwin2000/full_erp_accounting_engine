@@ -145,19 +145,19 @@ class ServiceRegistrar:
 
         # ==================== APPLICATION SERVICES ====================
         try:
+            from application.service_layer.service_ap import APService
+            from application.service_layer.service_ar import ARService
+            from application.service_layer.service_bank_cash import BankCashService
             from application.service_layer.service_coa import COAService
+            from application.service_layer.service_coretax import CoretaxService
+            from application.service_layer.service_fixed_asset import FixedAssetService
+            from application.service_layer.service_inventory import InventoryService
             from application.service_layer.service_journal import JournalService
             from application.service_layer.service_ledger import LedgerService
-            from application.service_layer.service_ar import ARService
-            from application.service_layer.service_ap import APService
-            from application.service_layer.service_inventory import InventoryService
-            from application.service_layer.service_fixed_asset import FixedAssetService
-            from application.service_layer.service_bank_cash import BankCashService
-            from application.service_layer.service_tax import TaxService
-            from application.service_layer.service_coretax import CoretaxService
-            from application.service_layer.service_payroll import PayrollService
             from application.service_layer.service_manufacturing import ManufacturingService
+            from application.service_layer.service_payroll import PayrollService
             from application.service_layer.service_report import ReportService
+            from application.service_layer.service_tax import TaxService
 
             container.register_singleton(COAService, COAService)
             container.register_singleton(JournalService, JournalService)
@@ -190,8 +190,8 @@ class ServiceRegistrar:
         # ==================== KERNEL SINGLETONS ====================
         try:
             gate_mod = importlib.import_module("kernel.sealed_gate")
-            SealedGate = getattr(gate_mod, "SealedGate")
-            get_sealed_gate = getattr(gate_mod, "get_sealed_gate")
+            SealedGate = gate_mod.SealedGate
+            get_sealed_gate = gate_mod.get_sealed_gate
             container.register_singleton(SealedGate, factory=get_sealed_gate)
             logger.info("Kernel singletons registered")
         except ImportError as e:
@@ -212,7 +212,7 @@ class ServiceRegistrar:
 
         try:
             gate_mod = importlib.import_module("event_gateway.event_gate_singleton")
-            get_event_gate = getattr(gate_mod, "get_event_gate")
+            get_event_gate = gate_mod.get_event_gate
             container.register_singleton("EventGate", factory=get_event_gate)
         except ImportError:
             pass

@@ -187,7 +187,7 @@ class KPIThresholdAlerter:
     def _get_load_yaml_config():
         """Lazy import load_yaml_config from config.loader_yaml."""
         mod = importlib.import_module("config.loader_yaml")
-        return getattr(mod, "load_yaml_config")
+        return mod.load_yaml_config
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:

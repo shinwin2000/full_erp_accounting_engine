@@ -21,10 +21,8 @@ import argparse
 import ast
 import json
 import pathlib
-import re
 import sys
 from dataclasses import dataclass, field
-from typing import List, Set, Optional
 
 # Warna
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
@@ -64,13 +62,13 @@ class Finding:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: int = 100
 
 # ----------------------------------------------------------------------
 # 1. Deteksi float type hint untuk field moneter
 # ----------------------------------------------------------------------
-def detect_float_type_hint(file_path: pathlib.Path) -> List[Finding]:
+def detect_float_type_hint(file_path: pathlib.Path) -> list[Finding]:
     """Cari type hint : float pada field moneter."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -116,7 +114,7 @@ def detect_float_type_hint(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 2. Deteksi float() casting pada nilai moneter
 # ----------------------------------------------------------------------
-def detect_float_cast(file_path: pathlib.Path) -> List[Finding]:
+def detect_float_cast(file_path: pathlib.Path) -> list[Finding]:
     """Cari pemanggilan float() pada variabel yang berisi nilai moneter."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -159,7 +157,7 @@ def detect_float_cast(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 3. Deteksi operasi aritmatika float pada nilai moneter
 # ----------------------------------------------------------------------
-def detect_float_arithmetic(file_path: pathlib.Path) -> List[Finding]:
+def detect_float_arithmetic(file_path: pathlib.Path) -> list[Finding]:
     """Cari operasi +, -, *, / pada variabel moneter (tanpa Decimal)."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -213,7 +211,7 @@ def detect_float_arithmetic(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 4. Deteksi penggunaan round() pada nilai moneter
 # ----------------------------------------------------------------------
-def detect_rounding(file_path: pathlib.Path) -> List[Finding]:
+def detect_rounding(file_path: pathlib.Path) -> list[Finding]:
     """Cari penggunaan round() pada nilai moneter."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -244,7 +242,7 @@ def detect_rounding(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 5. Deteksi field assignment langsung dengan float
 # ----------------------------------------------------------------------
-def detect_float_assignment(file_path: pathlib.Path) -> List[Finding]:
+def detect_float_assignment(file_path: pathlib.Path) -> list[Finding]:
     """Cari assignment nilai float ke field moneter."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")

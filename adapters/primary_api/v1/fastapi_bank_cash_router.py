@@ -2886,7 +2886,7 @@ class CashFlowRepositoryAdapter(CashFlowRepositoryPort):
 # ============================================================================
 
 __all__ = [
-    "router",
     "CashBookRepositoryAdapter",
     "CashFlowRepositoryAdapter",
+    "router",
 ]

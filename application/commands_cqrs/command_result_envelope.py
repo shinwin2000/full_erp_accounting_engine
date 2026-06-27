@@ -529,8 +529,8 @@ CommandResultEnvelope = CommandResult
 
 __all__ = [
     "CommandResult",
-    "CommandResultEnvelope",  
     "CommandResultBatch",
+    "CommandResultEnvelope",
     "CommandStatus",
     "combine_results",
     "result_from_exception",

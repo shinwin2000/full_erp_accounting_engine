@@ -119,39 +119,39 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # RELATIONSHIPS
     # =========================================================================
 
-    supplier: Mapped["SupplierTable"] = relationship(
+    supplier: Mapped[SupplierTable] = relationship(
         "SupplierTable",
         back_populates="ap_invoices",
         foreign_keys=[vendor_id],
     )
 
-    purchase_order: Mapped["PurchaseOrderTable | None"] = relationship(
+    purchase_order: Mapped[PurchaseOrderTable | None] = relationship(
         "PurchaseOrderTable",
         back_populates="invoices",
         foreign_keys=[purchase_order_id],
     )
 
-    goods_receipt_note: Mapped["GoodsReceiptNoteTable | None"] = relationship(
+    goods_receipt_note: Mapped[GoodsReceiptNoteTable | None] = relationship(
         "GoodsReceiptNoteTable",
         back_populates="ap_invoices",
         foreign_keys=[goods_receipt_note_id],
     )
 
-    lines: Mapped[list["APInvoiceLineTable"]] = relationship(
+    lines: Mapped[list[APInvoiceLineTable]] = relationship(
         "APInvoiceLineTable",
         back_populates="invoice",
         cascade="all, delete-orphan",
         order_by="APInvoiceLineTable.line_number",
     )
 
-    payments: Mapped[list["APPaymentTable"]] = relationship(
+    payments: Mapped[list[APPaymentTable]] = relationship(
         "APPaymentTable",
         back_populates="invoice",
         foreign_keys="[APPaymentTable.invoice_id]",
         cascade="all, delete-orphan",
     )
 
-    credit_notes: Mapped[list["APCreditNoteTable"]] = relationship(
+    credit_notes: Mapped[list[APCreditNoteTable]] = relationship(
         "APCreditNoteTable",
         back_populates="invoice",
         foreign_keys="[APCreditNoteTable.invoice_id]",
@@ -161,7 +161,7 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     # =========================================================================
     # Bupots (Coretax) � ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
     # =========================================================================
-    bupots: Mapped[list["CoretaxBupotTable"]] = relationship(
+    bupots: Mapped[list[CoretaxBupotTable]] = relationship(
         "CoretaxBupotTable",
         back_populates="purchase_invoice",
         foreign_keys="[CoretaxBupotTable.purchase_invoice_id]",

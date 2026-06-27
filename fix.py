@@ -8,14 +8,13 @@ Membuat application/events/all_event_handlers.py dengan handler untuk setiap eve
 import ast
 import sys
 from pathlib import Path
-from typing import Dict
 
 ROOT = Path(__file__).resolve().parent
 DOMAIN_DIR = ROOT / "domain"
 OUTPUT_FILE = ROOT / "application" / "events" / "all_event_handlers.py"
 SKIP_DIRS = {"__pycache__", ".git", ".venv", "tests", "migrations"}
 
-def find_event_classes() -> Dict[str, str]:
+def find_event_classes() -> dict[str, str]:
     """Scan domain/ dan kembalikan mapping nama_event -> path relatif (tanpa backslash)."""
     events = {}
     for py_file in DOMAIN_DIR.rglob("*.py"):
@@ -31,7 +30,7 @@ def find_event_classes() -> Dict[str, str]:
             continue
     return events
 
-def generate_handlers_file(events: Dict[str, str]) -> str:
+def generate_handlers_file(events: dict[str, str]) -> str:
     """Buat konten file all_event_handlers.py."""
     lines = []
     lines.append('"""')

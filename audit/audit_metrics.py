@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -50,7 +49,7 @@ def _get_logger():
     if _logger is None:
         # Lazy import structured logging
         mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
-        get_logger_func = getattr(mod, "get_logger")
+        get_logger_func = mod.get_logger
         _logger = get_logger_func(__name__)
     return _logger
 
@@ -65,9 +64,9 @@ def _get_prometheus_metrics():
         return
 
     mod = importlib.import_module("infrastructure.telemetry.prometheus_registry")
-    get_counter = getattr(mod, "get_counter")
-    get_gauge = getattr(mod, "get_gauge")
-    get_histogram = getattr(mod, "get_histogram")
+    get_counter = mod.get_counter
+    get_gauge = mod.get_gauge
+    get_histogram = mod.get_histogram
 
     _audit_events_total = get_counter(
         f"{METRIC_PREFIX}_events_total", "Total number of audit events", ["event_type", "severity"]
@@ -146,11 +145,11 @@ class AuditMetricsCollector:
         """
         # Lazy import internal audit modules
         gap_mod = importlib.import_module("audit.gap_detector")
-        get_gap_detector = getattr(gap_mod, "get_gap_detector")
+        get_gap_detector = gap_mod.get_gap_detector
         tamper_mod = importlib.import_module("audit.tamper_alert_trigger")
-        get_tamper_alert_trigger = getattr(tamper_mod, "get_tamper_alert_trigger")
+        get_tamper_alert_trigger = tamper_mod.get_tamper_alert_trigger
         store_mod = importlib.import_module("infrastructure.event_store.append_only_store")
-        get_audit_store = getattr(store_mod, "get_audit_store")
+        get_audit_store = store_mod.get_audit_store
 
         store = await get_audit_store()
         gap_detector = await get_gap_detector()

@@ -23,7 +23,7 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # PDF generation (reportlab)
 try:
@@ -142,7 +142,7 @@ class ReportGenerator:
 
     __slots__ = ("_jinja_env", "_output_dir", "_signer", "_templates_dir", "config")
 
-    def __init__(self, config: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, config: dict[str, Any] | None = None) -> None:
         """
         Inisialisasi ReportGenerator dengan konfigurasi yang diinjeksi.
 
@@ -153,11 +153,11 @@ class ReportGenerator:
         self._templates_dir = Path(self.config.get("templates_dir", "templates/reports"))
         self._output_dir = Path(self.config.get("output_dir", "/tmp/reports"))
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        self._signer: Optional[DigitalSignerRSA] = None
-        self._jinja_env: Optional[Environment] = None
+        self._signer: DigitalSignerRSA | None = None
+        self._jinja_env: Environment | None = None
         self._init_jinja()
 
-    def _prepare_config(self, config: Optional[dict]) -> dict:
+    def _prepare_config(self, config: dict | None) -> dict:
         """Siapkan konfigurasi dari parameter atau default."""
         if config is not None:
             # Merge dengan default untuk memastikan semua key ada
@@ -178,7 +178,7 @@ class ReportGenerator:
             )
             logger.info(f"Jinja2 templates loaded from {self._templates_dir}")
 
-    async def _get_signer(self) -> Optional[DigitalSignerRSA]:
+    async def _get_signer(self) -> DigitalSignerRSA | None:
         if self._signer is None and self.config.get("digital_signature_enabled", True):
             try:
                 self._signer = get_digital_signer()
@@ -186,7 +186,7 @@ class ReportGenerator:
                 logger.warning(f"Digital signer not available: {e}")
         return self._signer
 
-    async def _sign_pdf(self, pdf_path: Path, report_id: str, metadata: dict) -> Optional[str]:
+    async def _sign_pdf(self, pdf_path: Path, report_id: str, metadata: dict) -> str | None:
         """Menandatangani PDF dengan digital signature."""
         signer = await self._get_signer()
         if not signer:
@@ -216,8 +216,8 @@ class ReportGenerator:
         title: str,
         sections: list[dict],
         report_id: str,
-        watermark: Optional[str] = None,
-        logo_path: Optional[Path] = None,
+        watermark: str | None = None,
+        logo_path: Path | None = None,
     ) -> Path:
         """
         Generate PDF report.
@@ -457,7 +457,7 @@ class ReportGenerator:
     # ========================================================================
 
     async def generate_report(
-        self, report_type: str, data: dict, output_format: str, report_id: Optional[str] = None
+        self, report_type: str, data: dict, output_format: str, report_id: str | None = None
     ) -> dict[str, Any]:
         """
         Generic method to generate report based on type and format.
@@ -529,7 +529,7 @@ class ReportGenerator:
         rows = [[v for v in data.values()]]
         return [{"name": report_type[:31], "headers": headers, "rows": rows}]
 
-    async def upload_report(self, file_path: Path, bucket: Optional[str] = None) -> str:
+    async def upload_report(self, file_path: Path, bucket: str | None = None) -> str:
         """Upload generated report to cloud storage."""
         try:
             storage = await get_s3_storage_adapter()
@@ -561,8 +561,8 @@ class ReportGenerator:
 # SINGLETON INSTANCE dengan injeksi konfigurasi
 # ============================================================================
 
-_report_generator: Optional[ReportGenerator] = None
-_generator_config: Optional[dict] = None
+_report_generator: ReportGenerator | None = None
+_generator_config: dict | None = None
 
 
 def set_report_generator_config(config: dict) -> None:

@@ -10,7 +10,7 @@ persistensi ke database serta audit logging.
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from infrastructure.database.session_factory_sqlalchemy import get_async_session
@@ -36,14 +36,14 @@ class BankStatementImportAdapter(BankStatementImportPort):
     def __init__(self):
         super().__init__()
         self._session = None
-        self._audit_log: List[Dict[str, Any]] = []
+        self._audit_log: list[dict[str, Any]] = []
 
     async def _get_session(self):
         if self._session is None:
             self._session = await get_async_session()
         return self._session
 
-    async def _log_audit(self, action: str, import_id: UUID, details: Dict[str, Any]) -> None:
+    async def _log_audit(self, action: str, import_id: UUID, details: dict[str, Any]) -> None:
         self._audit_log.append({
             "timestamp": datetime.utcnow().isoformat(),
             "action": action,
@@ -136,7 +136,7 @@ class BankStatementImportAdapter(BankStatementImportPort):
         bank_account_id: UUID | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[BankStatementImport]:
+    ) -> list[BankStatementImport]:
         """
         Retrieve all bank statement imports, optionally filtered by bank account.
         """
@@ -176,7 +176,7 @@ class BankStatementImportAdapter(BankStatementImportPort):
         import_id: UUID | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Retrieve audit log entries for imports.
         """
@@ -203,7 +203,7 @@ class BankStatementImportAdapter(BankStatementImportPort):
         import_id: UUID,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Retrieve all transactions associated with a specific import.
         """
@@ -232,7 +232,7 @@ class BankStatementImportAdapter(BankStatementImportPort):
             for row in rows
         ]
 
-    async def parse_camt(self, file_content: str) -> List[Dict[str, Any]]:
+    async def parse_camt(self, file_content: str) -> list[dict[str, Any]]:
         """
         Parse CAMT (ISO 20022) format.
         """
@@ -246,7 +246,7 @@ class BankStatementImportAdapter(BankStatementImportPort):
         # Fallback: return empty
         return []
 
-    async def parse_csv(self, file_content: str) -> List[Dict[str, Any]]:
+    async def parse_csv(self, file_content: str) -> list[dict[str, Any]]:
         """
         Parse CSV format.
         """
@@ -255,7 +255,7 @@ class BankStatementImportAdapter(BankStatementImportPort):
             return await super()._parse_csv(file_content)
         return []
 
-    async def parse_mt940(self, file_content: str) -> List[Dict[str, Any]]:
+    async def parse_mt940(self, file_content: str) -> list[dict[str, Any]]:
         """
         Parse MT940 (SWIFT) format.
         """

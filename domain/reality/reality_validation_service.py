@@ -50,7 +50,7 @@ def _get_current_user() -> str | None:
     """Lazy import kernel.context_holder.get_current_user."""
     try:
         mod = importlib.import_module("kernel.context_holder")
-        get_current_user = getattr(mod, "get_current_user")
+        get_current_user = mod.get_current_user
         return get_current_user()
     except Exception:
         return None

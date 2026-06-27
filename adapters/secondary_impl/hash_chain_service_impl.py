@@ -9,7 +9,7 @@ Menggunakan lazy import untuk menghindari ketergantungan langsung ke lapisan aud
 from __future__ import annotations
 
 import importlib
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID
 
 from ports.primary.hash_chain_service_port import HashChainServicePort
@@ -22,7 +22,7 @@ def _get_logger():
     global _logger
     if _logger is None:
         mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
-        get_logger = getattr(mod, "get_logger")
+        get_logger = mod.get_logger
         _logger = get_logger(__name__)
     return _logger
 
@@ -30,7 +30,7 @@ def _get_logger():
 def _get_hash_builder():
     """Lazy import HashChainBuilder from audit.hash_chain_builder."""
     mod = importlib.import_module("audit.hash_chain_builder")
-    return getattr(mod, "HashChainBuilder")
+    return mod.HashChainBuilder
 
 
 class HashChainServiceAdapter(HashChainServicePort):
@@ -144,13 +144,13 @@ class HashChainServiceAdapter(HashChainServicePort):
     ) -> str:
         if hasattr(self.builder, "compute_payload_hash"):
             return await self.builder.compute_payload_hash(payload, payload_type, algorithm)
-        import json
         import hashlib
+        import json
 
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-    async def detect_gaps(self, chain_type: str, chain_id: UUID) -> List[Dict[str, Any]]:
+    async def detect_gaps(self, chain_type: str, chain_id: UUID) -> list[dict[str, Any]]:
         if hasattr(self.builder, "detect_gaps"):
             return await self.builder.detect_gaps(chain_type, chain_id)
         logger = _get_logger()
@@ -174,7 +174,7 @@ class HashChainServiceAdapter(HashChainServicePort):
 
     async def get_entry_by_hash(
         self, chain_type: str, chain_id: UUID, entry_hash: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         if hasattr(self.builder, "get_entry_by_hash"):
             return await self.builder.get_entry_by_hash(chain_type, chain_id, entry_hash)
         logger = _get_logger()
@@ -183,7 +183,7 @@ class HashChainServiceAdapter(HashChainServicePort):
 
     async def get_entry_by_sequence(
         self, chain_type: str, chain_id: UUID, sequence: int
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         if hasattr(self.builder, "get_entry_by_sequence"):
             return await self.builder.get_entry_by_sequence(chain_type, chain_id, sequence)
         logger = _get_logger()
@@ -192,7 +192,7 @@ class HashChainServiceAdapter(HashChainServicePort):
 
     async def get_integrity_history(
         self, chain_type: str, chain_id: UUID, limit: int = 100
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         if hasattr(self.builder, "get_integrity_history"):
             return await self.builder.get_integrity_history(chain_type, chain_id, limit)
         logger = _get_logger()
@@ -201,7 +201,7 @@ class HashChainServiceAdapter(HashChainServicePort):
 
     async def get_statistics(
         self, chain_type: str | None = None, chain_id: UUID | None = None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if hasattr(self.builder, "get_statistics"):
             return await self.builder.get_statistics(chain_type, chain_id)
         stats = {"total_chains": 0, "total_entries": 0}
@@ -232,7 +232,7 @@ class HashChainServiceAdapter(HashChainServicePort):
         chain_id: UUID,
         gap_start: int,
         gap_end: int,
-        repair_data: Dict[str, Any],
+        repair_data: dict[str, Any],
     ) -> bool:
         if hasattr(self.builder, "repair_gap"):
             return await self.builder.repair_gap(
@@ -269,7 +269,7 @@ class HashChainServiceAdapter(HashChainServicePort):
 
     async def verify_all_chains(
         self, deep_verify: bool = True, check_signatures: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if hasattr(self.builder, "verify_all_chains"):
             return await self.builder.verify_all_chains(deep_verify, check_signatures)
         logger = _get_logger()

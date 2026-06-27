@@ -12,10 +12,10 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Any, List, Optional, Dict
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Column, DateTime, String, Text, JSON, select, func, desc, asc, and_
+from sqlalchemy import JSON, Column, DateTime, Integer, String, and_, asc, desc, func, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
@@ -36,7 +36,7 @@ class AuditEventTable(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     user_id = Column(String(100), nullable=True)
     correlation_id = Column(String(100), nullable=True, index=True)
-    sequence_number = Column(Integer, nullable=False, default=1)
+    sequence_number = Column(Integer, nullable=False, default=1)  # <-- Integer sekarang dikenali
     previous_hash = Column(String(128), nullable=True)
     hash_value = Column(String(128), nullable=True, index=True)
     event_version = Column(Integer, nullable=False, default=1)
@@ -98,11 +98,11 @@ class SQLAlchemyAuditEventAdapter:
         self,
         aggregate_id: UUID,
         event_type: str,
-        payload: Dict[str, Any],
-        correlation_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        payload: dict[str, Any],
+        correlation_id: str | None = None,
+        user_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Append a new audit event to the hash chain for the aggregate.
         Computes the hash based on previous hash, payload, and sequence.
@@ -181,8 +181,8 @@ class SQLAlchemyAuditEventAdapter:
         aggregate_id: UUID,
         limit: int = 100,
         offset: int = 0,
-        from_sequence: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+        from_sequence: int | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Retrieve events for a specific aggregate, ordered by sequence ascending.
         """
@@ -221,7 +221,7 @@ class SQLAlchemyAuditEventAdapter:
         correlation_id: str,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Retrieve events that share the same correlation ID.
         """
@@ -254,10 +254,10 @@ class SQLAlchemyAuditEventAdapter:
     async def get_events_by_type(
         self,
         event_type: str,
-        aggregate_id: Optional[UUID] = None,
+        aggregate_id: UUID | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Retrieve events by event type, optionally filtered by aggregate.
         """
@@ -291,7 +291,7 @@ class SQLAlchemyAuditEventAdapter:
             for row in rows
         ]
 
-    async def get_hash_chain_root(self, aggregate_id: UUID) -> Optional[str]:
+    async def get_hash_chain_root(self, aggregate_id: UUID) -> str | None:
         """
         Get the current root hash (hash of the last event) for the aggregate.
         """
@@ -305,7 +305,7 @@ class SQLAlchemyAuditEventAdapter:
         result = await session.execute(stmt)
         return result.scalar()
 
-    async def get_last_event(self, aggregate_id: UUID) -> Optional[Dict[str, Any]]:
+    async def get_last_event(self, aggregate_id: UUID) -> dict[str, Any] | None:
         """
         Get the most recent event for the aggregate.
         """
@@ -337,8 +337,8 @@ class SQLAlchemyAuditEventAdapter:
         self,
         aggregate_id: UUID,
         from_sequence: int = 1,
-        to_sequence: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+        to_sequence: int | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Replay events in sequence order, optionally within a range.
         Useful for rebuilding state.
@@ -349,7 +349,7 @@ class SQLAlchemyAuditEventAdapter:
             limit=to_sequence - from_sequence + 1 if to_sequence else 1000,
         )
 
-    async def verify_hash_chain(self, aggregate_id: UUID) -> Dict[str, Any]:
+    async def verify_hash_chain(self, aggregate_id: UUID) -> dict[str, Any]:
         """
         Verify the integrity of the entire hash chain for the aggregate.
         Returns verification result with status and details.

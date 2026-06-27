@@ -31,24 +31,45 @@ class TrialBalanceRowDTO:
     closing_credit: Decimal
 
 
-class TrialBalanceRepositoryPort(ABC):
-    @abstractmethod
-    async def get_trial_balance(
-        self,
-        legal_entity_id: UUID,
-        as_of_date: date,
-        account_type_filter: list[str] | None = None,
-        cost_center_id: UUID | None = None,
-        include_zero_balance: bool = False,
-        currency_code: str = "IDR",
-    ) -> list[TrialBalanceRowDTO]:
-        pass
+# === DTOs for balance sheet ===
+@dataclass
+class BalanceSheetLineDTO:
+    """Single line in a balance sheet report."""
+    account_code: str
+    account_name: str
+    account_type: str          # asset, liability, equity
+    balance: Decimal           # saldo akun pada tanggal tertentu
+    parent_group: str | None = None
+    level: int = 0
+
+
+@dataclass
+class BalanceSheetDataDTO:
+    asset_rows: list[Any]      # akan diisi dengan BalanceSheetLineDTO
+    liability_rows: list[Any]
+    equity_rows: list[Any]
+    total_assets: Decimal
+    total_liabilities: Decimal
+    total_equity: Decimal
 
 
 # === DTOs for income statement ===
 @dataclass
+class IncomeStatementLineDTO:
+    """Single line in an income statement."""
+    account_code: str
+    account_name: str
+    amount: Decimal
+    is_revenue: bool = False
+    is_expense: bool = False
+    is_cogs: bool = False
+    is_other_income: bool = False
+    is_other_expense: bool = False
+
+
+@dataclass
 class IncomeStatementDataDTO:
-    revenue_rows: list[Any]  # Will be converted to IncomeStatementRow in service
+    revenue_rows: list[Any]      # IncomeStatementLineDTO
     cogs_rows: list[Any]
     expense_rows: list[Any]
     other_income_rows: list[Any]
@@ -65,42 +86,19 @@ class IncomeStatementDataDTO:
     net_income: Decimal
 
 
-class IncomeStatementRepositoryPort(ABC):
-    @abstractmethod
-    async def get_income_statement(
-        self,
-        legal_entity_id: UUID,
-        period_start: date,
-        period_end: date,
-        show_percent_of_revenue: bool = False,
-        currency_code: str = "IDR",
-    ) -> IncomeStatementDataDTO:
-        pass
-
-
-# === DTOs for balance sheet ===
-@dataclass
-class BalanceSheetDataDTO:
-    asset_rows: list[Any]
-    liability_rows: list[Any]
-    equity_rows: list[Any]
-    total_assets: Decimal
-    total_liabilities: Decimal
-    total_equity: Decimal
-
-
-class BalanceSheetRepositoryPort(ABC):
-    @abstractmethod
-    async def get_balance_sheet(
-        self, legal_entity_id: UUID, as_of_date: date, currency_code: str = "IDR"
-    ) -> BalanceSheetDataDTO:
-        pass
-
-
 # === DTOs for cash flow ===
 @dataclass
+class CashFlowLineDTO:
+    """Single line in a cash flow statement."""
+    category: str               # operating, investing, financing
+    description: str
+    amount: Decimal
+    is_inflow: bool = True
+
+
+@dataclass
 class CashFlowDataDTO:
-    operating_cash_flows: list[Any]
+    operating_cash_flows: list[Any]   # CashFlowLineDTO
     investing_cash_flows: list[Any]
     financing_cash_flows: list[Any]
     net_operating_cash_flow: Decimal
@@ -109,19 +107,6 @@ class CashFlowDataDTO:
     net_cash_flow: Decimal
     beginning_cash_balance: Decimal
     ending_cash_balance: Decimal
-
-
-class CashFlowRepositoryPort(ABC):
-    @abstractmethod
-    async def get_cash_flow(
-        self,
-        legal_entity_id: UUID,
-        period_start: date,
-        period_end: date,
-        method: str = "INDIRECT",
-        currency_code: str = "IDR",
-    ) -> CashFlowDataDTO:
-        pass
 
 
 # === DTOs for general ledger ===
@@ -147,6 +132,58 @@ class GeneralLedgerDataDTO:
     closing_balance: Decimal
 
 
+# ============================================================================
+# REPOSITORY INTERFACES
+# ============================================================================
+
+class TrialBalanceRepositoryPort(ABC):
+    @abstractmethod
+    async def get_trial_balance(
+        self,
+        legal_entity_id: UUID,
+        as_of_date: date,
+        account_type_filter: list[str] | None = None,
+        cost_center_id: UUID | None = None,
+        include_zero_balance: bool = False,
+        currency_code: str = "IDR",
+    ) -> list[TrialBalanceRowDTO]:
+        pass
+
+
+class BalanceSheetRepositoryPort(ABC):
+    @abstractmethod
+    async def get_balance_sheet(
+        self, legal_entity_id: UUID, as_of_date: date, currency_code: str = "IDR"
+    ) -> BalanceSheetDataDTO:
+        pass
+
+
+class IncomeStatementRepositoryPort(ABC):
+    @abstractmethod
+    async def get_income_statement(
+        self,
+        legal_entity_id: UUID,
+        period_start: date,
+        period_end: date,
+        show_percent_of_revenue: bool = False,
+        currency_code: str = "IDR",
+    ) -> IncomeStatementDataDTO:
+        pass
+
+
+class CashFlowRepositoryPort(ABC):
+    @abstractmethod
+    async def get_cash_flow(
+        self,
+        legal_entity_id: UUID,
+        period_start: date,
+        period_end: date,
+        method: str = "INDIRECT",
+        currency_code: str = "IDR",
+    ) -> CashFlowDataDTO:
+        pass
+
+
 class GeneralLedgerRepositoryPort(ABC):
     @abstractmethod
     async def get_ledger(
@@ -160,7 +197,6 @@ class GeneralLedgerRepositoryPort(ABC):
         pass
 
 
-# === DTOs for aging reports (AR/AP) ===
 class AgingReportRepositoryPort(ABC):
     @abstractmethod
     async def get_ar_aging(
@@ -175,7 +211,6 @@ class AgingReportRepositoryPort(ABC):
         pass
 
 
-# === DTOs for inventory valuation ===
 class InventoryValuationRepositoryPort(ABC):
     @abstractmethod
     async def get_inventory_valuation(
@@ -187,7 +222,6 @@ class InventoryValuationRepositoryPort(ABC):
 # ============================================================================
 # GENERIC REPORT REPOSITORY PORT (for app_factory dependency)
 # ============================================================================
-
 
 class ReportRepositoryPort(ABC):
     """
@@ -206,19 +240,35 @@ class ReportRepositoryPort(ABC):
         pass
 
 
+# ============================================================================
+# ALIAS FOR COMPATIBILITY (fix ImportError for `import report_repository_port`)
+# ============================================================================
+
+# Menyediakan alias huruf kecil untuk import `from ports.primary.report_repository_port import report_repository_port`
+report_repository_port = ReportRepositoryPort
+
+
+# ============================================================================
+# EXPORTS
+# ============================================================================
+
 __all__ = [
     "AgingReportRepositoryPort",
     "BalanceSheetDataDTO",
+    "BalanceSheetLineDTO",
     "BalanceSheetRepositoryPort",
     "CashFlowDataDTO",
+    "CashFlowLineDTO",
     "CashFlowRepositoryPort",
     "GeneralLedgerDataDTO",
     "GeneralLedgerEntryDTO",
     "GeneralLedgerRepositoryPort",
     "IncomeStatementDataDTO",
+    "IncomeStatementLineDTO",
     "IncomeStatementRepositoryPort",
     "InventoryValuationRepositoryPort",
-    "ReportRepositoryPort",  # added
+    "ReportRepositoryPort",
     "TrialBalanceRepositoryPort",
     "TrialBalanceRowDTO",
+    "report_repository_port",
 ]

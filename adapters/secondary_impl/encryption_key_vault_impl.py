@@ -7,9 +7,8 @@ Adapter untuk manajemen kunci enkripsi menggunakan KeyManagementVault.
 """
 from __future__ import annotations
 
-import logging
-from typing import Optional, Dict, Any, List
 from datetime import datetime
+from typing import Any
 
 from infrastructure.security.securitykey_management_vault import KeyManagementVault
 from infrastructure.telemetry.structured_json_logging import get_logger
@@ -26,11 +25,11 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
     def __init__(self, vault: KeyManagementVault | None = None):
         self._vault = vault or KeyManagementVault()
         # In-memory stores for stub functionality (if vault lacks these)
-        self._keys: Dict[str, Dict] = {}
-        self._metadata: Dict[str, Dict] = {}
-        self._key_aliases: Dict[str, str] = {}
-        self._audit_log: List[Dict] = []
-        self._rotation_tasks: Dict[str, Any] = {}
+        self._keys: dict[str, dict] = {}
+        self._metadata: dict[str, dict] = {}
+        self._key_aliases: dict[str, str] = {}
+        self._audit_log: list[dict] = []
+        self._rotation_tasks: dict[str, Any] = {}
 
     # ========== Existing methods ==========
 
@@ -71,8 +70,8 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         self,
         key_id: str,
         plaintext: bytes,
-        context: Optional[Dict] = None,
-        version: Optional[str] = None,
+        context: dict | None = None,
+        version: str | None = None,
     ) -> bytes:
         """Alias for encrypt (delegates to vault)."""
         return await self.encrypt(key_id, plaintext, context, version)
@@ -81,8 +80,8 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         self,
         key_id: str,
         ciphertext: bytes,
-        context: Optional[Dict] = None,
-        version: Optional[str] = None,
+        context: dict | None = None,
+        version: str | None = None,
     ) -> bytes:
         """Alias for decrypt (delegates to vault)."""
         return await self.decrypt(key_id, ciphertext, context, version)
@@ -90,8 +89,8 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
     async def export_key(
         self,
         key_id: str,
-        version: Optional[str] = None,
-        wrapping_key_id: Optional[str] = None,
+        version: str | None = None,
+        wrapping_key_id: str | None = None,
     ) -> bytes:
         """Export a key (wrapped if wrapping_key_id provided)."""
         # If vault supports export, delegate; else stub.
@@ -102,10 +101,10 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
 
     async def get_audit_log(
         self,
-        key_id: Optional[str] = None,
+        key_id: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Retrieve audit log entries for key operations."""
         # Use in-memory log or delegate if vault has method.
         if hasattr(self._vault, "get_audit_log"):
@@ -117,7 +116,7 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         return logs[offset:offset + limit]
 
-    async def get_current_key_version(self, key_id: str) -> Optional[str]:
+    async def get_current_key_version(self, key_id: str) -> str | None:
         """Get the latest version of a key."""
         if hasattr(self._vault, "get_current_key_version"):
             return await self._vault.get_current_key_version(key_id)
@@ -125,7 +124,7 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         meta = self._metadata.get(key_id, {})
         return meta.get("current_version")
 
-    async def get_key_metadata(self, key_id: str, version: Optional[str] = None) -> Dict[str, Any]:
+    async def get_key_metadata(self, key_id: str, version: str | None = None) -> dict[str, Any]:
         """Get metadata for a key."""
         if hasattr(self._vault, "get_key_metadata"):
             return await self._vault.get_key_metadata(key_id, version)
@@ -141,7 +140,7 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         key_material: bytes,
         algorithm: str,
         key_size: int = 256,
-        metadata: Optional[Dict] = None,
+        metadata: dict | None = None,
     ) -> bool:
         """Import a key from raw material."""
         if hasattr(self._vault, "import_key"):
@@ -166,10 +165,10 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
 
     async def list_keys(
         self,
-        prefix: Optional[str] = None,
+        prefix: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List all keys with metadata."""
         if hasattr(self._vault, "list_keys"):
             return await self._vault.list_keys(prefix, limit, offset)
@@ -190,7 +189,7 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         self,
         key_id: str,
         new_wrapping_key_id: str,
-        version: Optional[str] = None,
+        version: str | None = None,
     ) -> bool:
         """Rewrap a key with a new wrapping key."""
         if hasattr(self._vault, "rewrap_key"):
@@ -209,7 +208,7 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         self,
         key_id: str,
         interval_days: int,
-        created_by: Optional[str] = None,
+        created_by: str | None = None,
     ) -> bool:
         """Start automatic rotation of the key at the given interval."""
         if hasattr(self._vault, "start_auto_rotation"):

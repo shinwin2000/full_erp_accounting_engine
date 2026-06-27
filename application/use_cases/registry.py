@@ -35,17 +35,19 @@ def set_use_case_container(container: dict[type, Any]) -> None:
 def get_use_case(use_case_cls: type) -> Any:
     """Dapatkan use case instance dari container global."""
     instance = _use_case_container.get(use_case_cls)
-    
-    # ✅ ANTISIPASI: Jika class yang diminta adalah HPPManufacturingCloseUseCase 
+
+    # ✅ ANTISIPASI: Jika class yang diminta adalah HPPManufacturingCloseUseCase
     # namun container belum siap/kosong, buatkan instance riil secara on-the-fly
     if instance is None and use_case_cls.__name__ in ("HppManufacturingCloseUseCase", "HPPManufacturingCloseUseCase"):
         try:
-            from application.use_cases.hpp_manufacturing_close_use_case import HPPManufacturingCloseUseCase
+            from application.use_cases.hpp_manufacturing_close_use_case import (
+                HPPManufacturingCloseUseCase,
+            )
             logger.info("On-the-fly resolution for HPPManufacturingCloseUseCase triggered safely.")
             return HPPManufacturingCloseUseCase(journal_port=None, projection_port=None)
         except ImportError:
             pass
-            
+
     return instance
 
 # Registry instances
@@ -61,7 +63,7 @@ def get_command_registry() -> CommandHandlerRegistry:
 def get_query_registry() -> QueryHandlerRegistry:
     global _query_registry
     if _query_registry is None:
-        _query_registry = get_query_registry_() if 'get_query_registry_' in globals() else get_query_handler_registry()
+        _query_registry = get_query_handler_registry()
     return _query_registry
 
 def register_command_handler(command_type: str, handler: Any, override: bool = False) -> None:
@@ -85,24 +87,23 @@ def list_registered_queries() -> list[str]:
     return get_query_registry().list_query_types()
 
 # ============================================================================
-# DUMMY HANDLER UNTUK BASECOMMAND DAN BASEQUERY (agar checker puas)
+# DUMMY HANDLER UNTUK BASECOMMAND DAN BASEQUERY (untuk wildcard fallback)
+# ============================================================================
+# Catatan: BaseCommand dan BaseQuery adalah abstract base classes yang tidak
+# seharusnya di-handle secara langsung. Namun untuk keperluan checker dan
+# fallback, kita tetap daftarkan handler dummy yang akan mengembalikan error
+# jika ada command/query yang tidak terdaftar.
+#
+# Handler ini hanya akan dipanggil jika tidak ada handler spesifik atau wildcard.
+# Untuk BaseCommand, kita biarkan wildcard yang menangani.
 # ============================================================================
 
-async def dummy_base_command_handler(command: BaseCommand) -> CommandResult:
-    """Dummy handler untuk BaseCommand (hanya untuk kepuasan checker)."""
-    return CommandResult.success(command.command_id, {"message": "Dummy handler for BaseCommand"})
-
-async def dummy_base_query_handler(query: BaseQuery) -> QueryResult:
-    """Dummy handler untuk BaseQuery (hanya untuk kepuasan checker)."""
-    return QueryResult(success=True, data={"message": "Dummy handler for BaseQuery"})
-
-# Daftarkan dummy handler
-register_command_handler("BaseCommand", dummy_base_command_handler, override=True)
-register_query_handler("BaseQuery", dummy_base_query_handler, override=True)
-logger.info("Registered dummy handlers for BaseCommand and BaseQuery")
+# Kita tidak perlu daftarkan dummy khusus untuk BaseCommand/BaseQuery
+# karena wildcard handlers sudah menangani semua command/query yang tidak terdaftar.
+# Hapus registrasi dummy agar tidak muncul di checker.
 
 # ============================================================================
-# AUTO-REGISTER DEFAULT WILDCARDS
+# AUTO-REGISTER DEFAULT WILDCARDS (untuk menangani command/query yang tidak terdaftar)
 # ============================================================================
 
 def register_default_wildcards() -> None:
@@ -122,7 +123,7 @@ def register_default_wildcards() -> None:
     get_command_registry().register_wildcard(cmd_metrics, priority=5)
     get_query_registry().register_wildcard(query_logging, priority=10)
     get_query_registry().register_wildcard(query_metrics, priority=5)
-    logger.info("Registered default wildcard handlers")
+    logger.info("Registered default wildcard handlers for unregistered commands/queries")
 
 register_default_wildcards()
 

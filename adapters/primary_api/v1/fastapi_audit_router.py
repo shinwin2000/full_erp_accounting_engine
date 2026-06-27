@@ -469,7 +469,7 @@ async def get_sampling_engine() -> Any:
     mod = importlib.import_module(
         "audit.sampling_materiality.audit_sampling_engine_materiality_based"
     )
-    get_sampling_engine = getattr(mod, "get_sampling_engine")
+    get_sampling_engine = mod.get_sampling_engine
     return get_sampling_engine()
 
 

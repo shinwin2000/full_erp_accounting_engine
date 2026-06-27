@@ -1974,6 +1974,6 @@ class InventoryValuationRepositoryAdapter(InventoryValuationRepositoryPort):
 # ============================================================================
 
 __all__ = [
-    "router",
     "InventoryValuationRepositoryAdapter",
+    "router",
 ]

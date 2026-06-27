@@ -554,7 +554,7 @@ class PettyCashFundEntity:
             "signature": self.signature.to_dict() if self.signature else None,
         }
 
-    def version(self) -> int:
+    def get_version(self) -> int:
         return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:

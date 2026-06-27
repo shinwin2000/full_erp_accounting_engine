@@ -28,7 +28,7 @@ import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
@@ -160,7 +160,7 @@ class OJKFormatBuilder:
     - Ekspor ke JSON dan CSV
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Inisialisasi OJKFormatBuilder dengan konfigurasi yang diinjeksi.
 
@@ -170,12 +170,12 @@ class OJKFormatBuilder:
         self.config = self._prepare_config(config)
         self._output_dir = Path(self.config.get("output_dir", "/var/reports/ojk"))
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        self._balance_sheet: Optional[BalanceSheetSnapshot] = None
-        self._income_statement: Optional[IncomeStatementPeriod] = None
-        self._cash_flow: Optional[CashFlowIndirect] = None
-        self._equity_statement: Optional[EquityStatement] = None
+        self._balance_sheet: BalanceSheetSnapshot | None = None
+        self._income_statement: IncomeStatementPeriod | None = None
+        self._cash_flow: CashFlowIndirect | None = None
+        self._equity_statement: EquityStatement | None = None
 
-    def _prepare_config(self, config: Optional[dict]) -> dict:
+    def _prepare_config(self, config: dict | None) -> dict:
         """Siapkan konfigurasi dari parameter atau default."""
         if config is not None:
             result = DEFAULT_CONFIG.copy()
@@ -478,8 +478,8 @@ class OJKFormatBuilder:
 # SINGLETON INSTANCE dengan injeksi konfigurasi
 # ============================================================================
 
-_ojk_builder: Optional[OJKFormatBuilder] = None
-_ojk_config: Optional[dict] = None
+_ojk_builder: OJKFormatBuilder | None = None
+_ojk_config: dict | None = None
 
 
 def set_ojk_builder_config(config: dict) -> None:

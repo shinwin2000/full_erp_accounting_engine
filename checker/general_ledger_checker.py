@@ -21,10 +21,8 @@ import argparse
 import ast
 import json
 import pathlib
-import re
 import sys
 from dataclasses import dataclass, field
-from typing import List, Optional, Set, Tuple
 
 # Warna
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
@@ -52,13 +50,13 @@ class Finding:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: int = 100
 
 # ----------------------------------------------------------------------
 # 1. Double-entry Balance Checker
 # ----------------------------------------------------------------------
-def check_balance_validation(file_path: pathlib.Path) -> List[Finding]:
+def check_balance_validation(file_path: pathlib.Path) -> list[Finding]:
     """Cari apakah ada validasi debit == credit sebelum posting GL."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -112,7 +110,7 @@ def check_balance_validation(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 2. Account Validation Checker
 # ----------------------------------------------------------------------
-def check_account_validation(file_path: pathlib.Path) -> List[Finding]:
+def check_account_validation(file_path: pathlib.Path) -> list[Finding]:
     """Cari apakah account yang diposting divalidasi terhadap COA."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -178,7 +176,7 @@ def check_account_validation(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 3. Period Validation Checker
 # ----------------------------------------------------------------------
-def check_period_validation_gl(file_path: pathlib.Path) -> List[Finding]:
+def check_period_validation_gl(file_path: pathlib.Path) -> list[Finding]:
     """Cari apakah period dipastikan open sebelum posting GL."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -195,12 +193,7 @@ def check_period_validation_gl(file_path: pathlib.Path) -> List[Finding]:
 
             has_period_check = False
             for stmt in ast.walk(node):
-                if isinstance(stmt, ast.If):
-                    cond = ast.unparse(stmt.test).lower()
-                    if 'period' in cond and ('closed' in cond or 'locked' in cond or 'open' in cond):
-                        has_period_check = True
-                        break
-                elif isinstance(stmt, ast.Assert):
+                if isinstance(stmt, ast.If) or isinstance(stmt, ast.Assert):
                     cond = ast.unparse(stmt.test).lower()
                     if 'period' in cond and ('closed' in cond or 'locked' in cond or 'open' in cond):
                         has_period_check = True
@@ -229,7 +222,7 @@ def check_period_validation_gl(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 4. Audit Trail Checker for GL
 # ----------------------------------------------------------------------
-def check_audit_trail_gl(file_path: pathlib.Path) -> List[Finding]:
+def check_audit_trail_gl(file_path: pathlib.Path) -> list[Finding]:
     """Cari apakah setiap posting GL mencatat audit trail."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -278,7 +271,7 @@ def check_audit_trail_gl(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 5. Reconciliation Consistency Check
 # ----------------------------------------------------------------------
-def check_reconciliation_gl(file_path: pathlib.Path) -> List[Finding]:
+def check_reconciliation_gl(file_path: pathlib.Path) -> list[Finding]:
     """Cari apakah ada proses rekonsiliasi antara GL dan sub-ledger."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -325,7 +318,7 @@ def check_reconciliation_gl(file_path: pathlib.Path) -> List[Finding]:
 # ----------------------------------------------------------------------
 # 6. GL Posting Integrity Check
 # ----------------------------------------------------------------------
-def check_posting_integrity(file_path: pathlib.Path) -> List[Finding]:
+def check_posting_integrity(file_path: pathlib.Path) -> list[Finding]:
     """Cari apakah ada atomicity dalam posting (semua atau tidak sama sekali)."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")

@@ -1,0 +1,692 @@
+# Chart of Accounts - PSAK Indonesia (Manufacturing)
+# Lengkap untuk perusahaan manufaktur dengan kode akun 1-8
+
+accounts:
+  # =========================================================================
+  # 1. ASET LANCAR (Current Assets)
+  # =========================================================================
+  - code: "1100"
+    name: "Kas"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Kas di tangan dan di bank (rekening giro)"
+
+  - code: "1110"
+    name: "Kas Kecil"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Dana kas kecil untuk pengeluaran operasional harian"
+
+  - code: "1120"
+    name: "Bank - Rupiah"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Rekening bank dalam mata uang Rupiah"
+
+  - code: "1121"
+    name: "Bank - Valuta Asing"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Rekening bank dalam mata uang asing (USD, EUR, dll.)"
+
+  - code: "1200"
+    name: "Piutang Usaha"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Piutang dari penjualan barang/jasa kepada pelanggan"
+
+  - code: "1201"
+    name: "Cadangan Piutang Tak Tertagih"
+    type: "Asset"
+    normal_balance: "Credit"
+    parent: "1200"
+    description: "Estimasi piutang yang kemungkinan tidak tertagih"
+
+  - code: "1210"
+    name: "Piutang Afiliasi"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Piutang kepada perusahaan afiliasi atau entitas terkait"
+
+  - code: "1220"
+    name: "Piutang Lain-lain"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Piutang non-usaha (karyawan, sewa, dll.)"
+
+  - code: "1300"
+    name: "Persediaan Bahan Baku"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Bahan baku utama untuk proses produksi"
+
+  - code: "1310"
+    name: "Persediaan Barang Dalam Proses"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Barang setengah jadi yang masih dalam proses produksi"
+
+  - code: "1320"
+    name: "Persediaan Barang Jadi"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Barang yang telah selesai diproduksi dan siap dijual"
+
+  - code: "1330"
+    name: "Persediaan Bahan Penolong"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Bahan pendukung produksi (pelumas, kemasan, dll.)"
+
+  - code: "1340"
+    name: "Persediaan Suku Cadang"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Suku cadang untuk pemeliharaan mesin dan peralatan"
+
+  - code: "1350"
+    name: "Persediaan Perlengkapan"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Perlengkapan kantor dan operasional"
+
+  - code: "1400"
+    name: "Biaya Dibayar Dimuka"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Asuransi, sewa, dan biaya lainnya yang dibayar di muka"
+
+  - code: "1410"
+    name: "Uang Muka Pembelian"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Uang muka yang diberikan kepada pemasok"
+
+  - code: "1420"
+    name: "Uang Muka Karyawan"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Pinjaman atau uang muka kepada karyawan"
+
+  - code: "1500"
+    name: "Pajak Dibayar Dimuka"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Pajak penghasilan dan PPN yang telah dibayar di muka"
+
+  - code: "1510"
+    name: "PPN Masukan"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Pajak Pertambahan Nilai masukan yang dapat dikreditkan"
+
+  # =========================================================================
+  # 2. ASET TETAP DAN ASET TIDAK BERWUJUD
+  # =========================================================================
+  - code: "2100"
+    name: "Tanah"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Tanah untuk pabrik, kantor, dan operasional"
+
+  - code: "2200"
+    name: "Gedung Pabrik"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Bangunan untuk kegiatan produksi"
+
+  - code: "2201"
+    name: "Akumulasi Penyusutan Gedung Pabrik"
+    type: "Asset"
+    normal_balance: "Credit"
+    parent: "2200"
+    description: "Akumulasi penyusutan gedung pabrik"
+
+  - code: "2210"
+    name: "Gedung Kantor"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Bangunan untuk kegiatan administrasi dan manajemen"
+
+  - code: "2211"
+    name: "Akumulasi Penyusutan Gedung Kantor"
+    type: "Asset"
+    normal_balance: "Credit"
+    parent: "2210"
+    description: "Akumulasi penyusutan gedung kantor"
+
+  - code: "2300"
+    name: "Mesin dan Peralatan Produksi"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Mesin utama dan peralatan untuk lini produksi"
+
+  - code: "2301"
+    name: "Akumulasi Penyusutan Mesin"
+    type: "Asset"
+    normal_balance: "Credit"
+    parent: "2300"
+    description: "Akumulasi penyusutan mesin dan peralatan produksi"
+
+  - code: "2310"
+    name: "Kendaraan Operasional"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Kendaraan untuk operasional perusahaan"
+
+  - code: "2311"
+    name: "Akumulasi Penyusutan Kendaraan"
+    type: "Asset"
+    normal_balance: "Credit"
+    parent: "2310"
+    description: "Akumulasi penyusutan kendaraan"
+
+  - code: "2320"
+    name: "Peralatan Kantor"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Komputer, printer, meja, kursi, dan peralatan kantor"
+
+  - code: "2321"
+    name: "Akumulasi Penyusutan Peralatan Kantor"
+    type: "Asset"
+    normal_balance: "Credit"
+    parent: "2320"
+    description: "Akumulasi penyusutan peralatan kantor"
+
+  - code: "2400"
+    name: "Aset Tetap Dalam Pembangunan"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Aset tetap yang masih dalam proses pembangunan"
+
+  - code: "2500"
+    name: "Hak Paten"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Hak atas penemuan atau inovasi produk"
+
+  - code: "2510"
+    name: "Hak Merek"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Hak atas merek dagang atau logo"
+
+  - code: "2520"
+    name: "Lisensi dan Waralaba"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Lisensi dan hak waralaba"
+
+  - code: "2530"
+    name: "Goodwill"
+    type: "Asset"
+    normal_balance: "Debit"
+    description: "Nama baik dan reputasi perusahaan (hasil akuisisi)"
+
+  - code: "2531"
+    name: "Akumulasi Amortisasi Aset Tidak Berwujud"
+    type: "Asset"
+    normal_balance: "Credit"
+    parent: "2500"
+    description: "Akumulasi amortisasi aset tidak berwujud"
+
+  # =========================================================================
+  # 3. LIABILITAS (KEWAJIBAN)
+  # =========================================================================
+  - code: "3100"
+    name: "Utang Usaha"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Utang kepada pemasok bahan baku dan barang"
+
+  - code: "3110"
+    name: "Utang Afiliasi"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Utang kepada perusahaan afiliasi atau entitas terkait"
+
+  - code: "3120"
+    name: "Utang Lain-lain"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Utang non-usaha (kepada pihak ketiga)"
+
+  - code: "3200"
+    name: "Utang Bank - Jangka Pendek"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Pinjaman bank dengan jatuh tempo < 1 tahun"
+
+  - code: "3210"
+    name: "Utang Bank - Jangka Panjang"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Pinjaman bank dengan jatuh tempo > 1 tahun"
+
+  - code: "3220"
+    name: "Utang Obligasi"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Obligasi yang diterbitkan perusahaan"
+
+  - code: "3300"
+    name: "Utang Gaji dan Tunjangan"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Gaji dan tunjangan karyawan yang masih harus dibayar"
+
+  - code: "3310"
+    name: "Utang Bonus dan THR"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Bonus dan THR yang masih harus dibayar"
+
+  - code: "3400"
+    name: "Utang Pajak Penghasilan"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Pajak penghasilan badan yang masih harus dibayar"
+
+  - code: "3410"
+    name: "Utang PPN"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Pajak Pertambahan Nilai yang masih harus disetor"
+
+  - code: "3420"
+    name: "Utang Pajak Lainnya"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Pajak daerah, PPh 21, 23, 4 ayat 2, dll."
+
+  - code: "3500"
+    name: "Biaya Masih Harus Dibayar"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Biaya yang telah terjadi namun belum dibayar (listrik, air, dll.)"
+
+  - code: "3510"
+    name: "Utang Sewa"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Kewajiban sewa (leasing) yang masih harus dibayar"
+
+  - code: "3600"
+    name: "Utang Jangka Panjang Lainnya"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Kewajiban jangka panjang lainnya (pembiayaan vendor, dll.)"
+
+  - code: "3700"
+    name: "Pendapatan Diterima Dimuka"
+    type: "Liability"
+    normal_balance: "Credit"
+    description: "Pendapatan yang telah diterima namun belum diakui"
+
+  # =========================================================================
+  # 4. EKUITAS (MODAL)
+  # =========================================================================
+  - code: "4100"
+    name: "Modal Saham"
+    type: "Equity"
+    normal_balance: "Credit"
+    description: "Modal yang disetor oleh pemegang saham"
+
+  - code: "4110"
+    name: "Agio Saham / Tambahan Modal Disetor"
+    type: "Equity"
+    normal_balance: "Credit"
+    description: "Selisih antara harga saham dengan nilai nominal"
+
+  - code: "4200"
+    name: "Laba Ditahan"
+    type: "Equity"
+    normal_balance: "Credit"
+    description: "Akumulasi laba yang belum dibagikan sebagai dividen"
+
+  - code: "4300"
+    name: "Laba Tahun Berjalan"
+    type: "Equity"
+    normal_balance: "Credit"
+    description: "Laba atau rugi bersih tahun berjalan"
+
+  - code: "4400"
+    name: "Dividen"
+    type: "Equity"
+    normal_balance: "Debit"
+    description: "Dividen yang telah diumumkan atau dibayarkan"
+
+  - code: "4500"
+    name: "Cadangan dan Dana"
+    type: "Equity"
+    normal_balance: "Credit"
+    description: "Cadangan umum, cadangan tujuan, dana sosial, dll."
+
+  # =========================================================================
+  # 5. PENDAPATAN USAHA (REVENUE)
+  # =========================================================================
+  - code: "5100"
+    name: "Penjualan Barang Jadi"
+    type: "Revenue"
+    normal_balance: "Credit"
+    description: "Pendapatan dari penjualan produk jadi"
+
+  - code: "5110"
+    name: "Retur Penjualan"
+    type: "Revenue"
+    normal_balance: "Debit"
+    description: "Pengembalian barang oleh pelanggan"
+
+  - code: "5120"
+    name: "Potongan Penjualan"
+    type: "Revenue"
+    normal_balance: "Debit"
+    description: "Diskon dan potongan harga penjualan"
+
+  - code: "5200"
+    name: "Pendapatan Jasa"
+    type: "Revenue"
+    normal_balance: "Credit"
+    description: "Pendapatan dari jasa yang diberikan"
+
+  - code: "5300"
+    name: "Pendapatan Afiliasi"
+    type: "Revenue"
+    normal_balance: "Credit"
+    description: "Pendapatan dari transaksi dengan entitas afiliasi"
+
+  # =========================================================================
+  # 6. HARGA POKOK PENJUALAN / HPP (COST OF GOODS SOLD)
+  # =========================================================================
+  - code: "6100"
+    name: "Persediaan Awal Bahan Baku"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Saldo awal bahan baku"
+
+  - code: "6110"
+    name: "Pembelian Bahan Baku"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Pembelian bahan baku selama periode"
+
+  - code: "6111"
+    name: "Retur Pembelian Bahan Baku"
+    type: "Expense"
+    normal_balance: "Credit"
+    parent: "6110"
+    description: "Pengembalian bahan baku ke pemasok"
+
+  - code: "6112"
+    name: "Potongan Pembelian Bahan Baku"
+    type: "Expense"
+    normal_balance: "Credit"
+    parent: "6110"
+    description: "Diskon pembelian bahan baku"
+
+  - code: "6120"
+    name: "Biaya Angkut Pembelian Bahan Baku"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Biaya pengiriman bahan baku"
+
+  - code: "6130"
+    name: "Persediaan Akhir Bahan Baku"
+    type: "Expense"
+    normal_balance: "Credit"
+    description: "Saldo akhir bahan baku (pengurang HPP)"
+
+  - code: "6200"
+    name: "Pemakaian Bahan Baku Langsung"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Bahan baku yang digunakan dalam produksi"
+
+  - code: "6300"
+    name: "Biaya Tenaga Kerja Langsung"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Upah tenaga kerja langsung di lini produksi"
+
+  - code: "6400"
+    name: "Biaya Overhead Pabrik - Upah Tidak Langsung"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Gaji mandor, supervisor, dan tenaga kerja tidak langsung"
+
+  - code: "6410"
+    name: "Biaya Overhead Pabrik - Sewa Pabrik"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Sewa gedung dan lahan pabrik"
+
+  - code: "6420"
+    name: "Biaya Overhead Pabrik - Penyusutan Mesin"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Penyusutan mesin dan peralatan produksi"
+
+  - code: "6430"
+    name: "Biaya Overhead Pabrik - Penyusutan Gedung Pabrik"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Penyusutan gedung pabrik"
+
+  - code: "6440"
+    name: "Biaya Overhead Pabrik - Pemeliharaan Mesin"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Biaya perawatan dan perbaikan mesin"
+
+  - code: "6450"
+    name: "Biaya Overhead Pabrik - Bahan Penolong"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Bahan penolong yang digunakan dalam produksi"
+
+  - code: "6460"
+    name: "Biaya Overhead Pabrik - Listrik dan Air Pabrik"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Utilitas pabrik (listrik, air, gas)"
+
+  - code: "6470"
+    name: "Biaya Overhead Pabrik - Asuransi Pabrik"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Premi asuransi untuk pabrik dan mesin"
+
+  - code: "6480"
+    name: "Biaya Overhead Pabrik - Pajak Bumi dan Bangunan Pabrik"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "PBB untuk tanah dan bangunan pabrik"
+
+  - code: "6490"
+    name: "Biaya Overhead Pabrik - Lainnya"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Biaya overhead pabrik lainnya (alat kecil, dll.)"
+
+  - code: "6500"
+    name: "Total Biaya Produksi"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Akumulasi semua biaya produksi (Bahan Baku + TK Langsung + Overhead)"
+
+  - code: "6600"
+    name: "Persediaan Awal Barang Dalam Proses"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Saldo awal WIP"
+
+  - code: "6610"
+    name: "Persediaan Akhir Barang Dalam Proses"
+    type: "Expense"
+    normal_balance: "Credit"
+    description: "Saldo akhir WIP (pengurang HPP)"
+
+  - code: "6700"
+    name: "Harga Pokok Produksi (HPP)"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Total biaya produksi yang telah selesai"
+
+  - code: "6800"
+    name: "Persediaan Awal Barang Jadi"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Saldo awal finished goods"
+
+  - code: "6810"
+    name: "Persediaan Akhir Barang Jadi"
+    type: "Expense"
+    normal_balance: "Credit"
+    description: "Saldo akhir finished goods (pengurang HPP)"
+
+  - code: "6900"
+    name: "Harga Pokok Penjualan (COGS)"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Harga pokok produk yang dijual (akun final COGS)"
+
+  # =========================================================================
+  # 7. BEBAN USAHA (OPERATING EXPENSES)
+  # =========================================================================
+  # --- Beban Penjualan ---
+  - code: "7100"
+    name: "Beban Penjualan - Gaji dan Komisi"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Gaji dan komisi tenaga penjualan"
+
+  - code: "7110"
+    name: "Beban Penjualan - Iklan dan Promosi"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Biaya iklan, promosi, dan pemasaran"
+
+  - code: "7120"
+    name: "Beban Penjualan - Angkut Penjualan"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Biaya pengiriman barang ke pelanggan"
+
+  - code: "7130"
+    name: "Beban Penjualan - Perjalanan Dinas"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Biaya perjalanan dinas tim penjualan"
+
+  - code: "7140"
+    name: "Beban Penjualan - Penyusutan Aset Penjualan"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Penyusutan aset yang digunakan untuk penjualan"
+
+  # --- Beban Administrasi dan Umum ---
+  - code: "7200"
+    name: "Beban Administrasi - Gaji Karyawan"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Gaji staf administrasi, keuangan, HRD, IT"
+
+  - code: "7210"
+    name: "Beban Administrasi - Sewa Kantor"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Sewa gedung kantor dan fasilitas administrasi"
+
+  - code: "7220"
+    name: "Beban Administrasi - Perlengkapan Kantor"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "ATK, tinta printer, dan perlengkapan kantor"
+
+  - code: "7230"
+    name: "Beban Administrasi - Listrik, Air, Telepon"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Utilitas kantor"
+
+  - code: "7240"
+    name: "Beban Administrasi - Penyusutan Gedung Kantor"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Penyusutan gedung kantor"
+
+  - code: "7250"
+    name: "Beban Administrasi - Penyusutan Peralatan Kantor"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Penyusutan komputer, meja, dan peralatan kantor"
+
+  - code: "7260"
+    name: "Beban Administrasi - Asuransi"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Premi asuransi untuk kantor dan karyawan"
+
+  - code: "7270"
+    name: "Beban Administrasi - Honorarium dan Jasa Profesional"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Honor auditor, konsultan, pengacara, notaris"
+
+  - code: "7280"
+    name: "Beban Administrasi - Pelatihan dan Pengembangan"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Biaya pelatihan dan seminar karyawan"
+
+  - code: "7290"
+    name: "Beban Administrasi - Lainnya"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Beban administrasi lainnya (sumbangan, iuran, dll.)"
+
+  # =========================================================================
+  # 8. PENDAPATAN DAN BEBAN LAIN-LAIN
+  # =========================================================================
+  - code: "8100"
+    name: "Pendapatan Bunga"
+    type: "Revenue"
+    normal_balance: "Credit"
+    description: "Pendapatan bunga dari deposito, tabungan, dan pinjaman"
+
+  - code: "8110"
+    name: "Keuntungan Penjualan Aset Tetap"
+    type: "Revenue"
+    normal_balance: "Credit"
+    description: "Gain dari penjualan aset tetap"
+
+  - code: "8120"
+    name: "Pendapatan Lain-lain"
+    type: "Revenue"
+    normal_balance: "Credit"
+    description: "Pendapatan non-usaha lainnya (sewa, royalti, dll.)"
+
+  - code: "8200"
+    name: "Beban Bunga"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Beban bunga pinjaman bank dan obligasi"
+
+  - code: "8210"
+    name: "Kerugian Penjualan Aset Tetap"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Loss dari penjualan aset tetap"
+
+  - code: "8220"
+    name: "Beban Pajak Penghasilan"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Beban pajak penghasilan badan (PPh Badan)"
+
+  - code: "8230"
+    name: "Beban Lain-lain"
+    type: "Expense"
+    normal_balance: "Debit"
+    description: "Beban non-usaha lainnya"

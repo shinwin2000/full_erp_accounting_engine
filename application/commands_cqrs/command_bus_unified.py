@@ -1041,7 +1041,12 @@ def reset_command_bus() -> None:
     _command_bus_instance = None
 
 
-# === 8. EXPORTS ===
+# === 8. ALIAS UNTUK KOMPATIBILITAS (CommandBusUnified) ===
+# Beberapa modul mengimpor "CommandBusUnified" - tambahkan alias
+CommandBusUnified = UnifiedCommandBus
+
+
+# === 9. EXPORTS ===
 
 __all__ = [
     "AuditMiddleware",
@@ -1051,6 +1056,7 @@ __all__ = [
     "CommandBus",
     "CommandBusClosedError",
     "CommandBusError",
+    "CommandBusUnified",      
     "CommandExecutionError",
     "CommandNotFoundError",
     "CommandTimeoutError",

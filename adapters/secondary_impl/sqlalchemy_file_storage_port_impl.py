@@ -6,12 +6,12 @@ Adapter for FileStorageStatus (from file_storage_port)
 
 from __future__ import annotations
 
-import uuid
 import logging
+import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, DateTime, String, Text, select, update, delete
+from sqlalchemy import Column, DateTime, String, Text, delete, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base

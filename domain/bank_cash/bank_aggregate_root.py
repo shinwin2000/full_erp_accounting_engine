@@ -258,7 +258,7 @@ class BankAggregate:
     def clear_events(self) -> None:
         self._events.clear()
 
-    def version(self) -> int:
+    def get_version(self) -> int:
         return self.version
 
     def snapshot(self) -> dict[str, Any]:

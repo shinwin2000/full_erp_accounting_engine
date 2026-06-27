@@ -25,11 +25,9 @@ import argparse
 import ast
 import json
 import pathlib
-import re
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Set, Tuple
 
 # =============================================================================
 # Konfigurasi Warna
@@ -61,8 +59,8 @@ class Finding:
 @dataclass
 class Report:
     total_files: int = 0
-    findings: List[Finding] = field(default_factory=list)
-    files_with_issues: Set[str] = field(default_factory=set)
+    findings: list[Finding] = field(default_factory=list)
+    files_with_issues: set[str] = field(default_factory=set)
 
 # =============================================================================
 # Detector
@@ -70,10 +68,10 @@ class Report:
 class SQLInjectionDetector(ast.NodeVisitor):
     """AST visitor untuk mendeteksi pola SQL Injection."""
 
-    def __init__(self, file_path: str, source_lines: List[str]):
+    def __init__(self, file_path: str, source_lines: list[str]):
         self.file_path = file_path
         self.source_lines = source_lines
-        self.findings: List[Finding] = []
+        self.findings: list[Finding] = []
         self.in_sql_context = False
         self.sql_var_names = {"query", "sql", "stmt", "statement", "raw_sql"}
 
@@ -243,7 +241,7 @@ class SQLInjectionDetector(ast.NodeVisitor):
 # =============================================================================
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
 
-def scan_project(exclude_dirs: List[str] = None) -> Report:
+def scan_project(exclude_dirs: list[str] = None) -> Report:
     if exclude_dirs is None:
         exclude_dirs = [".venv", "venv", "__pycache__", ".git", "node_modules", "dist", "build", "migrations", "deployment", "docs"]
     exclude_set = set(exclude_dirs)

@@ -119,19 +119,19 @@ class CoretaxBupotTable(Base, UUIDMixin, TimestampMixin):
         nullable=True,
     )
 
-    invoice: Mapped["ARInvoiceTable | None"] = relationship(
+    invoice: Mapped[ARInvoiceTable | None] = relationship(
         "ARInvoiceTable",
         foreign_keys=[invoice_id],
         back_populates="bupots",
     )
 
-    purchase_invoice: Mapped["APInvoiceTable | None"] = relationship(
+    purchase_invoice: Mapped[APInvoiceTable | None] = relationship(
         "APInvoiceTable",
         foreign_keys=[purchase_invoice_id],
         back_populates="bupots",
     )
 
-    payment: Mapped["APPaymentTable | None"] = relationship(
+    payment: Mapped[APPaymentTable | None] = relationship(
         "APPaymentTable",
         foreign_keys=[payment_id],
         back_populates="bupots",

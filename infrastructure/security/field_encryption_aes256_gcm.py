@@ -58,7 +58,7 @@ class FieldEncryptionService:
             if "ConfigNotFoundError" in str(type(e).__name__) or "ConfigNotFound" in str(e):
                 pass
             else:
-                logger.debug(f"Security config load error: {type(e).__name__}: {str(e)}")
+                logger.debug(f"Security config load error: {type(e).__name__}: {e!s}")
             return {}
 
     def _load_keys(self):
@@ -134,7 +134,7 @@ class FieldEncryptionService:
         except DecryptionError:
             raise
         except Exception as e:
-            raise DecryptionError(f"Decryption error: {str(e)}") from e
+            raise DecryptionError(f"Decryption error: {e!s}") from e
 
     def encrypt_deterministic(self, plaintext: str, key_id: str | None = None) -> str:
         if not plaintext:

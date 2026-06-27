@@ -11,10 +11,15 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-import sqlalchemy as sa
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, Integer
-from sqlalchemy import JSON, LargeBinary, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Integer,
+    Numeric,
+    String,
+    Text,
+)
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import text
 

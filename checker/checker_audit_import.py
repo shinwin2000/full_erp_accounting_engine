@@ -17,20 +17,18 @@ Exit code:
     1 jika ada anomali atau kegagalan struktural
 """
 
-import sys
-import os
 import ast
-import json
-import time
-import inspect
+import collections
 import importlib
 import importlib.util
+import json
+import os
 import subprocess
-import collections
-from pathlib import Path
-from typing import Dict, List, Set, Optional, Tuple, Any
-from dataclasses import dataclass, field
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from pathlib import Path
 
 # ─── Konfigurasi Sistem ───────────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent
@@ -85,7 +83,7 @@ class Finding:
 class PhaseResult:
     name: str
     passed: bool = True
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     duration: float = 0.0
 
     def add(self, sev: str, file: str, line: int, msg: str, detail: str = "", rec: str = ""):
@@ -104,7 +102,7 @@ def rel_path(p: Path) -> str:
     except ValueError:
         return str(p)
 
-def all_py_files() -> List[Path]:
+def all_py_files() -> list[Path]:
     files = []
     for top in PROJECT_TOPS:
         dir_path = ROOT / top
@@ -117,7 +115,7 @@ def all_py_files() -> List[Path]:
                 files.append(p)
     return sorted(set(files))
 
-def module_name(p: Path) -> Optional[str]:
+def module_name(p: Path) -> str | None:
     try:
         rel = p.relative_to(ROOT)
     except ValueError:
@@ -150,7 +148,7 @@ def phase_syntax_and_circular() -> PhaseResult:
     t0 = time.monotonic()
     files = all_py_files()
     module_map = {}
-    
+
     # 1. Syntax Validation
     for f in files:
         mod = module_name(f)
@@ -164,14 +162,14 @@ def phase_syntax_and_circular() -> PhaseResult:
 
     local_mods = set(module_map.keys())
     graph = collections.defaultdict(set)
-    
+
     # 2. Build Dependency Graph
     for f in files:
         mod = module_name(f)
         tree = get_ast_tree(f)
         if not tree or isinstance(tree, SyntaxError):
             continue
-            
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -186,7 +184,7 @@ def phase_syntax_and_circular() -> PhaseResult:
 
     # 3. Tarjan SCC (Mendeteksi Siklus Import)
     index, stack, indices, lowlink, on_stack, sccs = 0, [], {}, {}, {}, []
-    
+
     def strongconnect(node):
         nonlocal index
         indices[node] = lowlink[node] = index
@@ -226,7 +224,7 @@ def phase_syntax_and_circular() -> PhaseResult:
 
 # ─── Fase 2: Deep Contract Introspection (Real attribute validation) ─────────
 
-def check_single_contract(mod_source: str, imported_module: str, names: List[str], lineno: int) -> List[Tuple[str, int, str, str, str]]:
+def check_single_contract(mod_source: str, imported_module: str, names: list[str], lineno: int) -> list[tuple[str, int, str, str, str]]:
     """Proses worker untuk memeriksa atribut secara live tanpa mengganggu main thread."""
     failures = []
     # Cegah inisialisasi side-effects berat jika modul bukan target
@@ -237,7 +235,7 @@ def check_single_contract(mod_source: str, imported_module: str, names: List[str
             if not hasattr(mod, name):
                 # Atribut tidak ditemukan secara live
                 failures.append((
-                    "CRITICAL", lineno, 
+                    "CRITICAL", lineno,
                     f"Contract Violation: Cannot import name '{name}' from '{imported_module}'",
                     f"Atribut '{name}' tidak ada di namespace modul '{imported_module}' secara runtime.",
                     f"Verifikasi fungsi/kelas '{name}' di dalam {imported_module}.py"
@@ -249,22 +247,22 @@ def check_single_contract(mod_source: str, imported_module: str, names: List[str
             str(e),
             "Pastikan modul tersedia dan path resolusi benar."
         ))
-    except Exception as e:
+    except Exception:
         # Module gagal dimuat karena syntax/runtime error di dalamnya (akan ditangkap di fase 3 secara penuh)
-        pass 
+        pass
     return failures
 
 def phase_contract_introspection() -> PhaseResult:
     pr = PhaseResult("Deep Contract Introspection")
     t0 = time.monotonic()
     files = all_py_files()
-    
+
     tasks = []
     for f in files:
         tree = get_ast_tree(f)
         if not tree or isinstance(tree, SyntaxError): continue
         rp = rel_path(f)
-        
+
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
                 top_lvl = node.module.split('.')[0]
@@ -290,8 +288,8 @@ def phase_contract_introspection() -> PhaseResult:
                 pass
 
     if error_count == 0:
-        pr.add("PASS", ".", 0, f"Semua kontrak antar-modul (from X import Y) tervalidasi secara live.")
-    
+        pr.add("PASS", ".", 0, "Semua kontrak antar-modul (from X import Y) tervalidasi secara live.")
+
     pr.duration = time.monotonic() - t0
     return pr
 
@@ -301,7 +299,7 @@ def phase_isolated_runtime() -> PhaseResult:
     pr = PhaseResult("Isolated Runtime Validation")
     t0 = time.monotonic()
     files = all_py_files()
-    
+
     modules_to_test = []
     for f in files:
         mod = module_name(f)
@@ -311,12 +309,12 @@ def phase_isolated_runtime() -> PhaseResult:
     failed = []
     # Menggunakan subprocess murni agar memori state tidak tumpang tindih
     print(f"  {CYAN}Memulai isolasi runtime untuk {len(modules_to_test)} modul...{RESET}", flush=True)
-    
+
     for file_path, mod in modules_to_test:
         # Mini script untuk melakukan import secara independen
         cmd = [sys.executable, "-c", f"import importlib; importlib.import_module('{mod}')"]
         result = subprocess.run(cmd, capture_output=True, text=True)
-        
+
         if result.returncode != 0:
             err_output = result.stderr.strip().split('\n')[-1] # Ambil baris traceback terakhir
             failed.append((file_path, mod, err_output))
@@ -343,7 +341,7 @@ def phase_engine_lifecycle(optional_db: bool = True) -> PhaseResult:
         if verify_module_exists_spec("app.main"):
             mod = importlib.import_module("app.main")
             app_obj = getattr(mod, "app", getattr(mod, "create_app", lambda: None)())
-            
+
             if app_obj and hasattr(app_obj, "routes"):
                 routes_count = len(app_obj.routes)
                 pr.add("PASS", "app/main.py", 0, f"ASGI Engine termuat. Mendeteksi {routes_count} live routes/endpoints.")
@@ -352,7 +350,7 @@ def phase_engine_lifecycle(optional_db: bool = True) -> PhaseResult:
         else:
             pr.add("CRITICAL", "app/main.py", 0, "Modul app.main tidak ditemukan.", rec="Pastikan entry point aplikasi tersedia.")
     except Exception as e:
-        pr.add("CRITICAL", "app/main.py", 0, f"FastAPI Bootstrap Gagal: {type(e).__name__}: {str(e)}")
+        pr.add("CRITICAL", "app/main.py", 0, f"FastAPI Bootstrap Gagal: {type(e).__name__}: {e!s}")
 
     # 2. DI Container Introspection
     try:
@@ -360,19 +358,19 @@ def phase_engine_lifecycle(optional_db: bool = True) -> PhaseResult:
             di_mod = importlib.import_module("bootstrap.dependency_container.ioc_container")
             if hasattr(di_mod, "get_container"):
                 container = di_mod.get_container()
-                
+
                 # Coba introspeksi _registry atau mekanisme internal
                 registry_count = 0
                 if hasattr(container, "_registry"):
                     registry_count = len(container._registry)
                 elif hasattr(container, "get_registered_types"):
                     registry_count = len(container.get_registered_types())
-                
+
                 pr.add("PASS", "DI Container", 0, f"IoC Container aktif. Mendeteksi {registry_count} registered bindings.")
             else:
                 pr.add("WARNING", "DI Container", 0, "Container ditemukan, tetapi antarmuka 'get_container' tidak standar.")
     except Exception as e:
-        pr.add("WARNING", "DI Container", 0, f"Introspeksi DI gagal: {str(e)}")
+        pr.add("WARNING", "DI Container", 0, f"Introspeksi DI gagal: {e!s}")
 
     # 3. Database Introspection (Terkoneksi Nyata)
     db_url = os.environ.get("DATABASE_URL")
@@ -384,32 +382,33 @@ def phase_engine_lifecycle(optional_db: bool = True) -> PhaseResult:
     else:
         try:
             import asyncio
+
             from sqlalchemy import text
             from sqlalchemy.ext.asyncio import create_async_engine
-            
+
             if "postgresql://" in db_url and "+asyncpg" not in db_url:
                 db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-                
+
             engine = create_async_engine(db_url, pool_pre_ping=True, connect_args={"server_settings": {"application_name": "Sovereign_Integration_Checker"}})
-            
+
             async def ping_db():
                 async with engine.connect() as conn:
                     result = await conn.execute(text("SELECT current_database();"))
                     return result.scalar()
-                    
+
             db_name = asyncio.run(ping_db())
             pr.add("PASS", "Database", 0, f"Koneksi terverifikasi secara fisik ke database: '{db_name}'")
         except ImportError:
             pr.add("WARNING", "Database", 0, "Library SQLAlchemy/asyncpg tidak tersedia untuk menguji koneksi.")
         except Exception as e:
-            pr.add("CRITICAL", "Database", 0, f"Koneksi fisik ditolak: {str(e)}", rec="Periksa kredensial, VPN, atau layanan PostgreSQL.")
+            pr.add("CRITICAL", "Database", 0, f"Koneksi fisik ditolak: {e!s}", rec="Periksa kredensial, VPN, atau layanan PostgreSQL.")
 
     pr.duration = time.monotonic() - t0
     return pr
 
 # ─── Eksekutor Utama ─────────────────────────────────────────────────────────
 
-def run_integration_check(verbose: bool, json_out: Optional[str], skip_db: bool) -> int:
+def run_integration_check(verbose: bool, json_out: str | None, skip_db: bool) -> int:
     print(f"{BOLD}{MAGENTA}╔{'═'*78}╗{RESET}")
     print(f"{BOLD}{MAGENTA}║{' '*16}SOVEREIGN KERNEL — DEEP INTEGRATION VALIDATOR{' '*17}║{RESET}")
     print(f"{BOLD}{MAGENTA}╚{'═'*78}╝{RESET}\n")
@@ -426,13 +425,13 @@ def run_integration_check(verbose: bool, json_out: Optional[str], skip_db: bool)
         print(f"{CYAN}▶ MEMULAI FASE: {name.upper()}{RESET}")
         pr = fn()
         results.append(pr)
-        
+
         if pr.findings:
             for f in pr.findings:
                 sev_col = {"CRITICAL": RED, "WARNING": YELLOW, "INFO": CYAN, "PASS": GREEN}.get(f.severity, WHITE)
                 icon = {"CRITICAL": "✖", "WARNING": "⚠", "INFO": "ℹ", "PASS": "✔"}.get(f.severity, "?")
                 print(f"  {sev_col}{BOLD}{icon} [{f.severity}]{RESET} {f.message}")
-                
+
                 if f.detail and f.severity in ("CRITICAL", "WARNING"):
                     print(f"      {YELLOW}→ {f.detail}{RESET}")
                 if f.file and f.file != ".":
@@ -441,7 +440,7 @@ def run_integration_check(verbose: bool, json_out: Optional[str], skip_db: bool)
                     print(f"      💡 {f.recommendation}")
         else:
             print(f"  {GREEN}✔ Tidak ada anomali terdeteksi.{RESET}")
-            
+
         print(f"  ⏱  Penyelesaian fase: {pr.duration:.2f}s\n")
 
     # Kalkulasi Keseluruhan
@@ -481,5 +480,5 @@ if __name__ == "__main__":
     parser.add_argument("--json", metavar="FILE", help="Simpan temuan struktural dalam JSON")
     parser.add_argument("--no-db", action="store_true", help="Abaikan introspeksi koneksi database fisik")
     args = parser.parse_args()
-    
+
     sys.exit(run_integration_check(args.verbose, args.json, args.no_db))

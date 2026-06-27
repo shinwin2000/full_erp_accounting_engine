@@ -976,12 +976,12 @@ def unlock_period(
 
 __all__ = [
     "FiscalPeriod",
+    "PeriodLock",
     "PeriodLockCheckResult",
     "PeriodLockGuard",
     "PeriodLockSeverity",
     "PeriodStatus",
     "get_period_lock_guard",
-    "PeriodLock",        
-    "lock_period",      
-    "unlock_period",     
+    "lock_period",
+    "unlock_period",
 ]

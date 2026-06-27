@@ -30,7 +30,6 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 # =============================================================================
 # Konfigurasi Warna
@@ -65,7 +64,7 @@ class SecretFinding:
 class Report:
     total_files: int = 0
     total_findings: int = 0
-    findings: List[SecretFinding] = field(default_factory=list)
+    findings: list[SecretFinding] = field(default_factory=list)
     score: int = 100
 
 # =============================================================================
@@ -187,8 +186,8 @@ class SecretVisitor(ast.NodeVisitor):
         self.file_path = file_path
         self.content = content
         self.lines = content.splitlines()
-        self.findings: List[SecretFinding] = []
-        self.context_vars: Dict[str, str] = {}  # variable name -> value (if constant)
+        self.findings: list[SecretFinding] = []
+        self.context_vars: dict[str, str] = {}  # variable name -> value (if constant)
 
     def visit_Assign(self, node: ast.Assign):
         """Tangani assignment untuk mendeteksi secret di variabel."""
@@ -236,7 +235,7 @@ class SecretVisitor(ast.NodeVisitor):
                 return node.func.value.id in {"os", "environ"} and node.func.attr in {"get", "getenv"}
         return False
 
-    def _check_value(self, var_name: Optional[str], value: str, line: int, col: int):
+    def _check_value(self, var_name: str | None, value: str, line: int, col: int):
         """Periksa apakah value mengandung secret."""
         # Abaikan jika terlalu pendek
         if len(value) < 4:
@@ -269,7 +268,7 @@ class SecretVisitor(ast.NodeVisitor):
 # =============================================================================
 # Scanner
 # =============================================================================
-def scan_file(file_path: pathlib.Path, root: pathlib.Path) -> List[SecretFinding]:
+def scan_file(file_path: pathlib.Path, root: pathlib.Path) -> list[SecretFinding]:
     """Scan satu file untuk hardcoded secrets."""
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace")
@@ -318,7 +317,7 @@ def scan_file(file_path: pathlib.Path, root: pathlib.Path) -> List[SecretFinding
     except Exception:
         return []
 
-def scan_project(exclude_dirs: List[str] = None) -> Report:
+def scan_project(exclude_dirs: list[str] = None) -> Report:
     if exclude_dirs is None:
         exclude_dirs = [".venv", "venv", "__pycache__", ".git", "node_modules", "dist", "build", "migrations", "deployment", "docs"]
     exclude_set = set(exclude_dirs)

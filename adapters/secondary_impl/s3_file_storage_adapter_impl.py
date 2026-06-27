@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ class S3FileStorageAdapter:
     def __init__(self, bucket: str | None = None, region: str | None = None):
         self.bucket = bucket or os.getenv("S3_BUCKET", "default-bucket")
         self.region = region or os.getenv("S3_REGION", "ap-southeast-1")
-        self._audit_log: List[Dict[str, Any]] = []
+        self._audit_log: list[dict[str, Any]] = []
         self._cleanup_running = False
 
     async def upload(self, key: str, data: bytes, metadata: dict | None = None) -> str:
@@ -42,7 +42,7 @@ class S3FileStorageAdapter:
 
     # ===== New missing methods =====
 
-    async def create_version(self, key: str, data: bytes, metadata: dict | None = None) -> Dict[str, Any]:
+    async def create_version(self, key: str, data: bytes, metadata: dict | None = None) -> dict[str, Any]:
         """Create a new version of a file (if versioning enabled)."""
         version_id = str(uuid4())
         logger.info(f"Creating version {version_id} for {key}")
@@ -64,14 +64,14 @@ class S3FileStorageAdapter:
         logger.info(f"Generating presigned URL for {key} (expires {expires_in}s)")
         return f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{key}?X-Amz-Expires={expires_in}&mock=1"
 
-    async def get_audit_log(self, key: str | None = None, limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_audit_log(self, key: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         """Get audit log entries for file operations."""
         logs = self._audit_log
         if key:
             logs = [l for l in logs if l.get("key") == key]
         return logs[-limit:]
 
-    async def get_metadata(self, key: str) -> Dict[str, Any]:
+    async def get_metadata(self, key: str) -> dict[str, Any]:
         """Get metadata of a file."""
         logger.info(f"Getting metadata for {key}")
         return {
@@ -83,7 +83,7 @@ class S3FileStorageAdapter:
             "metadata": {"mock": "value"}
         }
 
-    async def get_statistics(self) -> Dict[str, Any]:
+    async def get_statistics(self) -> dict[str, Any]:
         """Get storage statistics (total files, total size, etc.)."""
         logger.info("Getting S3 statistics")
         return {
@@ -93,7 +93,7 @@ class S3FileStorageAdapter:
             "region": self.region
         }
 
-    async def get_versions(self, key: str, limit: int = 10) -> List[Dict[str, Any]]:
+    async def get_versions(self, key: str, limit: int = 10) -> list[dict[str, Any]]:
         """List versions of a file."""
         logger.info(f"Getting versions for {key}")
         return [
@@ -101,12 +101,12 @@ class S3FileStorageAdapter:
             {"version_id": "v2", "size": 2048, "last_modified": datetime.utcnow().isoformat()}
         ][:limit]
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Perform health check (e.g., connectivity to S3)."""
         logger.info("S3 health check")
         return {"status": "healthy", "bucket": self.bucket, "region": self.region}
 
-    async def list_files(self, prefix: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    async def list_files(self, prefix: str = "", limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """List files in the bucket with pagination."""
         logger.info(f"Listing files with prefix '{prefix}' (limit={limit}, offset={offset})")
         return [
@@ -124,7 +124,7 @@ class S3FileStorageAdapter:
         self._cleanup_running = False
         logger.info("Stopping cleanup task")
 
-    async def update_metadata(self, key: str, metadata: Dict[str, Any]) -> bool:
+    async def update_metadata(self, key: str, metadata: dict[str, Any]) -> bool:
         """Update metadata of a file."""
         logger.info(f"Updating metadata for {key}: {metadata}")
         self._audit_log.append({
@@ -135,18 +135,18 @@ class S3FileStorageAdapter:
         })
         return True
 
-    async def upload_chunked_start(self, key: str, total_size: int, metadata: Dict[str, Any] | None = None) -> str:
+    async def upload_chunked_start(self, key: str, total_size: int, metadata: dict[str, Any] | None = None) -> str:
         """Start a multipart upload and return upload ID."""
         upload_id = str(uuid4())
         logger.info(f"Starting chunked upload for {key} (total {total_size} bytes), upload_id={upload_id}")
         return upload_id
 
-    async def upload_chunked_part(self, key: str, upload_id: str, part_number: int, data: bytes) -> Dict[str, Any]:
+    async def upload_chunked_part(self, key: str, upload_id: str, part_number: int, data: bytes) -> dict[str, Any]:
         """Upload a part of a multipart upload."""
         logger.info(f"Uploading part {part_number} for {key}, upload_id={upload_id}")
         return {"etag": f"etag_part_{part_number}", "part_number": part_number}
 
-    async def upload_chunked_complete(self, key: str, upload_id: str, parts: List[Dict[str, Any]]) -> str:
+    async def upload_chunked_complete(self, key: str, upload_id: str, parts: list[dict[str, Any]]) -> str:
         """Complete a multipart upload."""
         logger.info(f"Completing upload {upload_id} for {key} with {len(parts)} parts")
         return f"s3://{self.bucket}/{key}"

@@ -533,7 +533,7 @@ def get_audit_store() -> AppendOnlyStore | None:
         import importlib
 
         mod = importlib.import_module("bootstrap.dependency_container.ioc_container")
-        get_container = getattr(mod, "get_container")
+        get_container = mod.get_container
         container = get_container()
         return container.resolve(AppendOnlyStore)
     except Exception as e:

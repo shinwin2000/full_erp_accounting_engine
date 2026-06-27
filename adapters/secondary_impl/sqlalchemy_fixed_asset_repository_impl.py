@@ -11,12 +11,13 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
-from uuid import UUID
+from typing import Any
+from uuid import UUID, uuid4
 
-from sqlalchemy import and_, func, or_, select, update, text
+from sqlalchemy import and_, func, or_, select, text, update
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,14 +25,11 @@ from domain.fixed_asset.aggregate_root import FixedAssetAggregate
 from domain.fixed_asset.asset_entity import AssetStatus, DepreciationMethod
 from domain.fixed_asset.depreciation_schedule_engine import DepreciationScheduleLine
 from domain.fixed_asset.disposal_entity import Disposal
-from domain.fixed_asset.impairment_tester import ImpairmentTest
 from domain.fixed_asset.revaluation_entity import Revaluation
 from domain.shared_value_objects.money_vo import Money
-from infrastructure.persistence_orm.asset_category_table import AssetCategoryTable
 from infrastructure.persistence_orm.depreciation_schedule_table import DepreciationScheduleTable
 from infrastructure.persistence_orm.disposal_table import DisposalTable
 from infrastructure.persistence_orm.fixed_asset_table import FixedAssetTable
-from infrastructure.persistence_orm.impairment_test_table import ImpairmentTestTable
 from infrastructure.persistence_orm.revaluation_table import RevaluationTable
 from ports.primary.fixed_asset_repository_port import FixedAssetRepositoryPort
 
@@ -77,7 +75,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
 
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
-        self._audit_log: List[Dict[str, Any]] = []
+        self._audit_log: list[dict[str, Any]] = []
 
     @property
     def session(self) -> AsyncSession:
@@ -187,7 +185,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             posted_at=table.posted_at,
         )
 
-    async def _log_audit(self, action: str, asset_id: UUID, details: Dict[str, Any]) -> None:
+    async def _log_audit(self, action: str, asset_id: UUID, details: dict[str, Any]) -> None:
         self._audit_log.append({
             "timestamp": datetime.utcnow().isoformat(),
             "action": action,
@@ -198,7 +196,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             self._audit_log = self._audit_log[-5000:]
 
     # ========================================================================
-    # CORE CRUD (ALIAS UNTUK KONTRAK PORT)
+    # CORE CRUD (sesuai port)
     # ========================================================================
 
     async def add(self, asset: FixedAssetAggregate) -> None:
@@ -207,8 +205,36 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
     async def update(self, asset: FixedAssetAggregate) -> None:
         await self.update_asset(asset)
 
-    async def delete(self, asset_id: UUID) -> bool:
-        return await self.delete_asset(asset_id)
+    # ===== FIX: delete signature sesuai port (2 required: asset_id, user_id) =====
+    async def delete(self, asset_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
+        """
+        Delete asset with user_id (required) and permanent flag.
+        Signature matches FixedAssetRepositoryPort.
+        """
+        try:
+            if permanent:
+                # Hard delete (not recommended, but available)
+                stmt = sa_delete(FixedAssetTable).where(FixedAssetTable.id == asset_id)
+                result = await self.session.execute(stmt)
+                await self.session.flush()
+                return result.rowcount > 0
+            else:
+                # Soft delete
+                stmt = update(FixedAssetTable).where(FixedAssetTable.id == asset_id).values(
+                    deleted_at=datetime.utcnow(),
+                    is_active=False,
+                    status="disposed",
+                    updated_at=datetime.utcnow(),
+                )
+                result = await self.session.execute(stmt)
+                await self.session.flush()
+                if result.rowcount > 0:
+                    await self._log_audit("DELETE", asset_id, {"user_id": str(user_id)})
+                    logger.info("Asset %s soft deleted by %s", asset_id, user_id)
+                return result.rowcount > 0
+        except Exception as e:
+            await self.session.rollback()
+            raise FixedAssetRepositoryError(f"Failed to delete asset: {e}") from e
 
     async def get_by_id(self, asset_id: UUID) -> FixedAssetAggregate | None:
         return await self.get_asset_by_id(asset_id)
@@ -221,14 +247,13 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             assets, _ = await self.list_assets(legal_entity_id, page=(offset // limit) + 1, page_size=limit)
             return assets
         else:
-            # If no legal_entity_id, return all (but we need to handle pagination)
             stmt = select(FixedAssetTable).where(FixedAssetTable.deleted_at.is_(None)).order_by(FixedAssetTable.asset_code).limit(limit).offset(offset)
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
             return [self._to_domain(t) for t in tables]
 
     # ========================================================================
-    # EXISTING METHODS (add_asset, get_asset_by_id, dll)
+    # INTERNAL / EXISTING METHODS
     # ========================================================================
 
     async def add_asset(self, asset: FixedAssetAggregate) -> None:
@@ -295,6 +320,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             raise FixedAssetRepositoryError(f"Failed to update asset: {e}") from e
 
     async def delete_asset(self, asset_id: UUID) -> bool:
+        # Internal soft delete (kept for compatibility)
         try:
             stmt = update(FixedAssetTable).where(FixedAssetTable.id == asset_id).values(deleted_at=datetime.utcnow(), is_active=False)
             result = await self.session.execute(stmt)
@@ -308,7 +334,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             raise FixedAssetRepositoryError(f"Failed to delete asset: {e}") from e
 
     # ========================================================================
-    # QUERY METHODS
+    # QUERY METHODS (dengan legal_entity_id opsional untuk beberapa)
     # ========================================================================
 
     async def list_assets(
@@ -362,24 +388,61 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
         except Exception as e:
             raise FixedAssetRepositoryError(f"Failed to check asset code: {e}") from e
 
-    async def find_by_status(self, status: AssetStatus | str, legal_entity_id: UUID) -> list[FixedAssetAggregate]:
+    # ========================================================================
+    # FIXED: Method dengan legal_entity_id opsional
+    # ========================================================================
+
+    async def find_by_status(self, status: AssetStatus | str, legal_entity_id: UUID | None = None) -> list[FixedAssetAggregate]:
         if isinstance(status, AssetStatus):
             status = status.value
-        assets, _ = await self.list_assets(legal_entity_id, status=status, page_size=10000)
-        return assets
+        if legal_entity_id:
+            assets, _ = await self.list_assets(legal_entity_id, status=status, page_size=10000)
+            return assets
+        else:
+            try:
+                stmt = select(FixedAssetTable).where(
+                    FixedAssetTable.status == status,
+                    FixedAssetTable.deleted_at.is_(None),
+                ).order_by(FixedAssetTable.asset_code)
+                result = await self.session.execute(stmt)
+                tables = result.scalars().all()
+                return [self._to_domain(table) for table in tables]
+            except Exception as e:
+                raise FixedAssetRepositoryError(f"Failed to find by status: {e}") from e
 
-    async def find_by_name_contains(self, keyword: str, legal_entity_id: UUID) -> list[FixedAssetAggregate]:
-        assets, _ = await self.list_assets(legal_entity_id, search=keyword, page_size=10000)
-        return assets
+    async def find_by_name_contains(self, keyword: str, legal_entity_id: UUID | None = None) -> list[FixedAssetAggregate]:
+        if legal_entity_id:
+            assets, _ = await self.list_assets(legal_entity_id, search=keyword, page_size=10000)
+            return assets
+        else:
+            try:
+                stmt = select(FixedAssetTable).where(
+                    or_(
+                        FixedAssetTable.asset_code.ilike(f"%{keyword}%"),
+                        FixedAssetTable.asset_name.ilike(f"%{keyword}%"),
+                    ),
+                    FixedAssetTable.deleted_at.is_(None),
+                ).order_by(FixedAssetTable.asset_code)
+                result = await self.session.execute(stmt)
+                tables = result.scalars().all()
+                return [self._to_domain(table) for table in tables]
+            except Exception as e:
+                raise FixedAssetRepositoryError(f"Failed to find by name: {e}") from e
 
-    async def find_by_asset_group(self, group_id: UUID, legal_entity_id: UUID) -> list[FixedAssetAggregate]:
-        # Using asset_category as group
-        # We need to get category name from group_id? For simplicity, assume group_id is category code.
-        # We'll treat group_id as category string.
-        # Better: we need a mapping, but for now we use category.
-        # We'll implement with category = str(group_id) as fallback.
-        assets, _ = await self.list_assets(legal_entity_id, category=str(group_id), page_size=10000)
-        return assets
+    async def find_by_asset_group(self, group_id: UUID, legal_entity_id: UUID | None = None) -> list[FixedAssetAggregate]:
+        try:
+            conditions = [
+                FixedAssetTable.asset_category == str(group_id),
+                FixedAssetTable.deleted_at.is_(None),
+            ]
+            if legal_entity_id:
+                conditions.append(FixedAssetTable.legal_entity_id == legal_entity_id)
+            stmt = select(FixedAssetTable).where(and_(*conditions)).order_by(FixedAssetTable.asset_code)
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            return [self._to_domain(table) for table in tables]
+        except Exception as e:
+            raise FixedAssetRepositoryError(f"Failed to find by asset group: {e}") from e
 
     async def find_active_as_of_date(self, as_of_date: date, legal_entity_id: UUID) -> list[FixedAssetAggregate]:
         try:
@@ -428,13 +491,11 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
         asset = await self.get_asset_by_id(asset_id)
         if not asset:
             raise AssetNotFoundError(f"Asset {asset_id} not found")
-        # Simple calculation: straight-line monthly
         if asset.depreciation_method == DepreciationMethod.STRAIGHT_LINE:
             annual = (asset.acquisition_cost.amount - asset.residual_value.amount) / Decimal(asset.useful_life_years)
             monthly = annual / Decimal(12)
             return monthly.quantize(Decimal("0.01"))
         else:
-            # Placeholder for other methods
             return Decimal(0)
 
     async def post_monthly_depreciation(self, asset_id: UUID, period_date: date, journal_id: UUID, user_id: UUID) -> Decimal:
@@ -446,7 +507,6 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
         monthly = await self.calculate_monthly_depreciation(asset_id, period_date)
         if monthly <= 0:
             return Decimal(0)
-        # Update accumulated
         new_acc = asset.accumulated_depreciation.amount + monthly
         if new_acc > (asset.acquisition_cost.amount - asset.residual_value.amount):
             new_acc = asset.acquisition_cost.amount - asset.residual_value.amount
@@ -457,7 +517,6 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             asset.status = AssetStatus.FULLY_DEPRECIATED
         asset.version += 1
         await self.update_asset(asset)
-        # Save schedule line
         schedule = DepreciationScheduleLine(
             id=UUID(int=0),
             asset_id=asset_id,
@@ -506,7 +565,6 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
         old_nbv = asset.acquisition_cost.amount - asset.accumulated_depreciation.amount
         if new_value == old_nbv:
             return asset
-        # Create revaluation record
         reval = Revaluation(
             id=UUID(int=0),
             asset_id=asset_id,
@@ -514,7 +572,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             old_acquisition_cost=asset.acquisition_cost,
             new_acquisition_cost=Money(new_value, asset.acquisition_cost.currency),
             old_accumulated_depreciation=asset.accumulated_depreciation,
-            new_accumulated_depreciation=Money(Decimal(0), asset.acquisition_cost.currency),  # simplified
+            new_accumulated_depreciation=Money(Decimal(0), asset.acquisition_cost.currency),
             old_nbv=Money(old_nbv, asset.acquisition_cost.currency),
             new_nbv=Money(new_value, asset.acquisition_cost.currency),
             surplus_deficit=Money(new_value - old_nbv, asset.acquisition_cost.currency),
@@ -523,10 +581,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             created_by=approved_by,
         )
         await self.add_revaluation(reval)
-        # Update asset
         asset.acquisition_cost = Money(new_value, asset.acquisition_cost.currency)
-        # Reset accumulated? Or keep? In revaluation, we can adjust.
-        # Simplified: keep accumulated, adjust acquisition cost.
         asset.version += 1
         await self.update_asset(asset)
         return asset
@@ -547,7 +602,6 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             raise AssetAlreadyDisposedError(f"Asset {asset_id} already disposed")
         nbv = asset.acquisition_cost.amount - asset.accumulated_depreciation.amount
         gain_loss = proceeds - nbv
-        # Create disposal record
         disposal = Disposal(
             id=UUID(int=0),
             asset_id=asset_id,
@@ -563,7 +617,6 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             created_by=user_id,
         )
         await self.add_disposal(disposal)
-        # Update asset
         asset.status = AssetStatus.DISPOSED
         asset.is_active = False
         asset.version += 1
@@ -650,7 +703,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
     # EXPORT / IMPORT
     # ========================================================================
 
-    async def export_to_csv(self, legal_entity_id: UUID) -> str:
+    async def export_to_csv(self, legal_entity_id: UUID | None = None) -> str:
         assets = await self.get_all(legal_entity_id, limit=10000)
         output = io.StringIO()
         writer = csv.writer(output)
@@ -684,7 +737,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
         for row in reader:
             try:
                 asset = FixedAssetAggregate(
-                    id=UUID(int=0),
+                    id=uuid4(),
                     asset_code=row["asset_code"],
                     asset_name=row["asset_name"],
                     asset_category=row.get("asset_category"),
@@ -707,9 +760,33 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
     # STATISTICS & AUDIT
     # ========================================================================
 
-    async def get_statistics(self, legal_entity_id: UUID) -> Dict[str, Any]:
-        summary = await self.get_asset_summary(legal_entity_id, date.today())
-        return summary
+    async def get_statistics(self, legal_entity_id: UUID | None = None) -> dict[str, Any]:
+        if legal_entity_id:
+            summary = await self.get_asset_summary(legal_entity_id, date.today())
+            return summary
+        else:
+            try:
+                stmt = select(
+                    func.count(FixedAssetTable.id).label("total_assets"),
+                    func.coalesce(func.sum(FixedAssetTable.acquisition_cost), 0).label("total_cost"),
+                    func.coalesce(func.sum(FixedAssetTable.accumulated_depreciation), 0).label("total_depreciation"),
+                ).where(
+                    FixedAssetTable.deleted_at.is_(None),
+                    FixedAssetTable.status != "disposed",
+                )
+                result = await self.session.execute(stmt)
+                row = result.first()
+                total_cost = Decimal(str(row.total_cost)) if row.total_cost else Decimal(0)
+                total_dep = Decimal(str(row.total_depreciation)) if row.total_depreciation else Decimal(0)
+                return {
+                    "total_assets": row.total_assets or 0,
+                    "total_acquisition_cost": float(total_cost),
+                    "total_accumulated_depreciation": float(total_dep),
+                    "total_net_book_value": float(total_cost - total_dep),
+                    "monthly_depreciation_charge": 0.0,
+                }
+            except Exception as e:
+                raise FixedAssetRepositoryError(f"Failed to get statistics: {e}") from e
 
     async def get_asset_summary(self, legal_entity_id: UUID, as_of_date: date) -> dict[str, Any]:
         try:
@@ -737,13 +814,13 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
         except Exception as e:
             raise FixedAssetRepositoryError(f"Failed to get summary: {e}") from e
 
-    async def get_audit_log(self, asset_id: UUID | None = None, limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_audit_log(self, asset_id: UUID | None = None, limit: int = 100) -> list[dict[str, Any]]:
         logs = self._audit_log
         if asset_id:
             logs = [l for l in logs if l.get("asset_id") == str(asset_id)]
         return logs[-limit:]
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         try:
             await self.session.execute(text("SELECT 1"))
             return {"status": "healthy", "repository": "FixedAssetRepository"}
@@ -751,13 +828,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             return {"status": "unhealthy", "repository": "FixedAssetRepository", "error": str(e)}
 
     # ========================================================================
-    # ALIAS UNTUK KONTRAK PORT (sudah di awal)
-    # ========================================================================
-
-    # add, update, delete, get_by_id, get_by_asset_code, get_all sudah didefinisikan di atas.
-
-    # ========================================================================
-    # SAVE / FIND ASSET (dari P55)
+    # ALIAS UNTUK KONTRAK PORT (save_asset, find_asset_by_id)
     # ========================================================================
 
     async def save_asset(self, asset: FixedAssetAggregate) -> None:

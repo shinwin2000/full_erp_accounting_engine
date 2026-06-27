@@ -26,11 +26,9 @@ import argparse
 import ast
 import json
 import pathlib
-import re
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 # =============================================================================
 # Konfigurasi Warna
@@ -69,8 +67,8 @@ class UoWUsage:
 @dataclass
 class Report:
     total_files: int = 0
-    issues: List[TransactionIssue] = field(default_factory=list)
-    uow_usages: List[UoWUsage] = field(default_factory=list)
+    issues: list[TransactionIssue] = field(default_factory=list)
+    uow_usages: list[UoWUsage] = field(default_factory=list)
     has_uow_port: bool = False
     uow_port_file: str = ""
     score: int = 100
@@ -78,12 +76,12 @@ class Report:
 # =============================================================================
 # AST Analysis Functions
 # =============================================================================
-def find_unit_of_work_port(root: pathlib.Path) -> Optional[pathlib.Path]:
+def find_unit_of_work_port(root: pathlib.Path) -> pathlib.Path | None:
     """Cari file unit_of_work_port.py di ports/primary/."""
     port_file = root / "ports" / "primary" / "unit_of_work_port.py"
     return port_file if port_file.exists() else None
 
-def analyze_unit_of_work_port(file_path: pathlib.Path) -> Dict[str, any]:
+def analyze_unit_of_work_port(file_path: pathlib.Path) -> dict[str, any]:
     """Analisis UoW port: cari class, method, dan pola async."""
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -121,7 +119,7 @@ def analyze_unit_of_work_port(file_path: pathlib.Path) -> Dict[str, any]:
                             info["has_async"] = True
     return info
 
-def find_session_attributes(tree: ast.AST) -> List[Tuple[int, str, str]]:
+def find_session_attributes(tree: ast.AST) -> list[tuple[int, str, str]]:
     """Temukan semua penggunaan session.commit, session.rollback, session.execute, session.begin."""
     findings = []
     for node in ast.walk(tree):
@@ -140,7 +138,7 @@ def find_session_attributes(tree: ast.AST) -> List[Tuple[int, str, str]]:
                         findings.append((node.lineno, attr, obj_name))
     return findings
 
-def find_uow_usage(tree: ast.AST, file_path: str) -> List[UoWUsage]:
+def find_uow_usage(tree: ast.AST, file_path: str) -> list[UoWUsage]:
     """Cari penggunaan Unit of Work (with uow: atau async with uow:)."""
     usages = []
     for node in ast.walk(tree):
@@ -169,7 +167,7 @@ def find_uow_usage(tree: ast.AST, file_path: str) -> List[UoWUsage]:
                             ))
     return usages
 
-def find_uow_in_use_cases(root: pathlib.Path) -> List[Tuple[pathlib.Path, ast.AST, str]]:
+def find_uow_in_use_cases(root: pathlib.Path) -> list[tuple[pathlib.Path, ast.AST, str]]:
     """Cari semua file use case di application/use_cases/ dan return file, tree, content."""
     use_case_dir = root / "application" / "use_cases"
     if not use_case_dir.exists():
@@ -186,7 +184,7 @@ def find_uow_in_use_cases(root: pathlib.Path) -> List[Tuple[pathlib.Path, ast.AS
         results.append((py_file, tree, src))
     return results
 
-def analyze_use_case(tree: ast.AST, file_path: pathlib.Path) -> List[TransactionIssue]:
+def analyze_use_case(tree: ast.AST, file_path: pathlib.Path) -> list[TransactionIssue]:
     """Analisis use case: cek apakah menggunakan UoW dengan benar."""
     issues = []
     # 1. Cari semua fungsi/async fungsi di dalam class atau module
@@ -290,7 +288,7 @@ def analyze_use_case(tree: ast.AST, file_path: pathlib.Path) -> List[Transaction
 # =============================================================================
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
 
-def scan_transaction_boundaries(exclude_dirs: List[str] = None) -> Report:
+def scan_transaction_boundaries(exclude_dirs: list[str] = None) -> Report:
     if exclude_dirs is None:
         exclude_dirs = [".venv", "venv", "__pycache__", ".git", "node_modules", "dist", "build", "migrations", "deployment", "docs", "tests"]
     exclude_set = set(exclude_dirs)

@@ -51,7 +51,7 @@ def _get_logger():
     global _logger
     if _logger is None:
         mod = importlib.import_module("infrastructure.telemetry.structured_json_logging")
-        get_logger_func = getattr(mod, "get_logger")
+        get_logger_func = mod.get_logger
         _logger = get_logger_func(__name__)
     return _logger
 
@@ -105,7 +105,7 @@ class TamperAlertTrigger:
         try:
             # Lazy import config loader
             mod = importlib.import_module("config.loader_yaml")
-            load_yaml_config = getattr(mod, "load_yaml_config")
+            load_yaml_config = mod.load_yaml_config
             config = load_yaml_config(config_path)
             tamper_config = config.get("tamper_alert", {})
             result = DEFAULT_CONFIG.copy()
@@ -122,7 +122,7 @@ class TamperAlertTrigger:
     async def _get_event_store(self):
         if self._event_store is None:
             mod = importlib.import_module("infrastructure.event_store.append_only_store")
-            get_audit_store = getattr(mod, "get_audit_store")
+            get_audit_store = mod.get_audit_store
             self._event_store = await get_audit_store()
         return self._event_store
 
@@ -206,7 +206,7 @@ class TamperAlertTrigger:
 
         # Lazy import alert manager
         alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
-        trigger_alert = getattr(alert_mod, "trigger_alert")
+        trigger_alert = alert_mod.trigger_alert
 
         await trigger_alert(
             title=title,
@@ -247,7 +247,7 @@ class TamperAlertTrigger:
 
             # Lazy import alert manager
             alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
-            trigger_alert = getattr(alert_mod, "trigger_alert")
+            trigger_alert = alert_mod.trigger_alert
 
             await trigger_alert(
                 title=f"Audit Hash Chain Repaired for {stream_name}",

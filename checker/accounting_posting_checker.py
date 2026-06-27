@@ -26,9 +26,8 @@ import logging
 import os
 import pathlib
 import sys
-import traceback
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Set, Type
+from typing import Any
 
 # ============================================================================
 # CONFIGURATION & CONSTANTS
@@ -75,7 +74,7 @@ class Finding:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: int = 100
     files_scanned: int = 0
     files_introspected: int = 0
@@ -85,13 +84,13 @@ class Report:
 # ============================================================================
 class HybridModuleAnalyzer:
     """Menganalisis file melalui AST secara statis dan Runtime Introspection secara dinamis."""
-    
+
     def __init__(self, file_path: pathlib.Path):
         self.file_path = file_path
         self.module_name = self._get_module_name()
-        self.ast_tree: Optional[ast.Module] = None
-        self.runtime_module: Optional[Any] = None
-        self.findings: List[Finding] = []
+        self.ast_tree: ast.Module | None = None
+        self.runtime_module: Any | None = None
+        self.findings: list[Finding] = []
         self.is_valid_syntax = False
 
         self._parse_ast()
@@ -118,7 +117,7 @@ class HybridModuleAnalyzer:
         """Memuat modul secara dinamis dan aman untuk inspeksi runtime."""
         if not self.is_valid_syntax:
             return
-            
+
         try:
             spec = importlib.util.spec_from_file_location(self.module_name, str(self.file_path))
             if spec and spec.loader:
@@ -135,7 +134,7 @@ class HybridModuleAnalyzer:
     def add_finding(self, severity: str, category: str, message: str, detail: str, line: int = 1):
         self.findings.append(Finding(str(self.file_path), line, severity, category, message, detail))
 
-    def get_ast_nodes(self, node_type: Type[ast.AST]) -> List[ast.AST]:
+    def get_ast_nodes(self, node_type: type[ast.AST]) -> list[ast.AST]:
         if not self.ast_tree: return []
         return [n for n in ast.walk(self.ast_tree) if isinstance(n, node_type)]
 
@@ -148,19 +147,19 @@ def _is_mutative_business_logic(func_name: str, file_path: str, rule_type: str =
     Heuristik cerdas yang memahami Domain-Driven Design (DDD) dan batas lapisan akuntansi.
     """
     name = func_name.lower()
-    
+
     # 1. KEKUASAAN MUTLAK: Abaikan method private/protected (contoh: _record_audit, _helper)
     if name.startswith("_"):
         return False
-        
+
     # 2. Abaikan komponen sistem dan infrastruktur
     if "kernel" in file_path or "infrastructure" in file_path or "adapters" in file_path:
         return False
-        
+
     # 3. Abaikan fungsi read-only, kalkulasi, atau murni utilitas/log
     ignore_prefixes = ('get_', 'is_', 'check_', 'validate_', 'fetch_', 'find_', 'read_', 'calculate_', 'compute_', 'build_', 'generate_')
     ignore_keywords = ('audit', 'log', 'export', 'print', 'format', 'notify', 'alert', 'mapper', 'dto')
-    
+
     if any(name.startswith(p) for p in ignore_prefixes): return False
     if any(k in name for k in ignore_keywords): return False
 
@@ -170,7 +169,7 @@ def _is_mutative_business_logic(func_name: str, file_path: str, rule_type: str =
         # Aturan ini HANYA berlaku untuk core ledger dan eksekutor jurnal.
         strict_accounting_keywords = ('post_journal', 'create_journal', 'post_entry', 'record_journal', 'close_period', 'settle_ledger', 'record_transaction')
         return any(k in name for k in strict_accounting_keywords)
-        
+
     # 5. KONTEKS MUTASI UMUM (Untuk Audit Trail dan Approval Workflow)
     mutative_keywords = ('post', 'execute', 'handle', 'approve', 'record', 'submit', 'close', 'process', 'settle', 'reconcile')
     return any(k in name for k in mutative_keywords)
@@ -235,7 +234,7 @@ def enforce_audit_trail(analyzer: HybridModuleAnalyzer):
             dec_name = getattr(dec, "id", "") if isinstance(dec, ast.Name) else getattr(getattr(dec, "func", None), "id", "")
             if 'audit' in dec_name.lower() or 'event' in dec_name.lower() or 'transactional' in dec_name.lower():
                 has_audit = True
-        
+
         if not has_audit:
             for node in ast.walk(func):
                 if isinstance(node, ast.Call):
@@ -289,7 +288,7 @@ def enforce_approval_workflow(analyzer: HybridModuleAnalyzer):
 
 def scan_project() -> Report:
     report = Report()
-    
+
     # Hanya scan direktori di mana Core Business Logic/Mutasi dieksekusi.
     # Kita KELUARKAN 'kernel/guards' dan 'infrastructure' dari radar.
     target_dirs = [
@@ -306,7 +305,7 @@ def scan_project() -> Report:
 
     exclude_dirs = {'.venv', 'venv', '__pycache__', '.git', 'node_modules', 'dist', 'tests', 'migrations'}
 
-    py_files: List[pathlib.Path] = []
+    py_files: list[pathlib.Path] = []
     for directory in target_dirs:
         if not directory.exists():
             continue
@@ -319,7 +318,7 @@ def scan_project() -> Report:
     for py_file in set(py_files):
         report.files_scanned += 1
         analyzer = HybridModuleAnalyzer(py_file)
-        
+
         if analyzer.runtime_module:
             report.files_introspected += 1
 
@@ -333,7 +332,7 @@ def scan_project() -> Report:
     criticals = sum(1 for f in report.findings if f.severity == "CRITICAL")
     errors = sum(1 for f in report.findings if f.severity == "ERROR")
     warnings = sum(1 for f in report.findings if f.severity == "WARNING")
-    
+
     deduction = (criticals * 25) + (errors * 10) + (warnings * 3)
     report.score = max(0, 100 - deduction)
 
@@ -347,16 +346,16 @@ def print_report(report: Report, verbose: bool = False):
     print(f"\n{c['MAGENTA']}{'='*80}{c['RESET']}")
     print(f"{c['MAGENTA']} SOVEREIGN ACCOUNTING POSTING CHECKER - HYBRID ANALYSIS REPORT {c['RESET']}")
     print(f"{c['MAGENTA']}{'='*80}{c['RESET']}")
-    
+
     print(f"\n  Files Scanned (AST): {c['CYAN']}{report.files_scanned}{c['RESET']}")
     print(f"  Files Introspected (Runtime): {c['CYAN']}{report.files_introspected}{c['RESET']}")
-    
+
     criticals = sum(1 for f in report.findings if f.severity == "CRITICAL")
     errors = sum(1 for f in report.findings if f.severity == "ERROR")
     warnings = sum(1 for f in report.findings if f.severity == "WARNING")
-    
+
     print(f"  Findings: CRITICAL: {c['RED']}{criticals}{c['RESET']} | ERROR: {c['RED']}{errors}{c['RESET']} | WARNING: {c['YELLOW']}{warnings}{c['RESET']}")
-    
+
     score_color = c['GREEN'] if report.score >= 90 else (c['YELLOW'] if report.score >= 70 else c['RED'])
     print(f"  System Compliance Score: {score_color}{report.score}/100{c['RESET']}")
 
@@ -364,7 +363,7 @@ def print_report(report: Report, verbose: bool = False):
         print(f"\n{c['RED'] if errors or criticals else c['YELLOW']}Detail Temuan:{c['RESET']}")
         # Urutkan berdasarkan severity
         sorted_findings = sorted(report.findings, key=lambda x: {"CRITICAL": 0, "ERROR": 1, "WARNING": 2}[x.severity])
-        
+
         for idx, f in enumerate(sorted_findings[:50]):
             color = c["RED"] if f.severity in ["CRITICAL", "ERROR"] else c["YELLOW"]
             # Gunakan path relatif dari root proyek agar lebih rapi
@@ -372,12 +371,12 @@ def print_report(report: Report, verbose: bool = False):
                 rel_path = pathlib.Path(f.file).relative_to(PROJECT_ROOT)
             except ValueError:
                 rel_path = f.file
-                
+
             print(f"  {color}[{f.severity}][{f.category}]{c['RESET']} {rel_path}:{f.line}")
             print(f"     {f.message}")
             if verbose and f.detail:
                 print(f"     {c['CYAN']}→ Resolusi: {f.detail}{c['RESET']}")
-                
+
         if len(report.findings) > 50:
             print(f"\n  ... dan {len(report.findings)-50} temuan lainnya (gunakan export JSON untuk melihat semua).")
 
@@ -390,11 +389,11 @@ def save_json(report: Report, filepath: str):
         },
         "findings": [
             {
-                "file": f.file, 
-                "line": f.line, 
+                "file": f.file,
+                "line": f.line,
                 "severity": f.severity,
                 "category": f.category,
-                "message": f.message, 
+                "message": f.message,
                 "detail": f.detail
             } for f in report.findings
         ]
@@ -417,7 +416,7 @@ def main():
 
     report = scan_project()
     print_report(report, args.verbose)
-    
+
     if args.json:
         save_json(report, args.json)
 

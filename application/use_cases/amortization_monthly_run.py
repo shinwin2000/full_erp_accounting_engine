@@ -114,7 +114,7 @@ class AmortizationMonthlyRunUseCase:
                 amortization_entries.append(entry)
                 total_amortization += entry.amortization_amount
             except Exception as e:
-                errors.append(f"Asset {asset.asset_code}: {str(e)}")
+                errors.append(f"Asset {asset.asset_code}: {e!s}")
                 logger.error(f"Failed to calculate amortization for {asset.asset_code}: {e}")
 
         if not amortization_entries and errors:

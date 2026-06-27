@@ -83,7 +83,7 @@ class LifecycleHookRegistry:
                 # Lazy import trigger_alert untuk menghindari AST drift
                 try:
                     alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
-                    trigger_alert = getattr(alert_mod, "trigger_alert")
+                    trigger_alert = alert_mod.trigger_alert
                     await trigger_alert(
                         title="Startup Hook Failed",
                         message=f"Startup hook {hook.__name__} failed: {e}",
@@ -110,7 +110,7 @@ class LifecycleHookRegistry:
                 # Lazy import trigger_alert
                 try:
                     alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
-                    trigger_alert = getattr(alert_mod, "trigger_alert")
+                    trigger_alert = alert_mod.trigger_alert
                     await trigger_alert(
                         title="Shutdown Hook Failed",
                         message=f"Shutdown hook {hook.__name__} failed: {e}",
@@ -128,13 +128,13 @@ class LifecycleHookRegistry:
         # Semua fungsi hook menggunakan lazy import
         async def connect_database():
             db_mod = importlib.import_module("infrastructure.database.session_factory_sqlalchemy")
-            init_db = getattr(db_mod, "init_db")
+            init_db = db_mod.init_db
             await init_db()
             self._logger.info("Database connected")
 
         async def disconnect_database():
             db_mod = importlib.import_module("infrastructure.database.session_factory_sqlalchemy")
-            close_db = getattr(db_mod, "close_db")
+            close_db = db_mod.close_db
             await close_db()
             self._logger.info("Database disconnected")
 
@@ -143,13 +143,13 @@ class LifecycleHookRegistry:
 
         async def connect_redis():
             redis_mod = importlib.import_module("infrastructure.caching.redis_manager")
-            get_redis_manager = getattr(redis_mod, "get_redis_manager")
+            get_redis_manager = redis_mod.get_redis_manager
             await get_redis_manager()
             self._logger.info("Redis connected")
 
         async def disconnect_redis():
             redis_mod = importlib.import_module("infrastructure.caching.redis_manager")
-            close_redis = getattr(redis_mod, "close_redis")
+            close_redis = redis_mod.close_redis
             await close_redis()
             self._logger.info("Redis disconnected")
 
@@ -158,13 +158,13 @@ class LifecycleHookRegistry:
 
         async def start_kafka_producer():
             kafka_mod = importlib.import_module("infrastructure.message_broker.kafka_producer_wrapper")
-            get_kafka_producer = getattr(kafka_mod, "get_kafka_producer")
+            get_kafka_producer = kafka_mod.get_kafka_producer
             await get_kafka_producer()
             self._logger.info("Kafka producer started")
 
         async def stop_kafka_producer():
             kafka_mod = importlib.import_module("infrastructure.message_broker.kafka_producer_wrapper")
-            close_kafka_producer = getattr(kafka_mod, "close_kafka_producer")
+            close_kafka_producer = kafka_mod.close_kafka_producer
             await close_kafka_producer()
             self._logger.info("Kafka producer stopped")
 
@@ -173,13 +173,13 @@ class LifecycleHookRegistry:
 
         async def start_outbox_poller():
             outbox_mod = importlib.import_module("infrastructure.message_broker.transactional_outbox_poller")
-            start_outbox_poller = getattr(outbox_mod, "start_outbox_poller")
+            start_outbox_poller = outbox_mod.start_outbox_poller
             await start_outbox_poller()
             self._logger.info("Outbox poller started")
 
         async def stop_outbox_poller():
             outbox_mod = importlib.import_module("infrastructure.message_broker.transactional_outbox_poller")
-            stop_outbox_poller = getattr(outbox_mod, "stop_outbox_poller")
+            stop_outbox_poller = outbox_mod.stop_outbox_poller
             await stop_outbox_poller()
             self._logger.info("Outbox poller stopped")
 
@@ -189,7 +189,7 @@ class LifecycleHookRegistry:
         async def start_event_gate():
             # Lazy import event_gateway
             gate_mod = importlib.import_module("event_gateway.event_gate_singleton")
-            get_event_gate = getattr(gate_mod, "get_event_gate")
+            get_event_gate = gate_mod.get_event_gate
             await get_event_gate()
             self._logger.info("Event gate started")
 
@@ -197,13 +197,13 @@ class LifecycleHookRegistry:
 
         async def start_cache_warmer():
             warmer_mod = importlib.import_module("infrastructure.caching.warmer_scheduled")
-            start_cache_warmer = getattr(warmer_mod, "start_cache_warmer")
+            start_cache_warmer = warmer_mod.start_cache_warmer
             await start_cache_warmer()
             self._logger.info("Cache warmer started")
 
         async def stop_cache_warmer():
             warmer_mod = importlib.import_module("infrastructure.caching.warmer_scheduled")
-            stop_cache_warmer = getattr(warmer_mod, "stop_cache_warmer")
+            stop_cache_warmer = warmer_mod.stop_cache_warmer
             await stop_cache_warmer()
             self._logger.info("Cache warmer stopped")
 
@@ -212,13 +212,13 @@ class LifecycleHookRegistry:
 
         async def start_metrics_collection():
             metrics_mod = importlib.import_module("infrastructure.telemetry.journal_posting_latency_metrics")
-            start_metrics_collection = getattr(metrics_mod, "start_metrics_collection")
+            start_metrics_collection = metrics_mod.start_metrics_collection
             await start_metrics_collection()
             self._logger.info("Metrics collection started")
 
         async def stop_metrics_collection():
             metrics_mod = importlib.import_module("infrastructure.telemetry.journal_posting_latency_metrics")
-            stop_metrics_collection = getattr(metrics_mod, "stop_metrics_collection")
+            stop_metrics_collection = metrics_mod.stop_metrics_collection
             await stop_metrics_collection()
             self._logger.info("Metrics collection stopped")
 

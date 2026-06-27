@@ -7,7 +7,6 @@ Responsibility: Port untuk Core Tax Authority (API pajak pemerintah).
 
 from abc import ABC, abstractmethod
 from typing import Any
-from uuid import UUID
 
 
 class CoreTaxPort(ABC):
