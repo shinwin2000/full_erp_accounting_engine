@@ -428,6 +428,12 @@ PayrollRunProcessed = PayrollRunCalculatedEvent
 PayrollRunPosted = PayrollRunPostedEvent
 PayslipGenerated = PayslipGeneratedEvent
 PayslipSentToEmployee = PayslipSentToEmployeeEvent
+# Tambahan alias untuk event yang digunakan di service (tanpa akhiran Event)
+PayrollRunApproved = PayrollRunApprovedEvent
+PayrollRunCancelled = PayrollRunCancelledEvent
+PayrollRunPaid = PayrollRunPaidEvent
+EmployeeStructureUpdated = EmployeeStructureUpdatedEvent
+SalaryComponentAdded = SalaryComponentAddedEvent
 
 
 # === 4. DOMAIN EVENT PUBLISHER PROTOCOL ===
@@ -467,4 +473,10 @@ __all__ = [
     "PayslipSentToEmployee",
     "PayslipSentToEmployeeEvent",
     "SalaryComponentAddedEvent",
+    # Alias tambahan untuk kompatibilitas
+    "PayrollRunApproved",
+    "PayrollRunCancelled",
+    "PayrollRunPaid",
+    "EmployeeStructureUpdated",
+    "SalaryComponentAdded",
 ]

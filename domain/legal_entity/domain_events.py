@@ -3,6 +3,12 @@
 Module: domain_events.py
 Layer: 6 - Domain / Legal Entity
 Responsibility: Event domain: CompanyRegistered, TaxProfileUpdated, dll.
+
+CATATAN: Router yang mengimpor LegalEntityCreatedEvent seharusnya menggunakan:
+    from domain.legal_entity.domain_events import LegalEntityCreatedEvent
+BUKAN dari domain.consolidation.domain_events.
+
+File ini sudah mengekspor LegalEntityCreatedEvent melalui alias.
 """
 
 from __future__ import annotations
@@ -520,7 +526,7 @@ CompanyAddressUpdated = CompanyAddressUpdatedEvent
 CompanyContactUpdated = CompanyContactUpdatedEvent
 PKPStatusChanged = PKPStatusChangedEvent
 
-# LegalEntity event aliases
+# LegalEntity event aliases (untuk kompatibilitas router)
 LegalEntityCreatedEvent = LegalEntityCreated
 LegalEntityDeactivatedEvent = LegalEntityDeactivated
 LegalEntityUpdatedEvent = LegalEntityUpdated

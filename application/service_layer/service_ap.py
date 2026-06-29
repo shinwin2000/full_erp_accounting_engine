@@ -1,4 +1,4 @@
-# service_ap.py - Complete rewrite with correct indentation
+# service_ap.py - Complete rewrite with full event publishing (including ThreeWayMatchResultEvent)
 
 #!/usr/bin/env python3
 
@@ -8,6 +8,7 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service layer untuk Accounts Payable (Hutang Usaha).
+    Mempublikasikan semua domain events yang sesuai, termasuk ThreeWayMatchResultEvent.
 """
 
 from __future__ import annotations
@@ -38,19 +39,22 @@ from domain.shared_value_objects.document_number_vo import DocumentNumber
 from domain.subledger_ap.aging_bucket_vo import APAgingBucketCalculator
 from domain.subledger_ap.credit_note_entity import APCreditNote
 from domain.subledger_ap.domain_events import (
-    APCreditNoteIssued,
-    APInvoiceApproved,
-    APInvoiceCancelled,
-    APInvoiceCreated,
-    APPaymentMade,
-    APPaymentRunExecuted,
-    APPaymentRunGenerated,
-    APPaymentVoided,
+    InvoiceApprovedEvent,
+    InvoiceCancelledEvent,
+    InvoiceCreatedEvent,
+    PaymentMadeEvent,
+    PaymentVoidedEvent,
+    PaymentRunGeneratedEvent,
+    PaymentRunExecutedEvent,
+    CreditNoteIssuedEvent,
 )
 from domain.subledger_ap.invariants import APInvariantsValidator
 from domain.subledger_ap.invoice_entity import APInvoice, APInvoiceStatus, APInvoiceType
 from domain.subledger_ap.payment_entity import APPayment, APPaymentMethod, APPaymentStatus
 from domain.subledger_ap.three_way_match_engine import ThreeWayMatchEngine
+
+# Import event yang diperlukan dari application.events (registry)
+from application.events import ThreeWayMatchResultEvent
 
 if TYPE_CHECKING:
     from ports.primary.ap_repository_port import APRepositoryPort
@@ -154,7 +158,8 @@ class APService:
         # Three-way matching if PO and GRN provided
         if request.po_number and request.grn_number:
             match_result = await self._perform_three_way_match(
-                request.po_number, request.grn_number, request.amount, request.vendor_id
+                request.po_number, request.grn_number, request.amount, request.vendor_id,
+                correlation_id=correlation_id, user_id=user_id
             )
             if not match_result.is_match:
                 raise APThreeWayMatchError(f"Three-way match failed: {match_result.discrepancies}")
@@ -191,19 +196,20 @@ class APService:
 
         self._stats["created"] += 1
 
-        # Publish event
+        # Publish InvoiceCreatedEvent
         if self._event_publisher:
-            event = APInvoiceCreated(
+            event = InvoiceCreatedEvent(
                 aggregate_id=invoice.invoice_id,
+                aggregate_version=1,
                 legal_entity_id=request.legal_entity_id,
-                invoice_number=invoice.invoice_number,
+                invoice_number=invoice_number,
                 vendor_id=invoice.vendor_id,
                 amount=invoice.amount,
                 due_date=invoice.due_date,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
 
         logger.info(f"AP invoice {invoice_number} created")
         return self._to_invoice_response(invoice)
@@ -227,13 +233,15 @@ class APService:
         self._stats["approved"] += 1
 
         if self._event_publisher:
-            event = APInvoiceApproved(
+            event = InvoiceApprovedEvent(
                 aggregate_id=invoice_id,
+                aggregate_version=verified_invoice.version,
                 invoice_number=invoice.invoice_number,
-                approver_id=approver_id,
-                occurred_at=datetime.now(UTC),
+                approver_id=str(approver_id),
+                user_id=str(approver_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
 
         return self._to_invoice_response(verified_invoice)
 
@@ -257,14 +265,17 @@ class APService:
             await self._uow.commit()
 
         if self._event_publisher:
-            event = APInvoiceCancelled(
+            event = InvoiceCancelledEvent(
                 aggregate_id=invoice_id,
+                aggregate_version=cancelled_invoice.version,
+                invoice_id=invoice_id,
                 invoice_number=invoice.invoice_number,
                 reason=reason,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                cancelled_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
 
         return self._to_invoice_response(cancelled_invoice)
 
@@ -332,15 +343,16 @@ class APService:
 
         if self._event_publisher:
             for alloc in request.allocations:
-                event = APPaymentMade(
+                event = PaymentMadeEvent(
                     aggregate_id=payment_id,
+                    aggregate_version=1,
                     invoice_id=alloc.invoice_id,
                     amount=alloc.amount,
                     payment_number=payment_number,
-                    user_id=user_id,
-                    occurred_at=datetime.now(UTC),
+                    user_id=str(user_id),
+                    correlation_id=correlation_id,
                 )
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(event)
 
         return [self._to_payment_response(payment)]
 
@@ -374,14 +386,15 @@ class APService:
             await self._uow.commit()
 
         if self._event_publisher:
-            event = APPaymentVoided(
+            event = PaymentVoidedEvent(
                 aggregate_id=payment_id,
+                aggregate_version=payment.version + 1,
                 payment_number=payment.payment_number,
                 reason=reason,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
 
         return self._to_payment_response(payment)
 
@@ -450,15 +463,16 @@ class APService:
             await self._uow.commit()
 
         if self._event_publisher:
-            event = APPaymentRunGenerated(
+            event = PaymentRunGeneratedEvent(
                 aggregate_id=payment_run_id,
+                aggregate_version=1,
                 run_number=payment_run_number,
                 total_amount=total_amount,
                 payment_count=len(created_payments),
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
 
         return APPaymentRunResponseDTO(
             run_id=payment_run_id,
@@ -495,13 +509,14 @@ class APService:
             await self._uow.commit()
 
         if self._event_publisher:
-            event = APPaymentRunExecuted(
+            event = PaymentRunExecutedEvent(
                 aggregate_id=run_id,
+                aggregate_version=1,
                 run_number=payment_run["run_number"],
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
 
         return APPaymentRunResponseDTO(
             run_id=run_id,
@@ -517,22 +532,33 @@ class APService:
     # ========================================================================
 
     async def perform_three_way_match(
-        self, request: ThreeWayMatchRequestDTO
+        self, request: ThreeWayMatchRequestDTO, user_id: UUID | None = None, correlation_id: str | None = None
     ) -> ThreeWayMatchResultDTO:
-        """Perform three-way matching."""
+        """Perform three-way matching and publish event."""
         return await self._perform_three_way_match(
-            request.po_number, request.grn_number, request.invoice_amount, request.vendor_id
+            request.po_number,
+            request.grn_number,
+            request.invoice_amount,
+            request.vendor_id,
+            correlation_id=correlation_id,
+            user_id=user_id,
         )
 
     async def _perform_three_way_match(
-        self, po_number: str, grn_number: str, invoice_amount: Decimal, vendor_id: UUID
+        self,
+        po_number: str,
+        grn_number: str,
+        invoice_amount: Decimal,
+        vendor_id: UUID,
+        correlation_id: str | None = None,
+        user_id: UUID | None = None,
     ) -> ThreeWayMatchResultDTO:
-        """Internal three-way matching."""
+        """Internal three-way matching with event publishing."""
         po = await self._ap_repo.get_purchase_order(po_number)
         grn = await self._ap_repo.get_goods_receipt_note(grn_number)
 
         if not po:
-            return ThreeWayMatchResultDTO(
+            result = ThreeWayMatchResultDTO(
                 is_match=False,
                 discrepancies=[f"PO {po_number} not found"],
                 matched_amount=Decimal(0),
@@ -540,8 +566,8 @@ class APService:
                 grn_amount=Decimal(0),
                 invoice_amount=invoice_amount,
             )
-        if not grn:
-            return ThreeWayMatchResultDTO(
+        elif not grn:
+            result = ThreeWayMatchResultDTO(
                 is_match=False,
                 discrepancies=[f"GRN {grn_number} not found"],
                 matched_amount=Decimal(0),
@@ -549,8 +575,8 @@ class APService:
                 grn_amount=Decimal(0),
                 invoice_amount=invoice_amount,
             )
-        if po.vendor_id != vendor_id:
-            return ThreeWayMatchResultDTO(
+        elif po.vendor_id != vendor_id:
+            result = ThreeWayMatchResultDTO(
                 is_match=False,
                 discrepancies=["Vendor mismatch"],
                 matched_amount=Decimal(0),
@@ -558,16 +584,39 @@ class APService:
                 grn_amount=grn.total_amount,
                 invoice_amount=invoice_amount,
             )
+        else:
+            match_result = self._match_engine.match(po, grn, invoice_amount)
+            result = ThreeWayMatchResultDTO(
+                is_match=match_result.is_match,
+                discrepancies=match_result.discrepancies,
+                matched_amount=match_result.matched_amount,
+                po_amount=po.total_amount,
+                grn_amount=grn.total_amount,
+                invoice_amount=invoice_amount,
+            )
 
-        result = self._match_engine.match(po, grn, invoice_amount)
-        return ThreeWayMatchResultDTO(
-            is_match=result.is_match,
-            discrepancies=result.discrepancies,
-            matched_amount=result.matched_amount,
-            po_amount=po.total_amount,
-            grn_amount=grn.total_amount,
-            invoice_amount=invoice_amount,
-        )
+        # --- PUBLISH ThreeWayMatchResultEvent ---
+        if self._event_publisher:
+            try:
+                event = ThreeWayMatchResultEvent(
+                    aggregate_id=uuid4(),
+                    aggregate_version=1,
+                    po_number=po_number,
+                    grn_number=grn_number,
+                    invoice_amount=invoice_amount,
+                    is_match=result.is_match,
+                    discrepancies=result.discrepancies,
+                    po_amount=result.po_amount,
+                    grn_amount=result.grn_amount,
+                    user_id=str(user_id) if user_id else "system",
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event, correlation_id)
+                logger.debug(f"Published ThreeWayMatchResultEvent for PO {po_number}, match: {result.is_match}")
+            except Exception as e:
+                logger.warning(f"Failed to publish ThreeWayMatchResultEvent: {e}")
+
+        return result
 
     # ========================================================================
     # Aging Report
@@ -641,17 +690,18 @@ class APService:
             await self._uow.commit()
 
         if self._event_publisher:
-            event = APCreditNoteIssued(
+            event = CreditNoteIssuedEvent(
                 aggregate_id=credit_note_id,
+                aggregate_version=1,
                 legal_entity_id=request.legal_entity_id,
                 credit_note_number=credit_note_number,
                 vendor_id=request.vendor_id,
                 amount=request.amount,
                 original_invoice_id=request.original_invoice_id,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
 
         return self._to_credit_note_response(credit_note)
 

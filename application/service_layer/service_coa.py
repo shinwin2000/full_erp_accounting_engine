@@ -1,4 +1,4 @@
-# service_coa.py - Complete rewrite with fixes (adding missing imports)
+# service_coa.py - Complete rewrite with full event publishing
 
 #!/usr/bin/env python3
 
@@ -9,6 +9,7 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service layer untuk Chart of Accounts (COA).
+    Mempublikasikan semua domain events yang sesuai.
 """
 
 from __future__ import annotations
@@ -35,10 +36,13 @@ from domain.coa.account_hierarchy_tree import AccountHierarchyTree, HierarchyNod
 from domain.coa.account_normal_balance_vo import NormalBalance
 from domain.coa.aggregate_root import COAAggregate
 from domain.coa.domain_events import (
-    AccountCreated,
-    AccountDeactivated,
-    AccountReactivated,
-    AccountUpdated,
+    AccountCreatedEvent,
+    AccountDeactivatedEvent,
+    AccountReactivatedEvent,
+    AccountUpdatedEvent,
+    COAArchivedEvent,
+    COALockedEvent,
+    COAUnlockedEvent,
 )
 from domain.coa.invariants_validator import COAInvariantsValidator
 from ports.primary.account_repository_port import AccountRepositoryPort
@@ -93,6 +97,10 @@ class InvalidBulkImportDataError(COAServiceError):
     pass
 
 
+class AccountLockedError(COAServiceError):
+    pass
+
+
 # ============================================================================
 # Main Service
 # ============================================================================
@@ -101,6 +109,7 @@ class InvalidBulkImportDataError(COAServiceError):
 class COAService:
     """
     Service untuk Chart of Accounts (COA).
+    Mempublikasikan event untuk setiap operasi.
     """
 
     def __init__(
@@ -197,6 +206,7 @@ class COAService:
             currency_code=request.currency_code or "IDR",
             is_header=request.is_header or False,
             level=level,
+            is_locked=False,
             created_at=datetime.now(UTC),
             created_by=user_id,
             updated_at=None,
@@ -211,18 +221,21 @@ class COAService:
         await self._invalidate_cache()
         self._stats["accounts_created"] += 1
 
+        # --- PUBLISH EVENT ---
         if self._event_publisher:
-            event = AccountCreated(
+            event = AccountCreatedEvent(
                 aggregate_id=account.id,
+                aggregate_version=aggregate.version,
                 legal_entity_id=account.legal_entity_id,
                 account_code=account.account_code.value,
                 account_name=account.name,
                 account_type=account.account_type.value,
                 parent_account_id=account.parent_account_id,
                 user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                correlation_id=correlation_id,
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published AccountCreatedEvent for {account.account_code.value}")
 
         return self._to_response(account)
 
@@ -239,19 +252,27 @@ class COAService:
             raise AccountNotFoundError(f"Account {account_id} not found")
 
         account = aggregate.account
+
+        if account.is_locked:
+            raise AccountLockedError(f"Account {account.account_code.value} is locked")
+
         changes_made = False
+        changes_dict = {}
 
         if request.name is not None and request.name != account.name:
+            changes_dict["name"] = {"old": account.name, "new": request.name}
             aggregate.rename_account(request.name, user_id)
             changes_made = True
 
         if request.description is not None and request.description != account.description:
+            changes_dict["description"] = {"old": account.description, "new": request.description}
             aggregate.update_description(request.description, user_id)
             changes_made = True
 
         if request.parent_account_id is not None:
             new_parent_id = request.parent_account_id
             if new_parent_id != account.parent_account_id:
+                changes_dict["parent_id"] = {"old": account.parent_account_id, "new": new_parent_id}
                 if new_parent_id:
                     new_parent = await self._account_repo.get_by_id(new_parent_id)
                     if not new_parent:
@@ -274,6 +295,10 @@ class COAService:
             request.opening_balance is not None
             and request.opening_balance != account.opening_balance
         ):
+            changes_dict["opening_balance"] = {
+                "old": account.opening_balance,
+                "new": request.opening_balance,
+            }
             aggregate.update_opening_balance(request.opening_balance, user_id)
             changes_made = True
 
@@ -286,16 +311,19 @@ class COAService:
         await self._invalidate_cache()
         self._stats["accounts_updated"] += 1
 
+        # --- PUBLISH EVENT ---
         if self._event_publisher:
-            event = AccountUpdated(
+            event = AccountUpdatedEvent(
                 aggregate_id=account.id,
+                aggregate_version=aggregate.version,
                 legal_entity_id=account.legal_entity_id,
                 account_code=account.account_code.value,
-                changes=request.to_dict(),
+                changes=changes_dict,
                 user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                correlation_id=correlation_id,
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published AccountUpdatedEvent for {account.account_code.value}")
 
         return self._to_response(aggregate.account)
 
@@ -313,6 +341,9 @@ class COAService:
 
         account = aggregate.account
 
+        if account.is_locked:
+            raise AccountLockedError(f"Account {account.account_code.value} is locked")
+
         children = await self._account_repo.find_children(account_id)
         if children:
             raise AccountHasChildrenError(
@@ -327,16 +358,19 @@ class COAService:
         await self._invalidate_cache()
         self._stats["accounts_deactivated"] += 1
 
+        # --- PUBLISH EVENT ---
         if self._event_publisher:
-            event = AccountDeactivated(
+            event = AccountDeactivatedEvent(
                 aggregate_id=account.id,
+                aggregate_version=aggregate.version,
                 legal_entity_id=account.legal_entity_id,
                 account_code=account.account_code.value,
                 reason=reason,
                 user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                correlation_id=correlation_id,
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published AccountDeactivatedEvent for {account.account_code.value}")
 
         return self._to_response(aggregate.account)
 
@@ -355,17 +389,142 @@ class COAService:
 
         await self._invalidate_cache()
 
+        # --- PUBLISH EVENT ---
         if self._event_publisher:
-            event = AccountReactivated(
+            event = AccountReactivatedEvent(
                 aggregate_id=account.id,
+                aggregate_version=aggregate.version,
                 legal_entity_id=account.legal_entity_id,
                 account_code=account.account_code.value,
                 user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                correlation_id=correlation_id,
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published AccountReactivatedEvent for {account.account_code.value}")
 
         return self._to_response(aggregate.account)
+
+    async def lock_account(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        reason: str | None = None,
+        correlation_id: str | None = None,
+    ) -> AccountResponse:
+        """Lock an account (prevent modifications)."""
+        aggregate = await self._account_repo.get_by_id(account_id)
+        if not aggregate:
+            raise AccountNotFoundError(f"Account {account_id} not found")
+
+        account = aggregate.account
+        account.is_locked = True
+        account.locked_at = datetime.now(UTC)
+        account.locked_by = user_id
+        account.lock_reason = reason
+
+        await self._account_repo.save(aggregate)
+        await self._uow.commit()
+
+        await self._invalidate_cache()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = COALockedEvent(
+                aggregate_id=account.id,
+                aggregate_version=aggregate.version,
+                legal_entity_id=account.legal_entity_id,
+                account_code=account.account_code.value,
+                reason=reason,
+                locked_by=user_id,
+                user_id=user_id,
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published COALockedEvent for {account.account_code.value}")
+
+        return self._to_response(account)
+
+    async def unlock_account(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> AccountResponse:
+        """Unlock an account."""
+        aggregate = await self._account_repo.get_by_id(account_id)
+        if not aggregate:
+            raise AccountNotFoundError(f"Account {account_id} not found")
+
+        account = aggregate.account
+        account.is_locked = False
+        account.unlocked_at = datetime.now(UTC)
+        account.unlocked_by = user_id
+
+        await self._account_repo.save(aggregate)
+        await self._uow.commit()
+
+        await self._invalidate_cache()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = COAUnlockedEvent(
+                aggregate_id=account.id,
+                aggregate_version=aggregate.version,
+                legal_entity_id=account.legal_entity_id,
+                account_code=account.account_code.value,
+                unlocked_by=user_id,
+                user_id=user_id,
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published COAUnlockedEvent for {account.account_code.value}")
+
+        return self._to_response(account)
+
+    async def archive_account(
+        self,
+        account_id: UUID,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> AccountResponse:
+        """Archive an account (permanent soft delete)."""
+        aggregate = await self._account_repo.get_by_id(account_id)
+        if not aggregate:
+            raise AccountNotFoundError(f"Account {account_id} not found")
+
+        account = aggregate.account
+
+        children = await self._account_repo.find_children(account_id)
+        if children:
+            raise AccountHasChildrenError(
+                f"Cannot archive account with {len(children)} child accounts"
+            )
+
+        account.is_archived = True
+        account.archived_at = datetime.now(UTC)
+        account.archived_by = user_id
+        account.status = AccountStatus.INACTIVE
+
+        await self._account_repo.save(aggregate)
+        await self._uow.commit()
+
+        await self._invalidate_cache()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = COAArchivedEvent(
+                aggregate_id=account.id,
+                aggregate_version=aggregate.version,
+                legal_entity_id=account.legal_entity_id,
+                account_code=account.account_code.value,
+                archived_by=user_id,
+                user_id=user_id,
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published COAArchivedEvent for {account.account_code.value}")
+
+        return self._to_response(account)
 
     async def get_account(self, account_id: UUID) -> AccountResponse:
         aggregate = await self._account_repo.get_by_id(account_id)
@@ -584,6 +743,7 @@ class COAService:
             currency_code=account.currency_code,
             is_header=account.is_header,
             level=account.level,
+            is_locked=account.is_locked,
             created_at=account.created_at,
             created_by=account.created_by,
             updated_at=account.updated_at,
@@ -607,6 +767,7 @@ class COAService:
             is_header=node.account.is_header,
             status=node.account.status.value,
             opening_balance=node.account.opening_balance,
+            is_locked=node.account.is_locked,
         )
 
     def get_stats(self) -> dict[str, int]:
@@ -632,6 +793,7 @@ __all__ = [
     "AccountCycleDetectedError",
     "AccountHasChildrenError",
     "AccountHasTransactionsError",
+    "AccountLockedError",
     "AccountNotFoundError",
     "COAService",
     "COAServiceError",

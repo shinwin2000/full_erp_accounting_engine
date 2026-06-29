@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
@@ -499,22 +500,72 @@ class BudgetEventPublisher:
 
 
 # ============================================================================
+# ALIAS UNTUK KOMPATIBILITAS DENGAN ROUTER
+# Router mengimpor dengan suffix "Event"
+# ============================================================================
+
+BudgetApprovedEvent = BudgetApproved
+BudgetApprovedEvent.__name__ = "BudgetApprovedEvent"
+
+BudgetRejectedEvent = BudgetRejected
+BudgetRejectedEvent.__name__ = "BudgetRejectedEvent"
+
+BudgetRevisedEvent = BudgetRevised
+BudgetRevisedEvent.__name__ = "BudgetRevisedEvent"
+
+BudgetCancelledEvent = BudgetCancelled
+BudgetCancelledEvent.__name__ = "BudgetCancelledEvent"
+
+BudgetClosedEvent = BudgetClosed
+BudgetClosedEvent.__name__ = "BudgetClosedEvent"
+
+BudgetArchivedEvent = BudgetArchived
+BudgetArchivedEvent.__name__ = "BudgetArchivedEvent"
+
+BudgetCreatedEvent = BudgetCreated
+BudgetCreatedEvent.__name__ = "BudgetCreatedEvent"
+
+BudgetLineAddedEvent = BudgetLineAdded
+BudgetLineAddedEvent.__name__ = "BudgetLineAddedEvent"
+
+BudgetLineRemovedEvent = BudgetLineRemoved
+BudgetLineRemovedEvent.__name__ = "BudgetLineRemovedEvent"
+
+BudgetLineAdjustedEvent = BudgetLineAdjusted
+BudgetLineAdjustedEvent.__name__ = "BudgetLineAdjustedEvent"
+
+BudgetStatusChangedEvent = BudgetStatusChanged
+BudgetStatusChangedEvent.__name__ = "BudgetStatusChangedEvent"
+
+
+# ============================================================================
 # Exports
 # ============================================================================
 
 __all__ = [
     "BudgetApproved",
+    "BudgetApprovedEvent",
     "BudgetArchived",
+    "BudgetArchivedEvent",
     "BudgetCancelled",
+    "BudgetCancelledEvent",
     "BudgetClosed",
+    "BudgetClosedEvent",
     "BudgetCreated",
+    "BudgetCreatedEvent",
     "BudgetEventPublisher",
     "BudgetEventType",
     "BudgetLineAdded",
+    "BudgetLineAddedEvent",
     "BudgetLineAdjusted",
+    "BudgetLineAdjustedEvent",
     "BudgetLineRemoved",
+    "BudgetLineRemovedEvent",
     "BudgetRejected",
+    "BudgetRejectedEvent",
     "BudgetRevised",
+    "BudgetRevisedEvent",
     "BudgetStatusChanged",
+    "BudgetStatusChangedEvent",
     "DomainEvent",
 ]

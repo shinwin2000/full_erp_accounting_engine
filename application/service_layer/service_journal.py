@@ -1,4 +1,4 @@
-# service_journal.py - Complete rewrite with full implementation
+# service_journal.py - Complete rewrite with full event publishing (added adjust and cancel)
 
 #!/usr/bin/env python3
 
@@ -9,6 +9,7 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service layer untuk Journal Entry (Jurnal Umum).
+    Mempublikasikan semua domain events yang sesuai.
 """
 
 from __future__ import annotations
@@ -30,7 +31,19 @@ from application.dto_objects.journal_response import (
 )
 from domain.fiscal_period.aggregate_root import FiscalPeriod, PeriodStatus
 from domain.journal.aggregate_root import JournalAggregate
-from domain.journal.domain_events import JournalApproved, JournalPosted, JournalReversed
+from domain.journal.domain_events import (
+    JournalAdjustedEvent,
+    JournalApprovedEvent,
+    JournalArchivedEvent,
+    JournalCancelledEvent,
+    JournalCreatedEvent,
+    JournalPostedEvent,
+    JournalRejectedEvent,
+    JournalReversedEvent,
+    JournalSubmittedEvent,
+    JournalUnarchivedEvent,
+    JournalVoidedEvent,
+)
 from domain.journal.invariants import JournalInvariantsValidator
 from domain.journal.journal_entity import JournalEntry, JournalStatus, JournalType
 from domain.journal.journal_line_vo import JournalLine
@@ -113,6 +126,94 @@ class PostJournalResponse:
     created_at: datetime
 
 
+@dataclass(kw_only=True)
+class SubmitJournalRequest:
+    """Request to submit journal for approval."""
+
+    journal_id: UUID
+    user_id: UUID
+    correlation_id: str | None = None
+
+
+@dataclass(kw_only=True)
+class ApproveJournalRequest:
+    """Request to approve journal."""
+
+    journal_id: UUID
+    approver_id: UUID
+    correlation_id: str | None = None
+
+
+@dataclass(kw_only=True)
+class RejectJournalRequest:
+    """Request to reject journal."""
+
+    journal_id: UUID
+    rejected_by: UUID
+    reason: str
+    correlation_id: str | None = None
+
+
+@dataclass(kw_only=True)
+class ReverseJournalRequest:
+    """Request to reverse journal."""
+
+    journal_id: UUID
+    reversal_date: date
+    reason: str
+    user_id: UUID
+    correlation_id: str | None = None
+
+
+@dataclass(kw_only=True)
+class VoidJournalRequest:
+    """Request to void journal."""
+
+    journal_id: UUID
+    voided_by: UUID
+    reason: str
+    correlation_id: str | None = None
+
+
+@dataclass(kw_only=True)
+class CancelJournalRequest:
+    """Request to cancel journal (same as void but different event)."""
+
+    journal_id: UUID
+    cancelled_by: UUID
+    reason: str
+    correlation_id: str | None = None
+
+
+@dataclass(kw_only=True)
+class ArchiveJournalRequest:
+    """Request to archive journal."""
+
+    journal_id: UUID
+    archived_by: UUID
+    correlation_id: str | None = None
+
+
+@dataclass(kw_only=True)
+class UnarchiveJournalRequest:
+    """Request to unarchive journal."""
+
+    journal_id: UUID
+    unarchived_by: UUID
+    correlation_id: str | None = None
+
+
+@dataclass(kw_only=True)
+class AdjustJournalRequest:
+    """Request to adjust journal lines/description before posting."""
+
+    journal_id: UUID
+    description: str | None = None
+    lines: list[dict[str, Any]] | None = None
+    adjusted_by: UUID
+    correlation_id: str | None = None
+
+
 # ============================================================================
 # Main Service
 # ============================================================================
@@ -121,6 +222,7 @@ class PostJournalResponse:
 class JournalService:
     """
     Service untuk mengelola jurnal umum.
+    Mempublikasikan event untuk setiap perubahan status.
     """
 
     def __init__(
@@ -147,7 +249,13 @@ class JournalService:
         self._event_publisher = event_publisher
         self._validator = JournalInvariantsValidator()
         self._state_machine = JournalStateMachine()
-        self._stats = {"journals_posted": 0, "journals_approved": 0, "journals_reversed": 0}
+        self._stats = {
+            "journals_posted": 0,
+            "journals_approved": 0,
+            "journals_reversed": 0,
+            "journals_adjusted": 0,
+            "journals_cancelled": 0,
+        }
 
         logger.info("JournalService initialized")
 
@@ -155,7 +263,7 @@ class JournalService:
 
     async def post_journal_entry(self, request: PostJournalRequest) -> PostJournalResponse:
         """
-        Post a journal entry.
+        Post a journal entry (creates DRAFT and immediately posts if user has permission).
         """
         # Validate period
         period = await self._get_and_validate_period(request.period)
@@ -233,21 +341,41 @@ class JournalService:
 
         self._stats["journals_posted"] += 1
 
-        # Publish event
+        # Publish JournalCreatedEvent
         if self._event_publisher:
-            event = JournalPosted(
-                aggregate_id=journal.id,
-                legal_entity_id=journal.legal_entity_id,
-                journal_number=journal.journal_number.value,
-                total_debit=total_debit,
-                total_credit=total_credit,
-                user_id=request.user_id,
-                occurred_at=datetime.utcnow(),
-            )
-            await self._event_publisher.publish(event, request.correlation_id)
+            try:
+                event = JournalCreatedEvent(
+                    aggregate_id=journal.id,
+                    aggregate_version=1,
+                    journal=journal,
+                    lines_count=len(lines),
+                    created_by=str(request.user_id) if request.user_id else "system",
+                    user_id=str(request.user_id) if request.user_id else None,
+                    correlation_id=request.correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published JournalCreatedEvent for {journal_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalCreatedEvent: {e}")
+
+            # Publish JournalPostedEvent
+            try:
+                event2 = JournalPostedEvent(
+                    aggregate_id=journal.id,
+                    aggregate_version=1,
+                    journal=journal,
+                    total_debit=total_debit,
+                    total_credit=total_credit,
+                    posted_by=str(request.user_id) if request.user_id else "system",
+                    user_id=str(request.user_id) if request.user_id else None,
+                    correlation_id=request.correlation_id,
+                )
+                await self._event_publisher.publish(event2)
+                logger.debug(f"Published JournalPostedEvent for {journal_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalPostedEvent: {e}")
 
         logger.info(f"Journal {journal_number} posted")
-
         return PostJournalResponse(
             journal_id=journal.id,
             journal_number=journal_number,
@@ -255,46 +383,326 @@ class JournalService:
             created_at=journal.created_at,
         )
 
+    # ==================== SUBMIT ====================
+
+    async def submit_journal(
+        self,
+        request: SubmitJournalRequest,
+    ) -> JournalEntryResponseDTO:
+        """Submit journal for approval."""
+        aggregate = await self._journal_repo.get_by_id(request.journal_id)
+        if not aggregate:
+            raise JournalNotFoundError(f"Journal {request.journal_id} not found")
+
+        if aggregate.journal.status != JournalStatus.DRAFT:
+            raise JournalServiceError(f"Cannot submit journal in status {aggregate.journal.status.value}")
+
+        aggregate.submit(str(request.user_id))
+        await self._journal_repo.save(aggregate)
+        await self._uow.commit()
+
+        if self._event_publisher:
+            try:
+                event = JournalSubmittedEvent(
+                    aggregate_id=request.journal_id,
+                    aggregate_version=aggregate.version,
+                    journal=aggregate.journal,
+                    submitted_by=str(request.user_id),
+                    user_id=str(request.user_id),
+                    correlation_id=request.correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published JournalSubmittedEvent for {aggregate.journal.journal_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalSubmittedEvent: {e}")
+
+        return self._to_response(aggregate.journal)
+
+    # ==================== APPROVE ====================
+
     async def approve_journal(
-        self, journal_id: UUID, approver_id: UUID, correlation_id: str | None = None
+        self,
+        request: ApproveJournalRequest,
     ) -> JournalEntryResponseDTO:
         """Approve a journal (four-eyes principle)."""
-        aggregate = await self._journal_repo.get_by_id(journal_id)
+        aggregate = await self._journal_repo.get_by_id(request.journal_id)
         if not aggregate:
-            raise JournalNotFoundError(f"Journal {journal_id} not found")
+            raise JournalNotFoundError(f"Journal {request.journal_id} not found")
 
-        if aggregate.journal.status != JournalStatus.POSTED:
-            raise JournalApprovalRequiredError("Only posted journals can be approved")
+        if aggregate.journal.status != JournalStatus.SUBMITTED:
+            raise JournalApprovalRequiredError(f"Cannot approve journal in status {aggregate.journal.status.value}")
 
-        aggregate.approve(approver_id)
+        if str(request.approver_id) == aggregate.journal.created_by:
+            raise JournalServiceError("Maker cannot approve own journal")
+
+        aggregate.approve(str(request.approver_id))
         await self._journal_repo.save(aggregate)
         await self._uow.commit()
 
         self._stats["journals_approved"] += 1
 
         if self._event_publisher:
-            event = JournalApproved(
-                aggregate_id=journal_id,
-                journal_number=aggregate.journal.journal_number.value,
-                approver_id=approver_id,
-                occurred_at=datetime.utcnow(),
-            )
-            await self._event_publisher.publish(event, correlation_id)
+            try:
+                event = JournalApprovedEvent(
+                    aggregate_id=request.journal_id,
+                    aggregate_version=aggregate.version,
+                    journal=aggregate.journal,
+                    approved_by=str(request.approver_id),
+                    user_id=str(request.approver_id),
+                    correlation_id=request.correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published JournalApprovedEvent for {aggregate.journal.journal_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalApprovedEvent: {e}")
 
         return self._to_response(aggregate.journal)
 
-    async def reverse_journal(
+    # ==================== REJECT ====================
+
+    async def reject_journal(
+        self,
+        request: RejectJournalRequest,
+    ) -> JournalEntryResponseDTO:
+        """Reject a journal."""
+        aggregate = await self._journal_repo.get_by_id(request.journal_id)
+        if not aggregate:
+            raise JournalNotFoundError(f"Journal {request.journal_id} not found")
+
+        if aggregate.journal.status != JournalStatus.SUBMITTED:
+            raise JournalServiceError(f"Cannot reject journal in status {aggregate.journal.status.value}")
+
+        aggregate.reject(str(request.rejected_by), request.reason)
+        await self._journal_repo.save(aggregate)
+        await self._uow.commit()
+
+        if self._event_publisher:
+            try:
+                event = JournalRejectedEvent(
+                    aggregate_id=request.journal_id,
+                    aggregate_version=aggregate.version,
+                    journal=aggregate.journal,
+                    rejected_by=str(request.rejected_by),
+                    reason=request.reason,
+                    user_id=str(request.rejected_by),
+                    correlation_id=request.correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published JournalRejectedEvent for {aggregate.journal.journal_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalRejectedEvent: {e}")
+
+        return self._to_response(aggregate.journal)
+
+    # ==================== POST (from APPROVED) ====================
+
+    async def post_approved_journal(
         self,
         journal_id: UUID,
-        reversal_date: date,
-        reason: str,
-        user_id: UUID,
+        poster_id: UUID,
         correlation_id: str | None = None,
     ) -> JournalEntryResponseDTO:
-        """Reverse a journal entry."""
-        original_agg = await self._journal_repo.get_by_id(journal_id)
-        if not original_agg:
+        """Post an approved journal."""
+        aggregate = await self._journal_repo.get_by_id(journal_id)
+        if not aggregate:
             raise JournalNotFoundError(f"Journal {journal_id} not found")
+
+        if aggregate.journal.status != JournalStatus.APPROVED:
+            raise JournalServiceError(f"Cannot post journal in status {aggregate.journal.status.value}")
+
+        aggregate.post(str(poster_id))
+        await self._journal_repo.save(aggregate)
+        await self._uow.commit()
+
+        self._stats["journals_posted"] += 1
+
+        if self._event_publisher:
+            try:
+                event = JournalPostedEvent(
+                    aggregate_id=journal_id,
+                    aggregate_version=aggregate.version,
+                    journal=aggregate.journal,
+                    total_debit=aggregate.journal.total_debit,
+                    total_credit=aggregate.journal.total_credit,
+                    posted_by=str(poster_id),
+                    user_id=str(poster_id),
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published JournalPostedEvent for {aggregate.journal.journal_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalPostedEvent: {e}")
+
+        return self._to_response(aggregate.journal)
+
+    # ==================== ADJUST ====================
+
+    async def adjust_journal(
+        self,
+        request: AdjustJournalRequest,
+    ) -> JournalEntryResponseDTO:
+        """Adjust journal lines or description before posting."""
+        aggregate = await self._journal_repo.get_by_id(request.journal_id)
+        if not aggregate:
+            raise JournalNotFoundError(f"Journal {request.journal_id} not found")
+
+        journal = aggregate.journal
+        if journal.status not in [JournalStatus.DRAFT, JournalStatus.SUBMITTED]:
+            raise JournalServiceError(f"Cannot adjust journal in status {journal.status.value}")
+
+        changes = {}
+        if request.description is not None and request.description != journal.description:
+            changes["description"] = {"old": journal.description, "new": request.description}
+            journal.description = request.description
+
+        if request.lines is not None:
+            new_lines = []
+            total_debit = Decimal("0")
+            total_credit = Decimal("0")
+            for line_dto in request.lines:
+                account = await self._account_repo.find_by_code(
+                    journal.legal_entity_id, line_dto["account_code"]
+                )
+                if not account:
+                    raise AccountNotFoundError(f"Account {line_dto['account_code']} not found")
+                debit = Decimal(str(line_dto.get("debit", 0)))
+                credit = Decimal(str(line_dto.get("credit", 0)))
+                total_debit += debit
+                total_credit += credit
+                new_lines.append(
+                    JournalLine(
+                        account_id=account.id,
+                        account_code=account.account_code,
+                        description=line_dto.get("description", ""),
+                        debit=debit,
+                        credit=credit,
+                        cost_center=line_dto.get("cost_center"),
+                        department=line_dto.get("department"),
+                    )
+                )
+            if total_debit != total_credit:
+                raise JournalNotBalancedError(
+                    f"Adjusted journal not balanced: debit={total_debit}, credit={total_credit}"
+                )
+            changes["lines"] = {"old": "modified", "new": "modified"}
+            journal.lines = new_lines
+            journal.total_debit = total_debit
+            journal.total_credit = total_credit
+
+        if not changes:
+            return self._to_response(journal)
+
+        journal.updated_at = datetime.utcnow()
+        journal.updated_by = request.adjusted_by
+        journal.version += 1
+
+        await self._journal_repo.save(aggregate)
+        await self._uow.commit()
+
+        self._stats["journals_adjusted"] += 1
+
+        if self._event_publisher:
+            try:
+                event = JournalAdjustedEvent(
+                    aggregate_id=request.journal_id,
+                    aggregate_version=aggregate.version,
+                    journal=journal,
+                    changes=changes,
+                    adjusted_by=str(request.adjusted_by),
+                    user_id=str(request.adjusted_by),
+                    correlation_id=request.correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published JournalAdjustedEvent for {journal.journal_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalAdjustedEvent: {e}")
+
+        return self._to_response(journal)
+
+    # ==================== CANCEL ====================
+
+    async def cancel_journal(
+        self,
+        request: CancelJournalRequest,
+    ) -> JournalEntryResponseDTO:
+        """Cancel a journal (for DRAFT or SUBMITTED status)."""
+        aggregate = await self._journal_repo.get_by_id(request.journal_id)
+        if not aggregate:
+            raise JournalNotFoundError(f"Journal {request.journal_id} not found")
+
+        if aggregate.journal.status not in [JournalStatus.DRAFT, JournalStatus.SUBMITTED]:
+            raise JournalServiceError(f"Cannot cancel journal in status {aggregate.journal.status.value}")
+
+        aggregate.void(str(request.cancelled_by), request.reason)  # reuse void logic
+        await self._journal_repo.save(aggregate)
+        await self._uow.commit()
+
+        self._stats["journals_cancelled"] += 1
+
+        if self._event_publisher:
+            try:
+                event = JournalCancelledEvent(
+                    aggregate_id=request.journal_id,
+                    aggregate_version=aggregate.version,
+                    journal=aggregate.journal,
+                    cancelled_by=str(request.cancelled_by),
+                    reason=request.reason,
+                    user_id=str(request.cancelled_by),
+                    correlation_id=request.correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published JournalCancelledEvent for {aggregate.journal.journal_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalCancelledEvent: {e}")
+
+        return self._to_response(aggregate.journal)
+
+    # ==================== VOID ====================
+
+    async def void_journal(
+        self,
+        request: VoidJournalRequest,
+    ) -> JournalEntryResponseDTO:
+        """Void (cancel) a journal before posting."""
+        aggregate = await self._journal_repo.get_by_id(request.journal_id)
+        if not aggregate:
+            raise JournalNotFoundError(f"Journal {request.journal_id} not found")
+
+        if aggregate.journal.status not in [JournalStatus.DRAFT, JournalStatus.SUBMITTED]:
+            raise JournalServiceError(f"Cannot void journal in status {aggregate.journal.status.value}")
+
+        aggregate.void(str(request.voided_by), request.reason)
+        await self._journal_repo.save(aggregate)
+        await self._uow.commit()
+
+        if self._event_publisher:
+            try:
+                event = JournalVoidedEvent(
+                    aggregate_id=request.journal_id,
+                    aggregate_version=aggregate.version,
+                    journal=aggregate.journal,
+                    voided_by=str(request.voided_by),
+                    reason=request.reason,
+                    user_id=str(request.voided_by),
+                    correlation_id=request.correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published JournalVoidedEvent for {aggregate.journal.journal_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalVoidedEvent: {e}")
+
+        return self._to_response(aggregate.journal)
+
+    # ==================== REVERSE ====================
+
+    async def reverse_journal(
+        self,
+        request: ReverseJournalRequest,
+    ) -> JournalEntryResponseDTO:
+        """Reverse a journal entry."""
+        original_agg = await self._journal_repo.get_by_id(request.journal_id)
+        if not original_agg:
+            raise JournalNotFoundError(f"Journal {request.journal_id} not found")
 
         if original_agg.journal.status != JournalStatus.POSTED:
             raise JournalReversalNotAllowedError("Only posted journals can be reversed")
@@ -309,7 +717,7 @@ class JournalService:
                 JournalLine(
                     account_id=line.account_id,
                     account_code=line.account_code,
-                    description=f"REVERSAL: {line.description} - {reason}",
+                    description=f"REVERSAL: {line.description} - {request.reason}",
                     debit=line.credit,
                     credit=line.debit,
                     cost_center=line.cost_center,
@@ -320,7 +728,7 @@ class JournalService:
             )
 
         # Validate period
-        period_str = f"{reversal_date.year}-{reversal_date.month:02d}"
+        period_str = f"{request.reversal_date.year}-{request.reversal_date.month:02d}"
         period = await self._get_and_validate_period(period_str)
 
         # Generate reversal number
@@ -330,26 +738,26 @@ class JournalService:
             id=uuid4(),
             legal_entity_id=original_agg.journal.legal_entity_id,
             journal_number=DocumentNumber(rev_number),
-            journal_date=reversal_date,
+            journal_date=request.reversal_date,
             period=period,
-            description=f"Reversal of {original_agg.journal.journal_number.value}: {reason}",
+            description=f"Reversal of {original_agg.journal.journal_number.value}: {request.reason}",
             journal_type=JournalType.REVERSAL,
             status=JournalStatus.DRAFT,
             lines=reversal_lines,
-            created_by=user_id,
+            created_by=request.user_id,
             created_at=datetime.utcnow(),
             total_debit=original_agg.journal.total_credit,
             total_credit=original_agg.journal.total_debit,
             source_system=original_agg.journal.source_system,
             reference_number=original_agg.journal.journal_number.value,
-            original_journal_id=journal_id,
+            original_journal_id=request.journal_id,
         )
 
         agg = JournalAggregate(journal=reversal_journal, version=0)
-        agg.post(user_id)
+        agg.post(request.user_id)
 
         # Mark original as reversed
-        original_agg.mark_reversed(reversal_journal.id, user_id)
+        original_agg.mark_reversed(reversal_journal.id, request.user_id)
 
         await self._journal_repo.save(original_agg)
         await self._journal_repo.save(agg)
@@ -357,18 +765,96 @@ class JournalService:
 
         self._stats["journals_reversed"] += 1
 
+        # Publish event for original reversal
         if self._event_publisher:
-            event = JournalReversed(
-                aggregate_id=journal_id,
-                reversal_journal_id=reversal_journal.id,
-                reversal_number=rev_number,
-                reason=reason,
-                user_id=user_id,
-                occurred_at=datetime.utcnow(),
-            )
-            await self._event_publisher.publish(event, correlation_id)
+            try:
+                event = JournalReversedEvent(
+                    aggregate_id=request.journal_id,
+                    aggregate_version=original_agg.version,
+                    original_journal_id=request.journal_id,
+                    reversal_journal_id=reversal_journal.id,
+                    journal=original_agg.journal,
+                    reversed_by=str(request.user_id),
+                    reason=request.reason,
+                    user_id=str(request.user_id),
+                    correlation_id=request.correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published JournalReversedEvent for {original_agg.journal.journal_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalReversedEvent: {e}")
 
         return self._to_response(reversal_journal)
+
+    # ==================== ARCHIVE ====================
+
+    async def archive_journal(
+        self,
+        request: ArchiveJournalRequest,
+    ) -> JournalEntryResponseDTO:
+        """Archive a journal."""
+        aggregate = await self._journal_repo.get_by_id(request.journal_id)
+        if not aggregate:
+            raise JournalNotFoundError(f"Journal {request.journal_id} not found")
+
+        if aggregate.journal.status not in [JournalStatus.POSTED, JournalStatus.REVERSED, JournalStatus.REJECTED]:
+            raise JournalServiceError(f"Cannot archive journal in status {aggregate.journal.status.value}")
+
+        aggregate.archive(str(request.archived_by))
+        await self._journal_repo.save(aggregate)
+        await self._uow.commit()
+
+        if self._event_publisher:
+            try:
+                event = JournalArchivedEvent(
+                    aggregate_id=request.journal_id,
+                    aggregate_version=aggregate.version,
+                    journal=aggregate.journal,
+                    archived_by=str(request.archived_by),
+                    user_id=str(request.archived_by),
+                    correlation_id=request.correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published JournalArchivedEvent for {aggregate.journal.journal_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalArchivedEvent: {e}")
+
+        return self._to_response(aggregate.journal)
+
+    # ==================== UNARCHIVE ====================
+
+    async def unarchive_journal(
+        self,
+        request: UnarchiveJournalRequest,
+    ) -> JournalEntryResponseDTO:
+        """Unarchive a journal."""
+        aggregate = await self._journal_repo.get_by_id(request.journal_id)
+        if not aggregate:
+            raise JournalNotFoundError(f"Journal {request.journal_id} not found")
+
+        if aggregate.journal.status != JournalStatus.ARCHIVED:
+            raise JournalServiceError(f"Cannot unarchive journal in status {aggregate.journal.status.value}")
+
+        aggregate.unarchive(str(request.unarchived_by))
+        await self._journal_repo.save(aggregate)
+        await self._uow.commit()
+
+        if self._event_publisher:
+            try:
+                event = JournalUnarchivedEvent(
+                    aggregate_id=request.journal_id,
+                    aggregate_version=aggregate.version,
+                    journal=aggregate.journal,
+                    unarchived_by=str(request.unarchived_by),
+                    user_id=str(request.unarchived_by),
+                    correlation_id=request.correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published JournalUnarchivedEvent for {aggregate.journal.journal_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalUnarchivedEvent: {e}")
+
+        return self._to_response(aggregate.journal)
 
     # ==================== QUERIES ====================
 
@@ -515,6 +1001,10 @@ async def create_journal_service(
 
 __all__ = [
     "AccountNotFoundError",
+    "AdjustJournalRequest",
+    "ApproveJournalRequest",
+    "ArchiveJournalRequest",
+    "CancelJournalRequest",
     "JournalAlreadyPostedError",
     "JournalApprovalRequiredError",
     "JournalNotBalancedError",
@@ -525,5 +1015,10 @@ __all__ = [
     "JournalServiceError",
     "PostJournalRequest",
     "PostJournalResponse",
+    "RejectJournalRequest",
+    "ReverseJournalRequest",
+    "SubmitJournalRequest",
+    "UnarchiveJournalRequest",
+    "VoidJournalRequest",
     "create_journal_service",
 ]

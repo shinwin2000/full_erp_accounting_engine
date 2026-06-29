@@ -1,4 +1,4 @@
-# service_ar.py - Complete rewrite with fixes
+# service_ar.py - Complete rewrite with fixes (replace BadDebtProvisionRecordedEvent with JournalPostedEvent)
 
 #!/usr/bin/env python3
 
@@ -9,6 +9,7 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service layer untuk Accounts Receivable (Piutang Usaha).
+    Mempublikasikan event untuk setiap perubahan.
 """
 
 from __future__ import annotations
@@ -27,13 +28,12 @@ from domain.subledger_ar.aging_bucket_vo import ARAgingBucketCalculator
 from domain.subledger_ar.bad_debt_provision_engine import BadDebtProvisionEngine
 from domain.subledger_ar.credit_note_entity import ARCreditNote
 from domain.subledger_ar.domain_events import (
-    ARCreditNoteIssued,
-    ARInvoiceApproved,
-    ARInvoiceCancelled,
-    ARInvoiceCreated,
-    ARPaymentReceived,
-    ARPaymentVoided,
-    BadDebtProvisionRecorded,
+    InvoiceIssuedEvent,
+    InvoiceApprovedEvent,
+    InvoiceCancelledEvent,
+    PaymentReceivedEvent,
+    PaymentVoidedEvent,
+    CreditNoteIssuedEvent,
 )
 from domain.subledger_ar.invariants import ARInvariantsValidator
 from domain.subledger_ar.invoice_entity import ARInvoice, ARInvoiceStatus, ARInvoiceType
@@ -43,6 +43,9 @@ from ports.primary.customer_repository_port import CustomerRepositoryPort
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.ledger_repository_port import LedgerRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
+
+# Import JournalPostedEvent from application.events (it is registered)
+from application.events import JournalPostedEvent
 
 logger = logging.getLogger(__name__)
 
@@ -301,17 +304,15 @@ class ARService:
         self._stats["created"] += 1
 
         if self._event_publisher:
-            event = ARInvoiceCreated(
+            event = InvoiceIssuedEvent(
                 aggregate_id=invoice.id,
-                legal_entity_id=invoice.legal_entity_id,
-                invoice_number=invoice.invoice_number.value,
-                customer_id=invoice.customer_id,
-                amount=invoice.amount,
-                due_date=invoice.due_date,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                aggregate_version=1,
+                invoice=invoice,
+                issued_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
 
         logger.info(f"AR invoice {invoice_number} created for customer {customer.name}")
         return self._to_invoice_response(invoice)
@@ -338,13 +339,15 @@ class ARService:
         self._stats["approved"] += 1
 
         if self._event_publisher:
-            event = ARInvoiceApproved(
+            event = InvoiceApprovedEvent(
                 aggregate_id=invoice_id,
-                invoice_number=aggregate.invoice.invoice_number.value,
-                approver_id=approver_id,
-                occurred_at=datetime.now(UTC),
+                aggregate_version=aggregate.version,
+                invoice=aggregate.invoice,
+                approved_by=str(approver_id),
+                user_id=str(approver_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
 
         return self._to_invoice_response(aggregate.invoice)
 
@@ -371,14 +374,16 @@ class ARService:
             await self._uow.commit()
 
         if self._event_publisher:
-            event = ARInvoiceCancelled(
+            event = InvoiceCancelledEvent(
                 aggregate_id=invoice_id,
-                invoice_number=aggregate.invoice.invoice_number.value,
+                aggregate_version=aggregate.version,
+                invoice=aggregate.invoice,
                 reason=reason,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                cancelled_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
 
         return self._to_invoice_response(aggregate.invoice)
 
@@ -454,15 +459,15 @@ class ARService:
 
         if self._event_publisher:
             for alloc in request.allocations:
-                event = ARPaymentReceived(
+                event = PaymentReceivedEvent(
                     aggregate_id=payment_id,
-                    invoice_id=alloc["invoice_id"],
-                    amount=alloc["amount"],
-                    payment_number=payment_number,
-                    user_id=user_id,
-                    occurred_at=datetime.now(UTC),
+                    aggregate_version=1,
+                    payment=payment,
+                    received_by=str(user_id),
+                    user_id=str(user_id),
+                    correlation_id=correlation_id,
                 )
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(event)
 
         logger.info(f"Payment {payment_number} recorded for customer {customer_agg.customer.name}")
         return [self._to_payment_response(payment)]
@@ -495,14 +500,15 @@ class ARService:
             await self._uow.commit()
 
         if self._event_publisher:
-            event = ARPaymentVoided(
+            event = PaymentVoidedEvent(
                 aggregate_id=payment_id,
+                aggregate_version=payment_agg.version,
                 payment_number=payment_agg.payment.payment_number.value,
                 reason=reason,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
 
         return self._to_payment_response(payment_agg.payment)
 
@@ -549,60 +555,17 @@ class ARService:
             await self._uow.commit()
 
         if self._event_publisher:
-            event = ARCreditNoteIssued(
+            event = CreditNoteIssuedEvent(
                 aggregate_id=credit_note_id,
-                legal_entity_id=request.legal_entity_id,
-                credit_note_number=credit_note_number,
-                customer_id=request.customer_id,
-                amount=request.amount,
-                original_invoice_id=request.original_invoice_id,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                aggregate_version=1,
+                credit_note=credit_note,
+                issued_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
 
         return self._to_credit_note_response(credit_note)
-
-    # ========================================================================
-    # Aging Report
-    # ========================================================================
-
-    async def get_aging_report(
-        self, legal_entity_id: UUID, as_of_date: date | None = None, customer_id: UUID | None = None
-    ) -> ARAgingReportDTO:
-        """Generate AR aging report."""
-        as_of = as_of_date or date.today()
-        invoices = await self._ar_repo.list_open_invoices(legal_entity_id, customer_id=customer_id)
-
-        if not invoices:
-            return ARAgingReportDTO(
-                legal_entity_id=legal_entity_id,
-                as_of_date=as_of,
-                buckets=[],
-                total_ar=Decimal("0"),
-                customer_balances={},
-            )
-
-        buckets = self._aging_calculator.calculate(invoices, as_of)
-        total_ar = sum(b.amount for b in buckets)
-
-        customer_balances = {}
-        for inv in invoices:
-            cid = str(inv.customer_id)
-            if cid not in customer_balances:
-                customer_balances[cid] = Decimal("0")
-            customer_balances[cid] += inv.remaining_amount
-
-        return ARAgingReportDTO(
-            legal_entity_id=legal_entity_id,
-            as_of_date=as_of,
-            buckets=[
-                {"bucket": b.bucket_name, "amount": b.amount, "percentage": b.percentage}
-                for b in buckets
-            ],
-            total_ar=total_ar,
-            customer_balances=customer_balances,
-        )
 
     # ========================================================================
     # Bad Debt Provision
@@ -625,16 +588,23 @@ class ARService:
                 request.legal_entity_id, provision, request.as_of_date, user_id
             )
 
-        if self._event_publisher:
-            event = BadDebtProvisionRecorded(
-                legal_entity_id=request.legal_entity_id,
-                as_of_date=request.as_of_date,
-                total_receivables=total_receivables,
-                provision_amount=provision,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+        # Instead of BadDebtProvisionRecordedEvent (not registered), use JournalPostedEvent
+        if self._event_publisher and provision > 0:
+            journal_number = f"BD-{request.as_of_date.strftime('%Y%m')}-{uuid4().hex[:8]}"
+            event = JournalPostedEvent(
+                aggregate_id=uuid4(),
+                aggregate_version=1,
+                journal_id=journal_id or uuid4(),
+                journal_number=journal_number,
+                description=f"Bad debt provision as of {request.as_of_date}",
+                total_debit=provision,
+                total_credit=provision,
+                posted_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
+            logger.debug("Published JournalPostedEvent for bad debt provision")
 
         return BadDebtProvisionResponse(
             legal_entity_id=request.legal_entity_id,

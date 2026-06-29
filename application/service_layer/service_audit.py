@@ -10,13 +10,21 @@ Responsibility:
 
 from __future__ import annotations
 
-import importlib
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
 from uuid import UUID, uuid4
+
+# Static imports untuk audit sampling (menghindari dynamic import warnings)
+from audit.sampling_materiality.audit_sampling_engine import (
+    AuditSamplingEngine,
+    SampleType,
+)
+from audit.sampling_materiality.materiality_threshold_calculator import (
+    MaterialityThresholdCalculator,
+)
 
 from ports.primary.audit_repository_port import AuditRepositoryPort
 
@@ -212,7 +220,7 @@ class AuditSamplingError(AuditServiceError):
 class AuditService:
     """
     Service untuk audit dan kepatuhan.
-    Menggunakan dynamic import untuk menghindari layer violation pada checker.
+    Menggunakan static imports untuk audit sampling (menghindari dynamic import warnings).
     """
 
     def __init__(
@@ -226,31 +234,26 @@ class AuditService:
         self._audit_repo = audit_repo
         self._hash_builder = hash_builder
         self._tamper_scanner = tamper_scanner
-        self._sampling_engine = None
-        self._materiality_calculator = None
+        # Lazy-initialized instances (tanpa importlib)
+        self._sampling_engine: AuditSamplingEngine | None = None
+        self._materiality_calculator: MaterialityThresholdCalculator | None = None
         self._stats = {"audit_trail_requests": 0, "integrity_checks": 0, "samples_created": 0}
-        logger.info("AuditService initialized")
+        logger.info("AuditService initialized with static imports")
 
     # ========================================================================
-    # Lazy Getters dengan dynamic import (menghindari layer violation)
+    # Lazy Getters (tanpa dynamic import)
     # ========================================================================
 
-    def _get_sampling_engine(self):
-        """Lazy init AuditSamplingEngine menggunakan dynamic import."""
+    def _get_sampling_engine(self) -> AuditSamplingEngine:
+        """Lazy init AuditSamplingEngine (static import, tanpa importlib)."""
         if self._sampling_engine is None:
-            module = importlib.import_module(
-                "audit.sampling_materiality.audit_sampling_engine"
-            )
-            self._sampling_engine = module.AuditSamplingEngine()
+            self._sampling_engine = AuditSamplingEngine()
         return self._sampling_engine
 
-    def _get_materiality_calculator(self):
-        """Lazy init MaterialityThresholdCalculator menggunakan dynamic import."""
+    def _get_materiality_calculator(self) -> MaterialityThresholdCalculator:
+        """Lazy init MaterialityThresholdCalculator (static import, tanpa importlib)."""
         if self._materiality_calculator is None:
-            module = importlib.import_module(
-                "audit.sampling_materiality.materiality_threshold_calculator"
-            )
-            self._materiality_calculator = module.MaterialityThresholdCalculator()
+            self._materiality_calculator = MaterialityThresholdCalculator()
         return self._materiality_calculator
 
     # ========================================================================
@@ -390,10 +393,8 @@ class AuditService:
         sampling_engine = self._get_sampling_engine()
         materiality_calc = self._get_materiality_calculator()
 
-        # Konversi sample_type string ke enum (menggunakan modul yang sudah di-import secara dinamis)
-        sample_module = importlib.import_module("audit.sampling_materiality.audit_sampling_engine")
-        sample_type_enum = getattr(sample_module, "SampleType")
-        sample_type = sample_type_enum(request.sample_type.lower())
+        # SampleType sudah di-import secara statis
+        sample_type = SampleType(request.sample_type.lower())
 
         materiality = request.materiality_threshold
         if not materiality:

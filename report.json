@@ -1,0 +1,4906 @@
+{
+  "total_used": 248,
+  "registered": 248,
+  "unregistered_error": 0,
+  "unregistered_warning": 205,
+  "info": 32,
+  "score": 0,
+  "statistics": {
+    "registry_entries": 285,
+    "domain_event_classes": 261,
+    "used_concrete_events": 248,
+    "unused_domain_events": 13,
+    "skipped_base_events": 0,
+    "duplicate_publish_events": 48
+  },
+  "violations": [
+    {
+      "severity": "INFO",
+      "message": "Event 'IntangibleAssetTransferredEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'PayslipGeneratedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'PayrollRunPaidEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'PayrollRunCancelledEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'StockOpnameCreatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'COGSCalculatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'IntangibleAssetFullyAmortizedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'IntangibleAssetUpdatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'PeriodCreatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'PayrollRunPostedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'COACreatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'PayslipSentToEmployeeEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'StockMovementCreatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'IntangibleAssetAmortizationPostedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'TransferCompletedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'PayrollRunApprovedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'PayrollRunCreatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'StockOpnameApprovedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'InventoryValuationUpdatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'ItemCreatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'IntangibleAssetAcquiredEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'IntangibleAssetRevaluatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'BankTransactionReconciledEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'IntangibleAssetImpairmentReversedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'IntangibleAssetImpairedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'StockLevelAlertEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'SalaryComponentAddedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'IntangibleAssetDisposedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'ItemUpdatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'ItemDeactivatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'InterWarehouseTransferCreatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "INFO",
+      "message": "Event 'PayrollRunCalculatedEvent' terdaftar di registry tetapi TIDAK PERNAH digunakan/dipublish.",
+      "detail": "Event ini mungkin dead code atau belum digunakan."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'TransactionCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_umkm.py:252",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'TransactionUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_umkm.py:348",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'TransactionDeletedEvent' dipublish setelah commit/flush di application\\service_layer\\service_umkm.py:392",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'TransactionRecordedEvent' dipublish setelah commit/flush di application\\service_layer\\service_umkm.py:560",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'FakturSubmittedEvent' dipublish setelah commit/flush di application\\service_layer\\service_tax.py:471",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'FakturApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_tax.py:503",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'FakturRejectedEvent' dipublish setelah commit/flush di application\\service_layer\\service_tax.py:527",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'SPTSubmittedEvent' dipublish setelah commit/flush di application\\service_layer\\service_tax.py:600",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'SPTApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_tax.py:619",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'TaxCalculatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_tax.py:675",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'TaxCalculatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_tax.py:725",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PKPStatusChangedEvent' dipublish setelah commit/flush di application\\service_layer\\service_tax.py:787",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'MeteraiUsedEvent' dipublish setelah commit/flush di application\\service_layer\\service_tax.py:846",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'TaxProfileUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_tax.py:894",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PeriodOpenedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fiscal_period.py:248",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PeriodUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fiscal_period.py:310",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PeriodOpenedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fiscal_period.py:349",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PeriodStatusChangedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fiscal_period.py:363",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PeriodLockedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fiscal_period.py:403",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PeriodStatusChangedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fiscal_period.py:416",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PeriodClosedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fiscal_period.py:468",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PeriodStatusChangedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fiscal_period.py:481",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PeriodReopenedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fiscal_period.py:532",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PeriodStatusChangedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fiscal_period.py:545",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_journal.py:356",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalPostedEvent' dipublish setelah commit/flush di application\\service_layer\\service_journal.py:373",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalSubmittedEvent' dipublish setelah commit/flush di application\\service_layer\\service_journal.py:414",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_journal.py:454",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalRejectedEvent' dipublish setelah commit/flush di application\\service_layer\\service_journal.py:490",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalPostedEvent' dipublish setelah commit/flush di application\\service_layer\\service_journal.py:531",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalAdjustedEvent' dipublish setelah commit/flush di application\\service_layer\\service_journal.py:615",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalCancelledEvent' dipublish setelah commit/flush di application\\service_layer\\service_journal.py:653",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalVoidedEvent' dipublish setelah commit/flush di application\\service_layer\\service_journal.py:689",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalReversedEvent' dipublish setelah commit/flush di application\\service_layer\\service_journal.py:782",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalArchivedEvent' dipublish setelah commit/flush di application\\service_layer\\service_journal.py:817",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalUnarchivedEvent' dipublish setelah commit/flush di application\\service_layer\\service_journal.py:852",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalPostedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ledger.py:210",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PeriodClosedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ledger.py:359",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PeriodReopenedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ledger.py:392",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'InvoiceCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ap.py:212",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'InvoiceApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ap.py:244",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'InvoiceCancelledEvent' dipublish setelah commit/flush di application\\service_layer\\service_ap.py:278",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PaymentMadeEvent' dipublish setelah commit/flush di application\\service_layer\\service_ap.py:355",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PaymentVoidedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ap.py:397",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PaymentRunGeneratedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ap.py:475",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PaymentRunExecutedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ap.py:519",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'ThreeWayMatchResultEvent' dipublish setelah commit/flush di application\\service_layer\\service_ap.py:614",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'CreditNoteIssuedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ap.py:704",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BankAccountCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:356",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BankAccountUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:416",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BankAccountBlockedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:460",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BankAccountClosedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:505",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BankTransactionRecordedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:615",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BankTransactionClearedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:690",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BankReconciliationCompletedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:723",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BankTransferInitiatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:785",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BankTransferCompletedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:824",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BankTransferFailedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:847",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BankTransferCancelledEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:886",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'CashBookUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:947",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'CashBookClosedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:985",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'CashReceiptIssuedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1034",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'CashReceiptConfirmedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1067",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'CashReceiptCancelledEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1111",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'CashDisbursementIssuedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1165",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'CashDisbursementApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1198",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'CashDisbursementPaidEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1231",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'CashDisbursementCancelledEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1275",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PettyCashFundCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1317",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PettyCashAdjustedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1352",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PettyCashActivatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1385",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PettyCashClosedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1424",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PettyCashSuspendedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1460",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PettyCashDisbursementEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1501",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PettyCashReplenishedEvent' dipublish setelah commit/flush di application\\service_layer\\service_bank_cash.py:1552",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AccountCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coa.py:237",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AccountUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coa.py:325",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AccountDeactivatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coa.py:372",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AccountReactivatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coa.py:402",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'COALockedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coa.py:442",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'COAUnlockedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coa.py:479",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'COAArchivedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coa.py:524",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'ConsolidationCompletedEvent' dipublish setelah commit/flush di application\\service_layer\\service_consolidation.py:384",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'ConsolidationCancelledEvent' dipublish setelah commit/flush di application\\service_layer\\service_consolidation.py:419",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'ConsolidationArchivedEvent' dipublish setelah commit/flush di application\\service_layer\\service_consolidation.py:439",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetAcquiredEvent' dipublish setelah commit/flush di application\\service_layer\\service_fixed_asset.py:407",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fixed_asset.py:485",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetDepreciationPostedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fixed_asset.py:635",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetFullyDepreciatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fixed_asset.py:647",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetDisposedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fixed_asset.py:783",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetImpairedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fixed_asset.py:897",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetImpairmentReversedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fixed_asset.py:967",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetRevaluatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_fixed_asset.py:1087",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetTransferredEvent' dipublish setelah commit/flush di application\\service_layer\\service_fixed_asset.py:1173",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'FakturApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coretax.py:206",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'FakturRejectedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coretax.py:236",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BupotSubmittedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coretax.py:314",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BupotApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coretax.py:355",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'SPTSubmittedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coretax.py:404",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'SPTApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coretax.py:423",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'SPTSubmittedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coretax.py:483",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'SPTApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coretax.py:502",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'SPTSubmittedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coretax.py:562",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'SPTApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_coretax.py:581",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetAcquiredEvent' dipublish setelah commit/flush di application\\service_layer\\service_intangible_asset.py:273",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetDepreciationPostedEvent' dipublish setelah commit/flush di application\\service_layer\\service_intangible_asset.py:413",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetFullyDepreciatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_intangible_asset.py:429",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetImpairedEvent' dipublish setelah commit/flush di application\\service_layer\\service_intangible_asset.py:481",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetRevaluatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_intangible_asset.py:552",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AssetDisposedEvent' dipublish setelah commit/flush di application\\service_layer\\service_intangible_asset.py:620",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'StockAdjustedEvent' dipublish setelah commit/flush di application\\service_layer\\service_inventory.py:689",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BOMCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:338",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BOMUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:406",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BOMActivatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:464",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BOMObsoletedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:499",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BOMItemAddedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:547",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'WorkOrderCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:651",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'WorkOrderApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:696",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'MaterialIssuedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:761",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'WorkOrderStartedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:780",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'LaborPostedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:837",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'OverheadAppliedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:886",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'ProductionCompletedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:967",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'WorkOrderCompletedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:980",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'WorkOrderCancelledEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:1025",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'StandardCostCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:1075",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'StandardCostActivatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:1113",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'HPPCalculatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:1165",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'VarianceAnalyzedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:1232",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'CostCardUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_manufacturing.py:1278",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BudgetCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_budget.py:226",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BudgetApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_budget.py:272",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BudgetRejectedEvent' dipublish setelah commit/flush di application\\service_layer\\service_budget.py:310",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BudgetRevisedEvent' dipublish setelah commit/flush di application\\service_layer\\service_budget.py:364",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BudgetClosedEvent' dipublish setelah commit/flush di application\\service_layer\\service_budget.py:400",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BudgetCancelledEvent' dipublish setelah commit/flush di application\\service_layer\\service_budget.py:437",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BudgetArchivedEvent' dipublish setelah commit/flush di application\\service_layer\\service_budget.py:469",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BudgetLineAddedEvent' dipublish setelah commit/flush di application\\service_layer\\service_budget.py:514",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BudgetLineAdjustedEvent' dipublish setelah commit/flush di application\\service_layer\\service_budget.py:559",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BudgetLineRemovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_budget.py:601",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'BudgetStatusChangedEvent' dipublish setelah commit/flush di application\\service_layer\\service_budget.py:645",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'HedgeDesignatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_hedge.py:287",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'HedgeEffectivenessTestedEvent' dipublish setelah commit/flush di application\\service_layer\\service_hedge.py:388",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'HedgeFairValueAdjustedEvent' dipublish setelah commit/flush di application\\service_layer\\service_hedge.py:501",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'HedgeDiscontinuedEvent' dipublish setelah commit/flush di application\\service_layer\\service_hedge.py:567",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'HedgeCancelledEvent' dipublish setelah commit/flush di application\\service_layer\\service_hedge.py:618",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'HedgeAmountReclassifiedEvent' dipublish setelah commit/flush di application\\service_layer\\service_hedge.py:702",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'UserCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:263",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AccountCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:277",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'UserUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:349",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AccountUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:360",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'UserActivatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:413",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AccountReactivatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:424",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'UserDeactivatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:477",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AccountDeactivatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:488",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AccountLockedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:543",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AccountUnlockedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:595",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'UserUnlockedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:605",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'UserSuspendedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:660",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'UserDeletedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:693",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'AccountDeactivatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:704",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'RoleCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:762",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PermissionGrantedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:774",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PermissionGrantedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:841",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PermissionRevokedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:852",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'RoleUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:878",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'RoleDeletedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:919",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'RoleAssignedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:958",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'RoleRevokedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:997",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'LoginFailureEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:1028",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'LoginFailureEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:1042",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'LoginFailureEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:1055",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'LoginSuccessEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:1091",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'SessionCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:1104",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'SessionRefreshedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:1145",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'SessionTerminatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:1174",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'SessionCompromisedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:1198",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'UserPasswordChangedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:1253",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'UserPasswordChangedEvent' dipublish setelah commit/flush di application\\service_layer\\service_iam.py:1300",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'GoodwillRecognizedEvent' dipublish setelah commit/flush di application\\service_layer\\service_goodwill.py:242",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'GoodwillUpdatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_goodwill.py:315",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'GoodwillImpairedEvent' dipublish setelah commit/flush di application\\service_layer\\service_goodwill.py:399",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'GoodwillImpairmentReversedEvent' dipublish setelah commit/flush di application\\service_layer\\service_goodwill.py:526",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'GoodwillAmortizedEvent' dipublish setelah commit/flush di application\\service_layer\\service_goodwill.py:593",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'GoodwillDisposedEvent' dipublish setelah commit/flush di application\\service_layer\\service_goodwill.py:653",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'TransactionRecordedEvent' dipublish setelah commit/flush di application\\service_layer\\service_forex.py:213",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'TransactionRecordedEvent' dipublish setelah commit/flush di application\\service_layer\\service_forex.py:313",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalPostedEvent' dipublish setelah commit/flush di application\\service_layer\\service_forex.py:389",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalPostedEvent' dipublish setelah commit/flush di application\\service_layer\\service_forex.py:511",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'ProjectCreatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_project.py:349",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'ProjectActivatedEvent' dipublish setelah commit/flush di application\\service_layer\\service_project.py:454",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'ProjectCompletedEvent' dipublish setelah commit/flush di application\\service_layer\\service_project.py:531",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'TimeEntrySubmittedEvent' dipublish setelah commit/flush di application\\service_layer\\service_project.py:659",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'TimeEntryApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_project.py:706",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'MilestoneReadyEvent' dipublish setelah commit/flush di application\\service_layer\\service_project.py:818",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'MilestoneBilledEvent' dipublish setelah commit/flush di application\\service_layer\\service_project.py:873",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'RevenueRecognizedEvent' dipublish setelah commit/flush di application\\service_layer\\service_project.py:946",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'ProjectBillingGeneratedEvent' dipublish setelah commit/flush di application\\service_layer\\service_project.py:1028",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'InvoiceIssuedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ar.py:315",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'InvoiceApprovedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ar.py:350",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'InvoiceCancelledEvent' dipublish setelah commit/flush di application\\service_layer\\service_ar.py:386",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PaymentReceivedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ar.py:470",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'PaymentVoidedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ar.py:511",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'CreditNoteIssuedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ar.py:566",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    },
+    {
+      "severity": "WARNING",
+      "message": "Event 'JournalPostedEvent' dipublish setelah commit/flush di application\\service_layer\\service_ar.py:606",
+      "detail": "Publish event sebaiknya dilakukan sebelum commit untuk memastikan konsistensi transaksional."
+    }
+  ],
+  "used_events": {
+    "TransactionCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_umkm.py",
+        "line": 240,
+        "context": "assignment to variable 'event_created'"
+      },
+      {
+        "file": "application\\service_layer\\service_umkm.py",
+        "line": 252,
+        "context": "publish variable 'event_created' via publish"
+      }
+    ],
+    "TransactionUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_umkm.py",
+        "line": 339,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_umkm.py",
+        "line": 348,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "TransactionDeletedEvent": [
+      {
+        "file": "application\\service_layer\\service_umkm.py",
+        "line": 384,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_umkm.py",
+        "line": 392,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "TransactionRecordedEvent": [
+      {
+        "file": "application\\service_layer\\service_umkm.py",
+        "line": 550,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_umkm.py",
+        "line": 560,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_forex.py",
+        "line": 203,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_forex.py",
+        "line": 213,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_forex.py",
+        "line": 303,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_forex.py",
+        "line": 313,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "TaxCalculatedEvent": [
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 365,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 377,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 663,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 675,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 713,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 725,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "FakturSubmittedEvent": [
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 459,
+        "context": "assignment to variable 'event_submitted'"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 471,
+        "context": "publish variable 'event_submitted' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 162,
+        "context": "assignment to variable 'event_submitted'"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 174,
+        "context": "publish variable 'event_submitted' via publish"
+      }
+    ],
+    "FakturApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 491,
+        "context": "assignment to variable 'event_approved'"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 503,
+        "context": "publish variable 'event_approved' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 196,
+        "context": "assignment to variable 'event_approved'"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 206,
+        "context": "publish variable 'event_approved' via publish"
+      }
+    ],
+    "FakturRejectedEvent": [
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 517,
+        "context": "assignment to variable 'event_rejected'"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 527,
+        "context": "publish variable 'event_rejected' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 227,
+        "context": "assignment to variable 'event_rejected'"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 236,
+        "context": "publish variable 'event_rejected' via publish"
+      }
+    ],
+    "SPTSubmittedEvent": [
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 589,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 600,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 394,
+        "context": "assignment to variable 'event_submitted'"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 404,
+        "context": "publish variable 'event_submitted' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 473,
+        "context": "assignment to variable 'event_submitted'"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 483,
+        "context": "publish variable 'event_submitted' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 552,
+        "context": "assignment to variable 'event_submitted'"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 562,
+        "context": "publish variable 'event_submitted' via publish"
+      }
+    ],
+    "SPTApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 608,
+        "context": "assignment to variable 'event_approved'"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 619,
+        "context": "publish variable 'event_approved' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 412,
+        "context": "assignment to variable 'event_approved'"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 423,
+        "context": "publish variable 'event_approved' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 491,
+        "context": "assignment to variable 'event_approved'"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 502,
+        "context": "publish variable 'event_approved' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 570,
+        "context": "assignment to variable 'event_approved'"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 581,
+        "context": "publish variable 'event_approved' via publish"
+      }
+    ],
+    "PKPStatusChangedEvent": [
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 776,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 787,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "MeteraiUsedEvent": [
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 833,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 846,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "TaxProfileUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 885,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_tax.py",
+        "line": 894,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "domain\\legal_entity\\aggregate_root.py",
+        "line": 537,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "domain\\legal_entity\\aggregate_root.py",
+        "line": 545,
+        "context": "publish variable 'event' via append"
+      }
+    ],
+    "PeriodOpenedEvent": [
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 240,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 248,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 341,
+        "context": "assignment to variable 'event_opened'"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 349,
+        "context": "publish variable 'event_opened' via publish"
+      }
+    ],
+    "PeriodUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 301,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 310,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PeriodStatusChangedEvent": [
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 353,
+        "context": "assignment to variable 'event_status'"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 363,
+        "context": "publish variable 'event_status' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 406,
+        "context": "assignment to variable 'event_status'"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 416,
+        "context": "publish variable 'event_status' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 471,
+        "context": "assignment to variable 'event_status'"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 481,
+        "context": "publish variable 'event_status' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 535,
+        "context": "assignment to variable 'event_status'"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 545,
+        "context": "publish variable 'event_status' via publish"
+      }
+    ],
+    "PeriodLockedEvent": [
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 395,
+        "context": "assignment to variable 'event_lock'"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 403,
+        "context": "publish variable 'event_lock' via publish"
+      }
+    ],
+    "PeriodClosedEvent": [
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 459,
+        "context": "assignment to variable 'event_close'"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 468,
+        "context": "publish variable 'event_close' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ledger.py",
+        "line": 350,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ledger.py",
+        "line": 359,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PeriodReopenedEvent": [
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 523,
+        "context": "assignment to variable 'event_reopen'"
+      },
+      {
+        "file": "application\\service_layer\\service_fiscal_period.py",
+        "line": 532,
+        "context": "publish variable 'event_reopen' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ledger.py",
+        "line": 383,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ledger.py",
+        "line": 392,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PurchaseOrderCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 479,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 487,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PurchaseOrderApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 565,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 573,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "GoodsReceiptCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 627,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 635,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "InvoiceCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 708,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 719,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1334,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1345,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 201,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 212,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "InvoiceReceivedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 743,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 753,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PurchaseInvoiceReceivedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 761,
+        "context": "assignment to variable 'event2'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 769,
+        "context": "publish variable 'event2' via publish"
+      }
+    ],
+    "InvoiceApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 793,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 803,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1416,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1426,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 236,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 244,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 342,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 350,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PurchaseInvoiceApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 811,
+        "context": "assignment to variable 'event2'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 819,
+        "context": "publish variable 'event2' via publish"
+      }
+    ],
+    "InvoiceVerifiedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 843,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 853,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1451,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1461,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "InvoicePaidEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 883,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 894,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1491,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1502,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "InvoicePartiallyPaidEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 902,
+        "context": "assignment to variable 'event2'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 914,
+        "context": "publish variable 'event2' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1510,
+        "context": "assignment to variable 'event2'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1522,
+        "context": "publish variable 'event2' via publish"
+      }
+    ],
+    "PurchaseInvoicePaidEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 921,
+        "context": "assignment to variable 'event3'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 930,
+        "context": "publish variable 'event3' via publish"
+      }
+    ],
+    "InvoiceCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 958,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 969,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1566,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1577,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 268,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 278,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 377,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 386,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "InvoiceDisputedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 999,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1010,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1607,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1618,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "InvoiceWrittenOffEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1035,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1046,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1643,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1654,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SalesOrderCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1106,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1114,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SalesOrderApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1192,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1200,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "DeliveryNoteShippedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1253,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1261,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "InvoiceIssuedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1353,
+        "context": "assignment to variable 'event2'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1364,
+        "context": "publish variable 'event2' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 307,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 315,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SalesInvoiceIssuedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1372,
+        "context": "assignment to variable 'event3'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1380,
+        "context": "publish variable 'event3' via publish"
+      }
+    ],
+    "SalesInvoicePaidEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1529,
+        "context": "assignment to variable 'event3'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1538,
+        "context": "publish variable 'event3' via publish"
+      }
+    ],
+    "CreditNoteIssuedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1697,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1710,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 693,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 704,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 558,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 566,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CreditNoteReceivedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1733,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1745,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CreditNoteAppliedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1768,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1780,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "DebitNoteIssuedServiceEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1825,
+        "context": "assignment to variable 'event'"
+      }
+    ],
+    "DebitNoteIssuedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1839,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1852,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "DebitNoteAppliedEvent": [
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1875,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_purchase_sales.py",
+        "line": 1887,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "JournalCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 347,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 356,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "JournalPostedEvent": [
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 363,
+        "context": "assignment to variable 'event2'"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 373,
+        "context": "publish variable 'event2' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 521,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 531,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ledger.py",
+        "line": 200,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ledger.py",
+        "line": 210,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_forex.py",
+        "line": 377,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_forex.py",
+        "line": 389,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_forex.py",
+        "line": 499,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_forex.py",
+        "line": 511,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 594,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 606,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "JournalSubmittedEvent": [
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 406,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 414,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "JournalApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 446,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 454,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "JournalRejectedEvent": [
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 481,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 490,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "JournalAdjustedEvent": [
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 606,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 615,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "JournalCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 644,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 653,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "JournalVoidedEvent": [
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 680,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 689,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "JournalReversedEvent": [
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 771,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 782,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "JournalArchivedEvent": [
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 809,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 817,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "JournalUnarchivedEvent": [
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 844,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_journal.py",
+        "line": 852,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PaymentMadeEvent": [
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 346,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 355,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 170,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 180,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PaymentVoidedEvent": [
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 389,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 397,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 503,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 511,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 465,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 475,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PaymentRunGeneratedEvent": [
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 466,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 475,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PaymentRunExecutedEvent": [
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 512,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 519,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "ThreeWayMatchResultEvent": [
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 601,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ap.py",
+        "line": 614,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BankAccountCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 347,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 356,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BankAccountUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 408,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 416,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BankAccountBlockedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 452,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 460,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BankAccountClosedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 497,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 505,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BankTransactionRecordedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 606,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 615,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BankTransactionClearedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 683,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 690,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BankReconciliationCompletedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 714,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 723,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BankTransferInitiatedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 776,
+        "context": "assignment to variable 'event_init'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 785,
+        "context": "publish variable 'event_init' via publish"
+      }
+    ],
+    "BankTransferCompletedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 815,
+        "context": "assignment to variable 'event_complete'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 824,
+        "context": "publish variable 'event_complete' via publish"
+      }
+    ],
+    "BankTransferFailedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 837,
+        "context": "assignment to variable 'event_fail'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 847,
+        "context": "publish variable 'event_fail' via publish"
+      }
+    ],
+    "BankTransferCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 876,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 886,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CashBookUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 939,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 947,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CashBookClosedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 978,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 985,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CashReceiptIssuedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1026,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1034,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CashReceiptConfirmedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1059,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1067,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CashReceiptCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1102,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1111,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CashDisbursementIssuedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1157,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1165,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CashDisbursementApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1190,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1198,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CashDisbursementPaidEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1223,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1231,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CashDisbursementCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1266,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1275,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PettyCashFundCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1309,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1317,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PettyCashAdjustedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1342,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1352,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PettyCashActivatedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1378,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1385,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PettyCashClosedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1417,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1424,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PettyCashSuspendedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1452,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1460,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PettyCashDisbursementEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1492,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1501,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PettyCashReplenishedEvent": [
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1544,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_bank_cash.py",
+        "line": 1552,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "AccountCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 226,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 237,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 266,
+        "context": "assignment to variable 'event_account'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 277,
+        "context": "publish variable 'event_account' via publish"
+      }
+    ],
+    "AccountUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 316,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 325,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 351,
+        "context": "assignment to variable 'event_account'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 360,
+        "context": "publish variable 'event_account' via publish"
+      }
+    ],
+    "AccountDeactivatedEvent": [
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 363,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 372,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 479,
+        "context": "assignment to variable 'event_account'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 488,
+        "context": "publish variable 'event_account' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 695,
+        "context": "assignment to variable 'event_account'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 704,
+        "context": "publish variable 'event_account' via publish"
+      }
+    ],
+    "AccountReactivatedEvent": [
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 394,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 402,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 415,
+        "context": "assignment to variable 'event_account'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 424,
+        "context": "publish variable 'event_account' via publish"
+      }
+    ],
+    "COALockedEvent": [
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 432,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 442,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "COAUnlockedEvent": [
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 470,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 479,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "COAArchivedEvent": [
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 515,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_coa.py",
+        "line": 524,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "LegalEntityCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 193,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 205,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 387,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 399,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "LegalEntityUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 221,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 232,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 500,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 510,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 645,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 655,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 818,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 828,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 893,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 903,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 937,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 947,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "LegalEntityDeactivatedEvent": [
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 245,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 254,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 585,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 594,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "ConsolidationStartedEvent": [
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 275,
+        "context": "assignment to variable 'event_start'"
+      },
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 285,
+        "context": "publish variable 'event_start' via publish"
+      }
+    ],
+    "IntercompanyTransactionDetectedEvent": [
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 313,
+        "context": "assignment to variable 'event_detect'"
+      },
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 324,
+        "context": "publish variable 'event_detect' via publish"
+      }
+    ],
+    "EliminationEntryCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 332,
+        "context": "assignment to variable 'event_elim'"
+      },
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 343,
+        "context": "publish variable 'event_elim' via publish"
+      }
+    ],
+    "NCICalculatedEvent": [
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 351,
+        "context": "assignment to variable 'event_nci'"
+      },
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 360,
+        "context": "publish variable 'event_nci' via publish"
+      }
+    ],
+    "ConsolidationCompletedEvent": [
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 373,
+        "context": "assignment to variable 'event_complete'"
+      },
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 384,
+        "context": "publish variable 'event_complete' via publish"
+      }
+    ],
+    "ConsolidationCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 410,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 419,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "ConsolidationArchivedEvent": [
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 431,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_consolidation.py",
+        "line": 439,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "AssetAcquiredEvent": [
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 399,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 407,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_intangible_asset.py",
+        "line": 273,
+        "context": "publish call (publish)"
+      }
+    ],
+    "AssetUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 476,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 485,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "AssetDepreciationPostedEvent": [
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 625,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 635,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_intangible_asset.py",
+        "line": 413,
+        "context": "publish call (publish)"
+      }
+    ],
+    "AssetFullyDepreciatedEvent": [
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 640,
+        "context": "assignment to variable 'event_fully'"
+      },
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 647,
+        "context": "publish variable 'event_fully' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_intangible_asset.py",
+        "line": 429,
+        "context": "publish call (publish)"
+      }
+    ],
+    "AssetDisposedEvent": [
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 772,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 783,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_intangible_asset.py",
+        "line": 620,
+        "context": "publish call (publish)"
+      }
+    ],
+    "AssetImpairedEvent": [
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 885,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 897,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_intangible_asset.py",
+        "line": 481,
+        "context": "publish call (publish)"
+      }
+    ],
+    "AssetImpairmentReversedEvent": [
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 958,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 967,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "AssetRevaluatedEvent": [
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 1075,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 1087,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_intangible_asset.py",
+        "line": 552,
+        "context": "publish call (publish)"
+      }
+    ],
+    "AssetTransferredEvent": [
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 1163,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_fixed_asset.py",
+        "line": 1173,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BupotSubmittedEvent": [
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 304,
+        "context": "assignment to variable 'event_submitted'"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 314,
+        "context": "publish variable 'event_submitted' via publish"
+      }
+    ],
+    "BupotApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 345,
+        "context": "assignment to variable 'event_approved'"
+      },
+      {
+        "file": "application\\service_layer\\service_coretax.py",
+        "line": 355,
+        "context": "publish variable 'event_approved' via publish"
+      }
+    ],
+    "StockAdjustedEvent": [
+      {
+        "file": "application\\service_layer\\service_inventory.py",
+        "line": 682,
+        "context": "assignment to variable 'adj_event'"
+      },
+      {
+        "file": "application\\service_layer\\service_inventory.py",
+        "line": 689,
+        "context": "publish variable 'adj_event' via publish"
+      }
+    ],
+    "BOMCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 330,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 338,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BOMUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 396,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 406,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BOMActivatedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 456,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 464,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BOMObsoletedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 490,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 499,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BOMItemAddedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 537,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 547,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "WorkOrderCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 643,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 651,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "WorkOrderApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 688,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 696,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "MaterialIssuedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 747,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 761,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "WorkOrderStartedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 772,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 780,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "LaborPostedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 823,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 837,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "OverheadAppliedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 874,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 886,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "ProductionCompletedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 952,
+        "context": "assignment to variable 'prod_event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 967,
+        "context": "publish variable 'prod_event' via publish"
+      }
+    ],
+    "WorkOrderCompletedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 970,
+        "context": "assignment to variable 'wo_event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 980,
+        "context": "publish variable 'wo_event' via publish"
+      }
+    ],
+    "WorkOrderCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 1016,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 1025,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "StandardCostCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 1059,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 1075,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_standard_cost.py",
+        "line": 118,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_standard_cost.py",
+        "line": 134,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "StandardCostActivatedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 1102,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 1113,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_standard_cost.py",
+        "line": 169,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_standard_cost.py",
+        "line": 180,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "HPPCalculatedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 1152,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 1165,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "VarianceAnalyzedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 1218,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 1232,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CostCardUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 1268,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_manufacturing.py",
+        "line": 1278,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SettingAddedEvent": [
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 412,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 423,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SettingChangedEvent": [
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 522,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 530,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SettingRemovedEvent": [
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 564,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 570,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SettingResetEvent": [
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 606,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 614,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SettingsLockedEvent": [
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 663,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 668,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SettingsUnlockedEvent": [
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 722,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 727,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SettingsBulkUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 771,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_system_settings.py",
+        "line": 776,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BudgetCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 215,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 226,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BudgetApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 261,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 272,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BudgetRejectedEvent": [
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 300,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 310,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BudgetRevisedEvent": [
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 352,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 364,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BudgetClosedEvent": [
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 391,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 400,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BudgetCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 427,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 437,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BudgetArchivedEvent": [
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 460,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 469,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BudgetLineAddedEvent": [
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 503,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 514,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BudgetLineAdjustedEvent": [
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 547,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 559,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BudgetLineRemovedEvent": [
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 590,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 601,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "BudgetStatusChangedEvent": [
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 634,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_budget.py",
+        "line": 645,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "HedgeDesignatedEvent": [
+      {
+        "file": "application\\service_layer\\service_hedge.py",
+        "line": 276,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_hedge.py",
+        "line": 287,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "HedgeEffectivenessTestedEvent": [
+      {
+        "file": "application\\service_layer\\service_hedge.py",
+        "line": 374,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_hedge.py",
+        "line": 388,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "HedgeFairValueAdjustedEvent": [
+      {
+        "file": "application\\service_layer\\service_hedge.py",
+        "line": 490,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_hedge.py",
+        "line": 501,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "HedgeDiscontinuedEvent": [
+      {
+        "file": "application\\service_layer\\service_hedge.py",
+        "line": 556,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_hedge.py",
+        "line": 567,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "HedgeCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_hedge.py",
+        "line": 608,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_hedge.py",
+        "line": 618,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "HedgeAmountReclassifiedEvent": [
+      {
+        "file": "application\\service_layer\\service_hedge.py",
+        "line": 690,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_hedge.py",
+        "line": 702,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "UserCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 252,
+        "context": "assignment to variable 'event_user'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 263,
+        "context": "publish variable 'event_user' via publish"
+      }
+    ],
+    "UserUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 341,
+        "context": "assignment to variable 'event_user'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 349,
+        "context": "publish variable 'event_user' via publish"
+      }
+    ],
+    "UserActivatedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 405,
+        "context": "assignment to variable 'event_user'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 413,
+        "context": "publish variable 'event_user' via publish"
+      }
+    ],
+    "UserDeactivatedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 469,
+        "context": "assignment to variable 'event_user'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 477,
+        "context": "publish variable 'event_user' via publish"
+      }
+    ],
+    "AccountLockedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 534,
+        "context": "assignment to variable 'event_account'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 543,
+        "context": "publish variable 'event_account' via publish"
+      }
+    ],
+    "AccountUnlockedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 587,
+        "context": "assignment to variable 'event_account'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 595,
+        "context": "publish variable 'event_account' via publish"
+      }
+    ],
+    "UserUnlockedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 597,
+        "context": "assignment to variable 'event_user'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 605,
+        "context": "publish variable 'event_user' via publish"
+      }
+    ],
+    "UserSuspendedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 651,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 660,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "UserDeletedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 685,
+        "context": "assignment to variable 'event_user'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 693,
+        "context": "publish variable 'event_user' via publish"
+      }
+    ],
+    "RoleCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 748,
+        "context": "assignment to variable 'event_role'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 762,
+        "context": "publish variable 'event_role' via publish"
+      }
+    ],
+    "PermissionGrantedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 765,
+        "context": "assignment to variable 'event_perm'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 774,
+        "context": "publish variable 'event_perm' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 832,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 841,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PermissionRevokedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 843,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 852,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "RoleUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 868,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 878,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "RoleDeletedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 910,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 919,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "RoleAssignedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 949,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 958,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "RoleRevokedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 988,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 997,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "LoginFailureEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1021,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1028,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1035,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1042,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1048,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1055,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "LoginSuccessEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1084,
+        "context": "assignment to variable 'event_success'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1091,
+        "context": "publish variable 'event_success' via publish"
+      }
+    ],
+    "SessionCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1094,
+        "context": "assignment to variable 'event_session'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1104,
+        "context": "publish variable 'event_session' via publish"
+      }
+    ],
+    "SessionRefreshedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1138,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1145,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SessionTerminatedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1167,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1174,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SessionCompromisedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1189,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1198,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "UserPasswordChangedEvent": [
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1245,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1253,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1292,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_iam.py",
+        "line": 1300,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "GoodwillRecognizedEvent": [
+      {
+        "file": "application\\service_layer\\service_goodwill.py",
+        "line": 230,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_goodwill.py",
+        "line": 242,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "GoodwillUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_goodwill.py",
+        "line": 305,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_goodwill.py",
+        "line": 315,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "GoodwillImpairedEvent": [
+      {
+        "file": "application\\service_layer\\service_goodwill.py",
+        "line": 386,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_goodwill.py",
+        "line": 399,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "GoodwillImpairmentReversedEvent": [
+      {
+        "file": "application\\service_layer\\service_goodwill.py",
+        "line": 512,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_goodwill.py",
+        "line": 526,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "GoodwillAmortizedEvent": [
+      {
+        "file": "application\\service_layer\\service_goodwill.py",
+        "line": 579,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_goodwill.py",
+        "line": 593,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "GoodwillDisposedEvent": [
+      {
+        "file": "application\\service_layer\\service_goodwill.py",
+        "line": 639,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_goodwill.py",
+        "line": 653,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "ProjectCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 336,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 349,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "ProjectActivatedEvent": [
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 444,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 454,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "ProjectCompletedEvent": [
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 521,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 531,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "TimeEntrySubmittedEvent": [
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 647,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 659,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "TimeEntryApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 694,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 706,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "MilestoneReadyEvent": [
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 807,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 818,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "MilestoneBilledEvent": [
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 860,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 873,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "RevenueRecognizedEvent": [
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 936,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 946,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "ProjectBillingGeneratedEvent": [
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 1017,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_project.py",
+        "line": 1028,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PaymentReceivedEvent": [
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 462,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_ar.py",
+        "line": 470,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 159,
+        "context": "assignment to variable 'event'"
+      }
+    ],
+    "CompanyRegisteredEvent": [
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 406,
+        "context": "assignment to variable 'event_company'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 419,
+        "context": "publish variable 'event_company' via publish"
+      }
+    ],
+    "CompanyAddressUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 518,
+        "context": "assignment to variable 'event_addr'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 531,
+        "context": "publish variable 'event_addr' via publish"
+      }
+    ],
+    "CompanyContactUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 539,
+        "context": "assignment to variable 'event_contact'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 552,
+        "context": "publish variable 'event_contact' via publish"
+      }
+    ],
+    "CompanySuspendedEvent": [
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 601,
+        "context": "assignment to variable 'event_suspend'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 611,
+        "context": "publish variable 'event_suspend' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 702,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 712,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "domain\\legal_entity\\aggregate_root.py",
+        "line": 455,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "domain\\legal_entity\\aggregate_root.py",
+        "line": 466,
+        "context": "publish variable 'event' via append"
+      }
+    ],
+    "CompanyReactivatedEvent": [
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 662,
+        "context": "assignment to variable 'event_react'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 671,
+        "context": "publish variable 'event_react' via publish"
+      },
+      {
+        "file": "domain\\legal_entity\\aggregate_root.py",
+        "line": 478,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "domain\\legal_entity\\aggregate_root.py",
+        "line": 489,
+        "context": "publish variable 'event' via append"
+      }
+    ],
+    "CompanyDissolvedEvent": [
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 743,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_legal_entity.py",
+        "line": 753,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "domain\\legal_entity\\aggregate_root.py",
+        "line": 510,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "domain\\legal_entity\\aggregate_root.py",
+        "line": 522,
+        "context": "publish variable 'event' via append"
+      }
+    ],
+    "AssetGroupCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_asset_group.py",
+        "line": 121,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_asset_group.py",
+        "line": 132,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "AssetGroupUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_asset_group.py",
+        "line": 204,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_asset_group.py",
+        "line": 214,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CapitalContributionRecordedEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 139,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 151,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CapitalContributionApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 175,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 183,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CapitalContributionPostedEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 197,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 205,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CapitalContributionCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 220,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 229,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CapitalWithdrawalRecordedEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 250,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 260,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CapitalWithdrawalApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 276,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 284,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CapitalWithdrawalPostedEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 298,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 306,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CapitalWithdrawalCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 321,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 330,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "DividendDeclaredEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 351,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 363,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "DividendApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 388,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 396,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "DividendPaidEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 413,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 422,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "DividendPartiallyPaidEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 429,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 438,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "DividendCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 453,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 462,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "RetainedEarningsAdjustedEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 483,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 494,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "RetainedEarningsTransferEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 513,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 524,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "RetainedEarningsUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 540,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_capital.py",
+        "line": 550,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SupplierCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_supplier.py",
+        "line": 164,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_supplier.py",
+        "line": 176,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SupplierPaymentTermsChangedEvent": [
+      {
+        "file": "application\\service_layer\\service_supplier.py",
+        "line": 248,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_supplier.py",
+        "line": 259,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "SupplierWithholdingCategoryChangedEvent": [
+      {
+        "file": "application\\service_layer\\service_supplier.py",
+        "line": 314,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_supplier.py",
+        "line": 325,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CustomerCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_customer.py",
+        "line": 150,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_customer.py",
+        "line": 162,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CustomerStatusChangedEvent": [
+      {
+        "file": "application\\service_layer\\service_customer.py",
+        "line": 243,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_customer.py",
+        "line": 254,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CustomerCreditLimitChangedEvent": [
+      {
+        "file": "application\\service_layer\\service_customer.py",
+        "line": 286,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_customer.py",
+        "line": 297,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "CustomerBalanceUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_customer.py",
+        "line": 326,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_customer.py",
+        "line": 338,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PaymentApprovedEvent": [
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 222,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 231,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PaymentProcessedEvent": [
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 253,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 262,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PaymentConfirmedEvent": [
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 284,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 293,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PaymentSentEvent": [
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 315,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 324,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PaymentAppliedEvent": [
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 365,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 375,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PaymentAllocatedEvent": [
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 399,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 409,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "PaymentCancelledEvent": [
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 432,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_payment.py",
+        "line": 442,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "EmployeeCreatedEvent": [
+      {
+        "file": "application\\service_layer\\service_employee.py",
+        "line": 167,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_employee.py",
+        "line": 178,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "EmployeeStructureUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_employee.py",
+        "line": 247,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_employee.py",
+        "line": 258,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_employee.py",
+        "line": 311,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_employee.py",
+        "line": 322,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "EmployeeBPJSUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_employee.py",
+        "line": 369,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_employee.py",
+        "line": 379,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "EmployeePTKPUpdatedEvent": [
+      {
+        "file": "application\\service_layer\\service_employee.py",
+        "line": 412,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_employee.py",
+        "line": 425,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "EmployeeResignedEvent": [
+      {
+        "file": "application\\service_layer\\service_employee.py",
+        "line": 455,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_employee.py",
+        "line": 466,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "HierarchyChangedEvent": [
+      {
+        "file": "application\\service_layer\\service_hierarchy.py",
+        "line": 157,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_hierarchy.py",
+        "line": 170,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_hierarchy.py",
+        "line": 220,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_hierarchy.py",
+        "line": 233,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_hierarchy.py",
+        "line": 274,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_hierarchy.py",
+        "line": 287,
+        "context": "publish variable 'event' via publish"
+      },
+      {
+        "file": "application\\service_layer\\service_hierarchy.py",
+        "line": 317,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_hierarchy.py",
+        "line": 330,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "AccountMergedEvent": [
+      {
+        "file": "application\\service_layer\\service_account.py",
+        "line": 103,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_account.py",
+        "line": 114,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "AccountSplitEvent": [
+      {
+        "file": "application\\service_layer\\service_account.py",
+        "line": 141,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_account.py",
+        "line": 152,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "RetainerContractActivatedEvent": [
+      {
+        "file": "application\\service_layer\\service_retainer.py",
+        "line": 162,
+        "context": "assignment to variable 'event'"
+      },
+      {
+        "file": "application\\service_layer\\service_retainer.py",
+        "line": 174,
+        "context": "publish variable 'event' via publish"
+      }
+    ],
+    "AuditEvent": [
+      {
+        "file": "domain\\causality\\audit_story_builder.py",
+        "line": 383,
+        "context": "publish call (append)"
+      }
+    ]
+  }
+}

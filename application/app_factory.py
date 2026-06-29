@@ -14,9 +14,9 @@ Responsibility:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Protocol, TypeVar, Callable, Awaitable
 
-# Hanya import dari layer yang diizinkan: application, kernel, ports, bootstrap
+# Hanya import dari layer yang diizinkan: application, kernel, ports
 from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
 from application.commands_cqrs.query_bus_unified import UnifiedQueryBus
 from application.events.handler_registry import register_default_logging_handler
@@ -131,48 +131,6 @@ from application.use_cases.registry import (
     set_use_case_container,
 )
 
-# ============================================================================
-# PERBAIKAN: Import container dari bootstrap dengan fallback yang lebih baik
-# ============================================================================
-try:
-    from bootstrap.dependency_container.ioc_container import IoCContainer, get_container
-    # Gunakan get_container() untuk mendapatkan instance singleton container
-    _container = get_container()
-    # Pastikan container sudah memiliki registered types, jika belum, trigger register_all()
-    if hasattr(_container, "get_registered_types"):
-        registered = _container.get_registered_types()
-        if not registered:
-            logging.info("Container has no registered types, triggering register_all()")
-            try:
-                from bootstrap.dependency_container.adapter_registry import get_adapter_registry
-                registry = get_adapter_registry()
-                registry.register_all()
-            except Exception as e:
-                logging.warning(f"Could not auto-register adapters: {e}")
-    global_container = _container
-    IOCONTAINER_AVAILABLE = True
-    logging.info("IoCContainer loaded successfully from bootstrap")
-except ImportError as e:
-    # Fallback: container tidak tersedia, buat dummy container
-    logging.warning(f"IoCContainer import failed: {e}. Using fallback container.")
-    global_container = None
-    IOCONTAINER_AVAILABLE = False
-    # Definisikan kelas dummy yang mensimulasikan container
-    class IoCContainer:
-        def __init__(self):
-            self._registry = {}
-        def resolve(self, name, default=None):
-            return self._registry.get(name, default)
-        def get_registered_types(self):
-            return list(self._registry.keys())
-        def register_instance(self, key, instance):
-            self._registry[key] = instance
-        def register_singleton(self, key, cls):
-            self._registry[key] = cls()
-    # Buat instance dummy
-    global_container = IoCContainer()
-    logging.info("Created dummy fallback container")
-
 from kernel.circuit_breaker import CircuitBreakerRegistry
 from kernel.sealed_gate import SealedGate
 from kernel.transactional_executor import TransactionalExecutor
@@ -180,6 +138,42 @@ from kernel.transactional_executor import TransactionalExecutor
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# Container Protocol (interface untuk dependency injection)
+# ============================================================================
+class ContainerProtocol(Protocol):
+    """Interface minimal untuk container dependency injection."""
+    def resolve(self, name: str, default: Any = None) -> Any:
+        ...
+    def get_registered_types(self) -> list[str]:
+        ...
+    def register_instance(self, key: str, instance: Any) -> None:
+        ...
+    def register_singleton(self, key: str, cls: type) -> None:
+        ...
+
+
+# Dummy container untuk fallback (jika tidak ada container diberikan)
+class DummyContainer:
+    def __init__(self):
+        self._registry: dict[str, Any] = {}
+
+    def resolve(self, name: str, default: Any = None) -> Any:
+        return self._registry.get(name, default)
+
+    def get_registered_types(self) -> list[str]:
+        return list(self._registry.keys())
+
+    def register_instance(self, key: str, instance: Any) -> None:
+        self._registry[key] = instance
+
+    def register_singleton(self, key: str, cls: type) -> None:
+        self._registry[key] = cls()
+
+
+# ============================================================================
+# Application Factory
+# ============================================================================
 class ApplicationFactory:
     """
     Factory untuk merakit aplikasi.
@@ -192,29 +186,25 @@ class ApplicationFactory:
     def __init__(
         self,
         config: dict[str, Any],
-        container: IoCContainer | None = None,
+        container: ContainerProtocol | None = None,
     ):
         """
         Args:
             config: Konfigurasi aplikasi (database, kafka, redis, dll.).
             container: Container dependency yang sudah berisi implementasi
-                       dari semua port yang dibutuhkan. Jika None, akan menggunakan
-                       container global dari bootstrap.
+                       dari semua port yang dibutuhkan. WAJIB diberikan.
         """
         self.config = config
         self._container_internal = {}  # dictionary internal untuk menyimpan komponen yang dirakit
         self._initialized = False
         self._use_cases = {}
 
-        # Ambil container dari parameter atau global
+        # Container harus diberikan; jika None, gunakan dummy container
         if container is not None:
             self._di_container = container
-        elif IOCONTAINER_AVAILABLE and global_container is not None:
-            self._di_container = global_container
         else:
-            # Jika tidak ada container sama sekali, buat dummy container
-            self._di_container = IoCContainer()
-            logger.warning("No container provided, using new fallback container")
+            self._di_container = DummyContainer()
+            logger.warning("No container provided, using dummy container (some features may fail)")
 
         # Komponen infrastruktur (diambil dari container)
         self._db_pool = None
@@ -307,14 +297,8 @@ class ApplicationFactory:
 
     def _resolve_infrastructure(self) -> None:
         """Ambil komponen infrastruktur dari container."""
-        # Helper untuk resolve dengan fallback
         def resolve(name: str, default=None):
-            if hasattr(self._di_container, 'resolve'):
-                return self._di_container.resolve(name)
-            elif isinstance(self._di_container, dict):
-                return self._di_container.get(name, default)
-            else:
-                return default
+            return self._di_container.resolve(name) if hasattr(self._di_container, 'resolve') else default
 
         self._db_pool = resolve("database_pool")
         self._kafka_producer = resolve("kafka_producer")
@@ -338,11 +322,7 @@ class ApplicationFactory:
 
     async def _create_event_publisher(self):
         """Buat event publisher dengan komponen dari container."""
-        outbox_repo = None
-        if hasattr(self._di_container, 'resolve'):
-            outbox_repo = self._di_container.resolve("outbox_repository")
-        elif isinstance(self._di_container, dict):
-            outbox_repo = self._di_container.get("outbox_repository")
+        outbox_repo = self._di_container.resolve("outbox_repository") if hasattr(self._di_container, 'resolve') else None
 
         return await create_event_publisher(
             message_broker=self._kafka_producer,
@@ -358,12 +338,7 @@ class ApplicationFactory:
     def _resolve_repositories(self) -> None:
         """Ambil repository implementations dari container."""
         def resolve(name: str, default=None):
-            if hasattr(self._di_container, 'resolve'):
-                return self._di_container.resolve(name)
-            elif isinstance(self._di_container, dict):
-                return self._di_container.get(name, default)
-            else:
-                return default
+            return self._di_container.resolve(name) if hasattr(self._di_container, 'resolve') else default
 
         self._account_repo = resolve("account_repository")
         self._journal_repo = resolve("journal_repository")
@@ -383,7 +358,6 @@ class ApplicationFactory:
         self._coretax_client = resolve("coretax_client")
         self._uow = resolve("unit_of_work")
 
-        # Pastikan uow tersedia
         if self._uow is None:
             logger.warning("Unit of Work not found in container, using fallback")
 
@@ -771,14 +745,8 @@ class ApplicationFactory:
 
         # Buat event subscriber hanya jika kafka_consumer tersedia
         if self._kafka_consumer is not None:
-            dead_letter_store = None
-            metrics = None
-            if hasattr(self._di_container, 'resolve'):
-                dead_letter_store = self._di_container.resolve("dead_letter_store")
-                metrics = self._di_container.resolve("metrics_reporter")
-            elif isinstance(self._di_container, dict):
-                dead_letter_store = self._di_container.get("dead_letter_store")
-                metrics = self._di_container.get("metrics_reporter")
+            dead_letter_store = self._di_container.resolve("dead_letter_store") if hasattr(self._di_container, 'resolve') else None
+            metrics = self._di_container.resolve("metrics_reporter") if hasattr(self._di_container, 'resolve') else None
 
             self._event_subscriber = await create_event_subscriber(
                 kafka_consumer=self._kafka_consumer,
@@ -822,14 +790,15 @@ class ApplicationFactory:
 
 async def create_app(
     config: dict[str, Any],
-    container: IoCContainer | None = None,
+    container: ContainerProtocol | None = None,
 ) -> dict[str, Any]:
     """
     Convenience function untuk membuat dan menginisialisasi aplikasi.
 
     Args:
         config: Konfigurasi aplikasi.
-        container: Container dependency (opsional, jika tidak diberikan akan menggunakan global).
+        container: Container dependency (wajib diberikan, karena application tidak boleh
+                   mengimpor bootstrap secara langsung).
 
     Returns:
         Dictionary berisi semua komponen yang terdaftar.

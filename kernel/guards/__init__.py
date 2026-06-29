@@ -18,120 +18,65 @@ Audit: Setiap pelanggaran guard dictat.
 
 from __future__ import annotations
 
+import importlib
+import logging
+from typing import Any
+
 __version__ = "1.0.0"
 
+_logger = logging.getLogger(__name__)
 
-# Lazy imports untuk menghindari circular import
-def __getattr__(name):
-    if name == "GuardException" or name == "GuardViolationError":
-        from kernel.guards.guard_exceptions import GuardException, GuardViolationError
+# Mapping nama atribut ke (module_path, attribute_name)
+_LAZY_MAP = {
+    "GuardException": ("kernel.guards.guard_exceptions", "GuardException"),
+    "GuardViolationError": ("kernel.guards.guard_exceptions", "GuardViolationError"),
+    "BalanceChecker": ("kernel.guards.balance_checker", "BalanceChecker"),
+    "get_balance_checker": ("kernel.guards.balance_checker", "get_balance_checker"),
+    "PeriodLockGuard": ("kernel.guards.period_lock", "PeriodLockGuard"),
+    "get_period_lock_guard": ("kernel.guards.period_lock", "get_period_lock_guard"),
+    "CurrencyValidator": ("kernel.guards.currency_validator", "CurrencyValidator"),
+    "get_currency_validator": ("kernel.guards.currency_validator", "get_currency_validator"),
+    "LegalEntityBoundaryGuard": ("kernel.guards.legal_entity_boundary", "LegalEntityBoundaryGuard"),
+    "get_legal_entity_boundary_guard": ("kernel.guards.legal_entity_boundary", "get_legal_entity_boundary_guard"),
+    "AuthorityMatrixGuard": ("kernel.guards.authority_matrix", "AuthorityMatrixGuard"),
+    "get_authority_matrix_guard": ("kernel.guards.authority_matrix", "get_authority_matrix_guard"),
+    "EvidenceAttacher": ("kernel.guards.evidence_attacher", "EvidenceAttacher"),
+    "get_evidence_attacher": ("kernel.guards.evidence_attacher", "get_evidence_attacher"),
+    "RegulatoryComplianceGuard": ("kernel.guards.regulatory_compliance", "RegulatoryComplianceGuard"),
+    "get_regulatory_compliance_guard": ("kernel.guards.regulatory_compliance", "get_regulatory_compliance_guard"),
+    "TemporalConsistencyGuard": ("kernel.guards.temporal_consistency", "TemporalConsistencyGuard"),
+    "get_temporal_consistency_guard": ("kernel.guards.temporal_consistency", "get_temporal_consistency_guard"),
+    "EmergencyFreezeGuard": ("kernel.guards.emergency_freeze", "EmergencyFreezeGuard"),
+    "get_emergency_freeze_guard": ("kernel.guards.emergency_freeze", "get_emergency_freeze_guard"),
+    "CoretaxFormatValidator": ("kernel.guards.coretax_format_validator", "CoretaxFormatValidator"),
+    "get_coretax_format_validator": ("kernel.guards.coretax_format_validator", "get_coretax_format_validator"),
+    "SodEnforcer": ("kernel.guards.sod_enforcer", "SodEnforcer"),
+    "get_sod_enforcer": ("kernel.guards.sod_enforcer", "get_sod_enforcer"),
+    "BudgetAvailabilityGuard": ("kernel.guards.budget_availability", "BudgetAvailabilityGuard"),
+    "get_budget_availability_guard": ("kernel.guards.budget_availability", "get_budget_availability_guard"),
+    "CreditLimitEnforcer": ("kernel.guards.credit_limit_enforcer", "CreditLimitEnforcer"),
+    "get_credit_limit_enforcer": ("kernel.guards.credit_limit_enforcer", "get_credit_limit_enforcer"),
+}
 
-        return GuardException if name == "GuardException" else GuardViolationError
-    if name == "BalanceChecker":
-        from kernel.guards.balance_checker import BalanceChecker
+_cache = {}
 
-        return BalanceChecker
-    if name == "get_balance_checker":
-        from kernel.guards.balance_checker import get_balance_checker
 
-        return get_balance_checker
-    if name == "PeriodLockGuard":
-        from kernel.guards.period_lock import PeriodLockGuard
+def __getattr__(name: str) -> Any:
+    """Lazy import guard modules using importlib."""
+    if name in _cache:
+        return _cache[name]
+    if name not in _LAZY_MAP:
+        raise AttributeError(f"module {__name__} has no attribute {name}")
 
-        return PeriodLockGuard
-    if name == "get_period_lock_guard":
-        from kernel.guards.period_lock import get_period_lock_guard
-
-        return get_period_lock_guard
-    if name == "CurrencyValidator":
-        from kernel.guards.currency_validator import CurrencyValidator
-
-        return CurrencyValidator
-    if name == "get_currency_validator":
-        from kernel.guards.currency_validator import get_currency_validator
-
-        return get_currency_validator
-    if name == "LegalEntityBoundaryGuard":
-        from kernel.guards.legal_entity_boundary import LegalEntityBoundaryGuard
-
-        return LegalEntityBoundaryGuard
-    if name == "get_legal_entity_boundary_guard":
-        from kernel.guards.legal_entity_boundary import get_legal_entity_boundary_guard
-
-        return get_legal_entity_boundary_guard
-    if name == "AuthorityMatrixGuard":
-        from kernel.guards.authority_matrix import AuthorityMatrixGuard
-
-        return AuthorityMatrixGuard
-    if name == "get_authority_matrix_guard":
-        from kernel.guards.authority_matrix import get_authority_matrix_guard
-
-        return get_authority_matrix_guard
-    if name == "EvidenceAttacher":
-        from kernel.guards.evidence_attacher import EvidenceAttacher
-
-        return EvidenceAttacher
-    if name == "get_evidence_attacher":
-        from kernel.guards.evidence_attacher import get_evidence_attacher
-
-        return get_evidence_attacher
-    if name == "RegulatoryComplianceGuard":
-        from kernel.guards.regulatory_compliance import RegulatoryComplianceGuard
-
-        return RegulatoryComplianceGuard
-    if name == "get_regulatory_compliance_guard":
-        from kernel.guards.regulatory_compliance import get_regulatory_compliance_guard
-
-        return get_regulatory_compliance_guard
-    if name == "TemporalConsistencyGuard":
-        from kernel.guards.temporal_consistency import TemporalConsistencyGuard
-
-        return TemporalConsistencyGuard
-    if name == "get_temporal_consistency_guard":
-        from kernel.guards.temporal_consistency import get_temporal_consistency_guard
-
-        return get_temporal_consistency_guard
-    if name == "EmergencyFreezeGuard":
-        from kernel.guards.emergency_freeze import EmergencyFreezeGuard
-
-        return EmergencyFreezeGuard
-    if name == "get_emergency_freeze_guard":
-        from kernel.guards.emergency_freeze import get_emergency_freeze_guard
-
-        return get_emergency_freeze_guard
-    if name == "CoretaxFormatValidator":
-        from kernel.guards.coretax_format_validator import CoretaxFormatValidator
-
-        return CoretaxFormatValidator
-    if name == "get_coretax_format_validator":
-        from kernel.guards.coretax_format_validator import get_coretax_format_validator
-
-        return get_coretax_format_validator
-    if name == "SodEnforcer":
-        from kernel.guards.sod_enforcer import SodEnforcer
-
-        return SodEnforcer
-    if name == "get_sod_enforcer":
-        from kernel.guards.sod_enforcer import get_sod_enforcer
-
-        return get_sod_enforcer
-    if name == "BudgetAvailabilityGuard":
-        from kernel.guards.budget_availability import BudgetAvailabilityGuard
-
-        return BudgetAvailabilityGuard
-    if name == "get_budget_availability_guard":
-        from kernel.guards.budget_availability import get_budget_availability_guard
-
-        return get_budget_availability_guard
-    if name == "CreditLimitEnforcer":
-        from kernel.guards.credit_limit_enforcer import CreditLimitEnforcer
-
-        return CreditLimitEnforcer
-    if name == "get_credit_limit_enforcer":
-        from kernel.guards.credit_limit_enforcer import get_credit_limit_enforcer
-
-        return get_credit_limit_enforcer
-    raise AttributeError(f"module {__name__} has no attribute {name}")
+    module_path, attr_name = _LAZY_MAP[name]
+    try:
+        module = importlib.import_module(module_path)
+        value = getattr(module, attr_name)
+        _cache[name] = value
+        return value
+    except (ImportError, AttributeError) as e:
+        _logger.error(f"Failed to lazy-import {module_path}.{attr_name}: {e}")
+        raise AttributeError(f"module {__name__} has no attribute {name}") from e
 
 
 __all__ = [

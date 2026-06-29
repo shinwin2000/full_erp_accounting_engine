@@ -3,14 +3,6 @@
 secret_scanner_checker.py - Secret Scanner (Hardcoded Secrets Detector)
 =======================================================================
 Mendeteksi hardcoded secrets, credentials, token, API key, private key, dll.
-dengan akurasi tinggi menggunakan AST + Regex + Context-Aware.
-
-Cara pakai:
-  python secret_scanner_checker.py
-  python secret_scanner_checker.py --verbose
-  python secret_scanner_checker.py --json report.json
-  python secret_scanner_checker.py --exclude tests,migrations,.venv
-  python secret_scanner_checker.py --strict   # Tampilkan semua temuan, termasuk INFO
 """
 
 from __future__ import annotations
@@ -23,7 +15,9 @@ import re
 import sys
 from dataclasses import dataclass, field
 
-# Warna
+# ============================================================================
+# Warna (untuk output)
+# ============================================================================
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
 try:
     import colorama
@@ -36,104 +30,128 @@ try:
 except ImportError:
     pass
 
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
-
+# ============================================================================
+# Data Structures
+# ============================================================================
 @dataclass
 class Finding:
     file: str
     line: int
-    severity: str          # CRITICAL / WARNING / INFO
-    message: str
-    snippet: str
-    recommendation: str = ""
+    severity: str          # CRITICAL, WARNING, INFO
+    secret_type: str       # e.g. "password", "api_key", "aws_secret"
+    value: str
+    context: str
+    recommendation: str
 
 @dataclass
 class Report:
     findings: list[Finding] = field(default_factory=list)
     score: int = 100
 
-# ----------------------------------------------------------------------
-# Pattern Definitions
-# ----------------------------------------------------------------------
-# Pola untuk mendeteksi secret di assignment
+# ============================================================================
+# Exempt Values (Placeholder / Example)
+# ============================================================================
+EXEMPT_VALUES = {
+    "example", "changeme", "your_", "dummy", "test", "placeholder", "sample", "demo",
+    "password", "secret", "token", "api_key", "your-password", "your-secret-key",
+    "wrong_password", "minioadmin", "postgres", "root", "admin", "123456", "password123",
+    "null", "none", "false", "true", "0", "1", "localhost", "127.0.0.1",
+}
+EXEMPT_CONTAINS = {"example", "changeme", "your_", "dummy", "test", "placeholder"}
+
+# ============================================================================
+# Secret Patterns
+# ============================================================================
+# Format: (regex, severity, type, recommendation)
 SECRET_PATTERNS = [
     # Password
-    (re.compile(r'(?i)(password|passwd|pwd)\s*=\s*["\']([^"\']{8,})["\']'), "CRITICAL", "Password hardcoded"),
-    (re.compile(r'(?i)(password|passwd|pwd)\s*=\s*["\']([^"\']{4,})["\']'), "WARNING", "Password hardcoded (short)"),
-
-    # API Key / Token
-    (re.compile(r'(?i)(api[_\-]?key|apikey)\s*=\s*["\']([A-Za-z0-9]{16,})["\']'), "CRITICAL", "API key hardcoded"),
-    (re.compile(r'(?i)(token|access[_\-]?token|refresh[_\-]?token)\s*=\s*["\']([A-Za-z0-9_\-\.]{20,})["\']'), "CRITICAL", "Token hardcoded"),
-
-    # Secret Key
-    (re.compile(r'(?i)secret[_\-]?key\s*=\s*["\']([A-Za-z0-9@#$!%^&*_\-]{16,})["\']'), "CRITICAL", "Secret key hardcoded"),
-
+    (re.compile(r'(?i)(password|passwd|pwd|pass)\s*[:=]\s*["\']([^"\']{4,})["\']'), "CRITICAL", "password",
+     "Gunakan environment variable atau vault."),
+    # API Key
+    (re.compile(r'(?i)(api_key|apikey|api-token)\s*[:=]\s*["\']([A-Za-z0-9_\-]{16,})["\']'), "CRITICAL", "api_key",
+     "Simpan API key di environment variable."),
+    # Token / Bearer
+    (re.compile(r'(?i)(token|access_token|refresh_token)\s*[:=]\s*["\']([A-Za-z0-9_\-\.]{20,})["\']'), "CRITICAL", "token",
+     "Gunakan environment variable."),
+    (re.compile(r'(?i)(bearer|authorization)\s*[:=]\s*["\'](?:Bearer\s+)?([A-Za-z0-9_\-\.]{20,})["\']'), "CRITICAL", "bearer_token",
+     "Jangan hardcode bearer token."),
     # JWT Secret
-    (re.compile(r'(?i)jwt[_\-]?secret\s*=\s*["\']([A-Za-z0-9]{32,})["\']'), "CRITICAL", "JWT secret hardcoded"),
-
-    # Private / Public Key (PEM format)
-    (re.compile(r'(?i)(private_key|public_key)\s*=\s*["\'](-----BEGIN [A-Z]+ KEY-----)'), "CRITICAL", "Private/Public key hardcoded"),
-    (re.compile(r'(?i)(private_key|public_key)\s*=\s*["\']([^"\']{40,})["\']'), "WARNING", "Potentially long key value"),
-
-    # Database URL with password
-    (re.compile(r'(?i)database[_\-]?url\s*=\s*["\'](postgresql|mysql|mongodb)://[^:]+:([^@]+)@'), "CRITICAL", "Database URL with password"),
-
-    # Redis URL with password
-    (re.compile(r'(?i)redis[_\-]?url\s*=\s*["\']redis://[^:]+:([^@]+)@'), "CRITICAL", "Redis URL with password"),
-
-    # Generic secret assignment
-    (re.compile(r'(?i)(secret|credential)\s*=\s*["\']([A-Za-z0-9@#$!%^&*_\-]{20,})["\']'), "WARNING", "Generic secret hardcoded"),
+    (re.compile(r'(?i)(jwt_secret|jwt-secret|JWT_SECRET)\s*[:=]\s*["\']([A-Za-z0-9_\-\.]{32,})["\']'), "CRITICAL", "jwt_secret",
+     "Gunakan environment variable."),
+    # Secret Key (Django, Flask)
+    (re.compile(r'(?i)(secret_key|SECRET_KEY)\s*[:=]\s*["\']([A-Za-z0-9@#$!%^&*_\-]{16,})["\']'), "CRITICAL", "secret_key",
+     "Pindahkan secret key ke environment variable."),
+    # AWS
+    (re.compile(r'(?i)(aws_access_key_id|AWS_ACCESS_KEY_ID)\s*[:=]\s*["\'](AKIA[0-9A-Z]{16,})["\']'), "CRITICAL", "aws_access_key",
+     "Gunakan IAM role atau environment variable."),
+    (re.compile(r'(?i)(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)\s*[:=]\s*["\']([A-Za-z0-9/+=]{16,})["\']'), "CRITICAL", "aws_secret_key",
+     "Gunakan IAM role atau environment variable."),
+    # Azure
+    (re.compile(r'(?i)(azure_connection_string|AZURE_CONNECTION_STRING)\s*[:=]\s*["\'](DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[^;]+;EndpointSuffix=core.windows.net)["\']'),
+     "CRITICAL", "azure_connection_string", "Gunakan Azure Key Vault."),
+    (re.compile(r'(?i)(azure_storage_key|AZURE_STORAGE_KEY)\s*[:=]\s*["\']([A-Za-z0-9+/=]{40,})["\']'), "CRITICAL", "azure_storage_key",
+     "Gunakan environment variable."),
+    # Google
+    (re.compile(r'(?i)(google_api_key|GOOGLE_API_KEY)\s*[:=]\s*["\'](AIza[0-9A-Za-z\-_]{35,})["\']'), "CRITICAL", "google_api_key",
+     "Gunakan environment variable."),
+    # Private key (tanpa group)
+    (re.compile(r'-----BEGIN (?:RSA|DSA|EC|OPENSSH) PRIVATE KEY-----'), "CRITICAL", "private_key",
+     "Pindahkan private key ke file terpisah."),
+    (re.compile(r'-----BEGIN PRIVATE KEY-----'), "CRITICAL", "private_key",
+     "Pindahkan private key ke file terpisah."),
+    # Database URL
+    (re.compile(r'(?i)(database_url|DATABASE_URL|db_url|dsn)\s*[:=]\s*["\'](postgresql|postgres|mysql|mongodb|redis|sqlite|oracle|mssql)://[^:]+:([^@]+)@'),
+     "CRITICAL", "database_url", "Gunakan environment variable."),
+    # Connection string
+    (re.compile(r'(?i)(connection_string|CONNECTION_STRING)\s*[:=]\s*["\']([^"\']+password[^"\']+)["\']'), "CRITICAL", "connection_string",
+     "Gunakan environment variable."),
+    # FTP
+    (re.compile(r'(?i)(ftp_password|sftp_password)\s*[:=]\s*["\']([^"\']{4,})["\']'), "CRITICAL", "ftp_password",
+     "Gunakan environment variable."),
+    # Credential in URL (username:password@host)
+    (re.compile(r'(?i)([a-z0-9_\-]+):([^@\s]{4,})@[a-z0-9\-]+\.[a-z]{2,}'), "WARNING", "credential_in_url",
+     "Hindari hardcode credential di URL."),
+    # Generic secret
+    (re.compile(r'(?i)(secret|credential)\s*[:=]\s*["\']([A-Za-z0-9@#$!%^&*_\-]{20,})["\']'), "WARNING", "generic_secret",
+     "Gunakan environment variable."),
 ]
 
-# Pola untuk mendeteksi secret di komentar (opsional)
+# Komentar
 COMMENT_PATTERNS = [
-    (re.compile(r'(?i)(password|passwd|pwd)\s*[:=]\s*[^"\']+'), "WARNING", "Password in comment"),
-    (re.compile(r'(?i)(api[_\-]?key|apikey)\s*[:=]\s*[A-Za-z0-9]{16,}'), "WARNING", "API key in comment"),
-    (re.compile(r'(?i)(token|secret)\s*[:=]\s*[A-Za-z0-9]{20,}'), "WARNING", "Token/secret in comment"),
+    (re.compile(r'(?i)(password|passwd|pwd)\s*[:=]\s*[^"\']+'), "WARNING", "password_in_comment",
+     "Hapus secret dari komentar."),
+    (re.compile(r'(?i)(api_key|apikey|token|secret)\s*[:=]\s*[A-Za-z0-9]{16,}'), "WARNING", "secret_in_comment",
+     "Hapus secret dari komentar."),
 ]
 
-# Pengecualian: nilai yang dianggap aman (placeholder, example, dll.)
-EXEMPT_VALUES = {
-    'example', 'changeme', 'your_', 'dummy', 'test', 'placeholder', 'sample', 'demo',
-    'password', 'secret', 'token', 'api_key', 'your-password', 'your-secret-key',
-    'wrong_password', 'minioadmin', 'postgres', 'root', 'admin', '123456', 'password123',
-}
-EXEMPT_CONTAINS = {'example', 'changeme', 'your_', 'dummy', 'test', 'placeholder'}
-
-# Status constants yang tidak perlu dianggap sebagai secret
 STATUS_CONSTANTS = {
-    'FAILURE_WRONG_PASSWORD', 'ERROR_', 'STATUS_', 'SUCCESS_',
-    'PASSWORD_RESET', 'PASSWORD_CHANGE', 'PASSWORD_VALIDATION',
+    "FAILURE_WRONG_PASSWORD", "ERROR_", "STATUS_", "SUCCESS_",
+    "PASSWORD_RESET", "PASSWORD_CHANGE", "PASSWORD_VALIDATION",
 }
 
-# ----------------------------------------------------------------------
-# Core Scanner Functions
-# ----------------------------------------------------------------------
+# ============================================================================
+# Utility
+# ============================================================================
 def is_exempt_value(value: str) -> bool:
-    """Periksa apakah nilai merupakan placeholder/example."""
-    val_lower = value.lower().strip('"\'')
-    if val_lower in EXEMPT_VALUES:
+    val = value.lower().strip('"\'')
+    if val in EXEMPT_VALUES:
         return True
     for ex in EXEMPT_CONTAINS:
-        if ex in val_lower:
+        if ex in val:
             return True
-    # Jika panjang kurang dari 4 karakter, kemungkinan bukan secret
-    if len(val_lower) < 4:
+    if len(val) < 4:
         return True
     return False
 
-def extract_value(node: ast.AST) -> str | None:
-    """Ekstrak nilai string dari node AST."""
+def extract_string(node: ast.AST) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        # String concatenation: coba evaluasi sederhana
-        left = extract_value(node.left)
-        right = extract_value(node.right)
+        left = extract_string(node.left)
+        right = extract_string(node.right)
         if left is not None and right is not None:
             return left + right
     if isinstance(node, ast.JoinedStr):
-        # f-string: hanya ambil literal bagian (kurang akurat, tapi bisa)
         parts = []
         for part in node.values:
             if isinstance(part, ast.Constant) and isinstance(part.value, str):
@@ -142,107 +160,191 @@ def extract_value(node: ast.AST) -> str | None:
             return ''.join(parts)
     return None
 
-def check_assignment(node: ast.Assign, file_path: str, lines: list[str]) -> list[Finding]:
-    findings = []
-    for target in node.targets:
-        if not isinstance(target, ast.Name):
-            continue
-        var_name = target.id
-        # Abaikan jika variabel adalah status constant
-        if var_name in STATUS_CONSTANTS:
-            continue
+def extract_captured(match: re.Match) -> str | None:
+    """Ambil nilai yang ditangkap dengan aman (termasuk pattern tanpa group)."""
+    groups = match.groups()
+    if not groups:
+        return match.group(0)
+    for g in reversed(groups):
+        if g is not None:
+            return g
+    return None
 
-        # Ambil nilai
-        value = extract_value(node.value)
-        if value is None:
-            continue
-        if is_exempt_value(value):
-            continue
+# ============================================================================
+# AST Visitor
+# ============================================================================
+class SecretVisitor(ast.NodeVisitor):
+    def __init__(self, file_path: str, lines: list[str]):
+        self.file = file_path
+        self.lines = lines
+        self.findings: list[Finding] = []
 
-        # Cek pattern
-        for pattern, severity, msg in SECRET_PATTERNS:
-            match = pattern.search(f"{var_name}={value}")
-            if match:
-                findings.append(Finding(
-                    file=file_path,
-                    line=node.lineno,
-                    severity=severity,
-                    message=f"{msg}: {var_name} = {value[:20]}...",
-                    snippet=lines[node.lineno-1].strip()[:150] if node.lineno <= len(lines) else value[:100],
-                    recommendation=f"Pindahkan {var_name} ke environment variable atau secrets manager."
-                ))
-                break
-    return findings
+    def visit_Assign(self, node: ast.Assign) -> None:
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                continue
+            var_name = target.id
+            if var_name in STATUS_CONSTANTS:
+                continue
+            value = extract_string(node.value)
+            if value is None or is_exempt_value(value):
+                continue
+            for pattern, severity, secret_type, recommendation in SECRET_PATTERNS:
+                if pattern.search(f"{var_name}={value}"):
+                    self._add_finding(node.lineno, severity, secret_type, value, recommendation)
+                    break
+        self.generic_visit(node)
 
-def check_comment(line: str, file_path: str, lineno: int) -> list[Finding]:
-    """Cek apakah komentar mengandung secret."""
-    findings = []
-    # Ambil teks setelah # atau """
-    comment = line.split('#', 1)[-1].strip()
-    if not comment:
-        return findings
-    for pattern, severity, msg in COMMENT_PATTERNS:
-        if pattern.search(comment):
-            findings.append(Finding(
-                file=file_path,
-                line=lineno,
-                severity=severity,
-                message=f"{msg}: {comment[:50]}...",
-                snippet=comment[:100],
-                recommendation="Hapus secret dari komentar, gunakan dokumentasi terpisah."
-            ))
-            break
-    return findings
+    def visit_Call(self, node: ast.Call) -> None:
+        for kw in node.keywords:
+            if kw.arg is not None and kw.arg.lower() in {"password", "passwd", "pwd", "api_key", "token", "secret"}:
+                value = extract_string(kw.value)
+                if value and not is_exempt_value(value):
+                    for pattern, severity, secret_type, recommendation in SECRET_PATTERNS:
+                        if pattern.search(f"{kw.arg}={value}"):
+                            self._add_finding(node.lineno, severity, secret_type, value, recommendation)
+                            break
+        self.generic_visit(node)
 
-def check_file(file_path: pathlib.Path) -> list[Finding]:
+    def _add_finding(self, line: int, severity: str, secret_type: str, value: str, recommendation: str) -> None:
+        redacted = value[:20] + "..." if len(value) > 20 else value
+        context_line = self.lines[line-1].strip() if line <= len(self.lines) else ""
+        self.findings.append(Finding(
+            file=self.file,
+            line=line,
+            severity=severity,
+            secret_type=secret_type,
+            value=redacted,
+            context=context_line[:150],
+            recommendation=recommendation,
+        ))
+
+# ============================================================================
+# Scanner
+# ============================================================================
+def scan_python_file(file_path: pathlib.Path, root: pathlib.Path) -> list[Finding]:
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
         lines = src.splitlines()
-        tree = ast.parse(src, filename=str(file_path))
-    except (SyntaxError, UnicodeDecodeError):
+    except Exception:
         return []
 
     findings = []
-    # Scan assignment
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            findings.extend(check_assignment(node, str(file_path), lines))
-
-    # Scan comments
-    for lineno, line in enumerate(lines, 1):
-        stripped = line.strip()
-        if stripped.startswith('#'):
-            findings.extend(check_comment(line, str(file_path), lineno))
-
-    return findings
-
-# ----------------------------------------------------------------------
-# Main Scanner
-# ----------------------------------------------------------------------
-def scan_project(exclude_dirs: list[str] = None, strict: bool = False) -> Report:
-    if exclude_dirs is None:
-        exclude_dirs = ['.venv', 'venv', '__pycache__', '.git', 'node_modules', 'dist', 'build', 'migrations', 'deployment', 'docs', 'tests']
-    exclude_set = set(exclude_dirs)
-
-    all_findings = []
-    for py_file in PROJECT_ROOT.rglob("*.py"):
-        if any(part in exclude_set for part in py_file.parts):
-            continue
-        if py_file.name.startswith("secret_scanner_checker"):
-            continue
-        # Skip .env file? File .env dianggap boleh berisi secret (untuk lokal)
-        # Kita scan tapi bisa diabaikan dengan --exclude atau kita beri catatan khusus
-        findings = check_file(py_file)
-        all_findings.extend(findings)
-
-    # Filter: jika strict=False, hanya tampilkan CRITICAL
-    if not strict:
-        all_findings = [f for f in all_findings if f.severity in ('CRITICAL', 'WARNING')]
-    else:
-        # Tampilkan semua termasuk INFO
+    # AST
+    try:
+        tree = ast.parse(src, filename=str(file_path))
+        visitor = SecretVisitor(str(file_path.relative_to(root)), lines)
+        visitor.visit(tree)
+        findings.extend(visitor.findings)
+    except SyntaxError:
         pass
 
-    # Score: CRITICAL -15, WARNING -5, INFO -1
+    # Regex fallback
+    for idx, line in enumerate(lines, 1):
+        if line.strip().startswith('#'):
+            continue
+        for pattern, severity, secret_type, recommendation in SECRET_PATTERNS:
+            match = pattern.search(line)
+            if match:
+                captured = extract_captured(match)
+                if captured and not is_exempt_value(captured):
+                    redacted = captured[:20] + "..." if len(captured) > 20 else captured
+                    findings.append(Finding(
+                        file=str(file_path.relative_to(root)),
+                        line=idx,
+                        severity=severity,
+                        secret_type=secret_type,
+                        value=redacted,
+                        context=line[:150],
+                        recommendation=recommendation,
+                    ))
+                    break
+
+    # Komentar
+    for idx, line in enumerate(lines, 1):
+        if '#' in line:
+            comment = line.split('#', 1)[1].strip()
+            if comment:
+                for pattern, severity, secret_type, recommendation in COMMENT_PATTERNS:
+                    if pattern.search(comment):
+                        findings.append(Finding(
+                            file=str(file_path.relative_to(root)),
+                            line=idx,
+                            severity=severity,
+                            secret_type=secret_type,
+                            value="",
+                            context=comment[:100],
+                            recommendation=recommendation,
+                        ))
+                        break
+    return findings
+
+def scan_text_file(file_path: pathlib.Path, root: pathlib.Path) -> list[Finding]:
+    try:
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        lines = content.splitlines()
+    except Exception:
+        return []
+
+    findings = []
+    for idx, line in enumerate(lines, 1):
+        if line.strip().startswith('#'):
+            continue
+        for pattern, severity, secret_type, recommendation in SECRET_PATTERNS:
+            match = pattern.search(line)
+            if match:
+                captured = extract_captured(match)
+                if captured and not is_exempt_value(captured):
+                    redacted = captured[:20] + "..." if len(captured) > 20 else captured
+                    findings.append(Finding(
+                        file=str(file_path.relative_to(root)),
+                        line=idx,
+                        severity=severity,
+                        secret_type=secret_type,
+                        value=redacted,
+                        context=line[:150],
+                        recommendation=recommendation,
+                    ))
+                    break
+    return findings
+
+def scan_file(file_path: pathlib.Path, root: pathlib.Path) -> list[Finding]:
+    if file_path.suffix.lower() == ".py":
+        return scan_python_file(file_path, root)
+    else:
+        return scan_text_file(file_path, root)
+
+# ============================================================================
+# Project Scanner
+# ============================================================================
+def scan_project(target_dir: pathlib.Path, exclude_dirs: list[str] = None, strict: bool = False) -> Report:
+    if exclude_dirs is None:
+        exclude_dirs = [".venv", "venv", "__pycache__", ".git", "node_modules", "dist", "build",
+                        "migrations", "deployment", "docs", "tests", "test"]
+    exclude_set = set(exclude_dirs)
+
+    extensions = {".py", ".env", ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".txt", ".sh", ".bash", ".ps1"}
+
+    all_findings = []
+    file_count = 0
+    for file_path in target_dir.rglob("*"):
+        if file_path.is_dir():
+            continue
+        if any(part in exclude_set for part in file_path.parts):
+            continue
+        if file_path.suffix.lower() not in extensions:
+            continue
+        if file_path.name.startswith("secret_scanner_checker"):
+            continue
+        file_count += 1
+        findings = scan_file(file_path, target_dir)
+        all_findings.extend(findings)
+
+    print(f"  Scanned {file_count} files.")
+
+    if not strict:
+        all_findings = [f for f in all_findings if f.severity in ("CRITICAL", "WARNING")]
+
     score = 100
     for f in all_findings:
         if f.severity == "CRITICAL":
@@ -255,10 +357,10 @@ def scan_project(exclude_dirs: list[str] = None, strict: bool = False) -> Report
 
     return Report(findings=all_findings, score=score)
 
-# ----------------------------------------------------------------------
+# ============================================================================
 # Output
-# ----------------------------------------------------------------------
-def print_report(report: Report, verbose: bool = False, strict: bool = False):
+# ============================================================================
+def print_report(report: Report, verbose: bool = False) -> None:
     c = COLOR
     print(f"\n{c['CYAN']}{'='*70}{c['RESET']}")
     print(f"{c['CYAN']}SECRET SCANNER CHECKER REPORT{c['RESET']}")
@@ -268,56 +370,70 @@ def print_report(report: Report, verbose: bool = False, strict: bool = False):
     warnings = sum(1 for f in report.findings if f.severity == "WARNING")
     infos = sum(1 for f in report.findings if f.severity == "INFO")
     print(f"  Critical: {c['RED']}{criticals}{c['RESET']}, Warning: {c['YELLOW']}{warnings}{c['RESET']}, Info: {c['CYAN']}{infos}{c['RESET']}")
-    print(f"  Score: {c['GREEN'] if report.score >= 80 else c['YELLOW']}{report.score}/100{c['RESET']}")
+    print(f"  Security Score: {c['GREEN'] if report.score >= 80 else c['YELLOW']}{report.score}/100{c['RESET']}")
 
     if report.findings:
         print(f"\n{c['RED'] if criticals else c['YELLOW']}Details:{c['RESET']}")
         for f in report.findings[:30]:
             color = c["RED"] if f.severity == "CRITICAL" else c["YELLOW"] if f.severity == "WARNING" else c["CYAN"]
-            print(f"  {color}[{f.severity}]{c['RESET']} {f.file}:{f.line}")
-            print(f"     {f.message}")
+            print(f"  {color}[{f.severity}]{c['RESET']} {f.file}:{f.line}  ({f.secret_type})")
+            print(f"     {f.value}")
             if verbose:
-                print(f"     Snippet: {f.snippet}")
+                print(f"     Context: {f.context}")
                 if f.recommendation:
                     print(f"     {c['CYAN']}💡 {f.recommendation}{c['RESET']}")
         if len(report.findings) > 30:
             print(f"  ... and {len(report.findings)-30} more findings")
     else:
-        print(f"\n{c['GREEN']}✅ No secrets found.{c['RESET']}")
+        print(f"\n{c['GREEN']}✅ No hardcoded secrets detected.{c['RESET']}")
 
-def save_json(report: Report, filepath: str):
+def save_json(report: Report, filepath: str) -> None:
     data = {
         "findings": [
-            {"file": f.file, "line": f.line, "severity": f.severity,
-             "message": f.message, "snippet": f.snippet, "recommendation": f.recommendation}
+            {
+                "file": f.file,
+                "line": f.line,
+                "severity": f.severity,
+                "type": f.secret_type,
+                "value": f.value,
+                "context": f.context,
+                "recommendation": f.recommendation,
+            }
             for f in report.findings
         ],
         "score": report.score,
     }
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
-    print(f"\n{c['CYAN']}JSON saved to {filepath}{c['RESET']}")
+    print(f"\n{COLOR['CYAN']}JSON report saved to {filepath}{COLOR['RESET']}")
 
-# ----------------------------------------------------------------------
+# ============================================================================
 # CLI
-# ----------------------------------------------------------------------
-def main():
+# ============================================================================
+def main() -> None:
     parser = argparse.ArgumentParser(description="Secret Scanner Checker")
-    parser.add_argument("--verbose", action="store_true", help="Tampilkan detail")
-    parser.add_argument("--json", metavar="FILE", help="Simpan JSON")
-    parser.add_argument("--exclude", default=".venv,venv,__pycache__,node_modules,dist,build,migrations,deployment,docs,tests",
+    parser.add_argument("--path", default=".", help="Direktori target (default: current directory)")
+    parser.add_argument("--verbose", action="store_true", help="Tampilkan detail temuan")
+    parser.add_argument("--json", metavar="FILE", help="Simpan laporan dalam JSON")
+    parser.add_argument("--exclude", default=".venv,venv,__pycache__,node_modules,dist,build,migrations,deployment,docs,tests,test",
                         help="Folder yang diabaikan (pisahkan dengan koma)")
     parser.add_argument("--strict", action="store_true", help="Tampilkan semua temuan termasuk INFO")
     args = parser.parse_args()
 
+    target_dir = pathlib.Path(args.path).resolve()
+    if not target_dir.is_dir():
+        print(f"Error: {target_dir} is not a directory.")
+        sys.exit(1)
+
     exclude_dirs = [d.strip() for d in args.exclude.split(",") if d.strip()]
-    report = scan_project(exclude_dirs, strict=args.strict)
-    print_report(report, verbose=args.verbose, strict=args.strict)
+    print(f"Scanning directory: {target_dir}")
+    report = scan_project(target_dir, exclude_dirs, strict=args.strict)
+    print_report(report, verbose=args.verbose)
     if args.json:
         save_json(report, args.json)
 
     criticals = sum(1 for f in report.findings if f.severity == "CRITICAL")
-    sys.exit(0 if criticals == 0 else 1)
+    sys.exit(1 if criticals > 0 else 0)
 
 if __name__ == "__main__":
     main()

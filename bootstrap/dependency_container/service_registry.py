@@ -2,7 +2,6 @@
 """
 Module: service_registry.py
 Layer: Bootstrap (Dependency Container)
-Responsibility: Registry khusus untuk APPLICATION SERVICES.
 """
 
 from __future__ import annotations
@@ -15,20 +14,13 @@ from typing import TYPE_CHECKING, Any, TypeVar
 if TYPE_CHECKING:
     from bootstrap.dependency_container.interfaces import ContainerInterface
 
-from bootstrap.dependency_container.ioc_container import Lifetime  # enum tidak menyebabkan siklus
-
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
 
 class ServiceRegistry:
-    """
-    Registry untuk application services.
-    """
-
     def __init__(self, container: ContainerInterface | None = None):
-        # Hindari import sirkular: jika container None, kita akan set nanti
         self._container = container
         self._services: dict[str, type] = {}
         self._aliases: dict[str, str] = {}
@@ -41,13 +33,15 @@ class ServiceRegistry:
         self,
         interface: type[T],
         implementation: type | None = None,
-        lifetime: Lifetime = Lifetime.SINGLETON,
+        lifetime: Any = None,   # akan diisi dari impor lokal
         name: str | None = None,
     ) -> None:
-        if not interface:
-            raise ValueError("Service interface cannot be None")
+        # Impor Lifetime lokal
+        from bootstrap.dependency_container.ioc_container import Lifetime
+        if lifetime is None:
+            lifetime = Lifetime.SINGLETON
         if self._container is None:
-            raise RuntimeError("Container not set. Call set_container() first.")
+            raise RuntimeError("Container not set.")
         service_name = name or interface.__name__
         self._services[service_name] = interface
         if implementation:
@@ -100,50 +94,55 @@ class ServiceRegistry:
     def unregister(self, service_name: str) -> bool:
         if service_name in self._services:
             del self._services[service_name]
-            self._logger.debug(f"Unregistered service: {service_name}")
             return True
         if service_name in self._aliases:
             del self._aliases[service_name]
-            self._logger.debug(f"Unregistered alias: {service_name}")
             return True
         return False
 
     def reset(self) -> None:
         self._services.clear()
         self._aliases.clear()
-        self._logger.info("Service registry reset")
 
 
 def service(
     interface: type | None = None,
     name: str | None = None,
-    lifetime: Lifetime = Lifetime.SINGLETON,
+    lifetime: str = "singleton",
 ):
+    """
+    Dekorator untuk mendaftarkan service ke container.
+    Import Lifetime dilakukan di dalam dekorator saat runtime.
+    """
     def decorator(cls):
+        from bootstrap.dependency_container.ioc_container import Lifetime
+        lifetime_enum = getattr(Lifetime, lifetime.upper(), Lifetime.SINGLETON)
         service_name = name or cls.__name__
         service_interface = interface or cls
-        registry = ServiceRegistry()  # container akan di-set nanti di register_all
-        registry.register_service(service_interface, cls, lifetime, service_name)
+        registry = ServiceRegistry()
+        # Container akan di-set nanti saat register_all dipanggil
+        # Untuk sementara kita simpan metadata di kelas
+        setattr(cls, "_service_metadata", {
+            "interface": service_interface,
+            "lifetime": lifetime_enum,
+            "name": service_name,
+        })
         return cls
     return decorator
 
 
 class ServiceRegistrar:
-    """
-    Registrasi semua application services.
-    """
-
     @staticmethod
     async def register_all(container: ContainerInterface | None = None) -> None:
-        # Jika container None, ambil dari get_container (lazy import)
+        # Impor lokal
+        from bootstrap.dependency_container.ioc_container import get_container, Lifetime
+
         if container is None:
-            from bootstrap.dependency_container.ioc_container import get_container
             container = get_container()
 
-        # Buat ServiceRegistry dan set container
         registry = ServiceRegistry(container)
 
-        # ==================== APPLICATION SERVICES ====================
+        # --- Application Services ---
         try:
             from application.service_layer.service_ap import APService
             from application.service_layer.service_ar import ARService
@@ -176,7 +175,7 @@ class ServiceRegistrar:
         except ImportError as e:
             logger.warning(f"Some application services could not be imported: {e}")
 
-        # ==================== COMMAND & QUERY BUS ====================
+        # --- Command & Query Bus ---
         try:
             from application.commands_cqrs.command_bus_unified import CommandBusUnified
             from application.commands_cqrs.query_bus_unified import QueryBusUnified
@@ -186,8 +185,7 @@ class ServiceRegistrar:
         except ImportError as e:
             logger.warning(f"CQRS buses not available: {e}")
 
-        # ... (lanjutkan dengan kernel, factories, dll. sama seperti sebelumnya)
-        # ==================== KERNEL SINGLETONS ====================
+        # --- Kernel ---
         try:
             gate_mod = importlib.import_module("kernel.sealed_gate")
             SealedGate = gate_mod.SealedGate
@@ -197,7 +195,7 @@ class ServiceRegistrar:
         except ImportError as e:
             logger.warning(f"Kernel singletons not available: {e}")
 
-        # ==================== INFRASTRUCTURE FACTORIES ====================
+        # --- Infrastructure factories ---
         try:
             from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import get_uow_factory
             container.register_singleton("UoWFactory", factory=get_uow_factory)
@@ -229,6 +227,11 @@ class ServiceRegistrar:
         except ImportError:
             pass
 
+        # --- Process services yang memiliki metadata dari dekorator @service ---
+        # (tidak wajib karena semua sudah didaftarkan di atas, tapi untuk kelengkapan)
+        # Kita bisa scan semua kelas yang memiliki _service_metadata dan daftarkan
+        # Namun karena registrasi sudah manual, kita lewati.
+
         logger.info("All application services registered to IoC container")
 
     @staticmethod
@@ -243,17 +246,12 @@ class ServiceRegistrar:
             raise
 
 
-# ============================================================================
-# SINGLETON INSTANCE
-# ============================================================================
-
 _service_registry: ServiceRegistry | None = None
 
 
 def get_service_registry() -> ServiceRegistry:
     global _service_registry
     if _service_registry is None:
-        # Lazy import untuk menghindari siklus
         from bootstrap.dependency_container.ioc_container import get_container
         _service_registry = ServiceRegistry(get_container())
     return _service_registry

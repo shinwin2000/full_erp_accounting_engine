@@ -1,4 +1,4 @@
-# service_forex.py - Complete rewrite with full implementation (fixed)
+# service_forex.py - Complete rewrite with full event publishing
 
 from __future__ import annotations
 
@@ -9,19 +9,25 @@ Menangani:
 - Revaluasi transaksi dalam mata uang asing ke IDR (PSAK 10/IFRS 21)
 - Perhitungan selisih kurs (realized/unrealized)
 - Konversi antar mata uang
+- Event publishing untuk revaluasi dan perubahan kurs
 """
 
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Any
 from uuid import UUID, uuid4
 
 from domain.shared_value_objects.exchange_rate_vo import ExchangeRateVO
 from domain.shared_value_objects.money_vo import MoneyVO
 from ports.primary.cache_port import CachePort
+from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.forex_repository_port import ForexRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
+
+# Import domain events (menggunakan event yang sudah ada di registry)
+from application.events import JournalPostedEvent, TransactionRecordedEvent
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +92,16 @@ class InvalidCurrencyError(ForexServiceError):
 
 
 class ForexService:
-    """Layanan forex untuk revaluasi dan kurs."""
+    """Layanan forex untuk revaluasi dan kurs.
+    Mempublikasikan event untuk setiap operasi signifikan.
+    """
 
     def __init__(
         self,
         forex_repo: ForexRepositoryPort,
         uow: UnitOfWorkPort,
         cache: CachePort | None = None,
+        event_publisher: EventPublisherPort | None = None,
     ):
         if forex_repo is None:
             raise ValueError("forex_repo is required")
@@ -102,6 +111,7 @@ class ForexService:
         self.forex_repo = forex_repo
         self.uow = uow
         self.cache = cache
+        self._event_publisher = event_publisher
         self._stats = {"revaluations": 0, "conversions": 0, "cache_hits": 0}
 
         logger.info("ForexService initialized")
@@ -109,7 +119,10 @@ class ForexService:
     # ========================== KURS ==========================
 
     async def get_rate(
-        self, from_currency: str = "IDR", to_currency: str = "IDR", rate_date: date | None = None
+        self,
+        from_currency: str = "IDR",
+        to_currency: str = "IDR",
+        rate_date: date | None = None,
     ) -> ExchangeRateVO:
         """
         Mendapatkan kurs tengah untuk pasangan mata uang pada tanggal tertentu.
@@ -159,6 +172,7 @@ class ForexService:
         rate_date: date,
         source: str = "MANUAL",
         created_by: UUID | None = None,
+        correlation_id: str | None = None,
     ) -> ExchangeRateEntry:
         """Set exchange rate manually."""
         if from_currency == to_currency:
@@ -182,6 +196,25 @@ class ForexService:
             cache_key = f"forex:rate:{from_currency}:{to_currency}:{rate_date.isoformat()}"
             await self.cache.delete(cache_key)
 
+        # --- PUBLISH EVENT ---
+        # Gunakan TransactionRecordedEvent sebagai event generik untuk perubahan kurs
+        if self._event_publisher:
+            try:
+                event = TransactionRecordedEvent(
+                    aggregate_id=rate_entry.id,
+                    aggregate_version=1,
+                    transaction_id=rate_entry.id,
+                    transaction_type="EXCHANGE_RATE_UPDATE",
+                    amount=rate,
+                    description=f"Exchange rate {from_currency}/{to_currency} = {rate}",
+                    user_id=str(created_by) if created_by else "system",
+                    occurred_at=datetime.now(UTC),
+                )
+                await self._event_publisher.publish(event, correlation_id)
+                logger.debug(f"Published TransactionRecordedEvent for rate update {from_currency}/{to_currency}")
+            except Exception as e:
+                logger.warning(f"Failed to publish TransactionRecordedEvent: {e}")
+
         logger.info(
             "Exchange rate set: %s/%s = %s on %s",
             from_currency,
@@ -192,7 +225,10 @@ class ForexService:
         return rate_entry
 
     async def convert_money(
-        self, money: MoneyVO, target_currency: str = "IDR", rate_date: date | None = None
+        self,
+        money: MoneyVO,
+        target_currency: str = "IDR",
+        rate_date: date | None = None,
     ) -> MoneyVO:
         """Konversi MoneyVO ke mata uang target menggunakan kurs pada tanggal tertentu."""
         self._stats["conversions"] += 1
@@ -218,6 +254,7 @@ class ForexService:
         as_of_date: date,
         description: str = "Forex revaluation",
         user_id: UUID | None = None,
+        correlation_id: str | None = None,
     ) -> ForexRevaluationResult:
         """
         Melakukan revaluasi saldo akun dalam mata uang asing ke IDR.
@@ -259,6 +296,25 @@ class ForexService:
         )
         await self.uow.commit()
 
+        # --- PUBLISH EVENT (jika ada perbedaan) ---
+        if self._event_publisher and difference != 0:
+            try:
+                # Gunakan JournalPostedEvent atau TransactionRecordedEvent
+                event = TransactionRecordedEvent(
+                    aggregate_id=uuid4(),
+                    aggregate_version=1,
+                    transaction_id=uuid4(),
+                    transaction_type="FOREX_REVALUATION",
+                    amount=difference,
+                    description=f"Forex revaluation for {account_code} ({currency}): {difference}",
+                    user_id=str(user_id) if user_id else "system",
+                    occurred_at=datetime.now(UTC),
+                )
+                await self._event_publisher.publish(event, correlation_id)
+                logger.debug(f"Published TransactionRecordedEvent for revaluation of {account_code}")
+            except Exception as e:
+                logger.warning(f"Failed to publish TransactionRecordedEvent: {e}")
+
         logger.info(
             "Forex revaluation for %s (%s): difference=%s (old: %s, new: %s)",
             account_code,
@@ -283,7 +339,12 @@ class ForexService:
         )
 
     async def revalue_all_foreign_currency_accounts(
-        self, legal_entity_id: UUID, as_of_date: date, period_id: UUID, user_id: UUID | None = None
+        self,
+        legal_entity_id: UUID,
+        as_of_date: date,
+        period_id: UUID,
+        user_id: UUID | None = None,
+        correlation_id: str | None = None,
     ) -> list[ForexRevaluationResult]:
         """
         Revaluasi semua akun yang memiliki saldo dalam mata uang asing.
@@ -301,12 +362,34 @@ class ForexService:
                 as_of_date=as_of_date,
                 description=f"Month-end revaluation for {as_of_date}",
                 user_id=user_id,
+                correlation_id=correlation_id,
             )
             results.append(result)
 
         # Mark period as revalued
         await self.forex_repo.mark_period_revalued(legal_entity_id, period_id)
         await self.uow.commit()
+
+        # --- PUBLISH AGGREGATED EVENT ---
+        if self._event_publisher and results:
+            total_diff = sum(r.difference for r in results)
+            try:
+                event = JournalPostedEvent(
+                    aggregate_id=period_id,
+                    aggregate_version=1,
+                    journal_id=uuid4(),
+                    journal_number=f"FOREX-{as_of_date}",
+                    description=f"Bulk forex revaluation for {as_of_date}",
+                    total_debit=total_diff if total_diff > 0 else Decimal("0"),
+                    total_credit=abs(total_diff) if total_diff < 0 else Decimal("0"),
+                    posted_by=str(user_id) if user_id else "system",
+                    user_id=str(user_id) if user_id else None,
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event, correlation_id)
+                logger.debug(f"Published JournalPostedEvent for bulk forex revaluation")
+            except Exception as e:
+                logger.warning(f"Failed to publish JournalPostedEvent: {e}")
 
         return results
 
@@ -365,7 +448,11 @@ class ForexService:
         return (total / len(rates)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
     async def get_historical_rates(
-        self, from_currency: str, to_currency: str, start_date: date, end_date: date
+        self,
+        from_currency: str,
+        to_currency: str,
+        start_date: date,
+        end_date: date,
     ) -> list[ExchangeRateVO]:
         """Get historical exchange rates for a period."""
         rates = await self.forex_repo.get_rates_in_period(
@@ -390,6 +477,7 @@ class ForexService:
         period_id: UUID,
         closing_date: date,
         user_id: UUID | None = None,
+        correlation_id: str | None = None,
     ) -> Decimal:
         """Tutup periode forex: catat semua selisih kurs unrealized ke akun laba rugi."""
         unrealized = await self.forex_repo.get_unrealized_differences(legal_entity_id, period_id)
@@ -404,6 +492,26 @@ class ForexService:
                 period_id,
                 total_unrealized
             )
+
+            # --- PUBLISH EVENT ---
+            if self._event_publisher:
+                try:
+                    event = JournalPostedEvent(
+                        aggregate_id=period_id,
+                        aggregate_version=1,
+                        journal_id=journal_id or uuid4(),
+                        journal_number=f"FOREX-CLOSE-{closing_date}",
+                        description=f"Forex closing for period {period_id}",
+                        total_debit=total_unrealized if total_unrealized > 0 else Decimal("0"),
+                        total_credit=abs(total_unrealized) if total_unrealized < 0 else Decimal("0"),
+                        posted_by=str(user_id) if user_id else "system",
+                        user_id=str(user_id) if user_id else None,
+                        correlation_id=correlation_id,
+                    )
+                    await self._event_publisher.publish(event, correlation_id)
+                    logger.debug(f"Published JournalPostedEvent for forex period close")
+                except Exception as e:
+                    logger.warning(f"Failed to publish JournalPostedEvent: {e}")
 
         await self.forex_repo.mark_period_closed(legal_entity_id, period_id, user_id)
         await self.uow.commit()
@@ -429,8 +537,9 @@ async def create_forex_service(
     forex_repo: ForexRepositoryPort,
     uow: UnitOfWorkPort,
     cache: CachePort | None = None,
+    event_publisher: EventPublisherPort | None = None,
 ) -> ForexService:
-    return ForexService(forex_repo, uow, cache)
+    return ForexService(forex_repo, uow, cache, event_publisher)
 
 
 __all__ = [

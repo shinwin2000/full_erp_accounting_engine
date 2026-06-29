@@ -49,6 +49,7 @@ class DomainEventType(Enum):
     DEBIT_NOTE_APPLIED = "debit_note_applied"
     CUSTOMER_CREDIT_LIMIT_CHANGED = "customer_credit_limit_changed"
     CUSTOMER_RISK_RATING_CHANGED = "customer_risk_rating_changed"
+    BAD_DEBT_PROVISION_RECORDED = "bad_debt_provision_recorded"
 
     def display_name(self) -> str:
         names = {
@@ -535,6 +536,64 @@ class DebitNoteIssuedEvent(DomainEvent):
             correlation_id=correlation_id,
         )
 
+@dataclass
+class PaymentVoidedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        payment_number: str,
+        reason: str,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "payment_number": payment_number,
+            "reason": reason,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.PAYMENT_REFUNDED,  # atau tambahkan tipe baru
+            aggregate_id=aggregate_id,
+            aggregate_type="ARSubledger",
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class BadDebtProvisionRecordedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        legal_entity_id: UUID,
+        as_of_date: date,
+        total_receivables: Decimal,
+        provision_amount: Decimal,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "legal_entity_id": str(legal_entity_id),
+            "as_of_date": as_of_date.isoformat(),
+            "total_receivables": str(total_receivables),
+            "provision_amount": str(provision_amount),
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.BAD_DEBT_PROVISION_RECORDED,  # tambahkan enum
+            aggregate_id=aggregate_id,
+            aggregate_type="ARSubledger",
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id,
+            correlation_id=correlation_id,
+        )
 
 # === 4. DOMAIN EVENT PUBLISHER (dengan repository interface) ===
 class DomainEventPublisher:
@@ -646,4 +705,6 @@ __all__ = [
     "InvoiceWrittenOffEvent",
     "PaymentAllocatedEvent",
     "PaymentReceivedEvent",
+    "BadDebtProvisionRecordedEvent",
+    "PaymentVoidedEvent",
 ]

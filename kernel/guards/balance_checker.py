@@ -2,26 +2,50 @@
 """
 Module: balance_checker.py
 Layer: 4 - Kernel / Guards
-Responsibility: Memeriksa saldo akun agar tidak negatif untuk akun tertentu.
-               Guard ini memastikan bahwa saldo akun aset (seperti kas, piutang)
-               tidak menjadi negatif. Untuk akun liabilitas/ekuitas, saldo negatif
-               mungkin diizinkan tergantung kebijakan.
 
-               Catatan: Balance checker ini menggunakan fallback in-memory
-               untuk account repository karena tidak ada ketergantungan infrastruktur
-               di lapisan kernel. Ini adalah desain yang disengaja untuk menjaga
-               kernel tetap independen dan mudah di-test.
+Responsibility:
+    Pure domain guard to ensure account balances do not go negative for
+    certain account types (e.g., assets, expenses). This is a stateless
+    guard that relies on an injected AccountBalancePort to fetch account
+    metadata and balances.
+
+Design decisions:
+    - No global state or singleton; lifecycle managed by DI container.
+    - No fallback to in-memory repository by default; port must be provided.
+    - Stateless: history, statistics, and reset are delegated to audit/telemetry.
+    - Kernel independence: depends only on the AccountBalancePort protocol.
+    - Testing: use InMemoryAccountBalancePort from `tests/fakes/` or create
+      a test double directly.
+
+Usage (production):
+    from kernel.guards.balance_checker import BalanceChecker
+    from infrastructure.adapters.sqlalchemy_account_balance_port import SqlAlchemyAccountBalancePort
+
+    port = SqlAlchemyAccountBalancePort(session_factory)
+    checker = BalanceChecker(port)
+
+    result = await checker.check_balance(
+        account_id=account_id,
+        proposed_change=Decimal("-100000"),
+        legal_entity_id=legal_entity_id,
+    )
+
+Usage (testing):
+    from kernel.guards.balance_checker import BalanceChecker
+    from tests.fakes.in_memory_account_balance_port import InMemoryAccountBalancePort
+
+    port = InMemoryAccountBalancePort()
+    checker = BalanceChecker(port)
 """
 
 from __future__ import annotations
 
 import logging
-import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 from uuid import UUID, uuid4
 
 from kernel.context_holder import get_current_legal_entity, get_current_user
@@ -32,63 +56,45 @@ from kernel.guards.guard_exceptions import (
 
 logger = logging.getLogger(__name__)
 
-# ============================================================================
-# ALIAS SEMENTARA (untuk mencegah ImportError saat modul di-load)
-# ============================================================================
-# Ini akan diisi dengan instance singleton yang sebenarnya di bagian akhir file.
-balance_checker = None
-
 
 # ============================================================================
-# FALLBACK ACCOUNT REPOSITORY (in-memory, no infrastructure)
+# Protocol: AccountBalancePort (kernel contract)
 # ============================================================================
-# Ini adalah fallback yang sengaja digunakan karena kernel tidak boleh
-# bergantung pada infrastruktur database. Semua logika balance checker
-# diuji dengan repository ini.
-# ============================================================================
+@runtime_checkable
+class AccountBalancePort(Protocol):
+    """Port for fetching account metadata and balances."""
 
-class _FallbackAccountRepository:
-    def __init__(self):
-        self._accounts: dict[UUID, dict[str, Any]] = {}
-        self._balances: dict[
-            tuple[UUID, UUID], Decimal
-        ] = {}  # (account_id, legal_entity_id) -> balance
+    async def get_account(self, account_id: UUID, legal_entity_id: UUID) -> dict[str, Any] | None:
+        """
+        Fetch account metadata.
 
-    async def get_by_id(self, account_id: UUID, legal_entity_id: UUID) -> dict[str, Any] | None:
-        return self._accounts.get(account_id)
+        Expected return dict:
+            {
+                "account_code": str,
+                "account_type": str,  # e.g., "ASSET", "LIABILITY", etc.
+                "currency": str,
+                "name": str,
+            }
+        Returns None if account not found.
+        """
+        ...
 
     async def get_balance(self, account_id: UUID, legal_entity_id: UUID) -> Decimal:
-        key = (account_id, legal_entity_id)
-        return self._balances.get(key, Decimal(0))
+        """
+        Fetch current balance for the account in the given legal entity.
+        """
+        ...
 
-    async def update_balance(
-        self, account_id: UUID, legal_entity_id: UUID, new_balance: Decimal
-    ) -> None:
-        key = (account_id, legal_entity_id)
-        self._balances[key] = new_balance
-
-    def register_account(
-        self, account_id: UUID, account_code: str, account_type: str, currency: str = "IDR"
-    ):
-        self._accounts[account_id] = {
-            "account_id": account_id,
-            "account_code": account_code,
-            "account_type": account_type,
-            "currency": currency,
-        }
-
-
-def _get_account_repository():
-    # Selalu gunakan fallback in-memory (disengaja)
-    logger.info("Using in-memory fallback for account repository (kernel independence)")
-    return _FallbackAccountRepository()
+    async def get_balances(self, account_ids: list[UUID], legal_entity_id: UUID) -> dict[UUID, Decimal]:
+        """
+        Fetch balances for multiple accounts in one batch call.
+        """
+        ...
 
 
 # ============================================================================
-# CONSTANTS & ENUMS
+# Enums
 # ============================================================================
-
-
 class AccountType(Enum):
     ASSET = "asset"
     LIABILITY = "liability"
@@ -99,9 +105,39 @@ class AccountType(Enum):
     CONTRA_LIABILITY = "contra_liability"
 
     def allows_negative_balance(self) -> bool:
+        # Assets and expenses typically should not be negative.
+        # Contra-liability also should not be negative (it's a debit balance).
         if self in (AccountType.ASSET, AccountType.EXPENSE, AccountType.CONTRA_LIABILITY):
             return False
         return True
+
+    @classmethod
+    def from_string(cls, value: str) -> AccountType:
+        """Parse from string (case-insensitive)."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            raise ValueError(f"Invalid account type: {value}")
+
+    @classmethod
+    def from_code(cls, code: str) -> AccountType:
+        """
+        Infer account type from account code first digit (legacy fallback).
+        Only use if the port does not return explicit account_type.
+        """
+        if not code:
+            return cls.ASSET
+        first = code[0]
+        mapping = {
+            "1": cls.ASSET,
+            "2": cls.LIABILITY,
+            "3": cls.EQUITY,
+            "4": cls.REVENUE,
+            "5": cls.EXPENSE,
+            "6": cls.CONTRA_ASSET,
+            "7": cls.CONTRA_LIABILITY,
+        }
+        return mapping.get(first, cls.ASSET)
 
 
 class BalanceCheckSeverity(Enum):
@@ -126,7 +162,6 @@ class BalanceCheckResult:
     severity: BalanceCheckSeverity
     message: str
     requires_approval: bool = False
-    approved_by: list[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict[str, Any]:
@@ -148,36 +183,44 @@ class BalanceCheckResult:
 
 
 # ============================================================================
-# BALANCE CHECKER
+# Balance Checker (Stateless Guard)
 # ============================================================================
-
-
 class BalanceChecker:
-    def __init__(self, account_repository: Any | None = None):
-        self._account_repo = account_repository or _get_account_repository()
-        self._check_history: list[BalanceCheckResult] = []
-        self._max_history = 10000
-        self._lock = threading.RLock()
-        self._tolerance = Decimal("0.01")
-        self._warning_threshold_percentage = Decimal("85")
+    """
+    Stateless guard for checking account balance constraints.
 
-    def set_tolerance(self, tolerance: Decimal) -> None:
+    This guard does not maintain any internal state (no history, no statistics).
+    All checks are performed based on the injected port and the input parameters.
+
+    The guard is designed to be instantiated via dependency injection and
+    reused across the application.
+    """
+
+    def __init__(
+        self,
+        account_balance_port: AccountBalancePort,
+        tolerance: Decimal = Decimal("0.01"),
+        warning_threshold_percentage: Decimal = Decimal("85"),
+    ):
+        if account_balance_port is None:
+            raise ValueError("account_balance_port is required")
+        self._port = account_balance_port
         self._tolerance = tolerance
+        self._warning_threshold = warning_threshold_percentage
 
-    def _get_account_type(self, account_code: str) -> AccountType:
-        if not account_code:
-            return AccountType.ASSET
-        first_digit = account_code[0] if account_code else "1"
-        mapping = {
-            "1": AccountType.ASSET,
-            "2": AccountType.LIABILITY,
-            "3": AccountType.EQUITY,
-            "4": AccountType.REVENUE,
-            "5": AccountType.EXPENSE,
-            "6": AccountType.CONTRA_ASSET,
-            "7": AccountType.CONTRA_LIABILITY,
-        }
-        return mapping.get(first_digit, AccountType.ASSET)
+        logger.debug("BalanceChecker initialized with port: %s", type(account_balance_port).__name__)
+
+    def _get_account_type_from_data(self, account_data: dict[str, Any] | None, account_code: str) -> AccountType:
+        if account_data and "account_type" in account_data:
+            try:
+                return AccountType.from_string(account_data["account_type"])
+            except ValueError:
+                logger.warning(
+                    "Invalid account_type '%s' for account %s, falling back to code inference",
+                    account_data["account_type"],
+                    account_code,
+                )
+        return AccountType.from_code(account_code)
 
     async def check_balance(
         self,
@@ -188,6 +231,20 @@ class BalanceChecker:
         currency: str = "IDR",
         user_id: str | None = None,
     ) -> BalanceCheckResult:
+        """
+        Check if the proposed change would cause an invalid negative balance.
+
+        Args:
+            account_id: The account to check.
+            proposed_change: The change to apply (positive for credit, negative for debit).
+            legal_entity_id: Legal entity context (default from context holder).
+            allow_negative: Override to allow negative balance for this check.
+            currency: Transaction currency (for mismatch check).
+            user_id: User performing the action (for audit).
+
+        Returns:
+            BalanceCheckResult with details and decision.
+        """
         if legal_entity_id is None:
             legal_entity_id = get_current_legal_entity()
             if legal_entity_id is None:
@@ -208,15 +265,20 @@ class BalanceChecker:
         if user_id is None:
             user_id = get_current_user() or "unknown"
 
-        account_data = await self._account_repo.get_by_id(account_id, legal_entity_id)
-        if not account_data:
-            account_code = str(account_id)[:8]
-            account_type = self._get_account_type(account_code)
-            current_balance = Decimal(0)
-        else:
-            account_code = account_data.get("account_code", str(account_id))
-            account_type = self._get_account_type(account_code)
-            current_balance = await self._account_repo.get_balance(account_id, legal_entity_id)
+        # Fetch account data
+        account_data = await self._port.get_account(account_id, legal_entity_id)
+        if account_data is None:
+            raise BalanceCheckerError(
+                message=f"Account {account_id} not found for legal entity {legal_entity_id}",
+                account_code=str(account_id),
+                current_balance=Decimal(0),
+                severity=GuardSeverity.CRITICAL,
+                details={"account_id": str(account_id), "legal_entity_id": str(legal_entity_id)},
+            )
+
+        account_code = account_data.get("account_code", str(account_id))
+        account_type = self._get_account_type_from_data(account_data, account_code)
+        current_balance = await self._port.get_balance(account_id, legal_entity_id)
 
         new_balance = current_balance + proposed_change
         inherently_allows = account_type.allows_negative_balance()
@@ -245,20 +307,23 @@ class BalanceChecker:
             severity = BalanceCheckSeverity.LOW
             message = f"Account {account_code} would have negative balance {new_balance:.2f} (allowed for this account type)"
         else:
+            # Warn if asset balance is being heavily consumed
             if account_type == AccountType.ASSET and current_balance > 0:
                 usage_percentage = (
                     (current_balance - new_balance) / current_balance * 100
                     if current_balance > 0
                     else 0
                 )
-                if usage_percentage >= self._warning_threshold_percentage:
+                if usage_percentage >= self._warning_threshold:
                     severity = BalanceCheckSeverity.MEDIUM
                     message = f"Account {account_code} balance would decrease by {usage_percentage:.1f}% to {new_balance:.2f}"
 
-        if account_data and account_data.get("currency") != currency:
+        # Currency mismatch check
+        account_currency = account_data.get("currency")
+        if account_currency and account_currency != currency:
             is_allowed = False
             severity = BalanceCheckSeverity.CRITICAL
-            message = f"Currency mismatch: account uses {account_data.get('currency')}, transaction uses {currency}"
+            message = f"Currency mismatch: account uses {account_currency}, transaction uses {currency}"
 
         result = BalanceCheckResult(
             check_id=uuid4(),
@@ -275,14 +340,29 @@ class BalanceChecker:
             requires_approval=requires_approval,
         )
 
-        with self._lock:
-            self._check_history.append(result)
-            if len(self._check_history) > self._max_history:
-                self._check_history = self._check_history[-self._max_history :]
-
+        # Log the check result
         if not is_allowed or severity.value >= BalanceCheckSeverity.HIGH.value:
             log_level = logging.ERROR if not is_allowed else logging.WARNING
-            logger.log(log_level, f"Balance check: {result.message} (allowed={is_allowed})")
+            logger.log(
+                log_level,
+                "Balance check: %s (allowed=%s)",
+                result.message,
+                result.is_allowed,
+                extra={
+                    "account_id": str(account_id),
+                    "legal_entity_id": str(legal_entity_id),
+                    "user_id": user_id,
+                    "current_balance": str(current_balance),
+                    "proposed_change": str(proposed_change),
+                    "new_balance": str(new_balance),
+                },
+            )
+        else:
+            logger.debug(
+                "Balance check passed for %s (new balance: %s)",
+                account_code,
+                new_balance,
+            )
 
         return result
 
@@ -293,6 +373,7 @@ class BalanceChecker:
         legal_entity_id: UUID | None = None,
         user_id: str | None = None,
     ) -> list[BalanceCheckResult]:
+        """Check balances for a transaction with multiple debits and credits."""
         results = []
         for account_id, debit in account_debits.items():
             result = await self.check_balance(
@@ -320,41 +401,82 @@ class BalanceChecker:
         legal_entity_id: UUID | None = None,
         user_id: str | None = None,
     ) -> list[BalanceCheckResult]:
-        results = []
-        temp_balances: dict[UUID, Decimal] = {}
+        """Check balances for a batch of transactions efficiently using batch API."""
+        if legal_entity_id is None:
+            legal_entity_id = get_current_legal_entity()
+            if legal_entity_id is None:
+                return [
+                    BalanceCheckResult(
+                        check_id=uuid4(),
+                        account_id=UUID(int=0),
+                        account_code="UNKNOWN",
+                        account_type=AccountType.ASSET,
+                        legal_entity_id=UUID(int=0),
+                        current_balance=Decimal(0),
+                        proposed_change=Decimal(0),
+                        new_balance=Decimal(0),
+                        is_allowed=False,
+                        severity=BalanceCheckSeverity.HIGH,
+                        message="No legal entity in context",
+                    )
+                ]
+
+        if user_id is None:
+            user_id = get_current_user() or "unknown"
+
+        # Extract all account IDs and compute net changes per account
+        account_changes: dict[UUID, Decimal] = {}
         for tx in transactions:
             account_id = tx["account_id"]
             amount = tx["amount"]
             is_debit = tx.get("is_debit", True)
-            current = await self._account_repo.get_balance(account_id, legal_entity_id)
-            current_with_temp = temp_balances.get(account_id, current)
-            proposed_change = -amount if is_debit else amount
-            new_balance = current_with_temp + proposed_change
-            account_data = await self._account_repo.get_by_id(account_id, legal_entity_id)
-            account_code = (
-                account_data.get("account_code", str(account_id))
-                if account_data
-                else str(account_id)
-            )
-            account_type = self._get_account_type(account_code)
+            change = -amount if is_debit else amount
+            account_changes[account_id] = account_changes.get(account_id, Decimal(0)) + change
+
+        # Fetch all accounts and balances in batch
+        account_ids = list(account_changes.keys())
+        account_data_map = {}
+        for account_id in account_ids:
+            data = await self._port.get_account(account_id, legal_entity_id)
+            if data is None:
+                raise BalanceCheckerError(
+                    message=f"Account {account_id} not found for legal entity {legal_entity_id}",
+                    account_code=str(account_id),
+                    current_balance=Decimal(0),
+                    severity=GuardSeverity.CRITICAL,
+                    details={"account_id": str(account_id), "legal_entity_id": str(legal_entity_id)},
+                )
+            account_data_map[account_id] = data
+
+        balances = await self._port.get_balances(account_ids, legal_entity_id)
+
+        results = []
+        for account_id, change in account_changes.items():
+            current_balance = balances.get(account_id, Decimal(0))
+            new_balance = current_balance + change
+            account_data = account_data_map.get(account_id)
+            account_code = account_data.get("account_code", str(account_id)) if account_data else str(account_id)
+            account_type = self._get_account_type_from_data(account_data, account_code)
+
             inherently_allows = account_type.allows_negative_balance()
             is_allowed = new_balance >= -self._tolerance or inherently_allows
+
             if not is_allowed:
                 result = BalanceCheckResult(
                     check_id=uuid4(),
                     account_id=account_id,
                     account_code=account_code,
                     account_type=account_type,
-                    legal_entity_id=legal_entity_id or UUID(int=0),
-                    current_balance=current,
-                    proposed_change=proposed_change,
+                    legal_entity_id=legal_entity_id,
+                    current_balance=current_balance,
+                    proposed_change=change,
                     new_balance=new_balance,
                     is_allowed=False,
                     severity=BalanceCheckSeverity.CRITICAL,
                     message=f"Batch transaction would cause negative balance on {account_code}: {new_balance:.2f}",
                 )
                 results.append(result)
-            temp_balances[account_id] = new_balance
+
         return results
 
     async def enforce(
@@ -366,6 +488,9 @@ class BalanceChecker:
         user_id: str | None = None,
         raise_on_violation: bool = True,
     ) -> BalanceCheckResult:
+        """
+        Enforce the balance check. Raises exception on violation unless disabled.
+        """
         result = await self.check_balance(
             account_id=account_id,
             proposed_change=proposed_change,
@@ -389,6 +514,7 @@ class BalanceChecker:
         legal_entity_id: UUID | None = None,
         user_id: str | None = None,
     ) -> list[BalanceCheckResult]:
+        """Enforce balance checks for multiple account changes."""
         violations = []
         for account_id, change in account_balances:
             result = await self.enforce(
@@ -402,101 +528,66 @@ class BalanceChecker:
                 violations.append(result)
         return violations
 
-    def get_check_history(
+
+# ============================================================================
+# In-Memory Test Double (separate from production kernel)
+# ============================================================================
+# This is intentionally placed at the end of the file and clearly marked
+# as TESTING ONLY. It should be moved to tests/fakes/ in a real project.
+class InMemoryAccountBalancePort:
+    """
+    In-memory implementation of AccountBalancePort for testing purposes.
+
+    This is not used in production and is provided only for convenience
+    during testing. In a real project, this should be placed in tests/fakes/.
+    """
+
+    def __init__(self):
+        self._accounts: dict[UUID, dict[str, Any]] = {}
+        self._balances: dict[tuple[UUID, UUID], Decimal] = {}
+
+    def register_account(
         self,
-        limit: int = 100,
-        only_violations: bool = False,
-        account_id: UUID | None = None,
-    ) -> list[BalanceCheckResult]:
-        with self._lock:
-            results = self._check_history[-limit:]
-        if only_violations:
-            results = [r for r in results if not r.is_allowed]
-        if account_id:
-            results = [r for r in results if r.account_id == account_id]
-        return results
+        account_id: UUID,
+        account_code: str,
+        account_type: str,
+        currency: str = "IDR",
+        initial_balance: Decimal = Decimal(0),
+        legal_entity_id: UUID | None = None,
+    ) -> None:
+        self._accounts[account_id] = {
+            "account_code": account_code,
+            "account_type": account_type,
+            "currency": currency,
+        }
+        if legal_entity_id:
+            self._balances[(account_id, legal_entity_id)] = initial_balance
 
-    def get_statistics(self) -> dict[str, Any]:
-        with self._lock:
-            total = len(self._check_history)
-            if total == 0:
-                return {"total_checks": 0}
-            violations = [r for r in self._check_history if not r.is_allowed]
-            violation_count = len(violations)
-            by_severity = {}
-            for sev in BalanceCheckSeverity:
-                count = len([r for r in violations if r.severity == sev])
-                if count > 0:
-                    by_severity[sev.name] = count
-            by_account = {}
-            for r in violations:
-                code = r.account_code
-                by_account[code] = by_account.get(code, 0) + 1
-            return {
-                "total_checks": total,
-                "violation_count": violation_count,
-                "violation_rate": violation_count / total if total > 0 else 0,
-                "by_severity": by_severity,
-                "by_account": by_account,
-                "latest_check": self._check_history[-1].timestamp.isoformat()
-                if self._check_history
-                else None,
-            }
+    async def get_account(self, account_id: UUID, legal_entity_id: UUID) -> dict[str, Any] | None:
+        return self._accounts.get(account_id)
 
-    def reset(self) -> None:
-        with self._lock:
-            self._check_history = []
+    async def get_balance(self, account_id: UUID, legal_entity_id: UUID) -> Decimal:
+        key = (account_id, legal_entity_id)
+        return self._balances.get(key, Decimal(0))
+
+    async def get_balances(self, account_ids: list[UUID], legal_entity_id: UUID) -> dict[UUID, Decimal]:
+        result = {}
+        for account_id in account_ids:
+            result[account_id] = await self.get_balance(account_id, legal_entity_id)
+        return result
+
+    def set_balance(self, account_id: UUID, legal_entity_id: UUID, balance: Decimal) -> None:
+        self._balances[(account_id, legal_entity_id)] = balance
 
 
 # ============================================================================
-# SINGLETON ACCESSOR
+# Exports
 # ============================================================================
-
-_balance_checker_instance: BalanceChecker | None = None
-_lock_instance = threading.Lock()
-
-
-def get_balance_checker() -> BalanceChecker:
-    global _balance_checker_instance
-    if _balance_checker_instance is None:
-        with _lock_instance:
-            if _balance_checker_instance is None:
-                # Inisialisasi dengan fallback repository
-                # Ini aman untuk kernel dan tidak memerlukan set_balance_checker
-                _balance_checker_instance = BalanceChecker()
-    return _balance_checker_instance
-
-
-# ============================================================================
-# FUNGSI UNTUK TESTING
-# ============================================================================
-def create_test_balance_checker(repository: Any = None) -> BalanceChecker:
-    """
-    Buat instance BalanceChecker untuk keperluan testing.
-    Jika repository tidak diberikan, akan menggunakan fallback in-memory.
-    """
-    return BalanceChecker(account_repository=repository or _get_account_repository())
-
-
-# ============================================================================
-# ALIAS FINAL (mengganti None dengan instance singleton yang sebenarnya)
-# ============================================================================
-
-# Sekarang setelah class dan fungsi singleton sudah didefinisikan,
-# kita isi alias dengan instance yang sebenarnya.
-balance_checker = get_balance_checker()
-
-
-# ============================================================================
-# EXPORTS
-# ============================================================================
-
 __all__ = [
+    "AccountBalancePort",
     "AccountType",
     "BalanceCheckResult",
     "BalanceCheckSeverity",
     "BalanceChecker",
-    "balance_checker",
-    "get_balance_checker",
-    "create_test_balance_checker",
+    "InMemoryAccountBalancePort",  # testing only
 ]

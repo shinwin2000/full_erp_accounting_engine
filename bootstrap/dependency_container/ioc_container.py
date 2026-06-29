@@ -2,9 +2,6 @@
 """
 Module: ioc_container.py
 Layer: Bootstrap (Dependency Container)
-Responsibility: Inversion of Control container untuk dependency injection.
-               Mengkoordinasikan registrasi semua adapter (via adapter_registry)
-               dan application services (via service_registry).
 """
 
 from __future__ import annotations
@@ -279,36 +276,24 @@ class IoCContainer:
         return False
 
 
-# Alias for backward compatibility
 Container = IoCContainer
 
 _global_container: IoCContainer | None = None
 
 
-# ============================================================================
-# GLOBAL CONTAINER BUILDER
-# ============================================================================
-
 def get_container() -> IoCContainer:
-    """
-    Get or create global container, then register all adapters and services.
-    """
     global _global_container
     if _global_container is None:
         _global_container = IoCContainer()
 
-        # ------------------------------------------------------------
-        # 1. REGISTRASI ADAPTER (implementasi port)
-        # ------------------------------------------------------------
+        # --- Adapter registry ---
         try:
+            # Import lokal untuk menghindari siklus
             from bootstrap.dependency_container.adapter_registry import (
                 AdapterRegistry,
                 set_adapter_registry_instance,
             )
-
-            # Buat registry dan set container
             registry = AdapterRegistry(container=_global_container)
-            # Simpan ke global sebelum register_all() agar get_adapter_registry() bisa mengaksesnya
             set_adapter_registry_instance(registry)
             registry.register_all()
             logger.info("Adapter registry registration completed")
@@ -317,13 +302,9 @@ def get_container() -> IoCContainer:
         except Exception as e:
             logger.warning(f"Adapter registry registration failed: {e}")
 
-        # ------------------------------------------------------------
-        # 2. REGISTRASI APPLICATION SERVICES
-        # ------------------------------------------------------------
+        # --- Service registry ---
         try:
             from bootstrap.dependency_container.service_registry import ServiceRegistrar
-
-            # Cek signature untuk tahu apakah perlu argumen
             sig = inspect.signature(ServiceRegistrar.register_all)
             params = sig.parameters
             if len(params) == 0:
@@ -331,7 +312,6 @@ def get_container() -> IoCContainer:
             else:
                 coro = ServiceRegistrar.register_all(_global_container)
 
-            # Deteksi event loop yang sedang berjalan
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
@@ -342,21 +322,13 @@ def get_container() -> IoCContainer:
                 logger.info("Service registry scheduled inside existing running event loop")
             else:
                 asyncio.run(coro)
-
             logger.info("Service registry registration completed")
         except ImportError as e:
             logger.warning(f"Service registry not available: {e}")
         except Exception as e:
             logger.error(f"Service registry registration failed: {e}")
 
-        # ------------------------------------------------------------
-        # 3. ALIAS UNTUK KOMPATIBILITAS (tanpa import ports)
-        # ------------------------------------------------------------
-        # Alias digunakan agar resolver bisa menemukan implementasi
-        # meskipun diminta dengan nama interface yang berbeda.
-        # Kita daftarkan alias dengan target berupa string nama interface
-        # yang telah didaftarkan oleh adapter_registry.
-        # Tidak ada import dari ports.primary di sini.
+        # --- Aliases ---
         alias_map = {
             "IJournalRepository": "JournalRepositoryPort",
             "IUnitOfWork": "UnitOfWorkPort",
@@ -374,16 +346,12 @@ def get_container() -> IoCContainer:
             "IForexRepository": "ForexRepositoryPort",
             "IHedgeRepository": "HedgeRepositoryPort",
         }
-
-        # Daftarkan alias hanya jika belum terdaftar
         for alias, target in alias_map.items():
             if not _global_container.has_registration(alias):
                 _global_container.register_alias(alias, target)
 
         logger.info("Alias registration completed (using string targets)")
-
-        total = len(_global_container.get_registered_types())
-        logger.info(f"Total registered types: {total}")
+        logger.info(f"Total registered types: {len(_global_container.get_registered_types())}")
 
     return _global_container
 

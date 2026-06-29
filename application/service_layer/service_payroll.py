@@ -1,4 +1,4 @@
-# service_payroll.py - Complete rewrite with full implementation
+# service_payroll.py - Complete rewrite with full event publishing
 
 #!/usr/bin/env python3
 
@@ -9,6 +9,7 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service layer untuk Payroll Management.
+    Mempublikasikan semua domain events yang sesuai.
 """
 
 from __future__ import annotations
@@ -25,10 +26,16 @@ from uuid import UUID, uuid4
 
 from domain.payroll.aggregate_root import PayrollAggregate
 from domain.payroll.domain_events import (
+    EmployeeStructureUpdated,
+    PayrollRunApproved,
+    PayrollRunCancelled,
     PayrollRunCreated,
+    PayrollRunPaid,
     PayrollRunPosted,
     PayrollRunProcessed,
+    PayslipGenerated,
     PayslipSentToEmployee,
+    SalaryComponentAdded,
 )
 from domain.payroll.employee_salary_structure_vo import EmployeeSalaryStructure, SalaryComponentType
 from domain.payroll.invariants import PayrollInvariantsValidator
@@ -64,6 +71,8 @@ class PayrollStatusEnum(str, Enum):
 
     DRAFT = "draft"
     PROCESSED = "processed"
+    APPROVED = "approved"
+    PAID = "paid"
     POSTED = "posted"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
@@ -146,6 +155,17 @@ class PayrollPostingResponse:
     posting_errors: list[str] = field(default_factory=list)
 
 
+@dataclass(kw_only=True)
+class SalaryComponentRequest:
+    """Request to add salary component."""
+
+    employee_id: UUID
+    component_type: str
+    amount: Decimal
+    description: str
+    effective_date: date | None = None
+
+
 # ============================================================================
 # Exceptions
 # ============================================================================
@@ -215,11 +235,18 @@ class PayrollService:
         structure: EmployeeSalaryStructureDTO,
         user_id: UUID,
         effective_date: date | None = None,
+        correlation_id: str | None = None,
     ) -> None:
         """Set or update employee salary structure."""
         employee = await self._employee_repo.get_by_id(employee_id)
         if not employee:
             raise EmployeeNotFoundError(f"Employee {employee_id} not found")
+
+        # Get old structure for event
+        old_structure = await self._payroll_repo.get_salary_structure(
+            employee_id, effective_date or date.today()
+        )
+        old_basic = old_structure.basic_salary if old_structure else Decimal("0")
 
         effective_date = effective_date or date.today()
         salary_structure = EmployeeSalaryStructure(
@@ -241,6 +268,21 @@ class PayrollService:
         await self._payroll_repo.save_salary_structure(salary_structure)
         if self._uow:
             await self._uow.commit()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = EmployeeStructureUpdated(
+                aggregate_id=employee_id,
+                aggregate_version=1,
+                employee_id=employee_id,
+                employee_name=employee.name,
+                old_basic_salary=old_basic,
+                new_basic_salary=structure.basic_salary,
+                updated_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
 
         logger.info(f"Salary structure set for employee {employee_id} effective {effective_date}")
 
@@ -267,6 +309,51 @@ class PayrollService:
             bpjs_ketenagakerjaan_employer=structure.bpjs_ketenagakerjaan_employer,
             other_deductions=structure.other_deductions,
         )
+
+    # ========================================================================
+    # Salary Component Management
+    # ========================================================================
+
+    async def add_salary_component(
+        self,
+        request: SalaryComponentRequest,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> None:
+        """Add a salary component to an employee."""
+        employee = await self._employee_repo.get_by_id(request.employee_id)
+        if not employee:
+            raise EmployeeNotFoundError(f"Employee {request.employee_id} not found")
+
+        component = SalaryComponent(
+            id=uuid4(),
+            employee_id=request.employee_id,
+            component_type=SalaryComponentType(request.component_type),
+            amount=request.amount,
+            description=request.description,
+            effective_date=request.effective_date or date.today(),
+            created_by=user_id,
+            created_at=datetime.utcnow(),
+        )
+        await self._payroll_repo.save_salary_component(component)
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = SalaryComponentAdded(
+                aggregate_id=request.employee_id,
+                aggregate_version=1,
+                component_name=component.description,
+                component_type=component.component_type.value,
+                amount=component.amount,
+                added_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+
+        logger.info(f"Salary component added for employee {request.employee_id}")
 
     # ========================================================================
     # Payroll Run
@@ -319,14 +406,15 @@ class PayrollService:
 
         self._stats["payroll_runs"] += 1
 
+        # --- PUBLISH EVENT ---
         if self._event_publisher:
             event = PayrollRunCreated(
                 aggregate_id=payroll_run.id,
-                legal_entity_id=request.legal_entity_id,
-                period=period_str,
-                employee_count=len(employee_ids),
-                user_id=user_id,
-                occurred_at=datetime.utcnow(),
+                aggregate_version=1,
+                payroll_run=payroll_run,
+                created_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
 
@@ -385,19 +473,133 @@ class PayrollService:
         if self._uow:
             await self._uow.commit()
 
+        # --- PUBLISH PROCESSED EVENT ---
         if self._event_publisher:
             event = PayrollRunProcessed(
                 aggregate_id=payroll_run_id,
-                period=f"{payroll_run.period_year}-{payroll_run.period_month:02d}",
-                total_gross=total_gross,
+                aggregate_version=1,
+                payroll_run=payroll_run,
+                calculated_by=str(user_id),
+                total_employees=len(payslips),
                 total_net=total_net,
-                user_id=user_id,
-                occurred_at=datetime.utcnow(),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
 
+        # --- PUBLISH PAYSLIP GENERATED EVENTS ---
+        if self._event_publisher:
+            for ps in payslips:
+                employee = await self._employee_repo.get_by_id(ps.employee_id)
+                event = PayslipGenerated(
+                    aggregate_id=ps.id,
+                    aggregate_version=1,
+                    payslip=ps,
+                    employee_name=employee.name if employee else "Unknown",
+                    user_id=str(user_id),
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+
         logger.info(f"Payroll run {payroll_run_id} processed: {len(payslips)} employees")
         return await self._to_payroll_run_response(payroll_run)
+
+    async def approve_payroll_run(
+        self, payroll_run_id: UUID, user_id: UUID, correlation_id: str | None = None
+    ) -> PayrollRunResponse:
+        """Approve a processed payroll run."""
+        aggregate = await self._payroll_repo.get_payroll_run(payroll_run_id)
+        if not aggregate:
+            raise PayrollRunNotFoundError(f"Payroll run {payroll_run_id} not found")
+
+        payroll_run = aggregate.payroll_run
+        if payroll_run.status != PayrollRunStatus.PROCESSED:
+            raise PayrollServiceError(f"Cannot approve payroll run in status {payroll_run.status.value}")
+
+        aggregate.approve(user_id)
+        await self._payroll_repo.save_payroll_run(aggregate)
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH APPROVED EVENT ---
+        if self._event_publisher:
+            event = PayrollRunApproved(
+                aggregate_id=payroll_run_id,
+                aggregate_version=1,
+                payroll_run=payroll_run,
+                approved_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+
+        logger.info(f"Payroll run {payroll_run_id} approved")
+        return await self._to_payroll_run_response(payroll_run)
+
+    async def pay_payroll_run(
+        self, payroll_run_id: UUID, user_id: UUID, correlation_id: str | None = None
+    ) -> PayrollRunResponse:
+        """Mark payroll run as paid."""
+        aggregate = await self._payroll_repo.get_payroll_run(payroll_run_id)
+        if not aggregate:
+            raise PayrollRunNotFoundError(f"Payroll run {payroll_run_id} not found")
+
+        payroll_run = aggregate.payroll_run
+        if payroll_run.status != PayrollRunStatus.APPROVED:
+            raise PayrollServiceError(f"Cannot pay payroll run in status {payroll_run.status.value}")
+
+        aggregate.mark_paid(user_id)
+        await self._payroll_repo.save_payroll_run(aggregate)
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH PAID EVENT ---
+        if self._event_publisher:
+            event = PayrollRunPaid(
+                aggregate_id=payroll_run_id,
+                aggregate_version=1,
+                payroll_run=payroll_run,
+                paid_by=str(user_id),
+                total_paid=payroll_run.total_net_pay,
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+
+        logger.info(f"Payroll run {payroll_run_id} paid")
+        return await self._to_payroll_run_response(payroll_run)
+
+    async def cancel_payroll_run(
+        self, payroll_run_id: UUID, reason: str, user_id: UUID, correlation_id: str | None = None
+    ) -> None:
+        """Cancel a payroll run."""
+        aggregate = await self._payroll_repo.get_payroll_run(payroll_run_id)
+        if not aggregate:
+            raise PayrollRunNotFoundError(f"Payroll run {payroll_run_id} not found")
+
+        payroll_run = aggregate.payroll_run
+        if payroll_run.status in (PayrollRunStatus.COMPLETED, PayrollRunStatus.CANCELLED):
+            raise PayrollServiceError(f"Cannot cancel payroll run in status {payroll_run.status.value}")
+
+        aggregate.cancel(reason, user_id)
+        await self._payroll_repo.save_payroll_run(aggregate)
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH CANCELLED EVENT ---
+        if self._event_publisher:
+            event = PayrollRunCancelled(
+                aggregate_id=payroll_run_id,
+                aggregate_version=1,
+                payroll_run=payroll_run,
+                cancelled_by=str(user_id),
+                reason=reason,
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+
+        logger.info(f"Payroll run {payroll_run_id} cancelled")
 
     async def _calculate_components(
         self, structure: EmployeeSalaryStructureDTO, payroll_run: PayrollRun
@@ -569,8 +771,8 @@ class PayrollService:
             raise PayrollRunNotFoundError(f"Payroll run {payroll_run_id} not found")
 
         payroll_run = aggregate.payroll_run
-        if payroll_run.status != PayrollRunStatus.PROCESSED:
-            raise PayrollServiceError("Payroll must be processed before posting to GL")
+        if payroll_run.status != PayrollRunStatus.PAID:
+            raise PayrollServiceError("Payroll must be paid before posting to GL")
 
         if not self._ledger_repo:
             raise PayrollServiceError("LedgerRepository not configured")
@@ -615,13 +817,16 @@ class PayrollService:
         if self._uow:
             await self._uow.commit()
 
+        # --- PUBLISH POSTED EVENT ---
         if self._event_publisher:
             event = PayrollRunPosted(
                 aggregate_id=payroll_run_id,
-                period=f"{payroll_run.period_year}-{payroll_run.period_month:02d}",
+                aggregate_version=1,
+                payroll_run=payroll_run,
                 journal_id=journal_id,
-                user_id=user_id,
-                occurred_at=datetime.utcnow(),
+                posted_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
 
@@ -658,12 +863,15 @@ class PayrollService:
         if self._uow:
             await self._uow.commit()
 
+        # --- PUBLISH SENT EVENT ---
         if self._event_publisher:
             event = PayslipSentToEmployee(
+                aggregate_id=payslip_id,
+                aggregate_version=1,
                 payslip_id=payslip_id,
                 employee_id=payslip.employee_id,
-                user_id=user_id,
-                occurred_at=datetime.utcnow(),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
 
@@ -770,6 +978,7 @@ __all__ = [
     "PayrollServiceError",
     "PayrollStatusEnum",
     "PayslipResponse",
+    "SalaryComponentRequest",
     "TaxCalculationError",
     "create_payroll_service",
 ]

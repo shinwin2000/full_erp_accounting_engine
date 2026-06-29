@@ -6,9 +6,6 @@ Responsibility: Resolver variabel lingkungan dalam konfigurasi.
                Mendukung sintaks ${VAR_NAME} dan ${VAR_NAME:default_value}
                untuk substitusi nilai dari environment variables ke dalam
                konfigurasi YAML. Juga mendukung nested references.
-
-Metode yang ditambahkan:
-- Untuk EnvironmentResolver: validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch.
 """
 
 from __future__ import annotations
@@ -22,17 +19,15 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from bootstrap.bootstrap_exceptions import BootstrapErrorCode, ConfigError
+from config.exceptions import ConfigError, ConfigEnvResolveError, ConfigErrorCode
 
 logger = logging.getLogger(__name__)
 
-# === 1. CONSTANTS ===
 ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}")
 NESTED_REF_PATTERN = re.compile(r"\$\{config:([^}]+)\}")
 SECRET_REF_PATTERN = re.compile(r"\$\{secret:([^}]+)\}")
 
 
-# === 2. EnvironmentResolver (dengan entity dasar) ===
 @dataclass(kw_only=True)
 class EnvironmentResolver:
     _instance: Any = field(default=None, init=False, repr=False)
@@ -52,29 +47,25 @@ class EnvironmentResolver:
             raise ValueError("_mask_sensitive must be boolean")
 
     def _take_snapshot(self):
-        self._snapshots.append(
-            {
-                "version": self._version,
-                "resolver_id": self._resolver_id,
-                "mask_sensitive": self._mask_sensitive,
-                "cache_size": len(self._resolved_cache),
-                "timestamp": datetime.now(UTC).isoformat(),
-            }
-        )
+        self._snapshots.append({
+            "version": self._version,
+            "resolver_id": self._resolver_id,
+            "mask_sensitive": self._mask_sensitive,
+            "cache_size": len(self._resolved_cache),
+            "timestamp": datetime.now(UTC).isoformat(),
+        })
         if len(self._snapshots) > 10:
             self._snapshots.pop(0)
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]):
-        self._audit_trail.append(
-            {
-                "action": action,
-                "performed_by": performed_by,
-                "timestamp": datetime.now(UTC).isoformat(),
-                "version": self._version,
-                "resolver_id": self._resolver_id,
-                "details": details,
-            }
-        )
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "resolver_id": self._resolver_id,
+            "details": details,
+        })
 
     def __new__(cls) -> EnvironmentResolver:
         if cls._instance is None:
@@ -94,7 +85,6 @@ class EnvironmentResolver:
         self._resolver_id = str(uuid4())
         self._take_snapshot()
 
-    # ==================== BUSINESS METHODS ====================
     def resolve(self, value: Any, config_context: dict[str, Any] | None = None) -> Any:
         if isinstance(value, str):
             return self._resolve_string(value, config_context)
@@ -125,10 +115,7 @@ class EnvironmentResolver:
                 logger.debug(f"Using default for {var_name}: {default}")
                 return default
             else:
-                raise ConfigError(
-                    f"Environment variable {var_name} not found and no default provided",
-                    error_code=BootstrapErrorCode.CONFIG_PARSE_ERROR,
-                )
+                raise ConfigEnvResolveError(var_name)
 
         result = ENV_VAR_PATTERN.sub(replace_env, result)
         return result
@@ -140,7 +127,7 @@ class EnvironmentResolver:
             if resolved is None:
                 raise ConfigError(
                     f"Nested config reference {path} not found",
-                    error_code=BootstrapErrorCode.CONFIG_PARSE_ERROR,
+                    error_code=ConfigErrorCode.CONFIG_PARSE_ERROR,
                 )
             return str(resolved)
 
@@ -153,7 +140,6 @@ class EnvironmentResolver:
             env_value = os.environ.get(env_var)
             if env_value:
                 return env_value
-            # FIX: Jangan log ref_path karena bisa sensitif, dan hindari kata "secret"
             logger.warning("External reference not resolved via environment")
             return f"{{SECRET:{ref_path}}}"
 
@@ -178,13 +164,9 @@ class EnvironmentResolver:
 
     def resolve_file(self, file_path: str | Path) -> dict[str, Any]:
         import yaml
-
         path = Path(file_path)
         if not path.exists():
-            raise ConfigError(
-                f"File not found: {path}",
-                error_code=BootstrapErrorCode.CONFIG_NOT_FOUND,
-            )
+            raise ConfigError(f"File not found: {path}", error_code=ConfigErrorCode.CONFIG_NOT_FOUND)
         with open(path, encoding="utf-8") as f:
             raw_config = yaml.safe_load(f) or {}
         self._record_audit("RESOLVE_FILE", "system", {"file": str(path)})
@@ -205,9 +187,7 @@ class EnvironmentResolver:
                     value = self._resolve_string(value.strip(), None)
                     env_vars[key.strip()] = value
                     os.environ[key.strip()] = value
-        self._record_audit(
-            "RESOLVE_ENV_FILE", "system", {"file": str(path), "count": len(env_vars)}
-        )
+        self._record_audit("RESOLVE_ENV_FILE", "system", {"file": str(path), "count": len(env_vars)})
         logger.info(f"Loaded {len(env_vars)} variables from {env_file_path}")
         return env_vars
 
@@ -234,13 +214,6 @@ class EnvironmentResolver:
     def set_mask_sensitive(self, mask: bool) -> None:
         self._mask_sensitive = mask
         self._record_audit("SET_MASK_SENSITIVE", "system", {"mask": mask})
-
-    # ==================== ENTITY DASAR METHODS ====================
-    def validate(self) -> dict[str, Any]:
-        errors = []
-        if self._mask_sensitive not in (True, False):
-            errors.append("_mask_sensitive must be boolean")
-        return {"is_valid": len(errors) == 0, "errors": errors}
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -295,9 +268,7 @@ class EnvironmentResolver:
         self._record_audit("RESET", "system", {})
 
 
-# === 3. SINGLETON ACCESSOR ===
 _environment_resolver_instance: EnvironmentResolver | None = None
-
 
 def get_environment_resolver() -> EnvironmentResolver:
     global _environment_resolver_instance
@@ -305,24 +276,15 @@ def get_environment_resolver() -> EnvironmentResolver:
         _environment_resolver_instance = EnvironmentResolver()
     return _environment_resolver_instance
 
-
-# === 4. CONVENIENCE FUNCTIONS ===
 def resolve_env(value: Any, config_context: dict[str, Any] | None = None) -> Any:
-    resolver = get_environment_resolver()
-    return resolver.resolve(value, config_context)
-
+    return get_environment_resolver().resolve(value, config_context)
 
 def load_env_file(env_file_path: str | Path) -> dict[str, str]:
-    resolver = get_environment_resolver()
-    return resolver.resolve_env_file(env_file_path)
-
+    return get_environment_resolver().resolve_env_file(env_file_path)
 
 def get_env_var(key: str, default: str | None = None) -> str | None:
-    resolver = get_environment_resolver()
-    return resolver.get_env(key, default)
+    return get_environment_resolver().get_env(key, default)
 
-
-# === 5. EXPORTS ===
 __all__ = [
     "EnvironmentResolver",
     "get_env_var",

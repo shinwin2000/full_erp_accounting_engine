@@ -958,6 +958,8 @@ class DomainEventPublisher:
 
 # === COMPATIBILITY SHIMS FOR APPLICATION SERVICE LAYER ===
 
+# Shim classes (tanpa suffix Event) untuk kompatibilitas dengan service layer
+
 
 class BankAccountCreated(DomainEvent):
     def __init__(self, **kwargs):
@@ -1076,21 +1078,78 @@ class PettyCashReplenished(DomainEvent):
             self.event_type = DomainEventType.PETTY_CASH_REPLENISHED
 
 
+# === ALIAS UNTUK KOMPATIBILITAS DENGAN ROUTER ===
+# Router mengimpor dengan suffix "Event"
+
+BankTransferExecutedEvent = BankTransferExecuted
+BankTransferExecutedEvent.__name__ = "BankTransferExecutedEvent"
+
+CashReceiptIssuedEvent = CashReceiptIssued
+CashReceiptIssuedEvent.__name__ = "CashReceiptIssuedEvent"
+
+CashDisbursementIssuedEvent = CashDisbursementIssued
+CashDisbursementIssuedEvent.__name__ = "CashDisbursementIssuedEvent"
+
+PettyCashFundCreatedEvent = PettyCashFundCreated
+PettyCashFundCreatedEvent.__name__ = "PettyCashFundCreatedEvent"
+
+PettyCashReplenishedEvent = PettyCashReplenished
+PettyCashReplenishedEvent.__name__ = "PettyCashReplenishedEvent"
+
+# Alias untuk domain event dataclass yang sudah punya suffix Event
+# Tidak perlu alias tambahan karena sudah ada.
+
 __all__ = [
-    "BankAccountCreated",
-    "BankAccountCreatedEvent",
-    "BankAccountUpdated",
-    "BankAccountUpdatedEvent",
-    "BankReconciliationCompleted",
-    "BankReconciliationCompletedEvent",
-    "BankTransactionRecorded",
-    "BankTransactionRecordedEvent",
-    "BankTransferExecuted",
-    "CashDisbursementIssued",
-    "CashReceiptIssued",
+    # DomainEvent base
     "DomainEvent",
     "DomainEventPublisher",
     "DomainEventType",
+    # Bank Account Events (dataclass)
+    "BankAccountCreatedEvent",
+    "BankAccountUpdatedEvent",
+    "BankAccountBlockedEvent",
+    "BankAccountClosedEvent",
+    # Bank Transaction Events (dataclass)
+    "BankTransactionRecordedEvent",
+    "BankTransactionClearedEvent",
+    "BankTransactionReconciledEvent",
+    # Bank Transfer Events (dataclass)
+    "BankTransferInitiatedEvent",
+    "BankTransferCompletedEvent",
+    "BankTransferFailedEvent",
+    "BankTransferCancelledEvent",
+    # Cash Receipt Events (dataclass)
+    "CashReceiptConfirmedEvent",
+    "CashReceiptCancelledEvent",
+    # Cash Disbursement Events (dataclass)
+    "CashDisbursementApprovedEvent",
+    "CashDisbursementPaidEvent",
+    "CashDisbursementCancelledEvent",
+    # Petty Cash Events (dataclass)
+    "PettyCashDisbursementEvent",
+    "PettyCashReplenishedEvent",
+    "PettyCashAdjustedEvent",
+    "PettyCashSuspendedEvent",
+    "PettyCashActivatedEvent",
+    "PettyCashClosedEvent",
+    # Reconciliation & Cash Book Events (dataclass)
+    "BankReconciliationCompletedEvent",
+    "CashBookUpdatedEvent",
+    "CashBookClosedEvent",
+    # Shim classes (tanpa suffix Event)
+    "BankAccountCreated",
+    "BankAccountUpdated",
+    "BankTransactionRecorded",
+    "BankReconciliationCompleted",
+    "BankTransferExecuted",
+    "CashReceiptIssued",
+    "CashDisbursementIssued",
     "PettyCashFundCreated",
     "PettyCashReplenished",
+    # Alias dengan suffix Event untuk router
+    "BankTransferExecutedEvent",
+    "CashReceiptIssuedEvent",
+    "CashDisbursementIssuedEvent",
+    "PettyCashFundCreatedEvent",
+    "PettyCashReplenishedEvent",
 ]

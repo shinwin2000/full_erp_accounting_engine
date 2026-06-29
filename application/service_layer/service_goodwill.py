@@ -1,4 +1,4 @@
-# service_goodwill.py - Complete rewrite with full implementation
+# service_goodwill.py - Complete rewrite with full event publishing
 
 #!/usr/bin/env python3
 
@@ -9,6 +9,7 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service for goodwill accounting (PSAK 48 / IFRS 3, IAS 36).
+    Mempublikasikan semua domain events yang sesuai.
 """
 
 from __future__ import annotations
@@ -17,9 +18,18 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID, uuid4
 
 from domain.goodwill.aggregate_root import Goodwill, GoodwillStatus
+from domain.goodwill.domain_events import (
+    GoodwillAmortizedEvent,
+    GoodwillDisposedEvent,
+    GoodwillImpairedEvent,
+    GoodwillImpairmentReversedEvent,
+    GoodwillRecognizedEvent,
+    GoodwillUpdatedEvent,
+)
 from domain.goodwill.impairment_tester import GoodwillImpairmentTester
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.goodwill_repository_port import GoodwillRepositoryPort
@@ -46,6 +56,15 @@ class GoodwillRecognitionRequest:
     cgu_code: str
     cgu_name: str
     created_by: UUID | None = None
+
+
+@dataclass(kw_only=True)
+class GoodwillUpdateRequest:
+    """Request to update goodwill details."""
+
+    description: str | None = None
+    cgu_code: str | None = None
+    cgu_name: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -91,6 +110,17 @@ class ImpairmentTestResponse:
     journal_id: UUID | None = None
 
 
+@dataclass(kw_only=True)
+class GoodwillDisposalRequest:
+    """Request to dispose goodwill."""
+
+    goodwill_id: UUID
+    disposal_date: date
+    reason: str
+    proceeds: Decimal = Decimal("0")
+    disposed_by: UUID | None = None
+
+
 # ============================================================================
 # Exceptions
 # ============================================================================
@@ -108,6 +138,10 @@ class InvalidImpairmentTestError(GoodwillServiceError):
     pass
 
 
+class GoodwillAlreadyDisposedError(GoodwillServiceError):
+    pass
+
+
 # ============================================================================
 # Main Service
 # ============================================================================
@@ -116,6 +150,7 @@ class InvalidImpairmentTestError(GoodwillServiceError):
 class GoodwillService:
     """
     Service for goodwill accounting and impairment testing.
+    Mempublikasikan event untuk setiap operasi.
     """
 
     def __init__(
@@ -133,7 +168,14 @@ class GoodwillService:
         self._uow = uow
         self._event_publisher = event_publisher
         self._impairment_tester = GoodwillImpairmentTester()
-        self._stats = {"goodwill_recognized": 0, "impairments": 0, "reversals": 0}
+        self._stats = {
+            "goodwill_recognized": 0,
+            "goodwill_updated": 0,
+            "impairments": 0,
+            "reversals": 0,
+            "amortizations": 0,
+            "disposals": 0,
+        }
 
         logger.info("GoodwillService initialized")
 
@@ -142,7 +184,9 @@ class GoodwillService:
     # ========================================================================
 
     async def recognize_goodwill(
-        self, request: GoodwillRecognitionRequest, correlation_id: str | None = None
+        self,
+        request: GoodwillRecognitionRequest,
+        correlation_id: str | None = None,
     ) -> GoodwillResponse:
         """Recognize goodwill from a business combination."""
         # Calculate goodwill amount
@@ -169,6 +213,9 @@ class GoodwillService:
             cgu_name=request.cgu_name,
             created_by=request.created_by,
             created_at=datetime.now(UTC),
+            updated_at=None,
+            updated_by=None,
+            version=1,
         )
 
         await self._goodwill_repo.save(goodwill)
@@ -177,34 +224,28 @@ class GoodwillService:
 
         self._stats["goodwill_recognized"] += 1
 
-        # Publish event
+        # --- PUBLISH EVENT ---
         if self._event_publisher and goodwill_amount > 0:
-            from domain.goodwill.domain_events import GoodwillRecognized
-
-            event = GoodwillRecognized(
-                goodwill_id=goodwill.id,
-                goodwill_number=goodwill.goodwill_number,
-                amount=goodwill_amount,
-                acquisition_date=request.acquisition_date,
-                user_id=request.created_by,
-                occurred_at=datetime.now(UTC),
-            )
-            await self._event_publisher.publish(event, correlation_id)
+            try:
+                event = GoodwillRecognizedEvent(
+                    aggregate_id=goodwill.id,
+                    aggregate_version=goodwill.version,
+                    goodwill_id=goodwill.id,
+                    goodwill_number=goodwill.goodwill_number,
+                    amount=goodwill_amount,
+                    acquisition_date=request.acquisition_date,
+                    legal_entity_id=request.legal_entity_id,
+                    recognized_by=str(request.created_by) if request.created_by else "system",
+                    user_id=str(request.created_by) if request.created_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published GoodwillRecognizedEvent for {goodwill_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish GoodwillRecognizedEvent: {e}")
 
         logger.info(f"Goodwill {goodwill_number} recognized: {goodwill_amount}")
-
-        return GoodwillResponse(
-            goodwill_id=goodwill.id,
-            goodwill_number=goodwill.goodwill_number,
-            legal_entity_id=goodwill.legal_entity_id,
-            amount=goodwill.amount,
-            carrying_amount=goodwill.carrying_amount,
-            status=goodwill.status.value,
-            acquisition_date=goodwill.acquisition_date,
-            cgu_code=goodwill.cgu_code,
-            description=goodwill.description,
-            created_at=goodwill.created_at,
-        )
+        return self._to_response(goodwill)
 
     async def _generate_goodwill_number(self, legal_entity_id: UUID) -> str:
         """Generate unique goodwill number."""
@@ -213,18 +254,86 @@ class GoodwillService:
         return f"GW-{legal_entity_id.hex[:6]}-{seq:06d}"
 
     # ========================================================================
+    # Goodwill Update
+    # ========================================================================
+
+    async def update_goodwill(
+        self,
+        goodwill_id: UUID,
+        request: GoodwillUpdateRequest,
+        updated_by: UUID,
+        correlation_id: str | None = None,
+    ) -> GoodwillResponse:
+        """Update goodwill details (description, CGU)."""
+        goodwill = await self._goodwill_repo.get_by_id(goodwill_id)
+        if not goodwill:
+            raise GoodwillNotFoundError(f"Goodwill {goodwill_id} not found")
+
+        if goodwill.status == GoodwillStatus.DISPOSED:
+            raise GoodwillAlreadyDisposedError("Cannot update disposed goodwill")
+
+        changes = {}
+
+        if request.description is not None and request.description != goodwill.description:
+            changes["description"] = {"old": goodwill.description, "new": request.description}
+            goodwill.description = request.description
+
+        if request.cgu_code is not None and request.cgu_code != goodwill.cgu_code:
+            changes["cgu_code"] = {"old": goodwill.cgu_code, "new": request.cgu_code}
+            goodwill.cgu_code = request.cgu_code
+
+        if request.cgu_name is not None and request.cgu_name != goodwill.cgu_name:
+            changes["cgu_name"] = {"old": goodwill.cgu_name, "new": request.cgu_name}
+            goodwill.cgu_name = request.cgu_name
+
+        if not changes:
+            return self._to_response(goodwill)
+
+        goodwill.updated_at = datetime.now(UTC)
+        goodwill.updated_by = updated_by
+        goodwill.version += 1
+
+        await self._goodwill_repo.update(goodwill)
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["goodwill_updated"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            try:
+                event = GoodwillUpdatedEvent(
+                    aggregate_id=goodwill.id,
+                    aggregate_version=goodwill.version,
+                    goodwill_id=goodwill.id,
+                    goodwill_number=goodwill.goodwill_number,
+                    changes=changes,
+                    updated_by=str(updated_by),
+                    user_id=str(updated_by),
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published GoodwillUpdatedEvent for {goodwill.goodwill_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish GoodwillUpdatedEvent: {e}")
+
+        return self._to_response(goodwill)
+
+    # ========================================================================
     # Impairment Testing
     # ========================================================================
 
     async def test_impairment(
-        self, request: ImpairmentTestRequest, correlation_id: str | None = None
+        self,
+        request: ImpairmentTestRequest,
+        correlation_id: str | None = None,
     ) -> ImpairmentTestResponse:
         """Perform impairment test on goodwill."""
         goodwill = await self._goodwill_repo.get_by_id(request.goodwill_id)
         if not goodwill:
             raise GoodwillNotFoundError(f"Goodwill {request.goodwill_id} not found")
 
-        if goodwill.status != GoodwillStatus.ACTIVE:
+        if goodwill.status not in (GoodwillStatus.ACTIVE, GoodwillStatus.IMPAIRED, GoodwillStatus.PARTIALLY_IMPAIRED):
             raise InvalidImpairmentTestError(
                 f"Goodwill is not active (status: {goodwill.status.value})"
             )
@@ -232,6 +341,7 @@ class GoodwillService:
         carrying = goodwill.carrying_amount
         recoverable = request.recoverable_amount
         journal_id = None
+        old_status = goodwill.status
 
         if recoverable < carrying:
             impairment_loss = carrying - recoverable
@@ -245,35 +355,52 @@ class GoodwillService:
             ) + impairment_loss
             goodwill.last_impairment_date = request.test_date
             goodwill.last_impairment_amount = impairment_loss
-            goodwill.status = GoodwillStatus.IMPAIRED
+            goodwill.status = (
+                GoodwillStatus.PARTIALLY_IMPAIRED
+                if new_carrying > 0 and new_carrying < goodwill.amount
+                else GoodwillStatus.IMPAIRED
+            )
+            goodwill.updated_at = datetime.now(UTC)
+            goodwill.version += 1
 
             await self._goodwill_repo.update(goodwill)
 
             # Post impairment journal to GL
             if self._ledger_repo:
                 journal_id = await self._post_impairment_journal(
-                    goodwill.legal_entity_id, impairment_loss, request.test_date, request.created_by
+                    goodwill.legal_entity_id,
+                    impairment_loss,
+                    request.test_date,
+                    request.created_by,
                 )
                 await self._goodwill_repo.record_impairment_journal(goodwill.id, journal_id)
 
             if self._uow:
                 await self._uow.commit()
 
-            # Publish event
-            if self._event_publisher:
-                from domain.goodwill.domain_events import GoodwillImpaired
-
-                event = GoodwillImpaired(
-                    goodwill_id=goodwill.id,
-                    goodwill_number=goodwill.goodwill_number,
-                    impairment_loss=impairment_loss,
-                    new_carrying_amount=new_carrying,
-                    user_id=request.created_by,
-                    occurred_at=datetime.now(UTC),
-                )
-                await self._event_publisher.publish(event, correlation_id)
-
             self._stats["impairments"] += 1
+
+            # --- PUBLISH IMPAIRMENT EVENT ---
+            if self._event_publisher:
+                try:
+                    event = GoodwillImpairedEvent(
+                        aggregate_id=goodwill.id,
+                        aggregate_version=goodwill.version,
+                        goodwill_id=goodwill.id,
+                        goodwill_number=goodwill.goodwill_number,
+                        impairment_loss=impairment_loss,
+                        new_carrying_amount=new_carrying,
+                        old_carrying_amount=carrying,
+                        test_date=request.test_date,
+                        impaired_by=str(request.created_by) if request.created_by else "system",
+                        user_id=str(request.created_by) if request.created_by else None,
+                        correlation_id=correlation_id,
+                    )
+                    await self._event_publisher.publish(event)
+                    logger.debug(f"Published GoodwillImpairedEvent for {goodwill.goodwill_number}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish GoodwillImpairedEvent: {e}")
+
             logger.warning(f"Goodwill {goodwill.goodwill_number} impaired: loss {impairment_loss}")
         else:
             impairment_loss = Decimal("0")
@@ -293,7 +420,11 @@ class GoodwillService:
         )
 
     async def _post_impairment_journal(
-        self, legal_entity_id: UUID, impairment_loss: Decimal, test_date: date, user_id: UUID | None
+        self,
+        legal_entity_id: UUID,
+        impairment_loss: Decimal,
+        test_date: date,
+        user_id: UUID | None,
     ) -> UUID:
         """Post impairment loss journal entry."""
         expense_account = "5-7100"  # Impairment loss - Goodwill
@@ -336,23 +467,28 @@ class GoodwillService:
         reversal_amount: Decimal,
         reason: str,
         user_id: UUID,
+        correlation_id: str | None = None,
     ) -> Decimal:
         """Reverse a previous impairment loss."""
         goodwill = await self._goodwill_repo.get_by_id(goodwill_id)
         if not goodwill:
             raise GoodwillNotFoundError(f"Goodwill {goodwill_id} not found")
 
-        if goodwill.status != GoodwillStatus.IMPAIRED:
+        if goodwill.status not in (GoodwillStatus.IMPAIRED, GoodwillStatus.PARTIALLY_IMPAIRED):
             raise InvalidImpairmentTestError("Only impaired goodwill can be reversed")
 
-        new_carrying = goodwill.carrying_amount + reversal_amount
+        old_carrying = goodwill.carrying_amount
+        new_carrying = old_carrying + reversal_amount
         if new_carrying > goodwill.amount:
             new_carrying = goodwill.amount
 
-        actual_reversal = new_carrying - goodwill.carrying_amount
+        actual_reversal = new_carrying - old_carrying
+        old_status = goodwill.status
 
         goodwill.carrying_amount = new_carrying
-        goodwill.impairment_loss_total -= actual_reversal
+        goodwill.impairment_loss_total = max(
+            Decimal("0"), (goodwill.impairment_loss_total or Decimal("0")) - actual_reversal
+        )
         goodwill.last_reversal_date = reversal_date
         goodwill.last_reversal_amount = actual_reversal
         goodwill.status = (
@@ -360,14 +496,39 @@ class GoodwillService:
             if new_carrying == goodwill.amount
             else GoodwillStatus.PARTIALLY_IMPAIRED
         )
+        goodwill.updated_at = datetime.now(UTC)
+        goodwill.updated_by = user_id
+        goodwill.version += 1
 
         await self._goodwill_repo.update(goodwill)
         if self._uow:
             await self._uow.commit()
 
         self._stats["reversals"] += 1
-        logger.info(f"Goodwill {goodwill.goodwill_number} impairment reversed by {actual_reversal}")
 
+        # --- PUBLISH REVERSAL EVENT ---
+        if self._event_publisher and actual_reversal > 0:
+            try:
+                event = GoodwillImpairmentReversedEvent(
+                    aggregate_id=goodwill.id,
+                    aggregate_version=goodwill.version,
+                    goodwill_id=goodwill.id,
+                    goodwill_number=goodwill.goodwill_number,
+                    reversal_amount=actual_reversal,
+                    new_carrying_amount=new_carrying,
+                    old_carrying_amount=old_carrying,
+                    reversal_date=reversal_date,
+                    reason=reason,
+                    reversed_by=str(user_id),
+                    user_id=str(user_id),
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published GoodwillImpairmentReversedEvent for {goodwill.goodwill_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish GoodwillImpairmentReversedEvent: {e}")
+
+        logger.info(f"Goodwill {goodwill.goodwill_number} impairment reversed by {actual_reversal}")
         return actual_reversal
 
     # ========================================================================
@@ -375,21 +536,33 @@ class GoodwillService:
     # ========================================================================
 
     async def amortize_goodwill(
-        self, goodwill_id: UUID, amortization_amount: Decimal, period: str, user_id: UUID
+        self,
+        goodwill_id: UUID,
+        amortization_amount: Decimal,
+        period: str,
+        user_id: UUID,
+        correlation_id: str | None = None,
     ) -> Decimal:
         """Amortize goodwill over its useful life."""
         goodwill = await self._goodwill_repo.get_by_id(goodwill_id)
         if not goodwill:
             raise GoodwillNotFoundError(f"Goodwill {goodwill_id} not found")
 
+        if goodwill.status == GoodwillStatus.DISPOSED:
+            raise GoodwillAlreadyDisposedError("Cannot amortize disposed goodwill")
+
         if goodwill.carrying_amount < amortization_amount:
             raise InvalidImpairmentTestError("Amortization amount exceeds carrying amount")
 
+        old_carrying = goodwill.carrying_amount
         goodwill.carrying_amount -= amortization_amount
         goodwill.accumulated_amortization = (
             goodwill.accumulated_amortization or Decimal("0")
         ) + amortization_amount
         goodwill.last_amortization_date = datetime.strptime(period, "%Y-%m").date()
+        goodwill.updated_at = datetime.now(UTC)
+        goodwill.updated_by = user_id
+        goodwill.version += 1
 
         if goodwill.carrying_amount == 0:
             goodwill.status = GoodwillStatus.FULLY_AMORTIZED
@@ -398,8 +571,92 @@ class GoodwillService:
         if self._uow:
             await self._uow.commit()
 
+        self._stats["amortizations"] += 1
+
+        # --- PUBLISH AMORTIZATION EVENT ---
+        if self._event_publisher and amortization_amount > 0:
+            try:
+                event = GoodwillAmortizedEvent(
+                    aggregate_id=goodwill.id,
+                    aggregate_version=goodwill.version,
+                    goodwill_id=goodwill.id,
+                    goodwill_number=goodwill.goodwill_number,
+                    amortization_amount=amortization_amount,
+                    period=period,
+                    new_carrying_amount=goodwill.carrying_amount,
+                    old_carrying_amount=old_carrying,
+                    is_fully_amortized=goodwill.status == GoodwillStatus.FULLY_AMORTIZED,
+                    amortized_by=str(user_id),
+                    user_id=str(user_id),
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published GoodwillAmortizedEvent for {goodwill.goodwill_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish GoodwillAmortizedEvent: {e}")
+
         logger.info(f"Goodwill {goodwill.goodwill_number} amortized by {amortization_amount}")
         return goodwill.carrying_amount
+
+    # ========================================================================
+    # Disposal
+    # ========================================================================
+
+    async def dispose_goodwill(
+        self,
+        request: GoodwillDisposalRequest,
+        correlation_id: str | None = None,
+    ) -> GoodwillResponse:
+        """Dispose goodwill (e.g., when CGU is sold)."""
+        goodwill = await self._goodwill_repo.get_by_id(request.goodwill_id)
+        if not goodwill:
+            raise GoodwillNotFoundError(f"Goodwill {request.goodwill_id} not found")
+
+        if goodwill.status == GoodwillStatus.DISPOSED:
+            raise GoodwillAlreadyDisposedError("Goodwill already disposed")
+
+        old_carrying = goodwill.carrying_amount
+        gain_loss = request.proceeds - old_carrying
+
+        goodwill.status = GoodwillStatus.DISPOSED
+        goodwill.disposal_date = request.disposal_date
+        goodwill.disposal_reason = request.reason
+        goodwill.disposal_proceeds = request.proceeds
+        goodwill.disposal_gain_loss = gain_loss
+        goodwill.updated_at = datetime.now(UTC)
+        goodwill.updated_by = request.disposed_by
+        goodwill.version += 1
+
+        await self._goodwill_repo.update(goodwill)
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["disposals"] += 1
+
+        # --- PUBLISH DISPOSAL EVENT ---
+        if self._event_publisher:
+            try:
+                event = GoodwillDisposedEvent(
+                    aggregate_id=goodwill.id,
+                    aggregate_version=goodwill.version,
+                    goodwill_id=goodwill.id,
+                    goodwill_number=goodwill.goodwill_number,
+                    disposal_date=request.disposal_date,
+                    disposal_amount=request.proceeds,
+                    carrying_amount=old_carrying,
+                    gain_loss=gain_loss,
+                    reason=request.reason,
+                    disposed_by=str(request.disposed_by) if request.disposed_by else "system",
+                    user_id=str(request.disposed_by) if request.disposed_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published GoodwillDisposedEvent for {goodwill.goodwill_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish GoodwillDisposedEvent: {e}")
+
+        logger.info(f"Goodwill {goodwill.goodwill_number} disposed. Gain/Loss: {gain_loss}")
+        return self._to_response(goodwill)
 
     # ========================================================================
     # Queries
@@ -410,7 +667,28 @@ class GoodwillService:
         goodwill = await self._goodwill_repo.get_by_id(goodwill_id)
         if not goodwill:
             return None
+        return self._to_response(goodwill)
 
+    async def list_goodwill_by_entity(self, legal_entity_id: UUID) -> list[GoodwillResponse]:
+        """List all goodwill for a legal entity."""
+        items = await self._goodwill_repo.list_by_legal_entity(legal_entity_id)
+        return [self._to_response(g) for g in items]
+
+    async def list_goodwill_by_cgu(self, cgu_code: str) -> list[GoodwillResponse]:
+        """List all goodwill for a CGU."""
+        items = await self._goodwill_repo.list_by_cgu(cgu_code)
+        return [self._to_response(g) for g in items]
+
+    async def get_active_goodwill(self, legal_entity_id: UUID) -> list[GoodwillResponse]:
+        """Get active goodwill for a legal entity."""
+        items = await self._goodwill_repo.list_active_goodwill(legal_entity_id)
+        return [self._to_response(g) for g in items]
+
+    # ========================================================================
+    # Private Helpers
+    # ========================================================================
+
+    def _to_response(self, goodwill: Goodwill) -> GoodwillResponse:
         return GoodwillResponse(
             goodwill_id=goodwill.id,
             goodwill_number=goodwill.goodwill_number,
@@ -423,25 +701,6 @@ class GoodwillService:
             description=goodwill.description,
             created_at=goodwill.created_at,
         )
-
-    async def list_goodwill_by_entity(self, legal_entity_id: UUID) -> list[GoodwillResponse]:
-        """List all goodwill for a legal entity."""
-        items = await self._goodwill_repo.list_by_legal_entity(legal_entity_id)
-        return [
-            GoodwillResponse(
-                goodwill_id=g.id,
-                goodwill_number=g.goodwill_number,
-                legal_entity_id=g.legal_entity_id,
-                amount=g.amount,
-                carrying_amount=g.carrying_amount,
-                status=g.status.value,
-                acquisition_date=g.acquisition_date,
-                cgu_code=g.cgu_code,
-                description=g.description,
-                created_at=g.created_at,
-            )
-            for g in items
-        ]
 
     def get_stats(self) -> dict[str, int]:
         """Get service statistics."""
@@ -463,11 +722,14 @@ async def create_goodwill_service(
 
 
 __all__ = [
+    "GoodwillAlreadyDisposedError",
+    "GoodwillDisposalRequest",
     "GoodwillNotFoundError",
     "GoodwillRecognitionRequest",
     "GoodwillResponse",
     "GoodwillService",
     "GoodwillServiceError",
+    "GoodwillUpdateRequest",
     "ImpairmentTestRequest",
     "ImpairmentTestResponse",
     "InvalidImpairmentTestError",

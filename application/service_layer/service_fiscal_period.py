@@ -1,4 +1,4 @@
-# service_fiscal_period.py - Complete rewrite with full implementation
+# service_fiscal_period.py - Complete rewrite with full event publishing
 
 #!/usr/bin/env python3
 
@@ -8,6 +8,7 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service layer for managing fiscal periods (accounting periods).
+    Mempublikasikan semua domain events yang sesuai.
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ from domain.fiscal_period.domain_events import (
     PeriodLockedEvent,
     PeriodOpenedEvent,
     PeriodReopenedEvent,
+    PeriodStatusChangedEvent,
+    PeriodUpdatedEvent,
 )
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.fiscal_period_repository_port import FiscalPeriodRepositoryPort
@@ -47,6 +50,15 @@ class CreatePeriodRequest:
     start_date: date | None = None
     end_date: date | None = None
     created_by: UUID | None = None
+
+
+@dataclass(kw_only=True)
+class UpdatePeriodRequest:
+    """Request to update a fiscal period."""
+
+    start_date: date | None = None
+    end_date: date | None = None
+    period_type: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -132,6 +144,7 @@ class PeriodAlreadyOpenError(FiscalPeriodServiceError):
 class FiscalPeriodService:
     """
     Service for managing fiscal periods.
+    Mempublikasikan event untuk setiap operasi.
     """
 
     def __init__(
@@ -148,7 +161,13 @@ class FiscalPeriodService:
         self._period_repo = period_repo
         self._uow = uow
         self._event_publisher = event_publisher
-        self._stats = {"periods_created": 0, "periods_closed": 0, "periods_locked": 0}
+        self._stats = {
+            "periods_created": 0,
+            "periods_updated": 0,
+            "periods_closed": 0,
+            "periods_locked": 0,
+            "periods_reopened": 0,
+        }
 
         logger.info("FiscalPeriodService initialized")
 
@@ -216,6 +235,7 @@ class FiscalPeriodService:
 
         self._stats["periods_created"] += 1
 
+        # --- PUBLISH EVENT ---
         if self._event_publisher:
             event = PeriodOpenedEvent(
                 period_id=period.period_id,
@@ -226,8 +246,71 @@ class FiscalPeriodService:
                 occurred_at=datetime.now(UTC),
             )
             await self._event_publisher.publish(event, correlation_id)
+            logger.debug(f"Published PeriodOpenedEvent for {request.year}-{request.month:02d}")
 
         logger.info(f"Fiscal period {request.year}-{request.month:02d} created and opened")
+        return period
+
+    async def update_period(
+        self,
+        legal_entity_id: UUID,
+        year: int,
+        month: int,
+        request: UpdatePeriodRequest,
+        updated_by: UUID,
+        correlation_id: str | None = None,
+    ) -> FiscalPeriod:
+        """Update a fiscal period (start_date, end_date, period_type)."""
+        period = await self._period_repo.get_by_year_month(legal_entity_id, year, month)
+        if not period:
+            raise PeriodNotFoundError(f"Period {year}-{month:02d} not found")
+
+        if period.status == PeriodStatus.CLOSED:
+            raise PeriodAlreadyClosedError(f"Cannot update a closed period {year}-{month:02d}")
+
+        changes = {}
+
+        if request.start_date is not None and request.start_date != period.start_date:
+            changes["start_date"] = {"old": period.start_date.isoformat(), "new": request.start_date.isoformat()}
+            period.start_date = request.start_date
+
+        if request.end_date is not None and request.end_date != period.end_date:
+            changes["end_date"] = {"old": period.end_date.isoformat(), "new": request.end_date.isoformat()}
+            period.end_date = request.end_date
+
+        if request.period_type is not None:
+            new_type = PeriodType(request.period_type)
+            if new_type != period.period_type:
+                changes["period_type"] = {"old": period.period_type.value, "new": new_type.value}
+                period.period_type = new_type
+
+        if not changes:
+            return period
+
+        period.updated_at = datetime.now(UTC)
+        period.updated_by = str(updated_by)
+        period.version += 1
+
+        await self._period_repo.save(period)
+        await self._uow.commit()
+
+        self._stats["periods_updated"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = PeriodUpdatedEvent(
+                period_id=period.period_id,
+                legal_entity_id=legal_entity_id,
+                period_year=year,
+                period_month=month,
+                changes=changes,
+                updated_by=str(updated_by),
+                occurred_at=datetime.now(UTC),
+            )
+            await self._event_publisher.publish(event, correlation_id)
+            logger.debug(f"Published PeriodUpdatedEvent for {year}-{month:02d}")
+
+        logger.info(f"Period {year}-{month:02d} updated by {updated_by}")
         return period
 
     async def open_period(
@@ -238,10 +321,12 @@ class FiscalPeriodService:
         opened_by: UUID,
         correlation_id: str | None = None,
     ) -> FiscalPeriod:
-        """Open a period."""
+        """Open an existing period (e.g., from DRAFT to OPEN)."""
         period = await self._period_repo.get_by_year_month(legal_entity_id, year, month)
         if not period:
             raise PeriodNotFoundError(f"Period {year}-{month:02d} not found")
+
+        old_status = period.status
 
         if period.status == PeriodStatus.OPEN:
             raise PeriodAlreadyOpenError(f"Period {year}-{month:02d} is already OPEN")
@@ -250,8 +335,10 @@ class FiscalPeriodService:
         await self._period_repo.save(updated)
         await self._uow.commit()
 
+        # --- PUBLISH EVENTS ---
         if self._event_publisher:
-            event = PeriodOpenedEvent(
+            # PeriodOpenedEvent
+            event_opened = PeriodOpenedEvent(
                 period_id=period.period_id,
                 legal_entity_id=legal_entity_id,
                 period_year=year,
@@ -259,7 +346,22 @@ class FiscalPeriodService:
                 user_id=str(opened_by),
                 occurred_at=datetime.now(UTC),
             )
-            await self._event_publisher.publish(event, correlation_id)
+            await self._event_publisher.publish(event_opened, correlation_id)
+            logger.debug(f"Published PeriodOpenedEvent for {year}-{month:02d}")
+
+            # PeriodStatusChangedEvent
+            event_status = PeriodStatusChangedEvent(
+                period_id=period.period_id,
+                legal_entity_id=legal_entity_id,
+                period_year=year,
+                period_month=month,
+                old_status=old_status.value,
+                new_status=PeriodStatus.OPEN.value,
+                changed_by=str(opened_by),
+                occurred_at=datetime.now(UTC),
+            )
+            await self._event_publisher.publish(event_status, correlation_id)
+            logger.debug(f"Published PeriodStatusChangedEvent for {year}-{month:02d}")
 
         logger.info(f"Period {year}-{month:02d} opened by {opened_by}")
         return updated
@@ -277,6 +379,8 @@ class FiscalPeriodService:
         if not period:
             raise PeriodNotFoundError(f"Period {year}-{month:02d} not found")
 
+        old_status = period.status
+
         if period.status != PeriodStatus.OPEN:
             raise FiscalPeriodServiceError(f"Cannot lock period in status {period.status.value}")
 
@@ -286,8 +390,9 @@ class FiscalPeriodService:
 
         self._stats["periods_locked"] += 1
 
+        # --- PUBLISH EVENTS ---
         if self._event_publisher:
-            event = PeriodLockedEvent(
+            event_lock = PeriodLockedEvent(
                 period_id=period.period_id,
                 legal_entity_id=legal_entity_id,
                 period_year=year,
@@ -295,7 +400,21 @@ class FiscalPeriodService:
                 user_id=str(locked_by),
                 occurred_at=datetime.now(UTC),
             )
-            await self._event_publisher.publish(event, correlation_id)
+            await self._event_publisher.publish(event_lock, correlation_id)
+            logger.debug(f"Published PeriodLockedEvent for {year}-{month:02d}")
+
+            event_status = PeriodStatusChangedEvent(
+                period_id=period.period_id,
+                legal_entity_id=legal_entity_id,
+                period_year=year,
+                period_month=month,
+                old_status=old_status.value,
+                new_status=PeriodStatus.LOCKED.value,
+                changed_by=str(locked_by),
+                occurred_at=datetime.now(UTC),
+            )
+            await self._event_publisher.publish(event_status, correlation_id)
+            logger.debug(f"Published PeriodStatusChangedEvent for {year}-{month:02d}")
 
         logger.info(f"Period {year}-{month:02d} locked by {locked_by}")
         return updated
@@ -311,6 +430,8 @@ class FiscalPeriodService:
         )
         if not period:
             raise PeriodNotFoundError(f"Period {request.year}-{request.month:02d} not found")
+
+        old_status = period.status
 
         if period.status == PeriodStatus.CLOSED:
             raise PeriodAlreadyClosedError(
@@ -333,8 +454,9 @@ class FiscalPeriodService:
 
         self._stats["periods_closed"] += 1
 
+        # --- PUBLISH EVENTS ---
         if self._event_publisher:
-            event = PeriodClosedEvent(
+            event_close = PeriodClosedEvent(
                 period_id=period.period_id,
                 legal_entity_id=request.legal_entity_id,
                 period_year=request.year,
@@ -343,7 +465,21 @@ class FiscalPeriodService:
                 closed_at=request.closed_at or datetime.now(UTC),
                 occurred_at=datetime.now(UTC),
             )
-            await self._event_publisher.publish(event, correlation_id)
+            await self._event_publisher.publish(event_close, correlation_id)
+            logger.debug(f"Published PeriodClosedEvent for {request.year}-{request.month:02d}")
+
+            event_status = PeriodStatusChangedEvent(
+                period_id=period.period_id,
+                legal_entity_id=request.legal_entity_id,
+                period_year=request.year,
+                period_month=request.month,
+                old_status=old_status.value,
+                new_status=PeriodStatus.CLOSED.value,
+                changed_by=str(request.closed_by),
+                occurred_at=datetime.now(UTC),
+            )
+            await self._event_publisher.publish(event_status, correlation_id)
+            logger.debug(f"Published PeriodStatusChangedEvent for {request.year}-{request.month:02d}")
 
         logger.info(f"Period {request.year}-{request.month:02d} closed by {request.closed_by}")
         return updated
@@ -364,13 +500,13 @@ class FiscalPeriodService:
         if not period:
             raise PeriodNotFoundError(f"Period {request.year}-{request.month:02d} not found")
 
-        # FIX: Added validation - period must be CLOSED before reopening
+        old_status = period.status
+
         if period.status == PeriodStatus.OPEN:
             raise PeriodAlreadyOpenError(
                 f"Period {request.year}-{request.month:02d} is already OPEN"
             )
 
-        # Additional safety: ensure period is CLOSED (not LOCKED or other status)
         if period.status != PeriodStatus.CLOSED:
             raise FiscalPeriodServiceError(
                 f"Period {request.year}-{request.month:02d} must be CLOSED to reopen (current: {period.status.value})"
@@ -380,8 +516,11 @@ class FiscalPeriodService:
         await self._period_repo.save(updated)
         await self._uow.commit()
 
+        self._stats["periods_reopened"] += 1
+
+        # --- PUBLISH EVENTS ---
         if self._event_publisher:
-            event = PeriodReopenedEvent(
+            event_reopen = PeriodReopenedEvent(
                 period_id=period.period_id,
                 legal_entity_id=request.legal_entity_id,
                 period_year=request.year,
@@ -390,7 +529,21 @@ class FiscalPeriodService:
                 reason=request.reason,
                 occurred_at=datetime.now(UTC),
             )
-            await self._event_publisher.publish(event, correlation_id)
+            await self._event_publisher.publish(event_reopen, correlation_id)
+            logger.debug(f"Published PeriodReopenedEvent for {request.year}-{request.month:02d}")
+
+            event_status = PeriodStatusChangedEvent(
+                period_id=period.period_id,
+                legal_entity_id=request.legal_entity_id,
+                period_year=request.year,
+                period_month=request.month,
+                old_status=old_status.value,
+                new_status=PeriodStatus.OPEN.value,
+                changed_by=str(request.reopened_by),
+                occurred_at=datetime.now(UTC),
+            )
+            await self._event_publisher.publish(event_status, correlation_id)
+            logger.debug(f"Published PeriodStatusChangedEvent for {request.year}-{request.month:02d}")
 
         logger.warning(
             f"Period {request.year}-{request.month:02d} reopened by {request.reopened_by}"
@@ -486,5 +639,6 @@ __all__ = [
     "PeriodNotFoundError",
     "PeriodResponse",
     "ReopenPeriodRequest",
+    "UpdatePeriodRequest",
     "create_fiscal_period_service",
 ]

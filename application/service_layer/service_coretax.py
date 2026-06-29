@@ -1,4 +1,4 @@
-# service_coretax.py - Complete rewrite with fixes
+# service_coretax.py - Complete rewrite with full event publishing (including BupotSubmittedEvent, SPTApprovedEvent, FakturSubmittedEvent)
 
 #!/usr/bin/env python3
 
@@ -9,6 +9,7 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service layer for Coretax DJP integration.
+    Publishes domain events after successful submissions.
 """
 
 from __future__ import annotations
@@ -34,6 +35,17 @@ from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.tax_authority_coretax_port import CoretaxPort
 from ports.primary.tax_repository_port import TaxRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
+
+# Import domain events (semua dengan nama yang benar sesuai registry)
+from application.events import (
+    BupotApprovedEvent,
+    BupotSubmittedEvent,
+    FakturApprovedEvent,
+    FakturRejectedEvent,
+    FakturSubmittedEvent,
+    SPTApprovedEvent,
+    SPTSubmittedEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +83,7 @@ class NSFPExhaustedError(CoretaxServiceError):
 class CoretaxService:
     """
     Service untuk integrasi dengan Coretax DJP.
+    Mempublikasikan event setelah setiap operasi sukses.
     """
 
     def __init__(
@@ -143,6 +156,26 @@ class CoretaxService:
             nsfp = await self.get_next_nsfp(faktur.npwp_penjual.value)
             faktur.seri_faktur = nsfp
 
+        # --- PUBLISH SUBMITTED EVENT (sebelum submit ke Coretax) ---
+        if self._event_publisher:
+            try:
+                event_submitted = FakturSubmittedEvent(
+                    aggregate_id=faktur.id,
+                    aggregate_version=1,
+                    faktur_id=faktur.id,
+                    faktur_number=faktur.seri_faktur,
+                    npwp_penjual=faktur.npwp_penjual.value,
+                    dpp=faktur.dpp,
+                    ppn=faktur.ppn,
+                    status="SUBMITTED",
+                    user_id=str(user_id) if user_id else "system",
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event_submitted, correlation_id)
+                logger.debug(f"Published FakturSubmittedEvent for {faktur.seri_faktur}")
+            except Exception as e:
+                logger.warning(f"Failed to publish FakturSubmittedEvent: {e}")
+
         payload = faktur.to_coretax_payload()
         response = await self._coretax.submit_faktur(payload)
 
@@ -156,6 +189,25 @@ class CoretaxService:
 
             self._stats["faktur_submitted"] += 1
             logger.info(f"Faktur {faktur.seri_faktur} submitted successfully")
+
+            # --- PUBLISH APPROVED EVENT ---
+            if self._event_publisher:
+                try:
+                    event_approved = FakturApprovedEvent(
+                        aggregate_id=faktur.id,
+                        aggregate_version=2,
+                        faktur_id=faktur.id,
+                        npwp_penjual=faktur.npwp_penjual.value,
+                        seri_faktur=faktur.seri_faktur,
+                        approval_code=faktur.approval_code,
+                        status=faktur.status,
+                        timestamp=datetime.now(UTC),
+                    )
+                    await self._event_publisher.publish(event_approved, correlation_id)
+                    logger.debug(f"Published FakturApprovedEvent for {faktur.seri_faktur}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish FakturApprovedEvent: {e}")
+
             return CoretaxSubmissionResponse(
                 success=True,
                 submission_id=uuid4(),
@@ -168,6 +220,24 @@ class CoretaxService:
             faktur.status = "REJECTED"
             await self._tax_repo.save_faktur_keluaran(faktur)
             self._stats["errors"] += 1
+
+            # --- PUBLISH REJECTED EVENT ---
+            if self._event_publisher:
+                try:
+                    event_rejected = FakturRejectedEvent(
+                        aggregate_id=faktur.id,
+                        aggregate_version=2,
+                        faktur_id=faktur.id,
+                        npwp_penjual=faktur.npwp_penjual.value,
+                        seri_faktur=faktur.seri_faktur,
+                        reason=response.get("message", "Unknown error"),
+                        timestamp=datetime.now(UTC),
+                    )
+                    await self._event_publisher.publish(event_rejected, correlation_id)
+                    logger.debug(f"Published FakturRejectedEvent for {faktur.seri_faktur}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish FakturRejectedEvent: {e}")
+
             raise CoretaxSubmissionError(f"Submission failed: {response.get('message')}")
 
     async def cancel_faktur_keluaran(self, faktur_id: UUID, reason: str, user_id: UUID) -> bool:
@@ -216,6 +286,8 @@ class CoretaxService:
 
         if self._uow:
             await self._uow.commit()
+
+        # Tidak publish event untuk import (hanya internal)
         return fakturs
 
     # ========================================================================
@@ -223,9 +295,27 @@ class CoretaxService:
     # ========================================================================
 
     async def submit_ebupot(
-        self, bukti_potong: BuktiPotongPPh23DTO, user_id: UUID
+        self, bukti_potong: BuktiPotongPPh23DTO, user_id: UUID, correlation_id: str | None = None
     ) -> CoretaxSubmissionResponse:
         """Submit e-Bupot PPh 23 to Coretax."""
+        # --- PUBLISH SUBMITTED EVENT ---
+        if self._event_publisher:
+            try:
+                event_submitted = BupotSubmittedEvent(
+                    aggregate_id=bukti_potong.id,
+                    aggregate_version=1,
+                    bukti_potong_id=bukti_potong.id,
+                    npwp_pemotong=bukti_potong.npwp_pemotong.value,
+                    npwp_penerima=bukti_potong.npwp_penerima.value,
+                    status="SUBMITTED",
+                    user_id=str(user_id) if user_id else "system",
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event_submitted, correlation_id)
+                logger.debug(f"Published BupotSubmittedEvent for {bukti_potong.id}")
+            except Exception as e:
+                logger.warning(f"Failed to publish BupotSubmittedEvent: {e}")
+
         payload = {
             "id": str(bukti_potong.id),
             "npwp_pemotong": bukti_potong.npwp_pemotong.value,
@@ -248,6 +338,25 @@ class CoretaxService:
                 await self._uow.commit()
 
             self._stats["spt_submitted"] += 1
+
+            # --- PUBLISH APPROVED EVENT ---
+            if self._event_publisher:
+                try:
+                    event_approved = BupotApprovedEvent(
+                        aggregate_id=bukti_potong.id,
+                        aggregate_version=2,
+                        bukti_potong_id=bukti_potong.id,
+                        npwp_pemotong=bukti_potong.npwp_pemotong.value,
+                        npwp_penerima=bukti_potong.npwp_penerima.value,
+                        nomor_bukpot=bukti_potong.nomor_bukpot,
+                        status=bukti_potong.status,
+                        timestamp=datetime.now(UTC),
+                    )
+                    await self._event_publisher.publish(event_approved, correlation_id)
+                    logger.debug(f"Published BupotApprovedEvent for {bukti_potong.nomor_bukpot}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish BupotApprovedEvent: {e}")
+
             return CoretaxSubmissionResponse(
                 success=True,
                 submission_id=bukti_potong.id,
@@ -265,7 +374,7 @@ class CoretaxService:
     # ========================================================================
 
     async def submit_spt_masa_ppn(
-        self, spt: SPTMasaPpnRequest, user_id: UUID
+        self, spt: SPTMasaPpnRequest, user_id: UUID, correlation_id: str | None = None
     ) -> CoretaxSubmissionResponse:
         """Submit SPT Masa PPN to Coretax."""
         payload = spt.to_coretax_payload()
@@ -278,6 +387,44 @@ class CoretaxService:
                 await self._uow.commit()
 
             self._stats["spt_submitted"] += 1
+
+            # --- PUBLISH SUBMITTED EVENT ---
+            if self._event_publisher:
+                try:
+                    event_submitted = SPTSubmittedEvent(
+                        aggregate_id=spt.id,
+                        aggregate_version=1,
+                        spt_id=spt.id,
+                        npwp=spt.npwp_wajib_pajak.value,
+                        masa_pajak=spt.masa_pajak.to_str(),
+                        jenis_spt="PPN",
+                        status=spt.status,
+                        timestamp=datetime.now(UTC),
+                    )
+                    await self._event_publisher.publish(event_submitted, correlation_id)
+                    logger.debug(f"Published SPTSubmittedEvent for PPN masa {spt.masa_pajak.to_str()}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish SPTSubmittedEvent: {e}")
+
+            # --- PUBLISH APPROVED EVENT ---
+            if self._event_publisher:
+                try:
+                    event_approved = SPTApprovedEvent(
+                        aggregate_id=spt.id,
+                        aggregate_version=2,
+                        spt_id=spt.id,
+                        npwp=spt.npwp_wajib_pajak.value,
+                        masa_pajak=spt.masa_pajak.to_str(),
+                        jenis_spt="PPN",
+                        approved_by=str(user_id) if user_id else "system",
+                        user_id=str(user_id) if user_id else None,
+                        correlation_id=correlation_id,
+                    )
+                    await self._event_publisher.publish(event_approved, correlation_id)
+                    logger.debug(f"Published SPTApprovedEvent for PPN masa {spt.masa_pajak.to_str()}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish SPTApprovedEvent: {e}")
+
             return CoretaxSubmissionResponse(
                 success=True,
                 submission_id=spt.id,
@@ -294,7 +441,7 @@ class CoretaxService:
     # ========================================================================
 
     async def submit_spt_masa_pph21(
-        self, spt: SPTMasaPph21Request, user_id: UUID
+        self, spt: SPTMasaPph21Request, user_id: UUID, correlation_id: str | None = None
     ) -> CoretaxSubmissionResponse:
         """Submit SPT Masa PPh 21 to Coretax."""
         payload = {
@@ -319,6 +466,44 @@ class CoretaxService:
                 await self._uow.commit()
 
             self._stats["spt_submitted"] += 1
+
+            # --- PUBLISH SUBMITTED EVENT ---
+            if self._event_publisher:
+                try:
+                    event_submitted = SPTSubmittedEvent(
+                        aggregate_id=spt.id,
+                        aggregate_version=1,
+                        spt_id=spt.id,
+                        npwp=spt.npwp_pemotong.value,
+                        masa_pajak=spt.masa_pajak.to_str(),
+                        jenis_spt="PPH21",
+                        status=spt.status,
+                        timestamp=datetime.now(UTC),
+                    )
+                    await self._event_publisher.publish(event_submitted, correlation_id)
+                    logger.debug(f"Published SPTSubmittedEvent for PPh21 masa {spt.masa_pajak.to_str()}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish SPTSubmittedEvent: {e}")
+
+            # --- PUBLISH APPROVED EVENT ---
+            if self._event_publisher:
+                try:
+                    event_approved = SPTApprovedEvent(
+                        aggregate_id=spt.id,
+                        aggregate_version=2,
+                        spt_id=spt.id,
+                        npwp=spt.npwp_pemotong.value,
+                        masa_pajak=spt.masa_pajak.to_str(),
+                        jenis_spt="PPH21",
+                        approved_by=str(user_id) if user_id else "system",
+                        user_id=str(user_id) if user_id else None,
+                        correlation_id=correlation_id,
+                    )
+                    await self._event_publisher.publish(event_approved, correlation_id)
+                    logger.debug(f"Published SPTApprovedEvent for PPh21 masa {spt.masa_pajak.to_str()}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish SPTApprovedEvent: {e}")
+
             return CoretaxSubmissionResponse(
                 success=True,
                 submission_id=spt.id,
@@ -335,7 +520,7 @@ class CoretaxService:
     # ========================================================================
 
     async def submit_spt_tahunan_badan(
-        self, spt: SPTTahunanBadanRequest, user_id: UUID
+        self, spt: SPTTahunanBadanRequest, user_id: UUID, correlation_id: str | None = None
     ) -> CoretaxSubmissionResponse:
         """Submit SPT Tahunan Badan (1771) to Coretax."""
         payload = {
@@ -360,6 +545,44 @@ class CoretaxService:
                 await self._uow.commit()
 
             self._stats["spt_submitted"] += 1
+
+            # --- PUBLISH SUBMITTED EVENT ---
+            if self._event_publisher:
+                try:
+                    event_submitted = SPTSubmittedEvent(
+                        aggregate_id=spt.id,
+                        aggregate_version=1,
+                        spt_id=spt.id,
+                        npwp=spt.npwp_wajib_pajak.value,
+                        tahun_pajak=spt.tahun_pajak.tahun,
+                        jenis_spt="1771",
+                        status=spt.status,
+                        timestamp=datetime.now(UTC),
+                    )
+                    await self._event_publisher.publish(event_submitted, correlation_id)
+                    logger.debug(f"Published SPTSubmittedEvent for tahun {spt.tahun_pajak.tahun}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish SPTSubmittedEvent: {e}")
+
+            # --- PUBLISH APPROVED EVENT ---
+            if self._event_publisher:
+                try:
+                    event_approved = SPTApprovedEvent(
+                        aggregate_id=spt.id,
+                        aggregate_version=2,
+                        spt_id=spt.id,
+                        npwp=spt.npwp_wajib_pajak.value,
+                        tahun_pajak=spt.tahun_pajak.tahun,
+                        jenis_spt="1771",
+                        approved_by=str(user_id) if user_id else "system",
+                        user_id=str(user_id) if user_id else None,
+                        correlation_id=correlation_id,
+                    )
+                    await self._event_publisher.publish(event_approved, correlation_id)
+                    logger.debug(f"Published SPTApprovedEvent for tahun {spt.tahun_pajak.tahun}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish SPTApprovedEvent: {e}")
+
             return CoretaxSubmissionResponse(
                 success=True,
                 submission_id=spt.id,

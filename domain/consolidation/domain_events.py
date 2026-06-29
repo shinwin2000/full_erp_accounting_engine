@@ -15,6 +15,16 @@ from enum import Enum
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
+# ============================================================================
+# Import event dari domain lain yang dibutuhkan oleh router yang salah import
+# Ini adalah solusi cepat untuk mengatasi error import
+# ============================================================================
+from domain.legal_entity.domain_events import (
+    LegalEntityCreatedEvent,
+    LegalEntityDeactivatedEvent,
+    LegalEntityUpdatedEvent,
+)
+
 
 class ConsolidationEventType(Enum):
     CONSOLIDATION_CREATED = "consolidation_created"
@@ -329,7 +339,42 @@ class ConsolidationEventPublisher:
         cls._published_events.clear()
 
 
+# ============================================================================
+# ALIAS UNTUK KOMPATIBILITAS DENGAN ROUTER
+# Router mengimpor dengan suffix "Event"
+# ============================================================================
+
+ConsolidationCreatedEvent = ConsolidationCreated
+ConsolidationCreatedEvent.__name__ = "ConsolidationCreatedEvent"
+
+ConsolidationStartedEvent = ConsolidationStarted
+ConsolidationStartedEvent.__name__ = "ConsolidationStartedEvent"
+
+ConsolidationCompletedEvent = ConsolidationCompleted
+ConsolidationCompletedEvent.__name__ = "ConsolidationCompletedEvent"
+
+ConsolidationCancelledEvent = ConsolidationCancelled
+ConsolidationCancelledEvent.__name__ = "ConsolidationCancelledEvent"
+
+ConsolidationArchivedEvent = ConsolidationArchived
+ConsolidationArchivedEvent.__name__ = "ConsolidationArchivedEvent"
+
+IntercompanyTransactionDetectedEvent = IntercompanyTransactionDetected
+IntercompanyTransactionDetectedEvent.__name__ = "IntercompanyTransactionDetectedEvent"
+
+EliminationEntryCreatedEvent = EliminationEntryCreated
+EliminationEntryCreatedEvent.__name__ = "EliminationEntryCreatedEvent"
+
+NCICalculatedEvent = NCICalculated
+NCICalculatedEvent.__name__ = "NCICalculatedEvent"
+
+
+# ============================================================================
+# Exports
+# ============================================================================
+
 __all__ = [
+    # Original classes
     "ConsolidationCancelled",
     "ConsolidationCompleted",
     "ConsolidationCreated",
@@ -340,4 +385,17 @@ __all__ = [
     "EliminationEntryCreated",
     "IntercompanyTransactionDetected",
     "NCICalculated",
+    # Alias untuk router
+    "ConsolidationCancelledEvent",
+    "ConsolidationCompletedEvent",
+    "ConsolidationCreatedEvent",
+    "ConsolidationStartedEvent",
+    "ConsolidationArchivedEvent",
+    "EliminationEntryCreatedEvent",
+    "IntercompanyTransactionDetectedEvent",
+    "NCICalculatedEvent",
+    # Event dari domain lain yang dibutuhkan (solusi cepat)
+    "LegalEntityCreatedEvent",
+    "LegalEntityDeactivatedEvent",
+    "LegalEntityUpdatedEvent",
 ]

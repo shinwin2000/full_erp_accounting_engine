@@ -7,15 +7,6 @@ Responsibility: Event: PurchaseOrderCreated, SalesOrderApproved, etc.
                Purchase & Sales aggregates. Event ini digunakan untuk
                komunikasi antar bounded context, event sourcing, dan
                proyeksi read model.
-
-Dependencies:
-- standard library (uuid, datetime, dataclass, json)
-- domain.purchase_sales.purchase_order_entity (PurchaseOrderEntity)
-- domain.purchase_sales.sales_order_entity (SalesOrderEntity)
-- domain.purchase_sales.purchase_invoice_entity (PurchaseInvoiceEntity)
-- domain.purchase_sales.sales_invoice_entity (SalesInvoiceEntity)
-
-Audit: Setiap event domain purchase & sales dictat.
 """
 
 from __future__ import annotations
@@ -23,21 +14,20 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
 from domain.purchase_sales.goods_receipt_note_entity import GoodsReceiptNoteEntity
-from domain.purchase_sales.purchase_invoice_entity import (
-    PurchaseInvoiceEntity,
-)
+from domain.purchase_sales.purchase_invoice_entity import PurchaseInvoiceEntity
 from domain.purchase_sales.purchase_order_entity import PurchaseOrderEntity
 from domain.purchase_sales.sales_delivery_note_entity import SalesDeliveryNoteEntity
 from domain.purchase_sales.sales_invoice_entity import SalesInvoiceEntity
 from domain.purchase_sales.sales_order_entity import SalesOrderEntity
 
-# === 1. DOMAIN EVENT BASE ===
 
+# === 1. DOMAIN EVENT TYPE ===
 
 class DomainEventType(Enum):
     """Tipe domain event untuk Purchase & Sales."""
@@ -64,23 +54,47 @@ class DomainEventType(Enum):
     DELIVERY_NOTE_SHIPPED = "delivery_note_shipped"
     DELIVERY_NOTE_DELIVERED = "delivery_note_delivered"
 
-    # Invoice events
+    # Invoice events (generic)
+    INVOICE_CREATED = "invoice_created"
+    INVOICE_ISSUED = "invoice_issued"
+    INVOICE_APPROVED = "invoice_approved"
+    INVOICE_CANCELLED = "invoice_cancelled"
+    INVOICE_PAID = "invoice_paid"
+    INVOICE_PARTIALLY_PAID = "invoice_partially_paid"
+    INVOICE_DISPUTED = "invoice_disputed"
+    INVOICE_VERIFIED = "invoice_verified"
+    INVOICE_RECEIVED = "invoice_received"
+    INVOICE_WRITTEN_OFF = "invoice_written_off"
+
+    # Purchase Invoice events
     PURCHASE_INVOICE_RECEIVED = "purchase_invoice_received"
     PURCHASE_INVOICE_APPROVED = "purchase_invoice_approved"
     PURCHASE_INVOICE_PAID = "purchase_invoice_paid"
+
+    # Sales Invoice events
     SALES_INVOICE_ISSUED = "sales_invoice_issued"
     SALES_INVOICE_PAID = "sales_invoice_paid"
+
+    # Credit Note events
+    CREDIT_NOTE_ISSUED = "credit_note_issued"
+    CREDIT_NOTE_RECEIVED = "credit_note_received"
+    CREDIT_NOTE_APPLIED = "credit_note_applied"
+
+    # Debit Note events
+    DEBIT_NOTE_ISSUED = "debit_note_issued"
+    DEBIT_NOTE_APPLIED = "debit_note_applied"
+    DEBIT_NOTE_ISSUED_SERVICE = "debit_note_issued_service"
 
     # Return events
     PURCHASE_RETURN_CREATED = "purchase_return_created"
     SALES_RETURN_CREATED = "sales_return_created"
 
 
+# === 2. BASE DOMAIN EVENT ===
+
 @dataclass
 class DomainEvent:
-    """
-    Base class untuk semua domain events Purchase & Sales.
-    """
+    """Base class untuk semua domain events Purchase & Sales."""
 
     event_id: UUID
     event_type: DomainEventType
@@ -121,13 +135,12 @@ class DomainEvent:
         )
 
 
-# === 2. CONCRETE DOMAIN EVENTS ===
+# === 3. CONCRETE DOMAIN EVENTS ===
 
+# --- 3a. Purchase Order Events ---
 
 @dataclass
 class PurchaseOrderCreatedEvent(DomainEvent):
-    """Event ketika Purchase Order baru dibuat."""
-
     def __init__(
         self,
         aggregate_id: UUID,
@@ -160,8 +173,6 @@ class PurchaseOrderCreatedEvent(DomainEvent):
 
 @dataclass
 class PurchaseOrderApprovedEvent(DomainEvent):
-    """Event ketika Purchase Order disetujui."""
-
     def __init__(
         self,
         aggregate_id: UUID,
@@ -188,10 +199,10 @@ class PurchaseOrderApprovedEvent(DomainEvent):
         )
 
 
+# --- 3b. Sales Order Events ---
+
 @dataclass
 class SalesOrderCreatedEvent(DomainEvent):
-    """Event ketika Sales Order baru dibuat."""
-
     def __init__(
         self,
         aggregate_id: UUID,
@@ -224,8 +235,6 @@ class SalesOrderCreatedEvent(DomainEvent):
 
 @dataclass
 class SalesOrderApprovedEvent(DomainEvent):
-    """Event ketika Sales Order disetujui."""
-
     def __init__(
         self,
         aggregate_id: UUID,
@@ -252,10 +261,10 @@ class SalesOrderApprovedEvent(DomainEvent):
         )
 
 
+# --- 3c. Goods Receipt ---
+
 @dataclass
 class GoodsReceiptCreatedEvent(DomainEvent):
-    """Event ketika Goods Receipt Note dibuat."""
-
     def __init__(
         self,
         aggregate_id: UUID,
@@ -288,10 +297,10 @@ class GoodsReceiptCreatedEvent(DomainEvent):
         )
 
 
+# --- 3d. Delivery Note ---
+
 @dataclass
 class DeliveryNoteShippedEvent(DomainEvent):
-    """Event ketika Delivery Note dikirim."""
-
     def __init__(
         self,
         aggregate_id: UUID,
@@ -323,10 +332,10 @@ class DeliveryNoteShippedEvent(DomainEvent):
         )
 
 
+# --- 3e. Sales Invoice Events ---
+
 @dataclass
 class SalesInvoiceIssuedEvent(DomainEvent):
-    """Event ketika Sales Invoice diterbitkan."""
-
     def __init__(
         self,
         aggregate_id: UUID,
@@ -361,8 +370,6 @@ class SalesInvoiceIssuedEvent(DomainEvent):
 
 @dataclass
 class SalesInvoicePaidEvent(DomainEvent):
-    """Event ketika Sales Invoice dibayar."""
-
     def __init__(
         self,
         aggregate_id: UUID,
@@ -392,10 +399,10 @@ class SalesInvoicePaidEvent(DomainEvent):
         )
 
 
+# --- 3f. Purchase Invoice Events ---
+
 @dataclass
 class PurchaseInvoiceReceivedEvent(DomainEvent):
-    """Event ketika Purchase Invoice diterima dari supplier."""
-
     def __init__(
         self,
         aggregate_id: UUID,
@@ -428,14 +435,622 @@ class PurchaseInvoiceReceivedEvent(DomainEvent):
         )
 
 
-# === 3. DOMAIN EVENT PUBLISHER PROTOCOL ===
+@dataclass
+class PurchaseInvoiceApprovedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        invoice: PurchaseInvoiceEntity,
+        approved_by: str,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "invoice_id": str(invoice.invoice_id),
+            "invoice_number": invoice.invoice_number,
+            "supplier_id": str(invoice.supplier_id),
+            "supplier_name": invoice.supplier_name,
+            "total_amount": str(invoice.total_amount),
+            "approved_by": approved_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.PURCHASE_INVOICE_APPROVED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id,
+            correlation_id=correlation_id,
+        )
 
+
+@dataclass
+class PurchaseInvoicePaidEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        invoice: PurchaseInvoiceEntity,
+        payment_amount: Decimal,
+        paid_by: str,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "invoice_id": str(invoice.invoice_id),
+            "invoice_number": invoice.invoice_number,
+            "supplier_id": str(invoice.supplier_id),
+            "supplier_name": invoice.supplier_name,
+            "payment_amount": str(payment_amount),
+            "paid_by": paid_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.PURCHASE_INVOICE_PAID,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id,
+            correlation_id=correlation_id,
+        )
+
+
+# --- 3g. Generic Invoice Events (digunakan oleh service_purchase_sales) ---
+
+@dataclass
+class InvoiceCreatedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        invoice_id: UUID,
+        invoice_number: str,
+        invoice_type: str,
+        total_amount: Decimal,
+        created_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "invoice_id": str(invoice_id),
+            "invoice_number": invoice_number,
+            "invoice_type": invoice_type,
+            "total_amount": str(total_amount),
+            "created_by": created_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.INVOICE_CREATED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or created_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class InvoiceIssuedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        invoice_id: UUID,
+        invoice_number: str,
+        invoice_type: str,
+        total_amount: Decimal,
+        issued_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "invoice_id": str(invoice_id),
+            "invoice_number": invoice_number,
+            "invoice_type": invoice_type,
+            "total_amount": str(total_amount),
+            "issued_by": issued_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.INVOICE_ISSUED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or issued_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class InvoiceApprovedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        invoice_id: UUID,
+        invoice_number: str,
+        invoice_type: str,
+        approved_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "invoice_id": str(invoice_id),
+            "invoice_number": invoice_number,
+            "invoice_type": invoice_type,
+            "approved_by": approved_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.INVOICE_APPROVED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or approved_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class InvoiceCancelledEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        invoice_id: UUID,
+        invoice_number: str,
+        invoice_type: str,
+        reason: str | None = None,
+        cancelled_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "invoice_id": str(invoice_id),
+            "invoice_number": invoice_number,
+            "invoice_type": invoice_type,
+            "reason": reason,
+            "cancelled_by": cancelled_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.INVOICE_CANCELLED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or cancelled_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class InvoicePaidEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        invoice_id: UUID,
+        invoice_number: str,
+        invoice_type: str,
+        payment_amount: Decimal,
+        paid_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "invoice_id": str(invoice_id),
+            "invoice_number": invoice_number,
+            "invoice_type": invoice_type,
+            "payment_amount": str(payment_amount),
+            "paid_by": paid_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.INVOICE_PAID,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or paid_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class InvoicePartiallyPaidEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        invoice_id: UUID,
+        invoice_number: str,
+        invoice_type: str,
+        paid_amount: Decimal,
+        total_amount: Decimal,
+        paid_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "invoice_id": str(invoice_id),
+            "invoice_number": invoice_number,
+            "invoice_type": invoice_type,
+            "paid_amount": str(paid_amount),
+            "total_amount": str(total_amount),
+            "paid_by": paid_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.INVOICE_PARTIALLY_PAID,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or paid_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class InvoiceDisputedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        invoice_id: UUID,
+        invoice_number: str,
+        invoice_type: str,
+        reason: str | None = None,
+        disputed_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "invoice_id": str(invoice_id),
+            "invoice_number": invoice_number,
+            "invoice_type": invoice_type,
+            "reason": reason,
+            "disputed_by": disputed_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.INVOICE_DISPUTED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or disputed_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class InvoiceVerifiedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        invoice_id: UUID,
+        invoice_number: str,
+        invoice_type: str,
+        verified_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "invoice_id": str(invoice_id),
+            "invoice_number": invoice_number,
+            "invoice_type": invoice_type,
+            "verified_by": verified_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.INVOICE_VERIFIED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or verified_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class InvoiceReceivedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        invoice_id: UUID,
+        invoice_number: str,
+        invoice_type: str,
+        received_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "invoice_id": str(invoice_id),
+            "invoice_number": invoice_number,
+            "invoice_type": invoice_type,
+            "received_by": received_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.INVOICE_RECEIVED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or received_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class InvoiceWrittenOffEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        invoice_id: UUID,
+        invoice_number: str,
+        invoice_type: str,
+        reason: str | None = None,
+        written_off_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "invoice_id": str(invoice_id),
+            "invoice_number": invoice_number,
+            "invoice_type": invoice_type,
+            "reason": reason,
+            "written_off_by": written_off_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.INVOICE_WRITTEN_OFF,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or written_off_by,
+            correlation_id=correlation_id,
+        )
+
+
+# --- 3h. Credit Note Events ---
+
+@dataclass
+class CreditNoteIssuedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        credit_note_id: UUID,
+        credit_note_number: str,
+        invoice_id: UUID,
+        invoice_type: str,
+        amount: Decimal,
+        reason: str,
+        issued_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "credit_note_id": str(credit_note_id),
+            "credit_note_number": credit_note_number,
+            "invoice_id": str(invoice_id),
+            "invoice_type": invoice_type,
+            "amount": str(amount),
+            "reason": reason,
+            "issued_by": issued_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.CREDIT_NOTE_ISSUED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or issued_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class CreditNoteReceivedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        credit_note_id: UUID,
+        credit_note_number: str,
+        invoice_id: UUID,
+        invoice_type: str,
+        amount: Decimal,
+        received_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "credit_note_id": str(credit_note_id),
+            "credit_note_number": credit_note_number,
+            "invoice_id": str(invoice_id),
+            "invoice_type": invoice_type,
+            "amount": str(amount),
+            "received_by": received_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.CREDIT_NOTE_RECEIVED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or received_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class CreditNoteAppliedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        credit_note_id: UUID,
+        credit_note_number: str,
+        invoice_id: UUID,
+        invoice_type: str,
+        amount: Decimal,
+        applied_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "credit_note_id": str(credit_note_id),
+            "credit_note_number": credit_note_number,
+            "invoice_id": str(invoice_id),
+            "invoice_type": invoice_type,
+            "amount": str(amount),
+            "applied_by": applied_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.CREDIT_NOTE_APPLIED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or applied_by,
+            correlation_id=correlation_id,
+        )
+
+
+# --- 3i. Debit Note Events ---
+
+@dataclass
+class DebitNoteIssuedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        debit_note_id: UUID,
+        debit_note_number: str,
+        invoice_id: UUID,
+        invoice_type: str,
+        amount: Decimal,
+        reason: str,
+        issued_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "debit_note_id": str(debit_note_id),
+            "debit_note_number": debit_note_number,
+            "invoice_id": str(invoice_id),
+            "invoice_type": invoice_type,
+            "amount": str(amount),
+            "reason": reason,
+            "issued_by": issued_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.DEBIT_NOTE_ISSUED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or issued_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class DebitNoteAppliedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        debit_note_id: UUID,
+        debit_note_number: str,
+        invoice_id: UUID,
+        invoice_type: str,
+        amount: Decimal,
+        applied_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "debit_note_id": str(debit_note_id),
+            "debit_note_number": debit_note_number,
+            "invoice_id": str(invoice_id),
+            "invoice_type": invoice_type,
+            "amount": str(amount),
+            "applied_by": applied_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.DEBIT_NOTE_APPLIED,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or applied_by,
+            correlation_id=correlation_id,
+        )
+
+
+@dataclass
+class DebitNoteIssuedServiceEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        debit_note_id: UUID,
+        debit_note_number: str,
+        invoice_id: UUID,
+        invoice_type: str,
+        amount: Decimal,
+        reason: str,
+        service_type: str = "service",
+        issued_by: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+    ):
+        event_data = {
+            "debit_note_id": str(debit_note_id),
+            "debit_note_number": debit_note_number,
+            "invoice_id": str(invoice_id),
+            "invoice_type": invoice_type,
+            "amount": str(amount),
+            "reason": reason,
+            "service_type": service_type,
+            "issued_by": issued_by,
+        }
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.DEBIT_NOTE_ISSUED_SERVICE,
+            aggregate_id=aggregate_id,
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id or issued_by,
+            correlation_id=correlation_id,
+        )
+
+
+# === 4. DOMAIN EVENT PUBLISHER PROTOCOL ===
 
 class DomainEventPublisher:
-    """
-    Protocol untuk publish domain events Purchase & Sales.
-    """
-
     async def publish(self, event: DomainEvent) -> None:
         raise NotImplementedError
 
@@ -444,19 +1059,56 @@ class DomainEventPublisher:
             await self.publish(event)
 
 
-# === 4. EXPORTS ===
+# === 5. EXPORTS ===
 
 __all__ = [
-    "DeliveryNoteShippedEvent",
+    # Base
     "DomainEvent",
     "DomainEventPublisher",
     "DomainEventType",
-    "GoodsReceiptCreatedEvent",
-    "PurchaseInvoiceReceivedEvent",
-    "PurchaseOrderApprovedEvent",
+
+    # Purchase Order
     "PurchaseOrderCreatedEvent",
+    "PurchaseOrderApprovedEvent",
+
+    # Sales Order
+    "SalesOrderCreatedEvent",
+    "SalesOrderApprovedEvent",
+
+    # Goods Receipt
+    "GoodsReceiptCreatedEvent",
+
+    # Delivery Note
+    "DeliveryNoteShippedEvent",
+
+    # Sales Invoice
     "SalesInvoiceIssuedEvent",
     "SalesInvoicePaidEvent",
-    "SalesOrderApprovedEvent",
-    "SalesOrderCreatedEvent",
+
+    # Purchase Invoice
+    "PurchaseInvoiceReceivedEvent",
+    "PurchaseInvoiceApprovedEvent",
+    "PurchaseInvoicePaidEvent",
+
+    # Generic Invoice events
+    "InvoiceCreatedEvent",
+    "InvoiceIssuedEvent",
+    "InvoiceApprovedEvent",
+    "InvoiceCancelledEvent",
+    "InvoicePaidEvent",
+    "InvoicePartiallyPaidEvent",
+    "InvoiceDisputedEvent",
+    "InvoiceVerifiedEvent",
+    "InvoiceReceivedEvent",
+    "InvoiceWrittenOffEvent",
+
+    # Credit Note
+    "CreditNoteIssuedEvent",
+    "CreditNoteReceivedEvent",
+    "CreditNoteAppliedEvent",
+
+    # Debit Note
+    "DebitNoteIssuedEvent",
+    "DebitNoteAppliedEvent",
+    "DebitNoteIssuedServiceEvent",
 ]

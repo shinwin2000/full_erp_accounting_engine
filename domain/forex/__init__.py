@@ -33,6 +33,15 @@ from domain.forex.forex_transaction_entity import (
     ForexTransactionType,
 )
 
+# Tambahkan import domain events
+from domain.forex.domain_events import (
+    ForexEventType,
+    ForexRateUpdatedEvent,
+    ForexTransactionRecordedEvent,
+    ForexRevaluationCompletedEvent,
+    ForexTransactionExecutedEvent,
+)
+
 __all__ = [
     # ExchangeRate
     "ExchangeRate",
@@ -58,4 +67,10 @@ __all__ = [
     "ForexTransactionRepository",
     "ForexTransactionStatus",
     "ForexTransactionType",
+    # Domain Events
+    "ForexEventType",
+    "ForexRateUpdatedEvent",
+    "ForexTransactionRecordedEvent",
+    "ForexRevaluationCompletedEvent",
+    "ForexTransactionExecutedEvent",
 ]

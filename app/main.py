@@ -713,7 +713,7 @@ def _discover_and_register_adapter_routers(app: FastAPI) -> None:
     Scan semua file di adapters/primary_api/v1/ yang memiliki variabel 'router'
     dan mendaftarkannya ke aplikasi FastAPI dengan prefix /api/v1/{module_name}
     atau dengan prefix yang ditentukan di dalam router.
-    
+
     Perbaikan: prefix_name selalu didefinisikan SEBELUM mencoba import,
     sehingga tidak terjadi error "cannot access local variable 'prefix_name'"
     jika terjadi exception saat import modul.
@@ -731,6 +731,7 @@ def _discover_and_register_adapter_routers(app: FastAPI) -> None:
         "fastapi_ap_router": "/api/v1/ap",
         "fastapi_ar_router": "/api/v1/ar",
         "fastapi_bank_cash_router": "/api/v1/bank-cash",
+        "fastapi_budget_router": "/api/v1/budget",
         "fastapi_coa_router": "/api/v1/coa",
         "fastapi_fixed_asset_router": "/api/v1/fixed-assets",
         "fastapi_inventory_router": "/api/v1/inventory",
@@ -738,6 +739,28 @@ def _discover_and_register_adapter_routers(app: FastAPI) -> None:
         "fastapi_ledger_router": "/api/v1/ledger",
         "fastapi_report_router": "/api/v1/reports",
         "fastapi_tax_coretax_router": "/api/v1/tax/coretax",
+        "fastapi_payroll_router": "/api/v1/payroll",
+        "fastapi_intangible_asset_router": "/api/v1/intangible-assets",
+        "fastapi_fiscal_period_router": "/api/v1/fiscal-periods",
+        "fastapi_capital_router": "/api/v1/capital",
+        "fastapi_supplier_router": "/api/v1/suppliers",
+        "fastapi_customer_router": "/api/v1/customers",
+        "fastapi_employee_router": "/api/v1/employees",
+        "fastapi_payment_router": "/api/v1/payments",
+        "fastapi_iam_router": "/api/v1/iam",
+        "fastapi_goodwill_router": "/api/v1/goodwill",
+        "fastapi_hedge_router": "/api/v1/hedge",
+        "fastapi_forex_router": "/api/v1/forex",
+        "fastapi_legal_entity_router": "/api/v1/legal-entities",
+        "fastapi_consolidation_router": "/api/v1/consolidation",
+        "fastapi_manufacturing_router": "/api/v1/manufacturing",
+        "fastapi_project_router": "/api/v1/projects",
+        "fastapi_purchase_sales_router": "/api/v1/purchase-sales",
+        "fastapi_umkm_router": "/api/v1/umkm",
+        "fastapi_audit_router": "/api/v1/audit",
+        "fastapi_document_router": "/api/v1/documents",
+        "fastapi_maintenance_router": "/api/v1/maintenance",
+        "fastapi_system_settings_router": "/api/v1/settings",
     }
 
     # Coba scan semua file .py di direktori

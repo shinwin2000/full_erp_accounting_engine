@@ -1,4 +1,4 @@
-# service_hedge.py - Complete rewrite with full implementation
+# service_hedge.py - Complete rewrite with full event publishing
 
 #!/usr/bin/env python3
 
@@ -9,6 +9,7 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service for hedge accounting (IFRS 9 / PSAK 71).
+    Mempublikasikan semua domain events yang sesuai.
 """
 
 from __future__ import annotations
@@ -27,6 +28,16 @@ from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.hedge_repository_port import HedgeRepositoryPort
 from ports.primary.ledger_repository_port import LedgerRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
+
+# Import domain events
+from domain.hedge.domain_events import (
+    HedgeAmountReclassifiedEvent,
+    HedgeCancelledEvent,
+    HedgeDesignatedEvent,
+    HedgeDiscontinuedEvent,
+    HedgeEffectivenessTestedEvent,
+    HedgeFairValueAdjustedEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +63,7 @@ class HedgeStatusEnum(str, Enum):
     INEFFECTIVE = "INEFFECTIVE"
     DISCONTINUED = "DISCONTINUED"
     EXPIRED = "EXPIRED"
+    CANCELLED = "CANCELLED"  # Added
 
 
 # ============================================================================
@@ -136,6 +148,17 @@ class HedgeJournalResponse:
     description: str
 
 
+@dataclass(kw_only=True)
+class ReclassificationRequest:
+    """Request to reclassify amount from hedge reserve to P/L."""
+
+    hedge_id: UUID
+    reclassification_date: date
+    amount: Decimal
+    description: str
+    user_id: UUID
+
+
 # ============================================================================
 # Exceptions
 # ============================================================================
@@ -157,6 +180,10 @@ class HedgeDesignationError(HedgeServiceError):
     pass
 
 
+class HedgeCancellationError(HedgeServiceError):
+    pass
+
+
 # ============================================================================
 # Main Service
 # ============================================================================
@@ -165,6 +192,7 @@ class HedgeDesignationError(HedgeServiceError):
 class HedgeService:
     """
     Service untuk hedge accounting sesuai IFRS 9 / PSAK 71.
+    Mempublikasikan event untuk setiap operasi.
     """
 
     def __init__(
@@ -182,7 +210,14 @@ class HedgeService:
         self._uow = uow
         self._event_publisher = event_publisher
         self._effectiveness_tester = HedgeEffectivenessTester()
-        self._stats = {"hedges_designated": 0, "tests_performed": 0, "journals_posted": 0}
+        self._stats = {
+            "hedges_designated": 0,
+            "tests_performed": 0,
+            "journals_posted": 0,
+            "hedges_cancelled": 0,
+            "hedges_discontinued": 0,
+            "reclassifications": 0,
+        }
 
         logger.info("HedgeService initialized")
 
@@ -236,19 +271,21 @@ class HedgeService:
 
         self._stats["hedges_designated"] += 1
 
-        # Publish event
+        # --- PUBLISH EVENT ---
         if self._event_publisher:
-            from domain.hedge.domain_events import HedgeDesignated
-
-            event = HedgeDesignated(
+            event = HedgeDesignatedEvent(
+                aggregate_id=hedge.id,
+                aggregate_version=1,
                 hedge_id=hedge.id,
                 hedge_number=hedge.hedge_number,
                 legal_entity_id=hedge.legal_entity_id,
                 hedge_type=hedge.hedge_type.value,
                 user_id=user_id,
+                correlation_id=correlation_id,
                 occurred_at=datetime.utcnow(),
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published HedgeDesignatedEvent for {hedge.hedge_number}")
 
         logger.info(f"Hedge {hedge_number} designated successfully")
 
@@ -274,7 +311,10 @@ class HedgeService:
     # ========================================================================
 
     async def test_effectiveness(
-        self, request: EffectivenessTestRequest, user_id: UUID
+        self,
+        request: EffectivenessTestRequest,
+        user_id: UUID,
+        correlation_id: str | None = None,
     ) -> EffectivenessTestResponse:
         """Test hedge effectiveness."""
         hedge = await self._hedge_repo.get_hedge_by_id(request.hedge_id)
@@ -329,6 +369,27 @@ class HedgeService:
         if self._uow:
             await self._uow.commit()
 
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = HedgeEffectivenessTestedEvent(
+                aggregate_id=hedge.id,
+                aggregate_version=hedge.version,
+                hedge_id=hedge.id,
+                hedge_number=hedge.hedge_number,
+                test_date=request.test_date,
+                test_type=test_type,
+                is_effective=is_effective,
+                ratio=ratio,
+                variance=variance,
+                user_id=user_id,
+                correlation_id=correlation_id,
+                occurred_at=datetime.utcnow(),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(
+                f"Published HedgeEffectivenessTestedEvent for {hedge.hedge_number}: {'Effective' if is_effective else 'Ineffective'}"
+            )
+
         logger.info(
             f"Effectiveness test for hedge {hedge.hedge_number}: {test_type} - {'Effective' if is_effective else 'Ineffective'}"
         )
@@ -348,7 +409,9 @@ class HedgeService:
     # ========================================================================
 
     async def record_fair_value_change(
-        self, request: HedgeJournalRequest, correlation_id: str | None = None
+        self,
+        request: HedgeJournalRequest,
+        correlation_id: str | None = None,
     ) -> list[HedgeJournalResponse]:
         """Record fair value changes of hedge instrument and hedged item."""
         hedge = await self._hedge_repo.get_hedge_by_id(request.hedge_id)
@@ -422,18 +485,21 @@ class HedgeService:
         if self._uow:
             await self._uow.commit()
 
+        # --- PUBLISH EVENT ---
         if self._event_publisher:
-            from domain.hedge.domain_events import HedgeFairValueAdjusted
-
-            event = HedgeFairValueAdjusted(
+            event = HedgeFairValueAdjustedEvent(
+                aggregate_id=hedge.id,
+                aggregate_version=hedge.version,
                 hedge_id=hedge.id,
                 hedge_number=hedge.hedge_number,
                 adjustment_amount=request.fair_value_change_hedge,
                 ineffectiveness=ineffectiveness,
                 user_id=request.user_id,
+                correlation_id=correlation_id,
                 occurred_at=datetime.utcnow(),
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published HedgeFairValueAdjustedEvent for {hedge.hedge_number}")
 
         return [
             HedgeJournalResponse(
@@ -463,7 +529,12 @@ class HedgeService:
     # ========================================================================
 
     async def discontinue_hedge(
-        self, hedge_id: UUID, discontinuation_date: date, reason: str, user_id: UUID
+        self,
+        hedge_id: UUID,
+        discontinuation_date: date,
+        reason: str,
+        user_id: UUID,
+        correlation_id: str | None = None,
     ) -> None:
         """Discontinue a hedging relationship."""
         hedge = await self._hedge_repo.get_hedge_by_id(hedge_id)
@@ -478,7 +549,167 @@ class HedgeService:
         if self._uow:
             await self._uow.commit()
 
+        self._stats["hedges_discontinued"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = HedgeDiscontinuedEvent(
+                aggregate_id=hedge.id,
+                aggregate_version=hedge.version,
+                hedge_id=hedge.id,
+                hedge_number=hedge.hedge_number,
+                discontinuation_date=discontinuation_date,
+                reason=reason,
+                user_id=user_id,
+                correlation_id=correlation_id,
+                occurred_at=datetime.utcnow(),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published HedgeDiscontinuedEvent for {hedge.hedge_number}")
+
         logger.info(f"Hedge {hedge.hedge_number} discontinued on {discontinuation_date}")
+
+    # ========================================================================
+    # Hedge Cancellation
+    # ========================================================================
+
+    async def cancel_hedge(
+        self,
+        hedge_id: UUID,
+        reason: str,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> None:
+        """Cancel a hedge relationship (voluntary termination)."""
+        hedge = await self._hedge_repo.get_hedge_by_id(hedge_id)
+        if not hedge:
+            raise HedgeNotFoundError(f"Hedge {hedge_id} not found")
+
+        if hedge.status == HedgeStatus.CANCELLED:
+            raise HedgeCancellationError(f"Hedge {hedge.hedge_number} is already cancelled")
+
+        if hedge.status == HedgeStatus.DISCONTINUED:
+            raise HedgeCancellationError(
+                f"Hedge {hedge.hedge_number} is discontinued and cannot be cancelled"
+            )
+
+        hedge.status = HedgeStatus.CANCELLED
+        hedge.cancelled_date = datetime.utcnow().date()
+        hedge.cancelled_reason = reason
+
+        await self._hedge_repo.save_hedge(hedge)
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["hedges_cancelled"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = HedgeCancelledEvent(
+                aggregate_id=hedge.id,
+                aggregate_version=hedge.version,
+                hedge_id=hedge.id,
+                hedge_number=hedge.hedge_number,
+                reason=reason,
+                user_id=user_id,
+                correlation_id=correlation_id,
+                occurred_at=datetime.utcnow(),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published HedgeCancelledEvent for {hedge.hedge_number}")
+
+        logger.info(f"Hedge {hedge.hedge_number} cancelled: {reason}")
+
+    # ========================================================================
+    # Reclassification
+    # ========================================================================
+
+    async def reclassify_amount(
+        self,
+        request: ReclassificationRequest,
+        correlation_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Reclassify amount from hedge reserve to P/L (cash flow hedge)."""
+        hedge = await self._hedge_repo.get_hedge_by_id(request.hedge_id)
+        if not hedge:
+            raise HedgeNotFoundError(f"Hedge {request.hedge_id} not found")
+
+        if hedge.hedge_type != HedgeType.CASH_FLOW:
+            raise HedgeServiceError("Reclassification only applies to cash flow hedges")
+
+        if hedge.status not in (HedgeStatus.ACTIVE, HedgeStatus.DISCONTINUED):
+            raise HedgeServiceError(
+                f"Hedge {hedge.hedge_number} is not eligible for reclassification"
+            )
+
+        # Post reclassification journal
+        journal_id = None
+        if self._ledger_repo:
+            lines = [
+                {
+                    "account_code": "EQUITY_HEDGE_RESERVE",
+                    "debit": request.amount,
+                    "credit": Decimal("0"),
+                    "description": request.description,
+                },
+                {
+                    "account_code": "P/L_HEDGE_RECLASSIFICATION",
+                    "debit": Decimal("0"),
+                    "credit": request.amount,
+                    "description": request.description,
+                },
+            ]
+            journal_id = await self._ledger_repo.post_journal(
+                legal_entity_id=hedge.legal_entity_id,
+                journal_date=request.reclassification_date,
+                period=f"{request.reclassification_date.year}-{request.reclassification_date.month:02d}",
+                description=f"Hedge reclassification: {request.description}",
+                lines=lines,
+                source_system="hedge_accounting",
+                user_id=request.user_id,
+            )
+            self._stats["journals_posted"] += 1
+
+        # Save reclassification record
+        reclass_record = {
+            "hedge_id": hedge.id,
+            "reclassification_date": request.reclassification_date,
+            "amount": request.amount,
+            "description": request.description,
+            "journal_id": journal_id,
+        }
+        await self._hedge_repo.save_reclassification(reclass_record, request.user_id)
+
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["reclassifications"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = HedgeAmountReclassifiedEvent(
+                aggregate_id=hedge.id,
+                aggregate_version=hedge.version,
+                hedge_id=hedge.id,
+                hedge_number=hedge.hedge_number,
+                amount=request.amount,
+                reclassification_date=request.reclassification_date,
+                description=request.description,
+                user_id=request.user_id,
+                correlation_id=correlation_id,
+                occurred_at=datetime.utcnow(),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published HedgeAmountReclassifiedEvent for {hedge.hedge_number}")
+
+        return {
+            "hedge_id": hedge.id,
+            "hedge_number": hedge.hedge_number,
+            "reclassification_date": request.reclassification_date,
+            "amount": request.amount,
+            "journal_id": journal_id,
+            "description": request.description,
+        }
 
     # ========================================================================
     # Queries
@@ -553,5 +784,6 @@ __all__ = [
     "HedgeServiceError",
     "HedgeStatusEnum",
     "HedgeTypeEnum",
+    "ReclassificationRequest",
     "create_hedge_service",
 ]

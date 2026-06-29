@@ -1,4 +1,4 @@
-# service_budget.py - Complete rewrite with fixes
+# service_budget.py - Complete rewrite with full event publishing
 
 #!/usr/bin/env python3
 
@@ -9,6 +9,7 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service for budget management and variance analysis.
+    Mempublikasikan semua domain events yang sesuai.
 """
 
 from __future__ import annotations
@@ -26,6 +27,21 @@ from ports.primary.budget_repository_port import BudgetRepositoryPort
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.ledger_repository_port import LedgerRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
+
+# Import domain events
+from domain.budget.domain_events import (
+    BudgetApprovedEvent,
+    BudgetArchivedEvent,
+    BudgetCancelledEvent,
+    BudgetClosedEvent,
+    BudgetCreatedEvent,
+    BudgetLineAddedEvent,
+    BudgetLineAdjustedEvent,
+    BudgetLineRemovedEvent,
+    BudgetRejectedEvent,
+    BudgetRevisedEvent,
+    BudgetStatusChangedEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +107,14 @@ class VarianceAnalysisResponse:
     variance_percentage: float
     items: list[VarianceItem]
     analysis_date: datetime
+
+
+@dataclass(kw_only=True)
+class BudgetLineRequest:
+    account_code: str
+    amount: Decimal
+    period: str | None = None
+    description: str | None = None
 
 
 # ============================================================================
@@ -186,18 +210,21 @@ class BudgetService:
 
         self._stats["budgets_created"] += 1
 
+        # --- PUBLISH EVENT ---
         if self._event_publisher:
-            from domain.budget.domain_events import BudgetCreated
-
-            event = BudgetCreated(
+            event = BudgetCreatedEvent(
+                aggregate_id=budget.id,
+                aggregate_version=1,
                 budget_id=budget.id,
                 budget_number=budget.budget_number,
                 budget_name=budget.budget_name,
                 fiscal_year=budget.fiscal_year,
-                user_id=user_id,
-                occurred_at=datetime.now(UTC),
+                created_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published BudgetCreatedEvent for {budget.budget_number}")
 
         logger.info(f"Budget {budget_number} created: {request.budget_name}")
         return await self._to_response(budget)
@@ -218,6 +245,7 @@ class BudgetService:
         if budget.status != BudgetStatus.DRAFT:
             raise BudgetServiceError("Only DRAFT budgets can be approved")
 
+        old_status = budget.status
         budget.status = BudgetStatus.APPROVED
         budget.approved_at = datetime.now(UTC)
         budget.approved_by = approver_id
@@ -228,31 +256,79 @@ class BudgetService:
 
         self._stats["budgets_approved"] += 1
 
+        # --- PUBLISH EVENT ---
         if self._event_publisher:
-            from domain.budget.domain_events import BudgetApproved
-
-            event = BudgetApproved(
+            event = BudgetApprovedEvent(
+                aggregate_id=budget.id,
+                aggregate_version=budget.version,
                 budget_id=budget.id,
                 budget_number=budget.budget_number,
-                approved_by=approver_id,
-                occurred_at=datetime.now(UTC),
+                approved_by=str(approver_id),
+                old_status=old_status.value,
+                new_status=budget.status.value,
+                user_id=str(approver_id),
+                correlation_id=correlation_id,
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published BudgetApprovedEvent for {budget.budget_number}")
 
         logger.info(f"Budget {budget.budget_number} approved")
         return await self._to_response(budget)
 
+    async def reject_budget(
+        self, budget_id: UUID, reason: str, user_id: UUID, correlation_id: str | None = None
+    ) -> BudgetResponse:
+        """Reject a budget."""
+        budget = await self._budget_repo.get_by_id(budget_id)
+        if not budget:
+            raise BudgetNotFoundError(f"Budget {budget_id} not found")
+
+        if budget.status != BudgetStatus.DRAFT:
+            raise BudgetServiceError("Only DRAFT budgets can be rejected")
+
+        budget.status = BudgetStatus.REJECTED
+        budget.rejection_reason = reason
+        budget.rejected_at = datetime.now(UTC)
+        budget.rejected_by = user_id
+
+        await self._budget_repo.update(budget)
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = BudgetRejectedEvent(
+                aggregate_id=budget.id,
+                aggregate_version=budget.version,
+                budget_id=budget.id,
+                budget_number=budget.budget_number,
+                reason=reason,
+                rejected_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published BudgetRejectedEvent for {budget.budget_number}")
+
+        return await self._to_response(budget)
+
     async def revise_budget(
-        self, budget_id: UUID, new_lines: list[dict[str, Any]], revision_reason: str, user_id: UUID
+        self,
+        budget_id: UUID,
+        new_lines: list[dict[str, Any]],
+        revision_reason: str,
+        user_id: UUID,
+        correlation_id: str | None = None,
     ) -> BudgetResponse:
         """Revise an existing budget."""
         budget = await self._budget_repo.get_by_id(budget_id)
         if not budget:
             raise BudgetNotFoundError(f"Budget {budget_id} not found")
 
-        if budget.status != BudgetStatus.APPROVED:
-            raise BudgetServiceError("Only APPROVED budgets can be revised")
+        if budget.status not in (BudgetStatus.APPROVED, BudgetStatus.DRAFT):
+            raise BudgetServiceError(f"Budget in status {budget.status.value} cannot be revised")
 
+        old_version = budget.version
         budget.version += 1
         budget.revision_reason = revision_reason
         budget.revised_by = user_id
@@ -271,7 +347,304 @@ class BudgetService:
         if self._uow:
             await self._uow.commit()
 
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = BudgetRevisedEvent(
+                aggregate_id=budget.id,
+                aggregate_version=budget.version,
+                budget_id=budget.id,
+                budget_number=budget.budget_number,
+                old_version=old_version,
+                new_version=budget.version,
+                revision_reason=revision_reason,
+                revised_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published BudgetRevisedEvent for {budget.budget_number}")
+
         logger.info(f"Budget {budget.budget_number} revised (version {budget.version})")
+        return await self._to_response(budget)
+
+    async def close_budget(
+        self, budget_id: UUID, user_id: UUID, correlation_id: str | None = None
+    ) -> BudgetResponse:
+        """Close a budget (end of period)."""
+        budget = await self._budget_repo.get_by_id(budget_id)
+        if not budget:
+            raise BudgetNotFoundError(f"Budget {budget_id} not found")
+
+        if budget.status != BudgetStatus.APPROVED:
+            raise BudgetServiceError("Only APPROVED budgets can be closed")
+
+        budget.status = BudgetStatus.CLOSED
+        budget.closed_at = datetime.now(UTC)
+        budget.closed_by = user_id
+
+        await self._budget_repo.update(budget)
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = BudgetClosedEvent(
+                aggregate_id=budget.id,
+                aggregate_version=budget.version,
+                budget_id=budget.id,
+                budget_number=budget.budget_number,
+                closed_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published BudgetClosedEvent for {budget.budget_number}")
+
+        return await self._to_response(budget)
+
+    async def cancel_budget(
+        self, budget_id: UUID, reason: str, user_id: UUID, correlation_id: str | None = None
+    ) -> BudgetResponse:
+        """Cancel a budget."""
+        budget = await self._budget_repo.get_by_id(budget_id)
+        if not budget:
+            raise BudgetNotFoundError(f"Budget {budget_id} not found")
+
+        if budget.status == BudgetStatus.CLOSED:
+            raise BudgetServiceError("Cannot cancel a closed budget")
+
+        budget.status = BudgetStatus.CANCELLED
+        budget.cancellation_reason = reason
+        budget.cancelled_at = datetime.now(UTC)
+        budget.cancelled_by = user_id
+
+        await self._budget_repo.update(budget)
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = BudgetCancelledEvent(
+                aggregate_id=budget.id,
+                aggregate_version=budget.version,
+                budget_id=budget.id,
+                budget_number=budget.budget_number,
+                reason=reason,
+                cancelled_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published BudgetCancelledEvent for {budget.budget_number}")
+
+        return await self._to_response(budget)
+
+    async def archive_budget(
+        self, budget_id: UUID, user_id: UUID, correlation_id: str | None = None
+    ) -> BudgetResponse:
+        """Archive a budget."""
+        budget = await self._budget_repo.get_by_id(budget_id)
+        if not budget:
+            raise BudgetNotFoundError(f"Budget {budget_id} not found")
+
+        budget.is_archived = True
+        budget.archived_at = datetime.now(UTC)
+        budget.archived_by = user_id
+
+        await self._budget_repo.update(budget)
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = BudgetArchivedEvent(
+                aggregate_id=budget.id,
+                aggregate_version=budget.version,
+                budget_id=budget.id,
+                budget_number=budget.budget_number,
+                archived_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published BudgetArchivedEvent for {budget.budget_number}")
+
+        return await self._to_response(budget)
+
+    async def add_budget_line(
+        self,
+        budget_id: UUID,
+        line: BudgetLineRequest,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> BudgetResponse:
+        """Add a line item to an existing budget."""
+        budget = await self._budget_repo.get_by_id(budget_id)
+        if not budget:
+            raise BudgetNotFoundError(f"Budget {budget_id} not found")
+
+        if budget.status not in (BudgetStatus.DRAFT, BudgetStatus.APPROVED):
+            raise BudgetServiceError(f"Cannot add line to budget in status {budget.status.value}")
+
+        new_line = BudgetLineItem(
+            account_code=line.account_code,
+            period=line.period,
+            amount=line.amount,
+            description=line.description,
+        )
+        budget.lines.append(new_line)
+
+        await self._budget_repo.update(budget)
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = BudgetLineAddedEvent(
+                aggregate_id=budget.id,
+                aggregate_version=budget.version,
+                budget_id=budget.id,
+                budget_number=budget.budget_number,
+                account_code=line.account_code,
+                amount=line.amount,
+                added_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published BudgetLineAddedEvent for {budget.budget_number}")
+
+        return await self._to_response(budget)
+
+    async def update_budget_line(
+        self,
+        budget_id: UUID,
+        line_index: int,
+        new_amount: Decimal,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> BudgetResponse:
+        """Update a budget line amount."""
+        budget = await self._budget_repo.get_by_id(budget_id)
+        if not budget:
+            raise BudgetNotFoundError(f"Budget {budget_id} not found")
+
+        if budget.status not in (BudgetStatus.DRAFT, BudgetStatus.APPROVED):
+            raise BudgetServiceError(f"Cannot update line in budget status {budget.status.value}")
+
+        if line_index < 0 or line_index >= len(budget.lines):
+            raise BudgetServiceError("Invalid line index")
+
+        old_amount = budget.lines[line_index].amount
+        budget.lines[line_index].amount = new_amount
+
+        await self._budget_repo.update(budget)
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = BudgetLineAdjustedEvent(
+                aggregate_id=budget.id,
+                aggregate_version=budget.version,
+                budget_id=budget.id,
+                budget_number=budget.budget_number,
+                account_code=budget.lines[line_index].account_code,
+                old_amount=old_amount,
+                new_amount=new_amount,
+                adjusted_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published BudgetLineAdjustedEvent for {budget.budget_number}")
+
+        return await self._to_response(budget)
+
+    async def remove_budget_line(
+        self,
+        budget_id: UUID,
+        line_index: int,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> BudgetResponse:
+        """Remove a line from a budget."""
+        budget = await self._budget_repo.get_by_id(budget_id)
+        if not budget:
+            raise BudgetNotFoundError(f"Budget {budget_id} not found")
+
+        if budget.status not in (BudgetStatus.DRAFT, BudgetStatus.APPROVED):
+            raise BudgetServiceError(f"Cannot remove line from budget status {budget.status.value}")
+
+        if line_index < 0 or line_index >= len(budget.lines):
+            raise BudgetServiceError("Invalid line index")
+
+        removed_line = budget.lines.pop(line_index)
+
+        await self._budget_repo.update(budget)
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = BudgetLineRemovedEvent(
+                aggregate_id=budget.id,
+                aggregate_version=budget.version,
+                budget_id=budget.id,
+                budget_number=budget.budget_number,
+                account_code=removed_line.account_code,
+                amount=removed_line.amount,
+                removed_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published BudgetLineRemovedEvent for {budget.budget_number}")
+
+        return await self._to_response(budget)
+
+    async def change_budget_status(
+        self,
+        budget_id: UUID,
+        new_status: str,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> BudgetResponse:
+        """Change budget status (generic)."""
+        budget = await self._budget_repo.get_by_id(budget_id)
+        if not budget:
+            raise BudgetNotFoundError(f"Budget {budget_id} not found")
+
+        old_status = budget.status
+        new_status_enum = BudgetStatus(new_status)
+
+        if old_status == new_status_enum:
+            return await self._to_response(budget)
+
+        budget.status = new_status_enum
+        budget.updated_at = datetime.now(UTC)
+        budget.updated_by = user_id
+
+        await self._budget_repo.update(budget)
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = BudgetStatusChangedEvent(
+                aggregate_id=budget.id,
+                aggregate_version=budget.version,
+                budget_id=budget.id,
+                budget_number=budget.budget_number,
+                old_status=old_status.value,
+                new_status=new_status_enum.value,
+                changed_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published BudgetStatusChangedEvent for {budget.budget_number}")
+
         return await self._to_response(budget)
 
     # ========================================================================
@@ -391,5 +764,6 @@ __all__ = [
     "VarianceAnalysisRequest",
     "VarianceAnalysisResponse",
     "VarianceItem",
+    "BudgetLineRequest",
     "create_budget_service",
 ]

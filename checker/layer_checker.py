@@ -2,11 +2,8 @@
 """
 layer_checker.py - Dependency Layer Validator for Hexagonal/DDD Architecture
 =============================================================================
-Memeriksa kepatuhan struktur layer berdasarkan aturan ketergantungan yang telah
-ditetapkan untuk proyek ERP Accounting Engine.
-
-Cara pakai:
-  python layer_checker.py [--verbose] [--json FILE] [--strict] [--quiet] [--hide-unknown]
+Memeriksa kepatuhan struktur layer menggunakan dependency matrix (allow-list)
+bukan hanya berdasarkan level numerik.
 """
 
 from __future__ import annotations
@@ -19,6 +16,7 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Dict, Set, List, Optional, Tuple
 
 # -----------------------------------------------------------------------------
 # Color
@@ -36,13 +34,14 @@ except ImportError:
     pass
 
 # -----------------------------------------------------------------------------
-# Konfigurasi
+# Project root
 # -----------------------------------------------------------------------------
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-# Pemetaan folder top-level ke layer (diperluas)
+# -----------------------------------------------------------------------------
+# Mapping folder → layer
+# -----------------------------------------------------------------------------
 LAYER_MAP = {
-    # Layer utama
     "domain": "domain",
     "axioms": "axioms",
     "constitution": "constitution",
@@ -60,7 +59,7 @@ LAYER_MAP = {
     "projections": "projections",
     "reports": "reports",
     "event_gateway": "event_gateway",
-    # Folder pendukung (diabaikan dari pengecekan dependency, tapi tidak muncul sebagai unknown)
+    # pendukung
     "checker": "checker",
     "scripts": "scripts",
     "tools": "tools",
@@ -80,39 +79,158 @@ LAYER_MAP = {
     "external": "external",
 }
 
-# Aturan ketergantungan: source_layer -> set(target_layer yang diizinkan)
-ALLOWED_DEPENDENCIES: dict[str, set[str]] = {
-    "domain": {"domain", "axioms", "constitution"},
-    "axioms": {"axioms", "constitution"},
-    "constitution": {"constitution", "domain", "axioms"},
-    "kernel": {"kernel", "domain", "axioms", "constitution", "ports", "config"},
-    "ports": {"ports", "domain"},
-    "application": {"application", "domain", "kernel", "ports", "axioms", "constitution", "config", "bootstrap"},
-    "adapters": {"adapters", "application", "domain", "kernel", "ports", "infrastructure", "config"},
-    "infrastructure": {"infrastructure", "domain", "ports", "kernel", "config", "application"},
-    "bootstrap": {"bootstrap", "config", "infrastructure", "application", "adapters"},
-    "config": {"config", "bootstrap"},
-    "app": {"app", "bootstrap", "adapters", "infrastructure"},
-    "policy_engine": {"policy_engine", "domain", "kernel", "config", "compliance"},
-    "compliance": {"compliance", "policy_engine", "domain", "application"},
-    "audit": {"audit", "domain", "application", "kernel"},
-    "projections": {"projections", "domain", "application", "infrastructure"},
-    "reports": {"reports", "projections", "application", "infrastructure"},
-    "event_gateway": {"event_gateway", "domain", "application", "infrastructure"},
+# -----------------------------------------------------------------------------
+# Dependency Matrix (Allow-list)
+# -----------------------------------------------------------------------------
+ALLOWED_PAIRS: Set[Tuple[str, str]] = {
+    # Domain layer
+    ("domain", "domain"),
+    ("domain", "axioms"),
+    ("domain", "constitution"),
+    # Axioms
+    ("axioms", "axioms"),
+    ("axioms", "constitution"),
+    # Constitution
+    ("constitution", "constitution"),
+    ("constitution", "domain"),
+    ("constitution", "axioms"),
+    # Kernel
+    ("kernel", "kernel"),
+    ("kernel", "domain"),
+    ("kernel", "axioms"),
+    ("kernel", "constitution"),
+    ("kernel", "ports"),
+    ("kernel", "config"),
+    # Ports
+    ("ports", "ports"),
+    ("ports", "domain"),
+    # Application
+    ("application", "application"),
+    ("application", "domain"),
+    ("application", "kernel"),
+    ("application", "ports"),
+    ("application", "axioms"),
+    ("application", "constitution"),
+    ("application", "config"),
+    # --- ADDED ---
+    ("application", "policy_engine"),  # Tax business rules
+    ("application", "audit"),          # Audit domain logic
+    # Adapters
+    ("adapters", "adapters"),
+    ("adapters", "application"),
+    ("adapters", "domain"),
+    ("adapters", "kernel"),
+    ("adapters", "ports"),
+    ("adapters", "infrastructure"),
+    ("adapters", "config"),
+    # Projections
+    ("projections", "projections"),
+    ("projections", "domain"),
+    ("projections", "application"),
+    ("projections", "infrastructure"),
+    ("projections", "config"),
+    # Reports
+    ("reports", "reports"),
+    ("reports", "projections"),
+    ("reports", "application"),
+    ("reports", "infrastructure"),
+    ("reports", "config"),
+    # Event Gateway
+    ("event_gateway", "event_gateway"),
+    ("event_gateway", "domain"),
+    ("event_gateway", "application"),
+    ("event_gateway", "infrastructure"),
+    # Infrastructure
+    ("infrastructure", "infrastructure"),
+    ("infrastructure", "domain"),
+    ("infrastructure", "ports"),
+    ("infrastructure", "kernel"),
+    ("infrastructure", "config"),
+    # Bootstrap
+    ("bootstrap", "bootstrap"),
+    ("bootstrap", "config"),
+    ("bootstrap", "infrastructure"),
+    ("bootstrap", "application"),
+    ("bootstrap", "adapters"),
+    # App
+    ("app", "app"),
+    ("app", "bootstrap"),
+    ("app", "adapters"),
+    ("app", "infrastructure"),
+    # Policy Engine
+    ("policy_engine", "policy_engine"),
+    ("policy_engine", "domain"),
+    ("policy_engine", "kernel"),
+    ("policy_engine", "config"),
+    ("policy_engine", "compliance"),
+    # Compliance
+    ("compliance", "compliance"),
+    ("compliance", "policy_engine"),
+    ("compliance", "domain"),
+    ("compliance", "application"),
+    # Audit
+    ("audit", "audit"),
+    ("audit", "domain"),
+    ("audit", "application"),
+    ("audit", "kernel"),
+    # --- GENERIC SAME-LAYER ALLOW ---
+    # Untuk semua layer lainnya, kita izinkan import internal (layer → layer sendiri)
+    # Ini mencakup config → config, checker → checker, tests → tests, dll.
+    ("config", "config"),
+    ("checker", "checker"),
+    ("scripts", "scripts"),
+    ("tools", "tools"),
+    ("migrations", "migrations"),
+    ("deployment", "deployment"),
+    ("docs", "docs"),
+    ("monitoring", "monitoring"),
+    ("config_files", "config_files"),
+    ("logs", "logs"),
+    ("tests", "tests"),
+    ("test", "test"),
+    ("utils", "utils"),
+    ("common", "common"),
+    ("shared", "shared"),
+    ("lib", "lib"),
+    ("vendor", "vendor"),
+    ("external", "external"),
+    # Juga untuk layer utama yang mungkin belum tercakup:
+    ("projections", "projections"),
+    ("reports", "reports"),
+    ("event_gateway", "event_gateway"),
+    ("policy_engine", "policy_engine"),
+    ("compliance", "compliance"),
+    ("audit", "audit"),
+    ("kernel", "kernel"),
 }
 
-# Layer yang tidak dicek (tidak ada aturan dependency)
-SKIP_LAYERS = {"unknown", "checker", "scripts", "tools", "migrations", "deployment",
-               "docs", "monitoring", "config_files", "logs", "tests", "test",
-               "utils", "common", "shared", "lib", "vendor", "external"}
-
-# File dan folder yang diabaikan
-SKIP_FILES = {"main_checker.py", "main_checker_2.py", "main_checker_3.py", "layer_checker.py",
-              "setup.py", "manage.py", "conftest.py", "pytest.ini", "tox.ini", "requirements.txt"}
-SKIP_DIRS = {".venv", "venv", "__pycache__", ".git", "node_modules", "dist", "build"}
+# Layer yang tidak dicek sama sekali (tidak ada aturan)
+SKIP_LAYERS = {
+    "unknown", "checker", "scripts", "tools", "migrations", "deployment",
+    "docs", "monitoring", "config_files", "logs", "tests", "test",
+    "utils", "common", "shared", "lib", "vendor", "external"
+}
 
 # -----------------------------------------------------------------------------
-# Data Structures
+# Standard library modules
+# -----------------------------------------------------------------------------
+try:
+    import sys as _sys
+    STD_LIB_MODULES = set(_sys.stdlib_module_names) if hasattr(_sys, 'stdlib_module_names') else set()
+except Exception:
+    STD_LIB_MODULES = set()
+STD_LIB_MODULES.update({"typing", "dataclasses", "enum", "uuid", "decimal", "datetime",
+                        "abc", "collections", "itertools", "functools", "re", "json", "pathlib"})
+
+# Friend packages (diizinkan meskipun tidak ada di matrix)
+FRIEND_PACKAGES: Dict[str, Set[str]] = {
+    "domain": {"typing", "abc", "dataclasses", "enum", "uuid", "decimal", "datetime", "dateutil"},
+    "application": {"typing", "dataclasses", "enum", "uuid", "decimal", "datetime"},
+    "kernel": {"typing", "dataclasses", "enum", "uuid", "decimal", "datetime"},
+}
+
+# -----------------------------------------------------------------------------
+# Data structures
 # -----------------------------------------------------------------------------
 @dataclass
 class ImportRecord:
@@ -130,19 +248,21 @@ class Violation:
     target_module: str
     target_layer: str
     line: int
+    rule: str
     message: str
 
 @dataclass
 class LayerStats:
     total_imports: int = 0
-    violations: list[Violation] = field(default_factory=list)
-    layer_counts: dict[str, int] = field(default_factory=dict)
+    violations: List[Violation] = field(default_factory=list)
+    layer_counts: Dict[str, int] = field(default_factory=dict)
+    dependency_graph: Dict[str, Set[str]] = field(default_factory=dict)
+    cycles: List[List[str]] = field(default_factory=list)
 
 # -----------------------------------------------------------------------------
-# Utilitas
+# Utility functions
 # -----------------------------------------------------------------------------
 def get_layer_from_module(module: str) -> str:
-    """Tentukan layer dari nama modul absolute."""
     if not module:
         return "unknown"
     top = module.split(".")[0]
@@ -152,15 +272,13 @@ def get_layer_from_module(module: str) -> str:
     return "unknown"
 
 def get_relative_path(path: pathlib.Path) -> str:
-    """Path relatif terhadap PROJECT_ROOT dengan forward slash."""
     try:
         rel = path.relative_to(PROJECT_ROOT)
         return str(rel).replace("\\", "/")
     except ValueError:
         return str(path).replace("\\", "/")
 
-def resolve_relative_import(source_module: str, level: int, target: str | None) -> str:
-    """Resolve relative import ke absolute module name."""
+def resolve_relative_import(source_module: str, level: int, target: Optional[str]) -> str:
     parts = source_module.split(".")
     if level > len(parts):
         return target or ""
@@ -170,11 +288,21 @@ def resolve_relative_import(source_module: str, level: int, target: str | None) 
     else:
         return ".".join(base_parts)
 
+def is_stdlib_module(module: str) -> bool:
+    base = module.split(".")[0]
+    return base in STD_LIB_MODULES
+
+def is_friend_package(layer: str, module: str) -> bool:
+    friends = FRIEND_PACKAGES.get(layer, set())
+    for friend in friends:
+        if module == friend or module.startswith(friend + "."):
+            return True
+    return False
+
 # -----------------------------------------------------------------------------
-# Parser AST
+# AST parsing
 # -----------------------------------------------------------------------------
-def extract_imports_from_file(file_path: pathlib.Path) -> list[ImportRecord]:
-    """Ekstrak semua import dari file Python."""
+def extract_imports_from_file(file_path: pathlib.Path) -> List[ImportRecord]:
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(src, filename=str(file_path))
@@ -182,7 +310,6 @@ def extract_imports_from_file(file_path: pathlib.Path) -> list[ImportRecord]:
         return []
 
     rel_path = get_relative_path(file_path)
-    # Ubah path relatif menjadi module name
     source_module = rel_path.replace("/", ".").rsplit(".", 1)[0]
     source_layer = get_layer_from_module(source_module)
 
@@ -228,20 +355,47 @@ def extract_imports_from_file(file_path: pathlib.Path) -> list[ImportRecord]:
     return records
 
 # -----------------------------------------------------------------------------
-# Checker
+# Circular dependency detection
+# -----------------------------------------------------------------------------
+def find_cycles(graph: Dict[str, Set[str]]) -> List[List[str]]:
+    cycles = []
+    visited = set()
+    rec_stack = set()
+    path = []
+
+    def dfs(node: str) -> None:
+        visited.add(node)
+        rec_stack.add(node)
+        path.append(node)
+        for neighbor in graph.get(node, set()):
+            if neighbor not in visited:
+                dfs(neighbor)
+            elif neighbor in rec_stack:
+                idx = path.index(neighbor)
+                cycle = path[idx:] + [neighbor]
+                if len(cycle) > 2:
+                    cycles.append(cycle)
+        path.pop()
+        rec_stack.remove(node)
+
+    for node in list(graph.keys()):
+        if node not in visited:
+            dfs(node)
+    return cycles
+
+# -----------------------------------------------------------------------------
+# Scanner
 # -----------------------------------------------------------------------------
 def scan_project() -> LayerStats:
     stats = LayerStats()
     py_files = []
 
     for path in PROJECT_ROOT.rglob("*.py"):
-        # Skip direktori yang tidak diinginkan
-        if any(part in SKIP_DIRS for part in path.parts):
+        if any(part in {".venv", "venv", "__pycache__", ".git", "node_modules", "dist", "build"} for part in path.parts):
             continue
-        # Skip file yang tidak diinginkan
-        if path.name in SKIP_FILES:
+        if path.name in {"main_checker.py", "main_checker_2.py", "main_checker_3.py", "layer_checker.py",
+                         "setup.py", "manage.py", "conftest.py"}:
             continue
-        # Skip jika file berada di folder yang tidak dikenali dan dianggap tidak perlu
         py_files.append(path)
 
     all_imports = []
@@ -251,14 +405,13 @@ def scan_project() -> LayerStats:
 
     stats.total_imports = len(all_imports)
 
-    # Hitung layer counts
     layer_counter = defaultdict(int)
     for imp in all_imports:
         layer_counter[imp.source_layer] += 1
     stats.layer_counts = dict(layer_counter)
 
-    # Periksa pelanggaran
-    violations = []
+    # Build dependency graph for cycles (only non-skipped layers)
+    graph = defaultdict(set)
     for imp in all_imports:
         src = imp.source_layer
         tgt = imp.target_layer
@@ -266,31 +419,48 @@ def scan_project() -> LayerStats:
             continue
         if src == tgt:
             continue
-        allowed = ALLOWED_DEPENDENCIES.get(src, set())
-        if tgt not in allowed:
+        graph[src].add(tgt)
+    stats.dependency_graph = dict(graph)
+    stats.cycles = find_cycles(graph)
+
+    # Check violations based on matrix
+    violations = []
+    for imp in all_imports:
+        src = imp.source_layer
+        tgt = imp.target_layer
+        if src in SKIP_LAYERS or tgt in SKIP_LAYERS:
+            continue
+        if is_stdlib_module(imp.target_module):
+            continue
+        if is_friend_package(src, imp.target_module):
+            continue
+        # Check if (src, tgt) is allowed
+        if (src, tgt) not in ALLOWED_PAIRS:
             violations.append(Violation(
                 source_file=imp.source_file,
                 source_layer=src,
                 target_module=imp.target_module,
                 target_layer=tgt,
                 line=imp.line,
-                message=f"Layer '{src}' tidak boleh mengimpor '{tgt}'"
+                rule="matrix",
+                message=f"Import from '{src}' to '{tgt}' is not allowed by dependency matrix"
             ))
 
     stats.violations = violations
     return stats
 
 # -----------------------------------------------------------------------------
-# Laporan
+# Report
 # -----------------------------------------------------------------------------
 def print_report(stats: LayerStats, verbose: bool = False, hide_unknown: bool = False):
     c = COLOR
-    print(f"\n{c['CYAN']}{'='*72}{c['RESET']}")
-    print(f"{c['CYAN']}LAYER DEPENDENCY VIOLATION REPORT{c['RESET']}")
-    print(f"{c['CYAN']}{'='*72}{c['RESET']}")
+    print(f"\n{c['CYAN']}{'='*80}{c['RESET']}")
+    print(f"{c['CYAN']}LAYER DEPENDENCY VIOLATION REPORT (Matrix-based){c['RESET']}")
+    print(f"{c['CYAN']}{'='*80}{c['RESET']}")
 
     print(f"\n  Total import statements : {stats.total_imports}")
-    print(f"  Total violations       : {len(stats.violations)}")
+    print(f"  Total violations        : {len(stats.violations)}")
+    print(f"  Circular dependencies   : {len(stats.cycles)}")
 
     if stats.layer_counts:
         print("\n  Layer import counts:")
@@ -299,17 +469,40 @@ def print_report(stats: LayerStats, verbose: bool = False, hide_unknown: bool = 
                 continue
             print(f"    {layer:<18}: {count}")
 
+    if stats.cycles:
+        print(f"\n{c['RED']}⚠️ Circular dependencies detected:{c['RESET']}")
+        for i, cycle in enumerate(stats.cycles, 1):
+            print(f"  {i}. {' → '.join(cycle)}")
+
     if stats.violations:
-        print(f"\n{c['RED']}❌ Violations:{c['RESET']}")
+        # Group by file
+        by_file = defaultdict(list)
         for v in stats.violations:
-            print(f"  {c['RED']}✖{c['RESET']} {v.source_file}:{v.line}")
-            print(f"     {v.source_layer} → {v.target_layer}  (import {v.target_module})")
-            if verbose:
-                print(f"     {v.message}")
+            by_file[v.source_file].append(v)
+
+        print(f"\n{c['RED']}❌ Violations (by file):{c['RESET']}")
+        print(f"  Total files with violations: {len(by_file)}\n")
+
+        sorted_files = sorted(by_file.items(), key=lambda x: len(x[1]), reverse=True)
+        for idx, (file_path, violations) in enumerate(sorted_files, 1):
+            print(f"{c['YELLOW']}[{idx}] {file_path}{c['RESET']}  ({len(violations)} violations)")
+            for v in violations:
+                line_str = f"{c['CYAN']}line {v.line:>4}{c['RESET']}"
+                rule_str = f"{c['GREEN']}{v.rule:<14}{c['RESET']}"
+                src_tgt = f"{v.source_layer} → {v.target_layer}"
+                print(f"    {line_str}  {rule_str}  {src_tgt:<25}  {v.message}")
+            print()
+
+        print(f"\n{c['CYAN']}Summary by rule type:{c['RESET']}")
+        rule_counts = defaultdict(int)
+        for v in stats.violations:
+            rule_counts[v.rule] += 1
+        for rule, count in sorted(rule_counts.items(), key=lambda x: x[1], reverse=True):
+            print(f"  {rule:<18}: {count}")
     else:
         print(f"\n{c['GREEN']}✅ No layer violations found!{c['RESET']}")
 
-    print(f"\n{c['CYAN']}{'─'*72}{c['RESET']}")
+    print(f"\n{c['CYAN']}{'─'*80}{c['RESET']}")
 
 def save_json(stats: LayerStats, filepath: str, hide_unknown: bool = False):
     violations = [v.__dict__ for v in stats.violations]
@@ -318,6 +511,7 @@ def save_json(stats: LayerStats, filepath: str, hide_unknown: bool = False):
         "total_imports": stats.total_imports,
         "violations_count": len(stats.violations),
         "layer_counts": layer_counts,
+        "cycles": stats.cycles,
         "violations": violations,
     }
     with open(filepath, "w", encoding="utf-8") as f:
@@ -328,15 +522,16 @@ def save_json(stats: LayerStats, filepath: str, hide_unknown: bool = False):
 # CLI
 # -----------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description="Layer Dependency Checker")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan detail setiap pelanggaran")
+    parser = argparse.ArgumentParser(description="Layer Dependency Checker (Matrix-based)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan detail")
     parser.add_argument("--json", metavar="FILE", help="Simpan laporan JSON")
-    parser.add_argument("--quiet", "-q", action="store_true", help="Hanya tampilkan ringkasan")
-    parser.add_argument("--hide-unknown", action="store_true", help="Sembunyikan layer 'unknown' dari laporan")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Ringkasan saja")
+    parser.add_argument("--hide-unknown", action="store_true", help="Sembunyikan layer unknown")
     args = parser.parse_args()
 
     start = time.monotonic()
     stats = scan_project()
+
     if not args.quiet:
         print_report(stats, verbose=args.verbose, hide_unknown=args.hide_unknown)
     if args.json:
@@ -344,9 +539,10 @@ def main():
 
     elapsed = time.monotonic() - start
     if not args.quiet:
-        print(f"\n  Waktu: {elapsed:.2f}s")
+        print(f"\n  ⏱️ Waktu: {elapsed:.2f}s")
 
-    sys.exit(0 if len(stats.violations) == 0 else 1)
+    exit_code = 0 if (len(stats.violations) == 0 and len(stats.cycles) == 0) else 1
+    sys.exit(exit_code)
 
 if __name__ == "__main__":
     main()

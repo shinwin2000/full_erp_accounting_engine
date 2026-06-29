@@ -1,4 +1,4 @@
-# service_fixed_asset.py - Complete rewrite with full implementation
+# service_fixed_asset.py - Complete rewrite with full event publishing
 
 #!/usr/bin/env python3
 
@@ -9,6 +9,7 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service layer untuk Fixed Asset Management.
+    Mempublikasikan semua domain events yang sesuai.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 
 from domain.fixed_asset.aggregate_root import FixedAssetAggregate
@@ -28,10 +30,15 @@ from domain.fixed_asset.depreciation_schedule_engine import (
 )
 from domain.fixed_asset.disposal_entity import DisposalType
 from domain.fixed_asset.domain_events import (
-    AssetAcquired,
-    AssetDepreciated,
-    AssetDisposed,
-    AssetImpairmentRecognized,
+    AssetAcquiredEvent,
+    AssetDepreciationPostedEvent,
+    AssetDisposedEvent,
+    AssetFullyDepreciatedEvent,
+    AssetImpairedEvent,
+    AssetImpairmentReversedEvent,
+    AssetRevaluatedEvent,
+    AssetTransferredEvent,
+    AssetUpdatedEvent,
 )
 from domain.fixed_asset.impairment_tester import ImpairmentTester
 from domain.fixed_asset.invariants import FixedAssetInvariantsValidator
@@ -105,6 +112,19 @@ class CreateAssetRequest:
     supplier_id: UUID | None = None
     invoice_number: str | None = None
     is_active: bool = True
+
+
+@dataclass(kw_only=True)
+class UpdateAssetRequest:
+    """Request to update a fixed asset."""
+
+    asset_name: str | None = None
+    description: str | None = None
+    location: str | None = None
+    responsible_party: UUID | None = None
+    salvage_value: Decimal | None = None
+    useful_life_years: int | None = None
+    depreciation_method: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -225,6 +245,29 @@ class RevaluationResponse:
     journal_id: UUID | None = None
 
 
+@dataclass(kw_only=True)
+class AssetTransferRequest:
+    """Request to transfer asset between entities/locations."""
+
+    asset_id: UUID
+    from_legal_entity_id: UUID
+    to_legal_entity_id: UUID
+    transfer_date: date
+    reason: str | None = None
+    transferred_by: UUID
+
+
+@dataclass(kw_only=True)
+class ImpairmentReversalRequest:
+    """Request to reverse impairment."""
+
+    asset_id: UUID
+    reversal_date: date
+    reversal_amount: Decimal
+    reason: str | None = None
+    approved_by: UUID
+
+
 # ============================================================================
 # Exceptions
 # ============================================================================
@@ -250,6 +293,10 @@ class RevaluationNotAllowedError(FixedAssetServiceError):
     pass
 
 
+class ImpairmentReversalNotAllowedError(FixedAssetServiceError):
+    pass
+
+
 # ============================================================================
 # Main Service
 # ============================================================================
@@ -258,6 +305,7 @@ class RevaluationNotAllowedError(FixedAssetServiceError):
 class FixedAssetService:
     """
     Service untuk Fixed Asset Management.
+    Mempublikasikan event untuk setiap operasi.
     """
 
     def __init__(
@@ -277,7 +325,16 @@ class FixedAssetService:
         self._validator = FixedAssetInvariantsValidator()
         self._depreciation_engine = DepreciationScheduleEngine()
         self._impairment_tester = ImpairmentTester()
-        self._stats = {"assets_created": 0, "depreciations": 0, "disposals": 0, "impairments": 0}
+        self._stats = {
+            "assets_created": 0,
+            "assets_updated": 0,
+            "depreciations": 0,
+            "disposals": 0,
+            "impairments": 0,
+            "impairments_reversed": 0,
+            "revaluations": 0,
+            "transfers": 0,
+        }
 
         logger.info("FixedAssetService initialized")
 
@@ -337,18 +394,97 @@ class FixedAssetService:
 
         self._stats["assets_created"] += 1
 
+        # --- PUBLISH EVENT ---
         if self._event_publisher:
-            event = AssetAcquired(
+            event = AssetAcquiredEvent(
                 aggregate_id=asset.id,
-                legal_entity_id=asset.legal_entity_id,
-                asset_code=asset.asset_code,
-                acquisition_cost=asset.acquisition_cost,
-                user_id=user_id,
-                occurred_at=datetime.utcnow(),
+                aggregate_version=aggregate.version,
+                asset=asset,
+                acquired_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
+            logger.debug(f"Published AssetAcquiredEvent for {asset.asset_code}")
 
         logger.info(f"Asset created: {asset.asset_code} - {asset.name}")
+        return self._to_response(asset)
+
+    async def update_asset(
+        self,
+        asset_id: UUID,
+        request: UpdateAssetRequest,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> AssetResponse:
+        """Update an existing fixed asset."""
+        aggregate = await self._asset_repo.get_asset_by_id(asset_id)
+        if not aggregate:
+            raise AssetNotFoundError(f"Asset {asset_id} not found")
+
+        asset = aggregate.asset
+        changes = {}
+
+        if request.asset_name is not None and request.asset_name != asset.name:
+            changes["name"] = {"old": asset.name, "new": request.asset_name}
+            asset.name = request.asset_name
+
+        if request.description is not None and request.description != asset.description:
+            changes["description"] = {"old": asset.description, "new": request.description}
+            asset.description = request.description
+
+        if request.location is not None and request.location != asset.location:
+            changes["location"] = {"old": asset.location, "new": request.location}
+            asset.location = request.location
+
+        if request.responsible_party is not None and request.responsible_party != asset.responsible_person:
+            changes["responsible_party"] = {"old": asset.responsible_person, "new": request.responsible_party}
+            asset.responsible_person = request.responsible_party
+
+        if request.salvage_value is not None and request.salvage_value != asset.salvage_value:
+            changes["salvage_value"] = {"old": asset.salvage_value, "new": request.salvage_value}
+            asset.salvage_value = request.salvage_value
+            # Recalculate net book value
+            asset.net_book_value = asset.acquisition_cost - asset.accumulated_depreciation
+            if asset.net_book_value < asset.salvage_value:
+                asset.net_book_value = asset.salvage_value
+
+        if request.useful_life_years is not None and request.useful_life_years != asset.useful_life_years:
+            changes["useful_life_years"] = {"old": asset.useful_life_years, "new": request.useful_life_years}
+            asset.useful_life_years = request.useful_life_years
+
+        if request.depreciation_method is not None:
+            new_method = DepreciationMethod(request.depreciation_method.lower())
+            if new_method != asset.depreciation_method:
+                changes["depreciation_method"] = {"old": asset.depreciation_method.value, "new": new_method.value}
+                asset.depreciation_method = new_method
+
+        if not changes:
+            return self._to_response(asset)
+
+        asset.updated_at = datetime.utcnow()
+        asset.updated_by = user_id
+
+        await self._asset_repo.save_asset(aggregate)
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["assets_updated"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = AssetUpdatedEvent(
+                aggregate_id=asset.id,
+                aggregate_version=aggregate.version,
+                asset_code=asset.asset_code,
+                changes=changes,
+                updated_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event)
+            logger.debug(f"Published AssetUpdatedEvent for {asset.asset_code}")
+
         return self._to_response(asset)
 
     async def get_asset(self, asset_id: UUID) -> AssetResponse | None:
@@ -398,6 +534,7 @@ class FixedAssetService:
         processed_count = 0
         errors = []
         depreciation_entries = []
+        fully_depreciated_assets = []
 
         period_end = date(request.period_year, request.period_month, 1)
         if request.period_month == 12:
@@ -458,6 +595,10 @@ class FixedAssetService:
             )
             await self._asset_repo.save_depreciation_entry(dep_entry)
 
+            # Check if fully depreciated after this entry
+            if asset.net_book_value <= asset.salvage_value:
+                fully_depreciated_assets.append(asset)
+
         # Post to GL
         journal_id = None
         posted = False
@@ -477,16 +618,34 @@ class FixedAssetService:
 
         self._stats["depreciations"] += 1
 
-        if self._event_publisher and total_depreciation > 0:
-            event = AssetDepreciated(
-                legal_entity_id=request.legal_entity_id,
-                period=f"{request.period_year}-{request.period_month:02d}",
-                total_depreciation=total_depreciation,
-                asset_count=processed_count,
-                user_id=request.user_id,
-                occurred_at=datetime.utcnow(),
-            )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+        # --- PUBLISH EVENTS ---
+        if self._event_publisher:
+            # Publish aggregated depreciation event
+            if total_depreciation > 0:
+                event = AssetDepreciationPostedEvent(
+                    aggregate_id=uuid4(),
+                    aggregate_version=1,
+                    asset=None,  # aggregated event, not per asset
+                    period=f"{request.period_year}-{request.period_month:02d}",
+                    amount=total_depreciation,
+                    posted_by=str(request.user_id),
+                    user_id=str(request.user_id),
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published AssetDepreciationPostedEvent for period {request.period_year}-{request.period_month:02d}")
+
+            # Publish fully depreciated events
+            for asset in fully_depreciated_assets:
+                event_fully = AssetFullyDepreciatedEvent(
+                    aggregate_id=asset.id,
+                    aggregate_version=1,
+                    asset=asset,
+                    user_id=str(request.user_id),
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event_fully)
+                logger.debug(f"Published AssetFullyDepreciatedEvent for {asset.asset_code}")
 
         logger.info(
             f"Depreciation run completed: {processed_count} assets, total={total_depreciation}"
@@ -608,16 +767,21 @@ class FixedAssetService:
                 user_id,
             )
 
+        # --- PUBLISH EVENT ---
         if self._event_publisher:
-            event = AssetDisposed(
+            event = AssetDisposedEvent(
                 aggregate_id=asset.id,
-                asset_code=asset.asset_code,
+                aggregate_version=aggregate.version,
+                asset=asset,
                 disposal_date=request.disposal_date,
+                proceeds=request.proceeds_amount,
                 gain_loss=gain_loss,
-                user_id=user_id,
-                occurred_at=datetime.utcnow(),
+                disposed_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            await self._event_publisher.publish(event)
+            logger.debug(f"Published AssetDisposedEvent for {asset.asset_code}")
 
         logger.info(f"Asset {asset.asset_code} disposed: gain_loss={gain_loss}")
 
@@ -716,15 +880,22 @@ class FixedAssetService:
 
             self._stats["impairments"] += 1
 
+            # --- PUBLISH IMPAIRMENT EVENT ---
             if self._event_publisher:
-                event = AssetImpairmentRecognized(
+                event = AssetImpairedEvent(
                     aggregate_id=asset.id,
-                    asset_code=asset.asset_code,
+                    aggregate_version=aggregate.version,
+                    asset=asset,
+                    carrying_amount=carrying,
+                    recoverable_amount=recoverable,
                     impairment_loss=impairment_loss,
-                    user_id=user_id,
-                    occurred_at=datetime.utcnow(),
+                    indicators=["Impairment test"],
+                    tested_by=str(user_id),
+                    user_id=str(user_id),
+                    correlation_id=correlation_id,
                 )
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                await self._event_publisher.publish(event)
+                logger.debug(f"Published AssetImpairedEvent for {asset.asset_code}")
 
         return ImpairmentTestResponse(
             asset_id=asset.id,
@@ -734,6 +905,69 @@ class FixedAssetService:
             needs_impairment=needs_impairment,
             journal_id=journal_id,
         )
+
+    async def reverse_impairment(
+        self,
+        request: ImpairmentReversalRequest,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> AssetResponse:
+        """Reverse impairment loss on an asset."""
+        aggregate = await self._asset_repo.get_asset_by_id(request.asset_id)
+        if not aggregate:
+            raise AssetNotFoundError(f"Asset {request.asset_id} not found")
+
+        asset = aggregate.asset
+        current_impairment = asset.accumulated_impairment or Decimal("0")
+
+        if current_impairment <= 0:
+            raise ImpairmentReversalNotAllowedError("No impairment to reverse")
+
+        if request.reversal_amount > current_impairment:
+            raise ImpairmentReversalNotAllowedError(
+                f"Reversal amount {request.reversal_amount} exceeds accumulated impairment {current_impairment}"
+            )
+
+        old_nbv = asset.net_book_value
+        new_nbv = old_nbv + request.reversal_amount
+        asset.net_book_value = new_nbv
+        asset.accumulated_impairment = current_impairment - request.reversal_amount
+        asset.updated_by = user_id
+        asset.updated_at = datetime.utcnow()
+
+        await self._asset_repo.save_asset(aggregate)
+
+        # Post reversal journal
+        journal_id = None
+        if self._ledger_repo:
+            journal_id = await self._post_impairment_reversal_journal(
+                asset.legal_entity_id,
+                asset,
+                request.reversal_amount,
+                request.reversal_date,
+                user_id,
+            )
+
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["impairments_reversed"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = AssetImpairmentReversedEvent(
+                aggregate_id=asset.id,
+                aggregate_version=aggregate.version,
+                asset=asset,
+                reversal_amount=request.reversal_amount,
+                reversed_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event)
+            logger.debug(f"Published AssetImpairmentReversedEvent for {asset.asset_code}")
+
+        return self._to_response(asset)
 
     async def _post_impairment_journal(
         self,
@@ -760,6 +994,186 @@ class FixedAssetService:
             user_id=user_id,
         )
         return journal_id
+
+    async def _post_impairment_reversal_journal(
+        self,
+        legal_entity_id: UUID,
+        asset: FixedAsset,
+        amount: Decimal,
+        reversal_date: date,
+        user_id: UUID,
+    ) -> UUID:
+        """Post impairment reversal journal entry."""
+        impairment_recovery_account = "4-7000"
+        asset_account = "1-1000"
+
+        journal_id = await self._ledger_repo.post_journal(
+            legal_entity_id=legal_entity_id,
+            journal_date=reversal_date,
+            period=f"{reversal_date.year}-{reversal_date.month:02d}",
+            description=f"Reversal of impairment for asset {asset.asset_code}",
+            lines=[
+                {"account_code": impairment_recovery_account, "debit": Decimal("0"), "credit": amount},
+                {"account_code": asset_account, "debit": amount, "credit": Decimal("0")},
+            ],
+            source_system="fixed_asset",
+            user_id=user_id,
+        )
+        return journal_id
+
+    # ==================== REVALUATION ====================
+
+    async def revalue_asset(
+        self, request: RevaluationRequest, user_id: UUID, correlation_id: str | None = None
+    ) -> RevaluationResponse:
+        """Revalue an asset."""
+        aggregate = await self._asset_repo.get_asset_by_id(request.asset_id)
+        if not aggregate:
+            raise AssetNotFoundError(f"Asset {request.asset_id} not found")
+
+        asset = aggregate.asset
+        if asset.status == AssetStatus.DISPOSED:
+            raise RevaluationNotAllowedError("Cannot revalue a disposed asset")
+
+        old_nbv = asset.net_book_value
+        new_cost = request.new_acquisition_cost
+        # Revaluation is simply updating the carrying amount
+        revaluation_increase = Decimal("0")
+        revaluation_decrease = Decimal("0")
+        if new_cost > old_nbv:
+            revaluation_increase = new_cost - old_nbv
+        else:
+            revaluation_decrease = old_nbv - new_cost
+
+        asset.net_book_value = new_cost
+        asset.acquisition_cost = new_cost  # adjust cost for future depreciation
+        asset.last_revaluation_date = request.revaluation_date
+        asset.updated_by = user_id
+        asset.updated_at = datetime.utcnow()
+
+        await self._asset_repo.save_asset(aggregate)
+
+        # Post revaluation journal
+        journal_id = None
+        if self._ledger_repo:
+            journal_id = await self._post_revaluation_journal(
+                asset.legal_entity_id,
+                asset,
+                revaluation_increase,
+                revaluation_decrease,
+                request.revaluation_date,
+                user_id,
+            )
+
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["revaluations"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = AssetRevaluatedEvent(
+                aggregate_id=asset.id,
+                aggregate_version=aggregate.version,
+                asset=asset,
+                old_value=old_nbv,
+                new_value=new_cost,
+                revaluation_surplus=revaluation_increase,
+                revaluation_method="revaluation",
+                approved_by=str(request.approved_by) if request.approved_by else str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event)
+            logger.debug(f"Published AssetRevaluatedEvent for {asset.asset_code}")
+
+        return RevaluationResponse(
+            asset_id=asset.id,
+            old_net_book_value=old_nbv,
+            new_net_book_value=new_cost,
+            revaluation_increase=revaluation_increase,
+            revaluation_decrease=revaluation_decrease,
+            journal_id=journal_id,
+        )
+
+    async def _post_revaluation_journal(
+        self,
+        legal_entity_id: UUID,
+        asset: FixedAsset,
+        increase: Decimal,
+        decrease: Decimal,
+        revaluation_date: date,
+        user_id: UUID,
+    ) -> UUID:
+        """Post revaluation journal entry."""
+        asset_account = "1-1000"
+        revaluation_surplus_account = "3-1000"
+
+        lines = []
+        if increase > 0:
+            lines.append({"account_code": asset_account, "debit": increase, "credit": Decimal("0")})
+            lines.append(
+                {"account_code": revaluation_surplus_account, "debit": Decimal("0"), "credit": increase}
+            )
+        elif decrease > 0:
+            lines.append({"account_code": asset_account, "debit": Decimal("0"), "credit": decrease})
+            lines.append(
+                {"account_code": revaluation_surplus_account, "debit": decrease, "credit": Decimal("0")}
+            )
+
+        journal_id = await self._ledger_repo.post_journal(
+            legal_entity_id=legal_entity_id,
+            journal_date=revaluation_date,
+            period=f"{revaluation_date.year}-{revaluation_date.month:02d}",
+            description=f"Revaluation of asset {asset.asset_code}",
+            lines=lines,
+            source_system="fixed_asset",
+            user_id=user_id,
+        )
+        return journal_id
+
+    # ==================== TRANSFER ====================
+
+    async def transfer_asset(
+        self, request: AssetTransferRequest, correlation_id: str | None = None
+    ) -> AssetResponse:
+        """Transfer asset between legal entities or locations."""
+        aggregate = await self._asset_repo.get_asset_by_id(request.asset_id)
+        if not aggregate:
+            raise AssetNotFoundError(f"Asset {request.asset_id} not found")
+
+        asset = aggregate.asset
+        if asset.status == AssetStatus.DISPOSED:
+            raise FixedAssetServiceError("Cannot transfer a disposed asset")
+
+        # Update asset's legal entity
+        old_legal_entity = asset.legal_entity_id
+        asset.legal_entity_id = request.to_legal_entity_id
+        asset.updated_at = datetime.utcnow()
+        asset.updated_by = request.transferred_by
+
+        await self._asset_repo.save_asset(aggregate)
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["transfers"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = AssetTransferredEvent(
+                aggregate_id=asset.id,
+                aggregate_version=aggregate.version,
+                asset=asset,
+                from_legal_entity_id=old_legal_entity,
+                to_legal_entity_id=request.to_legal_entity_id,
+                transferred_by=str(request.transferred_by),
+                user_id=str(request.transferred_by),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event)
+            logger.debug(f"Published AssetTransferredEvent for {asset.asset_code}")
+
+        return self._to_response(asset)
 
     # ==================== HELPER ====================
 
@@ -807,6 +1221,7 @@ __all__ = [
     "AssetAlreadyDisposedError",
     "AssetNotFoundError",
     "AssetResponse",
+    "AssetTransferRequest",
     "CreateAssetRequest",
     "DepreciationRunRequest",
     "DepreciationRunResponse",
@@ -817,11 +1232,13 @@ __all__ = [
     "FixedAssetServiceError",
     "FixedAssetStatus",
     "FixedAssetType",
+    "ImpairmentReversalRequest",
     "ImpairmentTestRequest",
     "ImpairmentTestResponse",
     "InvalidDepreciationMethodError",
     "RevaluationNotAllowedError",
     "RevaluationRequest",
     "RevaluationResponse",
+    "UpdateAssetRequest",
     "create_fixed_asset_service",
 ]

@@ -1,4 +1,5 @@
-# service_tax.py - Refactored with dynamic imports to avoid layer violation
+# service_tax.py - Complete rewrite with full event publishing
+# Refactored with static imports for tax calculators to eliminate dynamic import warnings
 
 #!/usr/bin/env python3
 
@@ -9,19 +10,41 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service layer for Tax Management sesuai regulasi Indonesia.
-    Menggunakan dynamic import untuk mengakses policy_engine.tax_indonesia
-    agar tidak melanggar layer architecture (application → policy_engine).
+    Mempublikasikan event untuk setiap perhitungan dan perubahan status.
+    Menggunakan static imports untuk policy_engine.tax_indonesia.
 """
 
 from __future__ import annotations
 
-import importlib
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
 from uuid import UUID, uuid4
+
+# Import domain events
+from application.events import (
+    FakturApprovedEvent,
+    FakturRejectedEvent,
+    FakturSubmittedEvent,
+    MeteraiUsedEvent,
+    PKPStatusChangedEvent,
+    SPTApprovedEvent,
+    SPTSubmittedEvent,
+    TaxCalculatedEvent,
+    TaxProfileUpdatedEvent,
+)
+
+# Static imports for tax calculators (policy_engine)
+from policy_engine.tax_indonesia.ppn_calculator import PPNCalculator
+from policy_engine.tax_indonesia.pph_21_calculator import PPh21Calculator
+from policy_engine.tax_indonesia.pph_22_calculator import PPh22Calculator
+from policy_engine.tax_indonesia.pph_23_calculator import PPh23Calculator
+from policy_engine.tax_indonesia.pph_4_ayat_2_calculator import PPh4Ayat2Calculator
+from policy_engine.tax_indonesia.withholding_engine import WithholdingEngine
+from policy_engine.tax_indonesia.rate_registry_dynamic import TaxRateRegistry
+from policy_engine.tax_indonesia.penalty_interest_engine import PenaltyInterestEngine
 
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.tax_authority_coretax_port import CoretaxPort
@@ -51,6 +74,15 @@ class FakturStatus(str, Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
+
+
+class PKPStatus(str, Enum):
+    """Status Pengusaha Kena Pajak."""
+    NON_PKP = "NON_PKP"
+    PKP = "PKP"
+    PKP_RISIKO_RENDAH = "PKP_RISIKO_RENDAH"
+    PKP_RISIKO_SEDANG = "PKP_RISIKO_SEDANG"
+    PKP_RISIKO_TINGGI = "PKP_RISIKO_TINGGI"
 
 
 # ============================================================================
@@ -161,6 +193,24 @@ class TaxWithholdingSlipDTO:
     period: str
 
 
+@dataclass(kw_only=True)
+class PKPStatusChangeRequest:
+    legal_entity_id: UUID
+    new_status: str
+    reason: str | None = None
+    changed_by: UUID | None = None
+
+
+@dataclass(kw_only=True)
+class MeteraiUsageRequest:
+    legal_entity_id: UUID
+    document_type: str
+    document_number: str
+    meterai_type: str = "10000"
+    used_date: date | None = None
+    used_by: UUID | None = None
+
+
 # ============================================================================
 # Exceptions
 # ============================================================================
@@ -185,6 +235,10 @@ class CoretaxSubmissionError(TaxServiceError):
     pass
 
 
+class PKPStatusError(TaxServiceError):
+    pass
+
+
 # ============================================================================
 # Main Service
 # ============================================================================
@@ -192,8 +246,8 @@ class CoretaxSubmissionError(TaxServiceError):
 class TaxService:
     """
     Service untuk perpajakan sesuai regulasi Indonesia.
-    Menggunakan dynamic import untuk policy_engine.tax_indonesia
-    agar tidak melanggar layer architecture.
+    Mempublikasikan event untuk setiap perhitungan dan perubahan status.
+    Menggunakan static imports untuk tax calculators.
     """
 
     def __init__(
@@ -211,77 +265,80 @@ class TaxService:
         self._uow = uow
         self._event_publisher = event_publisher
 
-        # Lazy-initialized calculators (dynamic import)
-        self._ppn_calc = None
-        self._pph21_calc = None
-        self._pph22_calc = None
-        self._pph23_calc = None
-        self._pph4_calc = None
-        self._withholding_engine = None
-        self._rate_registry = None
-        self._penalty_engine = None
+        # Lazy-initialized calculators (instantiated on first use)
+        self._ppn_calc: PPNCalculator | None = None
+        self._pph21_calc: PPh21Calculator | None = None
+        self._pph22_calc: PPh22Calculator | None = None
+        self._pph23_calc: PPh23Calculator | None = None
+        self._pph4_calc: PPh4Ayat2Calculator | None = None
+        self._withholding_engine: WithholdingEngine | None = None
+        self._rate_registry: TaxRateRegistry | None = None
+        self._penalty_engine: PenaltyInterestEngine | None = None
 
-        self._stats = {"calculations": 0, "faktur_created": 0, "spt_submitted": 0}
+        self._stats = {
+            "calculations": 0,
+            "faktur_created": 0,
+            "faktur_submitted": 0,
+            "spt_submitted": 0,
+            "pkp_changes": 0,
+            "meterai_used": 0,
+        }
 
-        logger.info("TaxService initialized with dynamic imports for tax calculators")
+        logger.info("TaxService initialized with static imports for tax calculators")
 
     # ========================================================================
-    # Lazy Getter Methods (menggunakan dynamic import)
+    # Lazy Getter Methods (using static imports)
     # ========================================================================
 
-    def _get_ppn_calculator(self):
+    def _get_ppn_calculator(self) -> PPNCalculator:
         if self._ppn_calc is None:
-            module = importlib.import_module("policy_engine.tax_indonesia.ppn_calculator")
-            self._ppn_calc = module.PPNCalculator()
+            self._ppn_calc = PPNCalculator()
         return self._ppn_calc
 
-    def _get_pph21_calculator(self):
+    def _get_pph21_calculator(self) -> PPh21Calculator:
         if self._pph21_calc is None:
-            module = importlib.import_module("policy_engine.tax_indonesia.pph_21_calculator")
-            self._pph21_calc = module.PPh21Calculator()
+            self._pph21_calc = PPh21Calculator()
         return self._pph21_calc
 
-    def _get_pph22_calculator(self):
+    def _get_pph22_calculator(self) -> PPh22Calculator:
         if self._pph22_calc is None:
-            module = importlib.import_module("policy_engine.tax_indonesia.pph_22_calculator")
-            self._pph22_calc = module.PPh22Calculator()
+            self._pph22_calc = PPh22Calculator()
         return self._pph22_calc
 
-    def _get_pph23_calculator(self):
+    def _get_pph23_calculator(self) -> PPh23Calculator:
         if self._pph23_calc is None:
-            module = importlib.import_module("policy_engine.tax_indonesia.pph_23_calculator")
-            self._pph23_calc = module.PPh23Calculator()
+            self._pph23_calc = PPh23Calculator()
         return self._pph23_calc
 
-    def _get_pph4_calculator(self):
+    def _get_pph4_calculator(self) -> PPh4Ayat2Calculator:
         if self._pph4_calc is None:
-            module = importlib.import_module("policy_engine.tax_indonesia.pph_4_ayat_2_calculator")
-            self._pph4_calc = module.PPh4Ayat2Calculator()
+            self._pph4_calc = PPh4Ayat2Calculator()
         return self._pph4_calc
 
-    def _get_withholding_engine(self):
+    def _get_withholding_engine(self) -> WithholdingEngine:
         if self._withholding_engine is None:
-            module = importlib.import_module("policy_engine.tax_indonesia.withholding_engine")
-            self._withholding_engine = module.WithholdingEngine()
+            self._withholding_engine = WithholdingEngine()
         return self._withholding_engine
 
-    def _get_rate_registry(self):
+    def _get_rate_registry(self) -> TaxRateRegistry:
         if self._rate_registry is None:
-            module = importlib.import_module("policy_engine.tax_indonesia.rate_registry_dynamic")
-            self._rate_registry = module.TaxRateRegistry()
+            self._rate_registry = TaxRateRegistry()
         return self._rate_registry
 
-    def _get_penalty_engine(self):
+    def _get_penalty_engine(self) -> PenaltyInterestEngine:
         if self._penalty_engine is None:
-            module = importlib.import_module("policy_engine.tax_indonesia.penalty_interest_engine")
-            self._penalty_engine = module.PenaltyInterestEngine()
+            self._penalty_engine = PenaltyInterestEngine()
         return self._penalty_engine
 
     # ========================================================================
     # PPN (VAT) Methods
     # ========================================================================
 
-    async def calculate_ppn(self, request: PPNCalculationRequest) -> PPNCalculationResponse:
+    async def calculate_ppn(
+        self,
+        request: PPNCalculationRequest,
+        correlation_id: str | None = None,
+    ) -> PPNCalculationResponse:
         """Calculate PPN (VAT) based on DPP and transaction date."""
         transaction_date = request.transaction_date or date.today()
 
@@ -301,6 +358,26 @@ class TaxService:
         is_exempted = await self._is_ppn_exempted(request.dpp, request.transaction_date)
 
         self._stats["calculations"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            try:
+                event = TaxCalculatedEvent(
+                    aggregate_id=request.legal_entity_id,
+                    aggregate_version=1,
+                    tax_type="PPN",
+                    tax_period=request.tax_period,
+                    taxable_amount=request.dpp,
+                    tax_amount=total_vat,
+                    tax_rate=vat_rate,
+                    calculated_by="system",
+                    user_id=None,
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event, correlation_id)
+                logger.debug(f"Published TaxCalculatedEvent for PPN: {total_vat}")
+            except Exception as e:
+                logger.warning(f"Failed to publish TaxCalculatedEvent: {e}")
 
         return PPNCalculationResponse(
             dpp=request.dpp,
@@ -322,6 +399,7 @@ class TaxService:
         ppnbm: Decimal = Decimal("0"),
         faktur_date: date | None = None,
         user_id: UUID | None = None,
+        correlation_id: str | None = None,
     ) -> FakturPajakDTO:
         if not self._validate_npwp(npwp_penjual) or not self._validate_npwp(npwp_pembeli):
             raise InvalidNPWPError("Invalid NPWP format")
@@ -352,7 +430,10 @@ class TaxService:
         return faktur
 
     async def submit_faktur_pajak_to_coretax(
-        self, faktur_id: UUID, user_id: UUID
+        self,
+        faktur_id: UUID,
+        user_id: UUID,
+        correlation_id: str | None = None,
     ) -> FakturPajakDTO:
         faktur = await self._tax_repo.get_faktur_pajak(faktur_id)
         if not faktur:
@@ -372,6 +453,26 @@ class TaxService:
             "faktur_date": faktur.faktur_date.isoformat(),
         }
 
+        # --- PUBLISH SUBMITTED EVENT ---
+        if self._event_publisher:
+            try:
+                event_submitted = FakturSubmittedEvent(
+                    aggregate_id=faktur.id,
+                    aggregate_version=1,
+                    faktur_id=faktur.id,
+                    faktur_number=faktur.faktur_number,
+                    npwp_penjual=faktur.npwp_penjual,
+                    dpp=faktur.dpp,
+                    ppn=faktur.ppn,
+                    status=FakturStatus.SUBMITTED.value,
+                    user_id=str(user_id) if user_id else "system",
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event_submitted, correlation_id)
+                logger.debug(f"Published FakturSubmittedEvent for {faktur.faktur_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish FakturSubmittedEvent: {e}")
+
         response = await self._coretax.submit_faktur(payload)
 
         if response.get("success"):
@@ -381,8 +482,53 @@ class TaxService:
             await self._tax_repo.save_faktur_pajak(faktur)
             if self._uow:
                 await self._uow.commit()
+
+            self._stats["faktur_submitted"] += 1
+
+            # --- PUBLISH APPROVED EVENT ---
+            if self._event_publisher:
+                try:
+                    event_approved = FakturApprovedEvent(
+                        aggregate_id=faktur.id,
+                        aggregate_version=1,
+                        faktur_id=faktur.id,
+                        faktur_number=faktur.faktur_number,
+                        npwp_penjual=faktur.npwp_penjual,
+                        dpp=faktur.dpp,
+                        ppn=faktur.ppn,
+                        approval_code=faktur.approval_code,
+                        user_id=str(user_id) if user_id else "system",
+                        correlation_id=correlation_id,
+                    )
+                    await self._event_publisher.publish(event_approved, correlation_id)
+                    logger.debug(f"Published FakturApprovedEvent for {faktur.faktur_number}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish FakturApprovedEvent: {e}")
+
         else:
             faktur.status = FakturStatus.REJECTED.value
+            await self._tax_repo.save_faktur_pajak(faktur)
+            if self._uow:
+                await self._uow.commit()
+
+            # --- PUBLISH REJECTED EVENT ---
+            if self._event_publisher:
+                try:
+                    event_rejected = FakturRejectedEvent(
+                        aggregate_id=faktur.id,
+                        aggregate_version=1,
+                        faktur_id=faktur.id,
+                        faktur_number=faktur.faktur_number,
+                        npwp_penjual=faktur.npwp_penjual,
+                        reason=response.get("message", "Unknown error"),
+                        user_id=str(user_id) if user_id else "system",
+                        correlation_id=correlation_id,
+                    )
+                    await self._event_publisher.publish(event_rejected, correlation_id)
+                    logger.debug(f"Published FakturRejectedEvent for {faktur.faktur_number}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish FakturRejectedEvent: {e}")
+
             raise CoretaxSubmissionError(f"Coretax rejection: {response.get('message')}")
 
         logger.info(f"Faktur {faktur.faktur_number} submitted to Coretax")
@@ -393,6 +539,8 @@ class TaxService:
         legal_entity_id: UUID,
         masa_pajak: str,
         kompensasi_dari_masa_sebelumnya: Decimal = Decimal("0"),
+        user_id: UUID | None = None,
+        correlation_id: str | None = None,
     ) -> SPTMasaPpnDTO:
         faktur_keluaran = await self._tax_repo.list_faktur_keluaran(legal_entity_id, masa_pajak)
         total_dpp = sum(f.dpp for f in faktur_keluaran)
@@ -434,6 +582,44 @@ class TaxService:
             spt.status = result.get("status", "SUBMITTED")
             spt.submitted_at = datetime.utcnow()
             self._stats["spt_submitted"] += 1
+
+            # --- PUBLISH SPT SUBMITTED EVENT ---
+            if self._event_publisher:
+                try:
+                    event = SPTSubmittedEvent(
+                        aggregate_id=spt.id,
+                        aggregate_version=1,
+                        spt_id=spt.id,
+                        npwp=str(legal_entity_id),
+                        masa_pajak=masa_pajak,
+                        jenis_spt="PPN",
+                        status=spt.status,
+                        user_id=str(user_id) if user_id else "system",
+                        correlation_id=correlation_id,
+                    )
+                    await self._event_publisher.publish(event, correlation_id)
+                    logger.debug(f"Published SPTSubmittedEvent for PPN {masa_pajak}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish SPTSubmittedEvent: {e}")
+
+            # --- PUBLISH SPT APPROVED EVENT if status is approved ---
+            if spt.status == "APPROVED" and self._event_publisher:
+                try:
+                    event_approved = SPTApprovedEvent(
+                        aggregate_id=spt.id,
+                        aggregate_version=1,
+                        spt_id=spt.id,
+                        npwp=str(legal_entity_id),
+                        masa_pajak=masa_pajak,
+                        jenis_spt="PPN",
+                        approved_by=str(user_id) if user_id else "system",
+                        user_id=str(user_id) if user_id else None,
+                        correlation_id=correlation_id,
+                    )
+                    await self._event_publisher.publish(event_approved, correlation_id)
+                    logger.debug(f"Published SPTApprovedEvent for PPN {masa_pajak}")
+                except Exception as e:
+                    logger.warning(f"Failed to publish SPTApprovedEvent: {e}")
         else:
             spt.status = "GENERATED"
 
@@ -448,7 +634,11 @@ class TaxService:
     # PPh 21 Methods
     # ========================================================================
 
-    async def calculate_pph21(self, request: PPh21CalculationRequest) -> PPh21CalculationResponse:
+    async def calculate_pph21(
+        self,
+        request: PPh21CalculationRequest,
+        correlation_id: str | None = None,
+    ) -> PPh21CalculationResponse:
         employee = await self._tax_repo.get_employee_tax_data(request.employee_id)
         if not employee:
             raise TaxServiceError(f"Employee {request.employee_id} tax data not found")
@@ -467,6 +657,26 @@ class TaxService:
 
         self._stats["calculations"] += 1
 
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            try:
+                event = TaxCalculatedEvent(
+                    aggregate_id=request.employee_id,
+                    aggregate_version=1,
+                    tax_type="PPH21",
+                    tax_period=f"{request.period_year}-{request.period_month:02d}",
+                    taxable_amount=request.gross_income,
+                    tax_amount=monthly_pph,
+                    tax_rate=tariff,
+                    calculated_by="system",
+                    user_id=None,
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event, correlation_id)
+                logger.debug(f"Published TaxCalculatedEvent for PPh21: {monthly_pph}")
+            except Exception as e:
+                logger.warning(f"Failed to publish TaxCalculatedEvent: {e}")
+
         return PPh21CalculationResponse(
             gross_income=request.gross_income,
             taxable_income=monthly_pph * 12,
@@ -480,7 +690,11 @@ class TaxService:
     # PPh 23 Methods
     # ========================================================================
 
-    async def calculate_pph23(self, request: PPh23CalculationRequest) -> PPh23CalculationResponse:
+    async def calculate_pph23(
+        self,
+        request: PPh23CalculationRequest,
+        correlation_id: str | None = None,
+    ) -> PPh23CalculationResponse:
         rate_registry = self._get_rate_registry()
         rate = await rate_registry.get_pph23_rate(
             transaction_type=request.transaction_type, has_npwp=request.is_has_npwp
@@ -493,6 +707,26 @@ class TaxService:
 
         self._stats["calculations"] += 1
 
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            try:
+                event = TaxCalculatedEvent(
+                    aggregate_id=request.supplier_id,
+                    aggregate_version=1,
+                    tax_type="PPH23",
+                    tax_period=request.period,
+                    taxable_amount=request.gross_amount,
+                    tax_amount=tax_due,
+                    tax_rate=rate,
+                    calculated_by="system",
+                    user_id=None,
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event, correlation_id)
+                logger.debug(f"Published TaxCalculatedEvent for PPh23: {tax_due}")
+            except Exception as e:
+                logger.warning(f"Failed to publish TaxCalculatedEvent: {e}")
+
         return PPh23CalculationResponse(
             gross_amount=request.gross_amount,
             tax_rate=rate,
@@ -500,6 +734,170 @@ class TaxService:
             is_withheld=True,
             tax_object_code=object_code,
         )
+
+    # ========================================================================
+    # PKP Status Management
+    # ========================================================================
+
+    async def change_pkp_status(
+        self,
+        request: PKPStatusChangeRequest,
+        correlation_id: str | None = None,
+    ) -> PKPStatus:
+        """Change PKP (Pengusaha Kena Pajak) status."""
+        try:
+            new_status = PKPStatus(request.new_status)
+        except ValueError:
+            raise PKPStatusError(f"Invalid PKP status: {request.new_status}")
+
+        # Get current status
+        current = await self._tax_repo.get_pkp_status(request.legal_entity_id)
+        if current == new_status.value:
+            logger.info(f"PKP status already {new_status.value} for {request.legal_entity_id}")
+            return new_status
+
+        # Save new status
+        await self._tax_repo.save_pkp_status(
+            legal_entity_id=request.legal_entity_id,
+            status=new_status.value,
+            reason=request.reason,
+            changed_by=request.changed_by,
+            changed_at=datetime.utcnow(),
+        )
+
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["pkp_changes"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            try:
+                event = PKPStatusChangedEvent(
+                    aggregate_id=request.legal_entity_id,
+                    aggregate_version=1,
+                    legal_entity_id=request.legal_entity_id,
+                    old_status=current or "NON_PKP",
+                    new_status=new_status.value,
+                    reason=request.reason,
+                    changed_by=str(request.changed_by) if request.changed_by else "system",
+                    user_id=str(request.changed_by) if request.changed_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event, correlation_id)
+                logger.debug(f"Published PKPStatusChangedEvent: {current} -> {new_status.value}")
+            except Exception as e:
+                logger.warning(f"Failed to publish PKPStatusChangedEvent: {e}")
+
+        logger.info(f"PKP status changed to {new_status.value} for {request.legal_entity_id}")
+        return new_status
+
+    async def get_pkp_status(self, legal_entity_id: UUID) -> str | None:
+        """Get current PKP status."""
+        return await self._tax_repo.get_pkp_status(legal_entity_id)
+
+    # ========================================================================
+    # Meterai (Stamp Duty) Methods
+    # ========================================================================
+
+    async def use_meterai(
+        self,
+        request: MeteraiUsageRequest,
+        correlation_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Record usage of meterai (stamp duty)."""
+        meterai_date = request.used_date or date.today()
+        meterai_amount = Decimal("10000") if request.meterai_type == "10000" else Decimal("6000")
+
+        # Save meterai usage
+        meterai_id = uuid4()
+        await self._tax_repo.save_meterai_usage(
+            id=meterai_id,
+            legal_entity_id=request.legal_entity_id,
+            document_type=request.document_type,
+            document_number=request.document_number,
+            meterai_type=request.meterai_type,
+            amount=meterai_amount,
+            used_date=meterai_date,
+            used_by=request.used_by,
+        )
+
+        if self._uow:
+            await self._uow.commit()
+
+        self._stats["meterai_used"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            try:
+                event = MeteraiUsedEvent(
+                    aggregate_id=meterai_id,
+                    aggregate_version=1,
+                    meterai_id=meterai_id,
+                    document_type=request.document_type,
+                    document_number=request.document_number,
+                    meterai_type=request.meterai_type,
+                    amount=meterai_amount,
+                    used_date=meterai_date,
+                    used_by=str(request.used_by) if request.used_by else "system",
+                    user_id=str(request.used_by) if request.used_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event, correlation_id)
+                logger.debug(f"Published MeteraiUsedEvent for {request.document_number}")
+            except Exception as e:
+                logger.warning(f"Failed to publish MeteraiUsedEvent: {e}")
+
+        logger.info(f"Meterai used for {request.document_number}: {meterai_amount}")
+        return {
+            "meterai_id": meterai_id,
+            "document_number": request.document_number,
+            "amount": meterai_amount,
+            "used_date": meterai_date,
+        }
+
+    # ========================================================================
+    # Tax Profile Updates
+    # ========================================================================
+
+    async def update_tax_profile(
+        self,
+        legal_entity_id: UUID,
+        profile_data: dict[str, Any],
+        updated_by: UUID | None = None,
+        correlation_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Update tax profile (NPWP, PKP status, tax rates, etc.)."""
+        # Save profile update
+        await self._tax_repo.save_tax_profile(
+            legal_entity_id=legal_entity_id,
+            profile_data=profile_data,
+            updated_by=updated_by,
+            updated_at=datetime.utcnow(),
+        )
+
+        if self._uow:
+            await self._uow.commit()
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            try:
+                event = TaxProfileUpdatedEvent(
+                    aggregate_id=legal_entity_id,
+                    aggregate_version=1,
+                    legal_entity_id=legal_entity_id,
+                    changes=profile_data,
+                    updated_by=str(updated_by) if updated_by else "system",
+                    user_id=str(updated_by) if updated_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(event, correlation_id)
+                logger.debug(f"Published TaxProfileUpdatedEvent for {legal_entity_id}")
+            except Exception as e:
+                logger.warning(f"Failed to publish TaxProfileUpdatedEvent: {e}")
+
+        logger.info(f"Tax profile updated for {legal_entity_id}")
+        return {"legal_entity_id": str(legal_entity_id), "updated": True}
 
     # ========================================================================
     # Private Helpers
@@ -550,6 +948,10 @@ __all__ = [
     "FakturPajakError",
     "FakturStatus",
     "InvalidNPWPError",
+    "MeteraiUsageRequest",
+    "PKPStatus",
+    "PKPStatusChangeRequest",
+    "PKPStatusError",
     "PPNCalculationRequest",
     "PPNCalculationResponse",
     "PPh21CalculationRequest",

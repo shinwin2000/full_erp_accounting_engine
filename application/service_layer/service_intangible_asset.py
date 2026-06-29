@@ -1,4 +1,4 @@
-# service_intangible_asset.py - Complete rewrite with full implementation
+# service_intangible_asset.py - Complete rewrite with full implementation + event publishing
 
 from __future__ import annotations
 
@@ -26,8 +26,22 @@ from application.dto_objects.intangible_asset_request import (
 from domain.intangible_asset.amortization_schedule_engine import AmortizationScheduleEngine
 from domain.intangible_asset.asset_entity import IntangibleAssetEntity, IntangibleAssetStatus
 from ports.primary.cache_port import CachePort
+from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.intangible_asset_repository_port import IntangibleAssetRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
+
+# Import domain events (sesuai dengan yang terdaftar di registry)
+from application.events import (
+    AssetAcquiredEvent,
+    AssetUpdatedEvent,
+    AssetDepreciationPostedEvent,   # untuk amortisasi
+    AssetImpairedEvent,
+    AssetImpairmentReversedEvent,
+    AssetDisposedEvent,
+    AssetFullyDepreciatedEvent,
+    AssetRevaluatedEvent,
+    AssetTransferredEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +186,7 @@ class IntangibleAssetService:
         asset_repo: IntangibleAssetRepositoryPort,
         uow: UnitOfWorkPort,
         cache: CachePort | None = None,
+        event_publisher: EventPublisherPort | None = None,
     ):
         if asset_repo is None:
             raise ValueError("asset_repo is required")
@@ -181,6 +196,7 @@ class IntangibleAssetService:
         self.asset_repo = asset_repo
         self.uow = uow
         self.cache = cache
+        self._event_publisher = event_publisher
         self._stats = {"assets_created": 0, "amortizations": 0, "impairments": 0, "disposals": 0}
 
         logger.info("IntangibleAssetService initialized")
@@ -251,6 +267,22 @@ class IntangibleAssetService:
 
         self._stats["assets_created"] += 1
         logger.info(f"Intangible asset {asset.asset_code} created")
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            await self._event_publisher.publish(
+                AssetAcquiredEvent(
+                    asset_id=asset.id,
+                    asset_code=asset.asset_code,
+                    asset_name=asset.asset_name,
+                    acquisition_date=asset.acquisition_date,
+                    acquisition_cost=asset.acquisition_cost,
+                    useful_life_years=asset.useful_life_years,
+                    residual_value=asset.residual_value,
+                    timestamp=datetime.now(UTC),
+                )
+            )
+            logger.debug(f"Published AssetAcquiredEvent for {asset.asset_code}")
 
         return self._to_response(asset)
 
@@ -331,10 +363,21 @@ class IntangibleAssetService:
         amount = engine.calculate_period_amortization(period_date)
 
         if amount <= 0:
+            # Tidak ada amortisasi, mungkin sudah fully amortized
+            # Tetap catat schedule dengan amount 0 agar tidak terlewat
+            await self.asset_repo.record_amortization_schedule(
+                asset_id=asset_id,
+                period_date=period_date,
+                planned_amount=Decimal(0),
+                actual_amount=Decimal(0),
+                journal_id=None,
+                period_id=period_id,
+            )
+            await self.uow.commit()
             return AmortizationRunResult(
                 asset_id=asset_id,
                 period=f"{period_date.year}-{period_date.month:02d}",
-                amount=Decimal("0"),
+                amount=Decimal(0),
                 success=True,
             )
 
@@ -364,6 +407,35 @@ class IntangibleAssetService:
         # Invalidate cache
         if self.cache:
             await self.cache.delete(f"intangible_asset:{asset_id}")
+
+        # --- PUBLISH EVENT AMORTISASI ---
+        if self._event_publisher:
+            await self._event_publisher.publish(
+                AssetDepreciationPostedEvent(
+                    asset_id=asset.id,
+                    asset_code=asset.asset_code,
+                    period=f"{period_date.year}-{period_date.month:02d}",
+                    depreciation_amount=amount,
+                    accumulated_depreciation=asset.accumulated_amortization,
+                    carrying_amount=asset.carrying_amount,
+                    timestamp=datetime.now(UTC),
+                )
+            )
+            logger.debug(f"Published AssetDepreciationPostedEvent for {asset.asset_code}")
+
+        # Jika aset sudah fully amortized, publish event fully amortized
+        if asset.carrying_amount == 0 and asset.accumulated_amortization >= asset.acquisition_cost - asset.residual_value:
+            if self._event_publisher:
+                await self._event_publisher.publish(
+                    AssetFullyDepreciatedEvent(
+                        asset_id=asset.id,
+                        asset_code=asset.asset_code,
+                        accumulated_depreciation=asset.accumulated_amortization,
+                        final_carrying_amount=asset.carrying_amount,
+                        timestamp=datetime.now(UTC),
+                    )
+                )
+                logger.debug(f"Published AssetFullyDepreciatedEvent for {asset.asset_code}")
 
         return AmortizationRunResult(
             asset_id=asset_id,
@@ -403,6 +475,21 @@ class IntangibleAssetService:
             # Invalidate cache
             if self.cache:
                 await self.cache.delete(f"intangible_asset:{asset.id}")
+
+            # --- PUBLISH IMPAIRMENT EVENT ---
+            if self._event_publisher:
+                await self._event_publisher.publish(
+                    AssetImpairedEvent(
+                        asset_id=asset.id,
+                        asset_code=asset.asset_code,
+                        impairment_loss=loss,
+                        carrying_before=carrying_before,
+                        carrying_after=asset.carrying_amount,
+                        reason=request.reason,
+                        timestamp=datetime.now(UTC),
+                    )
+                )
+                logger.debug(f"Published AssetImpairedEvent for {asset.asset_code}")
 
             return {
                 "impairment_recognized": True,
@@ -460,6 +547,22 @@ class IntangibleAssetService:
         if self.cache:
             await self.cache.delete(f"intangible_asset:{asset_id}")
 
+        # --- PUBLISH REVALUATION EVENT ---
+        if self._event_publisher:
+            await self._event_publisher.publish(
+                AssetRevaluatedEvent(
+                    asset_id=asset.id,
+                    asset_code=asset.asset_code,
+                    old_carrying_amount=old_carrying,
+                    new_carrying_amount=new_fair_value,
+                    revaluation_surplus=surplus,
+                    revaluation_date=revaluation_date,
+                    approved_by=approved_by,
+                    timestamp=datetime.now(UTC),
+                )
+            )
+            logger.debug(f"Published AssetRevaluatedEvent for {asset.asset_code}")
+
         return {
             "revaluation_performed": True,
             "surplus": surplus,
@@ -512,6 +615,23 @@ class IntangibleAssetService:
         # Buat jurnal disposal (placeholder)
         journal_id = None
 
+        # --- PUBLISH DISPOSAL EVENT ---
+        if self._event_publisher:
+            await self._event_publisher.publish(
+                AssetDisposedEvent(
+                    asset_id=asset.id,
+                    asset_code=asset.asset_code,
+                    disposal_date=request.disposal_date,
+                    disposal_amount=disposal_amount,
+                    carrying_amount=net_book_value,
+                    gain_loss=gain_loss,
+                    gain_loss_type=gain_loss_type,
+                    reason=request.reason,
+                    timestamp=datetime.now(UTC),
+                )
+            )
+            logger.debug(f"Published AssetDisposedEvent for {asset.asset_code}")
+
         return DisposalResult(
             asset_id=asset.id,
             asset_code=asset.asset_code,
@@ -538,6 +658,9 @@ class IntangibleAssetService:
             )
             for s in schedules
         ]
+
+    # ========================== TRANSFER (opsional) ==========================
+    # Jika ada method transfer, bisa ditambahkan dengan publish AssetTransferredEvent
 
     # ========================== PRIVATE HELPERS ==========================
 
@@ -575,8 +698,9 @@ async def create_intangible_asset_service(
     asset_repo: IntangibleAssetRepositoryPort,
     uow: UnitOfWorkPort,
     cache: CachePort | None = None,
+    event_publisher: EventPublisherPort | None = None,
 ) -> IntangibleAssetService:
-    return IntangibleAssetService(asset_repo, uow, cache)
+    return IntangibleAssetService(asset_repo, uow, cache, event_publisher)
 
 
 __all__ = [

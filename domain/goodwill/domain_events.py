@@ -28,6 +28,7 @@ class DomainEventType(Enum):
     GOODWILL_DISPOSED = "goodwill_disposed"
     GOODWILL_ALLOCATION_ADDED = "goodwill_allocation_added"
     GOODWILL_ALLOCATION_REMOVED = "goodwill_allocation_removed"
+    GOODWILL_UPDATED = "goodwill_updated"  # <--- ditambahkan
 
     def display_name(self) -> str:
         names = {
@@ -38,6 +39,7 @@ class DomainEventType(Enum):
             DomainEventType.GOODWILL_DISPOSED: "Goodwill Disposed",
             DomainEventType.GOODWILL_ALLOCATION_ADDED: "Goodwill Allocation Added",
             DomainEventType.GOODWILL_ALLOCATION_REMOVED: "Goodwill Allocation Removed",
+            DomainEventType.GOODWILL_UPDATED: "Goodwill Updated",  # <--- ditambahkan
         }
         return names.get(self, self.value)
 
@@ -289,6 +291,53 @@ class GoodwillDisposedEvent(DomainEvent):
         )
 
 
+# --- Tambahan event untuk update ---
+@dataclass
+class GoodwillUpdatedEvent(DomainEvent):
+    def __init__(
+        self,
+        aggregate_id: UUID,
+        aggregate_version: int,
+        goodwill_id: UUID,
+        goodwill_number: str,
+        amount: Decimal | None = None,
+        acquisition_date: date | None = None,
+        useful_life: int | None = None,
+        amortization_method: str | None = None,
+        note: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+    ):
+        event_data = {
+            "goodwill_id": str(goodwill_id),
+            "goodwill_number": goodwill_number,
+        }
+        if amount is not None:
+            event_data["amount"] = str(amount)
+        if acquisition_date is not None:
+            event_data["acquisition_date"] = acquisition_date.isoformat()
+        if useful_life is not None:
+            event_data["useful_life"] = useful_life
+        if amortization_method is not None:
+            event_data["amortization_method"] = amortization_method
+        if note is not None:
+            event_data["note"] = note
+
+        super().__init__(
+            event_id=uuid4(),
+            event_type=DomainEventType.GOODWILL_UPDATED,
+            aggregate_id=aggregate_id,
+            aggregate_type="Goodwill",
+            aggregate_version=aggregate_version,
+            occurred_at=datetime.now(UTC),
+            event_data=event_data,
+            user_id=user_id,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
 # ============================================================================
 # Short Aliases (for backward compatibility)
 # ============================================================================
@@ -296,6 +345,7 @@ class GoodwillDisposedEvent(DomainEvent):
 GoodwillRecognized = GoodwillRecognizedEvent
 GoodwillImpaired = GoodwillImpairedEvent
 GoodwillAmortized = GoodwillAmortizedEvent
+GoodwillUpdated = GoodwillUpdatedEvent  # <--- alias baru
 
 
 # ============================================================================
@@ -336,4 +386,6 @@ __all__ = [
     "GoodwillImpairmentReversedEvent",
     "GoodwillRecognized",
     "GoodwillRecognizedEvent",
+    "GoodwillUpdated",          # <--- ditambahkan
+    "GoodwillUpdatedEvent",     # <--- ditambahkan
 ]

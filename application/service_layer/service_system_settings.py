@@ -1,10 +1,11 @@
-# service_system_settings.py - Fixed version with improved type hints and Decimal for monetary values
+# service_system_settings.py - Complete rewrite with full event publishing
 
 #!/usr/bin/env python3
 """
 Module: service_system_settings.py
 Layer: Application / Service Layer
 Responsibility: Menyediakan service untuk mengelola system settings.
+               Mempublikasikan event untuk setiap perubahan.
 """
 
 from __future__ import annotations
@@ -18,6 +19,19 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
+
+from ports.primary.event_publisher_port import EventPublisherPort
+
+# Import domain events
+from application.events import (
+    SettingAddedEvent,
+    SettingChangedEvent,
+    SettingRemovedEvent,
+    SettingResetEvent,
+    SettingsBulkUpdatedEvent,
+    SettingsLockedEvent,
+    SettingsUnlockedEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +86,7 @@ class Setting:
     is_readonly: bool = False
     is_encrypted: bool = False
     is_active: bool = True
+    is_locked: bool = False  # Added for lock/unlock
     version: int = 1
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -116,7 +131,6 @@ class Setting:
         # Range validation - use Decimal for precise comparison
         if self.min_value is not None:
             try:
-                # Convert new_value to Decimal for comparison
                 val_decimal = Decimal(str(new_value))
                 if val_decimal < self.min_value:
                     return False
@@ -160,6 +174,7 @@ class Setting:
             "is_readonly": self.is_readonly,
             "is_encrypted": self.is_encrypted,
             "is_active": self.is_active,
+            "is_locked": self.is_locked,
             "version": self.version,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -193,6 +208,7 @@ class Setting:
             is_readonly=data.get("is_readonly", False),
             is_encrypted=data.get("is_encrypted", False),
             is_active=data.get("is_active", True),
+            is_locked=data.get("is_locked", False),
             version=data.get("version", 1),
             created_at=datetime.fromisoformat(data["created_at"])
             if data.get("created_at")
@@ -245,6 +261,10 @@ class SettingReadonlyError(SystemSettingsError):
     pass
 
 
+class SettingLockedError(SystemSettingsError):
+    pass
+
+
 # ============================================================================
 # Main Service
 # ============================================================================
@@ -253,13 +273,19 @@ class SettingReadonlyError(SystemSettingsError):
 class SystemSettingsService:
     """
     Service layer untuk operasi system settings.
+    Mempublikasikan event untuk setiap perubahan.
     """
 
-    __slots__ = ("_settings", "_stats")
+    __slots__ = ("_settings", "_stats", "_event_publisher", "_locked")
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        event_publisher: EventPublisherPort | None = None,
+    ) -> None:
         self._settings: dict[str, dict[UUID | None, Setting]] = {}
-        self._stats = {"created": 0, "updated": 0, "deleted": 0}
+        self._stats = {"created": 0, "updated": 0, "deleted": 0, "locked": 0, "unlocked": 0}
+        self._event_publisher = event_publisher
+        self._locked: bool = False  # Global lock flag (optional)
 
         # Initialize default settings
         self._init_default_settings()
@@ -280,7 +306,7 @@ class SystemSettingsService:
             Setting(
                 key="tax.ppn_rate",
                 value="11",
-                data_type=SettingDataType.DECIMAL,  # Use Decimal for tax rate
+                data_type=SettingDataType.DECIMAL,
                 category="tax",
                 min_value=Decimal("0"),
                 max_value=Decimal("100"),
@@ -349,6 +375,7 @@ class SystemSettingsService:
         is_readonly: bool = False,
         is_encrypted: bool = False,
         created_by: UUID | None = None,
+        correlation_id: str | None = None,
     ) -> Setting:
         """Create new system setting."""
         logger.info(f"Creating setting: {key}")
@@ -379,6 +406,22 @@ class SystemSettingsService:
             self._settings[key] = {}
         self._settings[key][legal_entity_id] = setting
         self._stats["created"] += 1
+
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = SettingAddedEvent(
+                setting_id=setting.id,
+                key=setting.key,
+                value=str(setting.value),
+                data_type=setting.data_type.value,
+                category=setting.category,
+                scope=setting.scope.value,
+                legal_entity_id=str(setting.legal_entity_id) if setting.legal_entity_id else None,
+                created_by=str(created_by) if created_by else None,
+                timestamp=datetime.now(UTC),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published SettingAddedEvent for {key}")
 
         return setting
 
@@ -411,6 +454,7 @@ class SystemSettingsService:
         category: str | None = None,
         scope: str | None = None,
         is_active: bool | None = None,
+        is_locked: bool | None = None,
     ) -> list[Setting]:
         """List settings with filters."""
         logger.info(f"Listing settings for legal_entity {legal_entity_id}")
@@ -426,6 +470,8 @@ class SystemSettingsService:
                     continue
                 if is_active is not None and setting.is_active != is_active:
                     continue
+                if is_locked is not None and setting.is_locked != is_locked:
+                    continue
                 result.append(setting)
 
         return result
@@ -438,6 +484,7 @@ class SystemSettingsService:
         description: str | None = None,
         is_active: bool | None = None,
         updated_by: UUID | None = None,
+        correlation_id: str | None = None,
     ) -> Setting | None:
         """Update existing setting."""
         logger.info(f"Updating setting: {key}")
@@ -448,6 +495,11 @@ class SystemSettingsService:
 
         if setting.is_readonly:
             raise SettingReadonlyError(f"Setting {key} is read-only")
+
+        if setting.is_locked:
+            raise SettingLockedError(f"Setting {key} is locked")
+
+        old_value = setting.value
 
         if value is not None:
             if not setting.validate(value):
@@ -465,10 +517,27 @@ class SystemSettingsService:
         self._settings[key][legal_entity_id] = setting
         self._stats["updated"] += 1
 
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = SettingChangedEvent(
+                setting_id=setting.id,
+                key=setting.key,
+                old_value=str(old_value),
+                new_value=str(setting.value),
+                updated_by=str(updated_by) if updated_by else None,
+                timestamp=datetime.now(UTC),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published SettingChangedEvent for {key}")
+
         return setting
 
     async def deactivate_setting(
-        self, key: str, legal_entity_id: UUID | None = None, updated_by: UUID | None = None
+        self,
+        key: str,
+        legal_entity_id: UUID | None = None,
+        updated_by: UUID | None = None,
+        correlation_id: str | None = None,
     ) -> bool:
         """Deactivate setting (soft delete)."""
         logger.info(f"Deactivating setting: {key}")
@@ -480,6 +549,9 @@ class SystemSettingsService:
         if setting.is_readonly:
             raise SettingReadonlyError(f"Setting {key} is read-only")
 
+        if setting.is_locked:
+            raise SettingLockedError(f"Setting {key} is locked")
+
         setting.is_active = False
         setting.updated_at = datetime.now(UTC)
         setting.version += 1
@@ -487,40 +559,25 @@ class SystemSettingsService:
         self._settings[key][legal_entity_id] = setting
         self._stats["deleted"] += 1
 
+        # --- PUBLISH EVENT ---
+        if self._event_publisher:
+            event = SettingRemovedEvent(
+                setting_id=setting.id,
+                key=setting.key,
+                removed_by=str(updated_by) if updated_by else None,
+                timestamp=datetime.now(UTC),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published SettingRemovedEvent for {key}")
+
         return True
 
-    async def bulk_update_settings(
+    async def reset_to_default(
         self,
-        settings: dict[str, str],
+        key: str,
         legal_entity_id: UUID | None = None,
         updated_by: UUID | None = None,
-    ) -> BulkUpdateResult:
-        """Bulk update multiple settings."""
-        logger.info(f"Bulk updating {len(settings)} settings")
-
-        success_count = 0
-        failed_count = 0
-        failed_keys = []
-        errors = {}
-
-        for key, value in settings.items():
-            try:
-                await self.update_setting(key, legal_entity_id, value, updated_by=updated_by)
-                success_count += 1
-            except Exception as e:
-                failed_count += 1
-                failed_keys.append(key)
-                errors[key] = str(e)
-
-        return BulkUpdateResult(
-            success_count=success_count,
-            failed_count=failed_count,
-            failed_keys=failed_keys,
-            errors=errors,
-        )
-
-    async def reset_to_default(
-        self, key: str, legal_entity_id: UUID | None = None, updated_by: UUID | None = None
+        correlation_id: str | None = None,
     ) -> Setting | None:
         """Reset setting to default value."""
         logger.info(f"Resetting setting: {key} to default")
@@ -532,6 +589,11 @@ class SystemSettingsService:
         if setting.is_readonly:
             raise SettingReadonlyError(f"Setting {key} is read-only")
 
+        if setting.is_locked:
+            raise SettingLockedError(f"Setting {key} is locked")
+
+        old_value = setting.value
+
         if setting.default_value is not None:
             setting.value = setting.default_value
             setting.updated_at = datetime.now(UTC)
@@ -539,7 +601,187 @@ class SystemSettingsService:
             self._settings[key][legal_entity_id] = setting
             self._stats["updated"] += 1
 
+            # --- PUBLISH EVENT ---
+            if self._event_publisher:
+                event = SettingResetEvent(
+                    setting_id=setting.id,
+                    key=setting.key,
+                    old_value=str(old_value),
+                    new_value=str(setting.value),
+                    reset_by=str(updated_by) if updated_by else None,
+                    timestamp=datetime.now(UTC),
+                )
+                await self._event_publisher.publish(event, correlation_id=correlation_id)
+                logger.debug(f"Published SettingResetEvent for {key}")
+
         return setting
+
+    async def lock_settings(
+        self,
+        keys: list[str],
+        legal_entity_id: UUID | None = None,
+        locked_by: UUID | None = None,
+        correlation_id: str | None = None,
+    ) -> BulkUpdateResult:
+        """Lock one or more settings."""
+        logger.info(f"Locking settings: {keys}")
+
+        success_count = 0
+        failed_count = 0
+        failed_keys = []
+        errors = {}
+
+        for key in keys:
+            try:
+                setting = await self.get_setting(key, legal_entity_id)
+                if not setting:
+                    failed_count += 1
+                    failed_keys.append(key)
+                    errors[key] = "Setting not found"
+                    continue
+
+                if setting.is_readonly:
+                    failed_count += 1
+                    failed_keys.append(key)
+                    errors[key] = "Setting is read-only"
+                    continue
+
+                setting.is_locked = True
+                setting.updated_at = datetime.now(UTC)
+                setting.version += 1
+                self._settings[key][legal_entity_id] = setting
+                success_count += 1
+                self._stats["locked"] += 1
+
+            except Exception as e:
+                failed_count += 1
+                failed_keys.append(key)
+                errors[key] = str(e)
+
+        # --- PUBLISH BULK EVENT (only if at least one succeeded) ---
+        if self._event_publisher and success_count > 0:
+            event = SettingsLockedEvent(
+                keys=keys,
+                locked_by=str(locked_by) if locked_by else None,
+                timestamp=datetime.now(UTC),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published SettingsLockedEvent for {success_count} settings")
+
+        return BulkUpdateResult(
+            success_count=success_count,
+            failed_count=failed_count,
+            failed_keys=failed_keys,
+            errors=errors,
+        )
+
+    async def unlock_settings(
+        self,
+        keys: list[str],
+        legal_entity_id: UUID | None = None,
+        unlocked_by: UUID | None = None,
+        correlation_id: str | None = None,
+    ) -> BulkUpdateResult:
+        """Unlock one or more settings."""
+        logger.info(f"Unlocking settings: {keys}")
+
+        success_count = 0
+        failed_count = 0
+        failed_keys = []
+        errors = {}
+
+        for key in keys:
+            try:
+                setting = await self.get_setting(key, legal_entity_id)
+                if not setting:
+                    failed_count += 1
+                    failed_keys.append(key)
+                    errors[key] = "Setting not found"
+                    continue
+
+                if setting.is_readonly:
+                    failed_count += 1
+                    failed_keys.append(key)
+                    errors[key] = "Setting is read-only"
+                    continue
+
+                setting.is_locked = False
+                setting.updated_at = datetime.now(UTC)
+                setting.version += 1
+                self._settings[key][legal_entity_id] = setting
+                success_count += 1
+                self._stats["unlocked"] += 1
+
+            except Exception as e:
+                failed_count += 1
+                failed_keys.append(key)
+                errors[key] = str(e)
+
+        # --- PUBLISH BULK EVENT (only if at least one succeeded) ---
+        if self._event_publisher and success_count > 0:
+            event = SettingsUnlockedEvent(
+                keys=keys,
+                unlocked_by=str(unlocked_by) if unlocked_by else None,
+                timestamp=datetime.now(UTC),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published SettingsUnlockedEvent for {success_count} settings")
+
+        return BulkUpdateResult(
+            success_count=success_count,
+            failed_count=failed_count,
+            failed_keys=failed_keys,
+            errors=errors,
+        )
+
+    async def bulk_update_settings(
+        self,
+        settings: dict[str, str],
+        legal_entity_id: UUID | None = None,
+        updated_by: UUID | None = None,
+        correlation_id: str | None = None,
+    ) -> BulkUpdateResult:
+        """Bulk update multiple settings."""
+        logger.info(f"Bulk updating {len(settings)} settings")
+
+        success_count = 0
+        failed_count = 0
+        failed_keys = []
+        errors = {}
+        updated_keys = []
+
+        for key, value in settings.items():
+            try:
+                await self.update_setting(
+                    key=key,
+                    legal_entity_id=legal_entity_id,
+                    value=value,
+                    updated_by=updated_by,
+                    correlation_id=correlation_id,
+                )
+                success_count += 1
+                updated_keys.append(key)
+            except Exception as e:
+                failed_count += 1
+                failed_keys.append(key)
+                errors[key] = str(e)
+
+        # --- PUBLISH BULK EVENT (only if at least one succeeded) ---
+        if self._event_publisher and success_count > 0:
+            event = SettingsBulkUpdatedEvent(
+                keys=updated_keys,
+                updated_by=str(updated_by) if updated_by else None,
+                timestamp=datetime.now(UTC),
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published SettingsBulkUpdatedEvent for {success_count} settings")
+
+        return BulkUpdateResult(
+            success_count=success_count,
+            failed_count=failed_count,
+            failed_keys=failed_keys,
+            errors=errors,
+        )
 
     async def export_settings(
         self, legal_entity_id: UUID | None = None, format: str = "json"
@@ -572,6 +814,7 @@ class SystemSettingsService:
         format: str = "json",
         mode: str = "merge",
         imported_by: UUID | None = None,
+        correlation_id: str | None = None,
     ) -> ImportResult:
         """Import settings from data."""
         logger.info(f"Importing settings in {format} format with mode {mode}")
@@ -606,6 +849,7 @@ class SystemSettingsService:
                         value=item.get("value"),
                         description=item.get("description"),
                         updated_by=imported_by,
+                        correlation_id=correlation_id,
                     )
                     imported_count += 1
                 except Exception as e:
@@ -631,8 +875,10 @@ class SystemSettingsService:
 # ============================================================================
 
 
-async def create_system_settings_service() -> SystemSettingsService:
-    return SystemSettingsService()
+async def create_system_settings_service(
+    event_publisher: EventPublisherPort | None = None,
+) -> SystemSettingsService:
+    return SystemSettingsService(event_publisher=event_publisher)
 
 
 __all__ = [
@@ -644,6 +890,7 @@ __all__ = [
     "SettingReadonlyError",
     "SettingScope",
     "SettingValidationError",
+    "SettingLockedError",
     "SystemSettingsError",
     "SystemSettingsService",
     "create_system_settings_service",

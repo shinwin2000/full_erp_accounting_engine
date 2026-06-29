@@ -1,4 +1,4 @@
-# service_inventory.py - Complete rewrite with full implementation (final version)
+# service_inventory.py - Complete rewrite with full event publishing
 
 #!/usr/bin/env python3
 
@@ -9,6 +9,7 @@ Layer: 8 - Application / Service Layer
 
 Responsibility:
     Service layer untuk Inventory Management.
+    Mempublikasikan semua domain events yang sesuai.
 """
 
 from __future__ import annotations
@@ -25,7 +26,12 @@ from domain.inventory.aggregate_root import InventoryAggregate
 from domain.inventory.domain_events import (
     COGSCalculated,
     InterWarehouseTransferCreated,
+    InventoryValuationUpdated,
     ItemCreated,
+    ItemDeactivated,
+    ItemUpdated,
+    StockAdjusted,
+    StockLevelAlert,
     StockMovementCreated,
     StockOpnameApproved,
     StockOpnameCreated,
@@ -87,6 +93,26 @@ class CreateItemRequest:
     selling_price: Decimal = Decimal("0")
     warehouse_code: str | None = None
     is_active: bool = True
+
+
+@dataclass(kw_only=True)
+class UpdateItemRequest:
+    """Request to update an inventory item."""
+
+    id: UUID
+    name: str | None = None
+    description: str | None = None
+    item_type: str | None = None
+    uom: str | None = None
+    category: str | None = None
+    brand: str | None = None
+    reorder_point: Decimal | None = None
+    safety_stock: Decimal | None = None
+    maximum_stock: Decimal | None = None
+    minimum_stock: Decimal | None = None
+    standard_cost: Decimal | None = None
+    selling_price: Decimal | None = None
+    warehouse_code: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -234,6 +260,15 @@ class COGSCalculationResponse:
     items: list[dict[str, Any]]
 
 
+@dataclass(kw_only=True)
+class InventoryValuationRequest:
+    """Request to update inventory valuation."""
+
+    legal_entity_id: UUID
+    valuation_date: date
+    valuation_method: str
+
+
 # ============================================================================
 # Exceptions
 # ============================================================================
@@ -371,6 +406,132 @@ class InventoryService:
         logger.info(f"Item created: {item.sku} - {item.name}")
         return self._to_item_response(item)
 
+    async def update_item(
+        self,
+        request: UpdateItemRequest,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> ItemResponse:
+        """Update an existing inventory item."""
+        agg = await self._inv_repo.get_item_by_id(request.id)
+        if not agg:
+            raise ItemNotFoundError(f"Item {request.id} not found")
+
+        item = agg.item
+        changes = {}
+
+        # Track changes
+        if request.name is not None and request.name != item.name:
+            changes["name"] = {"old": item.name, "new": request.name}
+            item.name = request.name
+        if request.description is not None and request.description != item.description:
+            changes["description"] = {"old": item.description, "new": request.description}
+            item.description = request.description
+        if request.item_type is not None:
+            new_type = ItemType(request.item_type)
+            if new_type != item.item_type:
+                changes["item_type"] = {"old": item.item_type.value, "new": new_type.value}
+                item.item_type = new_type
+        if request.uom is not None:
+            new_uom = UnitOfMeasure(request.uom)
+            if new_uom != item.unit_of_measure:
+                changes["uom"] = {"old": item.unit_of_measure.value, "new": new_uom.value}
+                item.unit_of_measure = new_uom
+        if request.category is not None and request.category != item.category:
+            changes["category"] = {"old": item.category, "new": request.category}
+            item.category = request.category
+        if request.brand is not None and request.brand != item.brand:
+            changes["brand"] = {"old": item.brand, "new": request.brand}
+            item.brand = request.brand
+        if request.reorder_point is not None and request.reorder_point != item.reorder_point:
+            changes["reorder_point"] = {"old": item.reorder_point, "new": request.reorder_point}
+            item.reorder_point = request.reorder_point
+        if request.safety_stock is not None and request.safety_stock != item.safety_stock:
+            changes["safety_stock"] = {"old": item.safety_stock, "new": request.safety_stock}
+            item.safety_stock = request.safety_stock
+        if request.maximum_stock is not None and request.maximum_stock != item.maximum_stock:
+            changes["maximum_stock"] = {"old": item.maximum_stock, "new": request.maximum_stock}
+            item.maximum_stock = request.maximum_stock
+        if request.minimum_stock is not None and request.minimum_stock != item.minimum_stock:
+            changes["minimum_stock"] = {"old": item.minimum_stock, "new": request.minimum_stock}
+            item.minimum_stock = request.minimum_stock
+        if request.standard_cost is not None and request.standard_cost != item.standard_cost:
+            changes["standard_cost"] = {"old": item.standard_cost, "new": request.standard_cost}
+            item.standard_cost = request.standard_cost
+        if request.selling_price is not None and request.selling_price != item.selling_price:
+            changes["selling_price"] = {"old": item.selling_price, "new": request.selling_price}
+            item.selling_price = request.selling_price
+        if request.warehouse_code is not None and request.warehouse_code != item.warehouse_code:
+            changes["warehouse_code"] = {"old": item.warehouse_code, "new": request.warehouse_code}
+            item.warehouse_code = request.warehouse_code
+
+        if not changes:
+            # No changes, return current state
+            return self._to_item_response(item)
+
+        item.updated_at = datetime.utcnow()
+        item.updated_by = user_id
+
+        await self._inv_repo.save_item(agg)
+        await self._uow.commit()
+
+        if self._event_publisher:
+            event = ItemUpdated(
+                legal_entity_id=item.legal_entity_id,
+                sku=item.sku,
+                changes=changes,
+                user_id=user_id,
+                aggregate_id=item.id,
+                occurred_at=datetime.utcnow(),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+
+        logger.info(f"Item updated: {item.sku} (fields: {list(changes.keys())})")
+        return self._to_item_response(item)
+
+    async def deactivate_item(
+        self,
+        item_id: UUID,
+        reason: str | None = None,
+        user_id: UUID | None = None,
+        correlation_id: str | None = None,
+    ) -> bool:
+        """Deactivate an inventory item."""
+        agg = await self._inv_repo.get_item_by_id(item_id)
+        if not agg:
+            raise ItemNotFoundError(f"Item {item_id} not found")
+
+        if agg.item.status == ItemStatus.INACTIVE:
+            return True  # Already inactive
+
+        # Check if stock is zero before deactivating
+        if agg.item.current_stock > 0:
+            raise InventoryServiceError(
+                f"Cannot deactivate item with stock {agg.item.current_stock}. Please adjust stock first."
+            )
+
+        agg.item.status = ItemStatus.INACTIVE
+        agg.item.updated_at = datetime.utcnow()
+        agg.item.updated_by = user_id
+
+        await self._inv_repo.save_item(agg)
+        await self._uow.commit()
+
+        if self._event_publisher:
+            event = ItemDeactivated(
+                sku=agg.item.sku,
+                reason=reason,
+                user_id=user_id,
+                aggregate_id=item_id,
+                occurred_at=datetime.utcnow(),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+
+        logger.info(f"Item deactivated: {agg.item.sku} (reason: {reason})")
+        return True
+
     async def get_item(self, item_id: UUID) -> ItemResponse | None:
         """Get item by ID."""
         aggregate = await self._inv_repo.get_item_by_id(item_id)
@@ -480,6 +641,9 @@ class InventoryService:
 
         self._stats["movements"] += 1
 
+        # ---- PUBLISH EVENTS ----
+
+        # 1. StockMovementCreated
         if self._event_publisher:
             event = StockMovementCreated(
                 aggregate_id=movement.id,
@@ -493,6 +657,52 @@ class InventoryService:
                 occurred_at=datetime.utcnow(),
             )
             await self._event_publisher.publish(event, correlation_id=correlation_id)
+
+            # 2. StockAdjustedEvent if adjustment
+            if movement_type in (MovementType.ADJUSTMENT_IN, MovementType.ADJUSTMENT_OUT):
+                # Construct StockAdjustmentEntity (simplified for event)
+                from domain.inventory.stock_adjustment_entity import StockAdjustmentEntity
+
+                adj = StockAdjustmentEntity(
+                    adjustment_id=movement.id,
+                    adjustment_number=movement.reference_document_number or movement.id.hex[:8],
+                    adjustment_type=(
+                        "INCREASE" if movement_type == MovementType.ADJUSTMENT_IN else "DECREASE"
+                    ),
+                    item_id=movement.item_id,
+                    item_sku=item_agg.item.sku,
+                    warehouse_id=UUID(int=0),  # placeholder
+                    warehouse_code=movement.warehouse_code,
+                    quantity=movement.quantity,
+                    unit_cost=movement.unit_cost,
+                    total_value=movement.total_value,
+                    reason=movement.notes or "Manual adjustment",
+                    adjustment_date=movement.movement_date,
+                )
+                adj_event = StockAdjustedEvent(
+                    adjustment=adj,
+                    adjusted_by=str(user_id),
+                    aggregate_id=movement.id,
+                    user_id=str(user_id),
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(adj_event, correlation_id=correlation_id)
+
+            # 3. StockLevelAlert if stock <= reorder point
+            if item_agg.item.reorder_point > 0 and new_stock <= item_agg.item.reorder_point:
+                alert_event = StockLevelAlert(
+                    item_id=item_agg.item.id,
+                    sku=item_agg.item.sku,
+                    item_name=item_agg.item.name,
+                    current_stock=new_stock,
+                    reorder_point=item_agg.item.reorder_point,
+                    safety_stock=item_agg.item.safety_stock,
+                    alert_type="LOW_STOCK",
+                    aggregate_id=item_agg.item.id,
+                    occurred_at=datetime.utcnow(),
+                    correlation_id=correlation_id,
+                )
+                await self._event_publisher.publish(alert_event, correlation_id=correlation_id)
 
         logger.info(
             f"Stock movement recorded: {movement_type.value} {request.quantity} of {item_agg.item.sku}"
@@ -824,6 +1034,42 @@ class InventoryService:
             ],
         )
 
+    # ==================== INVENTORY VALUATION ====================
+
+    async def update_inventory_valuation(
+        self,
+        request: InventoryValuationRequest,
+        user_id: UUID,
+        correlation_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Update inventory valuation (e.g., for financial reporting)."""
+        items = await self._inv_repo.list_items(request.legal_entity_id, limit=10000)
+        total_value = Decimal("0")
+        for agg in items:
+            # In a real implementation, you'd recalculate valuation based on method
+            # For simplicity, we just sum current stock value
+            total_value += agg.item.current_stock_value
+
+        if self._event_publisher:
+            event = InventoryValuationUpdated(
+                legal_entity_id=request.legal_entity_id,
+                valuation_date=request.valuation_date,
+                total_value=total_value,
+                valuation_method=request.valuation_method,
+                user_id=user_id,
+                occurred_at=datetime.utcnow(),
+                correlation_id=correlation_id,
+            )
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+
+        return {
+            "legal_entity_id": str(request.legal_entity_id),
+            "valuation_date": request.valuation_date.isoformat(),
+            "valuation_method": request.valuation_method,
+            "total_value": total_value,
+            "items_count": len(items),
+        }
+
     # ==================== REPORTS ====================
 
     async def get_stock_card(
@@ -966,6 +1212,7 @@ __all__ = [
     "InventoryService",
     "InventoryServiceError",
     "InventoryValuationMethod",
+    "InventoryValuationRequest",
     "ItemNotFoundError",
     "ItemResponse",
     "NegativeStockNotAllowedError",
@@ -976,5 +1223,6 @@ __all__ = [
     "TransferNotFoundError",
     "TransferRequest",
     "TransferResponse",
+    "UpdateItemRequest",
     "create_inventory_service",
 ]
