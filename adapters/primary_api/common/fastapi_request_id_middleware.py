@@ -33,7 +33,7 @@ from starlette.types import ASGIApp
 # Internal imports
 try:
     from infrastructure.telemetry.correlation_id_injector import CorrelationIdInjector
-    from infrastructure.telemetry.opentelemetry_setup import get_tracer, set_span_attribute
+    from infrastructure.telemetry.opentelemetry_setup import get_tracer
 
     TELEMETRY_AVAILABLE = True
 except ImportError:

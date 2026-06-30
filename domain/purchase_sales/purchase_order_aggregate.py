@@ -390,10 +390,11 @@ class PurchaseOrderAggregate:
             aggregate_id=uuid4(),
             legal_entity_id=legal_entity_id,
         )
+        # Fix: use datetime from import, not __import__
         agg._audit_trail.append({
             "action": "CREATE",
             "performed_by": created_by,
-            "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         })
         return agg
 
@@ -414,7 +415,20 @@ class PurchaseOrderRepository:
         raise NotImplementedError
 
 
+# ============================================================================
+# ALIAS FOR BACKWARD COMPATIBILITY
+# ============================================================================
+
+# Alias for import compatibility (e.g., "PurchaseOrder" used in tests)
+PurchaseOrder = PurchaseOrderAggregate
+
+
+# ============================================================================
+# EXPORTS
+# ============================================================================
+
 __all__ = [
     "PurchaseOrderAggregate",
     "PurchaseOrderRepository",
+    "PurchaseOrder",  
 ]

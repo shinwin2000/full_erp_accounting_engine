@@ -1,0 +1,1106 @@
+================================================================================
+  P50-CriticalImportScan v2.0.0
+  Audit Standard : ISO/IEC 25010 | SOC 2 Type II | ISAE 3402
+  Scan ID        : C806E108
+  Timestamp (UTC): 2026-06-29T04:38:04.364465Z
+  Host           : DESKTOP-6EKENHE
+  Python         : 3.11.9
+  Platform       : Windows-10-10.0.26200-SP0
+  Git Commit     : fc6b401 (master)
+  Project Root   : E:\full_erp_accounting_engine
+================================================================================
+
+── RINGKASAN ──────────────────────────────────────────────────────────────────
+  Total Modul    : 1069
+  Berhasil       : 1069
+  Gagal          : 0
+  Warning        : 0
+  Durasi         : 38.34 detik
+  Pass Rate      : 100.0%
+  Status         : ✅ LULUS
+  Exit Code      : 0
+
+── RINGKASAN PER LAYER ─────────────────────────────────────────────────────────
+  ✅ Core Domain                     311/311 (100.0%)
+  ✅ Port Interface                  57/57 (100.0%)
+  ✅ Application Service             252/252 (100.0%)
+  ✅ Infrastructure                  425/425 (100.0%)
+  ✅ Composition Root                24/24 (100.0%)
+
+── DETAIL SEMUA MODUL ──────────────────────────────────────────────────────────
+    No  Status    Layer                   Label                                              ms
+  ────  ────────  ──────────────────────  ─────────────────────────────────────────────  ──────
+     1  ✅ OK      Core Domain             domain/bank_cash/bank_account_entity             53.6
+     2  ✅ OK      Core Domain             domain/bank_cash/bank_aggregate_root              1.0
+     3  ✅ OK      Core Domain             domain/bank_cash/bank_reconciliation_engine       0.7
+     4  ✅ OK      Core Domain             domain/bank_cash/bank_transaction_entity          1.1
+     5  ✅ OK      Core Domain             domain/bank_cash/bank_transfer_entity             1.0
+     6  ✅ OK      Core Domain             domain/bank_cash/cash_aggregate_root              1.0
+     7  ✅ OK      Core Domain             domain/bank_cash/cash_book_entity                 1.0
+     8  ✅ OK      Core Domain             domain/bank_cash/cash_disbursement_entity         0.8
+     9  ✅ OK      Core Domain             domain/bank_cash/cash_receipt_entity              0.8
+    10  ✅ OK      Core Domain             domain/bank_cash/domain_events                    0.5
+    11  ✅ OK      Core Domain             domain/bank_cash/invariants                       1.2
+    12  ✅ OK      Core Domain             domain/bank_cash/petty_cash_fund_entity           0.8
+    13  ✅ OK      Core Domain             domain/budget/aggregate_root                     13.9
+    14  ✅ OK      Core Domain             domain/budget/domain_events                       0.7
+    15  ✅ OK      Core Domain             domain/budget/variance_calculator                 0.8
+    16  ✅ OK      Core Domain             domain/causality/audit_story_builder            104.3
+    17  ✅ OK      Core Domain             domain/causality/causal_chain_builder             0.3
+    18  ✅ OK      Core Domain             domain/causality/causal_node                      0.3
+    19  ✅ OK      Core Domain             domain/causality/causality_exceptions             0.4
+    20  ✅ OK      Core Domain             domain/causality/causality_tracker                0.5
+    21  ✅ OK      Core Domain             domain/causality/explanation_generator            0.3
+    22  ✅ OK      Core Domain             domain/causality/why_query_engine                 0.3
+    23  ✅ OK      Core Domain             domain/coa/account_code_vo                       53.1
+    24  ✅ OK      Core Domain             domain/coa/account_entity                         0.5
+    25  ✅ OK      Core Domain             domain/coa/account_hierarchy_tree                 0.5
+    26  ✅ OK      Core Domain             domain/coa/account_normal_balance_vo              0.7
+    27  ✅ OK      Core Domain             domain/coa/account_type_enum                      0.5
+    28  ✅ OK      Core Domain             domain/coa/aggregate_root                         0.5
+    29  ✅ OK      Core Domain             domain/coa/domain_events                          0.4
+    30  ✅ OK      Core Domain             domain/coa/invariants                             1.6
+    31  ✅ OK      Core Domain             domain/coa/invariants_validator                   0.5
+    32  ✅ OK      Core Domain             domain/coa/optimistic_lock                        0.3
+    33  ✅ OK      Core Domain             domain/coa/state_machine                          0.3
+    34  ✅ OK      Core Domain             domain/consolidation/aggregate_root              23.3
+    35  ✅ OK      Core Domain             domain/consolidation/domain_events                0.7
+    36  ✅ OK      Core Domain             domain/consolidation/elimination_entry            0.4
+    37  ✅ OK      Core Domain             domain/consolidation/foreign_currency_translator     0.4
+    38  ✅ OK      Core Domain             domain/consolidation/intercompany_transaction     0.5
+    39  ✅ OK      Core Domain             domain/consolidation/non_controlling_interest     0.5
+    40  ✅ OK      Core Domain             domain/customer_supplier_employee/customer_aggregate_root    31.1
+    41  ✅ OK      Core Domain             domain/customer_supplier_employee/customer_credit_limit_vo     0.5
+    42  ✅ OK      Core Domain             domain/customer_supplier_employee/customer_entity     0.4
+    43  ✅ OK      Core Domain             domain/customer_supplier_employee/customer_tax_status_vo     0.5
+    44  ✅ OK      Core Domain             domain/customer_supplier_employee/domain_events     0.6
+    45  ✅ OK      Core Domain             domain/customer_supplier_employee/employee_aggregate_root     0.5
+    46  ✅ OK      Core Domain             domain/customer_supplier_employee/employee_bpjs_enrollment_vo     0.6
+    47  ✅ OK      Core Domain             domain/customer_supplier_employee/employee_entity     0.3
+    48  ✅ OK      Core Domain             domain/customer_supplier_employee/employee_ptkp_status_vo     0.3
+    49  ✅ OK      Core Domain             domain/customer_supplier_employee/invariants      0.4
+    50  ✅ OK      Core Domain             domain/customer_supplier_employee/supplier_aggregate_root     0.7
+    51  ✅ OK      Core Domain             domain/customer_supplier_employee/supplier_entity     0.4
+    52  ✅ OK      Core Domain             domain/customer_supplier_employee/supplier_withholding_category_vo     0.4
+    53  ✅ OK      Core Domain             domain/equity_retained/aggregate_root            21.6
+    54  ✅ OK      Core Domain             domain/equity_retained/capital_contribution_entity     0.3
+    55  ✅ OK      Core Domain             domain/equity_retained/capital_withdrawal_entity     0.3
+    56  ✅ OK      Core Domain             domain/equity_retained/dividend_declaration_entity     0.3
+    57  ✅ OK      Core Domain             domain/equity_retained/domain_events              0.3
+    58  ✅ OK      Core Domain             domain/equity_retained/invariants                 0.2
+    59  ✅ OK      Core Domain             domain/equity_retained/retained_earnings_entity     0.2
+    60  ✅ OK      Core Domain             domain/event_base                                 1.6
+    61  ✅ OK      Core Domain             domain/financial_statement/balance_sheet_snapshot     8.9
+    62  ✅ OK      Core Domain             domain/financial_statement/income_statement_period     0.5
+    63  ✅ OK      Core Domain             domain/financial_statement/trial_balance_cube     0.4
+    64  ✅ OK      Core Domain             domain/fiscal_period/aggregate_root               8.9
+    65  ✅ OK      Core Domain             domain/fiscal_period/domain_events                0.6
+    66  ✅ OK      Core Domain             domain/fiscal_period/invariants                   0.5
+    67  ✅ OK      Core Domain             domain/fixed_asset/aggregate_root                27.1
+    68  ✅ OK      Core Domain             domain/fixed_asset/asset_entity                   0.6
+    69  ✅ OK      Core Domain             domain/fixed_asset/asset_group_entity             0.3
+    70  ✅ OK      Core Domain             domain/fixed_asset/depreciation_schedule_engine     0.3
+    71  ✅ OK      Core Domain             domain/fixed_asset/disposal_entity                0.4
+    72  ✅ OK      Core Domain             domain/fixed_asset/domain_events                  0.4
+    73  ✅ OK      Core Domain             domain/fixed_asset/invariants                     0.3
+    74  ✅ OK      Core Domain             domain/fixed_asset/revaluation_entity             0.4
+    75  ✅ OK      Core Domain             domain/fixed_asset/transfer_entity                0.4
+    76  ✅ OK      Core Domain             domain/forex/aggregate_root                      11.6
+    77  ✅ OK      Core Domain             domain/forex/domain_events                        0.5
+    78  ✅ OK      Core Domain             domain/forex/exchange_rate_vo                     0.5
+    79  ✅ OK      Core Domain             domain/forex/forex_transaction_entity             0.4
+    80  ✅ OK      Core Domain             domain/goodwill/aggregate_root                   13.3
+    81  ✅ OK      Core Domain             domain/goodwill/domain_events                     0.7
+    82  ✅ OK      Core Domain             domain/hedge/aggregate_root                      20.6
+    83  ✅ OK      Core Domain             domain/hedge/domain_events                        0.6
+    84  ✅ OK      Core Domain             domain/hedge/hedge_instrument                     0.5
+    85  ✅ OK      Core Domain             domain/hedge/hedged_item                          0.5
+    86  ✅ OK      Core Domain             domain/iam/aggregate_root                        51.8
+    87  ✅ OK      Core Domain             domain/iam/domain_events                          0.5
+    88  ✅ OK      Core Domain             domain/iam/invariants                             0.5
+    89  ✅ OK      Core Domain             domain/iam/login_attempt_log                      0.8
+    90  ✅ OK      Core Domain             domain/iam/password_hashed_vo                     0.7
+    91  ✅ OK      Core Domain             domain/iam/permission_vo                          0.6
+    92  ✅ OK      Core Domain             domain/iam/role_entity                            0.7
+    93  ✅ OK      Core Domain             domain/iam/session_entity                         0.5
+    94  ✅ OK      Core Domain             domain/iam/user_entity                            0.4
+    95  ✅ OK      Core Domain             domain/intangible_asset/aggregate_root           12.7
+    96  ✅ OK      Core Domain             domain/intangible_asset/amortization_method_enum     0.8
+    97  ✅ OK      Core Domain             domain/intangible_asset/amortization_schedule_engine     0.8
+    98  ✅ OK      Core Domain             domain/intangible_asset/asset_entity              0.5
+    99  ✅ OK      Core Domain             domain/intangible_asset/domain_events             0.6
+   100  ✅ OK      Core Domain             domain/intangible_asset/invariants                2.8
+   101  ✅ OK      Core Domain             domain/intent/approval_workflow                   0.6
+   102  ✅ OK      Core Domain             domain/intent/audit_trail_writer                  0.7
+   103  ✅ OK      Core Domain             domain/intent/capture_service                     0.6
+   104  ✅ OK      Core Domain             domain/intent/context_enricher                    0.7
+   105  ✅ OK      Core Domain             domain/intent/cryptographic_signer                0.5
+   106  ✅ OK      Core Domain             domain/intent/forensic_query_engine               0.5
+   107  ✅ OK      Core Domain             domain/intent/immutable_record                    0.3
+   108  ✅ OK      Core Domain             domain/intent/intent_exceptions                   0.4
+   109  ✅ OK      Core Domain             domain/intent/intent_type                         0.2
+   110  ✅ OK      Core Domain             domain/intent/materiality_evaluator               0.2
+   111  ✅ OK      Core Domain             domain/intent/outcome_link_tracker                0.2
+   112  ✅ OK      Core Domain             domain/intent/revision_logger                     0.2
+   113  ✅ OK      Core Domain             domain/intent/risk_assessor                       0.2
+   114  ✅ OK      Core Domain             domain/intent/void_processor                      0.2
+   115  ✅ OK      Core Domain             domain/inventory/aggregate_root                  40.3
+   116  ✅ OK      Core Domain             domain/inventory/domain_events                    0.5
+   117  ✅ OK      Core Domain             domain/inventory/fifo_layer_entity                0.5
+   118  ✅ OK      Core Domain             domain/inventory/inter_warehouse_transfer_entity     0.6
+   119  ✅ OK      Core Domain             domain/inventory/invariants                       0.4
+   120  ✅ OK      Core Domain             domain/inventory/item_entity                      0.5
+   121  ✅ OK      Core Domain             domain/inventory/item_type_enum                   0.4
+   122  ✅ OK      Core Domain             domain/inventory/movement_entity                  0.5
+   123  ✅ OK      Core Domain             domain/inventory/stock_adjustment_entity          0.3
+   124  ✅ OK      Core Domain             domain/inventory/stock_card_projection            0.3
+   125  ✅ OK      Core Domain             domain/inventory/stock_opname_entity              0.3
+   126  ✅ OK      Core Domain             domain/inventory/valuation_method                 0.2
+   127  ✅ OK      Core Domain             domain/journal/aggregate_root                    19.8
+   128  ✅ OK      Core Domain             domain/journal/domain_events                      0.6
+   129  ✅ OK      Core Domain             domain/journal/invariants                         0.6
+   130  ✅ OK      Core Domain             domain/journal/journal_entity                     0.5
+   131  ✅ OK      Core Domain             domain/journal/journal_entry                      0.5
+   132  ✅ OK      Core Domain             domain/journal/journal_line_vo                    0.5
+   133  ✅ OK      Core Domain             domain/journal/optimistic_lock                    0.4
+   134  ✅ OK      Core Domain             domain/journal/state_machine                      0.4
+   135  ✅ OK      Core Domain             domain/legal_entity/aggregate_root                0.5
+   136  ✅ OK      Core Domain             domain/legal_entity/company_entity                0.3
+   137  ✅ OK      Core Domain             domain/legal_entity/company_tax_profile_vo        0.3
+   138  ✅ OK      Core Domain             domain/legal_entity/domain_events                 0.2
+   139  ✅ OK      Core Domain             domain/legal_entity/invariants                    0.4
+   140  ✅ OK      Core Domain             domain/manufacturing/aggregate_root              36.4
+   141  ✅ OK      Core Domain             domain/manufacturing/bill_of_materials_entity     1.2
+   142  ✅ OK      Core Domain             domain/manufacturing/cost_card_entity             0.7
+   143  ✅ OK      Core Domain             domain/manufacturing/cost_card_projection         0.9
+   144  ✅ OK      Core Domain             domain/manufacturing/cost_element_enum            1.1
+   145  ✅ OK      Core Domain             domain/manufacturing/domain_events                0.8
+   146  ✅ OK      Core Domain             domain/manufacturing/hpp_per_product_calculator     0.4
+   147  ✅ OK      Core Domain             domain/manufacturing/invariants                   0.8
+   148  ✅ OK      Core Domain             domain/manufacturing/overhead_allocation_engine     0.8
+   149  ✅ OK      Core Domain             domain/manufacturing/production_routing_entity     0.8
+   150  ✅ OK      Core Domain             domain/manufacturing/standard_cost_entity         0.5
+   151  ✅ OK      Core Domain             domain/manufacturing/variance_analysis_engine     0.6
+   152  ✅ OK      Core Domain             domain/manufacturing/work_in_process_entity       0.5
+   153  ✅ OK      Core Domain             domain/manufacturing/work_order_entity            0.3
+   154  ✅ OK      Core Domain             domain/payroll/aggregate_root                    21.4
+   155  ✅ OK      Core Domain             domain/payroll/domain_events                      0.7
+   156  ✅ OK      Core Domain             domain/payroll/employee_salary_structure_vo       0.7
+   157  ✅ OK      Core Domain             domain/payroll/invariants                         0.6
+   158  ✅ OK      Core Domain             domain/payroll/payroll_run_entity                 0.6
+   159  ✅ OK      Core Domain             domain/payroll/payslip_projection                 0.4
+   160  ✅ OK      Core Domain             domain/payroll/salary_component_entity            0.3
+   161  ✅ OK      Core Domain             domain/payroll/tax_withholding_engine             0.3
+   162  ✅ OK      Core Domain             domain/project_services/aggregate_root           22.6
+   163  ✅ OK      Core Domain             domain/project_services/domain_events             0.8
+   164  ✅ OK      Core Domain             domain/project_services/invariants                0.9
+   165  ✅ OK      Core Domain             domain/project_services/project_billing_schedule     0.5
+   166  ✅ OK      Core Domain             domain/project_services/project_cost_tracker      0.7
+   167  ✅ OK      Core Domain             domain/project_services/project_entity            0.4
+   168  ✅ OK      Core Domain             domain/project_services/project_revenue_recognizer     0.5
+   169  ✅ OK      Core Domain             domain/project_services/retainer_contract_entity     0.5
+   170  ✅ OK      Core Domain             domain/project_services/time_entry_entity         0.4
+   171  ✅ OK      Core Domain             domain/purchase_sales/domain_events              37.6
+   172  ✅ OK      Core Domain             domain/purchase_sales/goods_receipt_note_entity     1.2
+   173  ✅ OK      Core Domain             domain/purchase_sales/invariants                  0.7
+   174  ✅ OK      Core Domain             domain/purchase_sales/purchase_invoice_entity     0.5
+   175  ✅ OK      Core Domain             domain/purchase_sales/purchase_order_aggregate     0.5
+   176  ✅ OK      Core Domain             domain/purchase_sales/purchase_order_entity       0.5
+   177  ✅ OK      Core Domain             domain/purchase_sales/purchase_return_entity      0.5
+   178  ✅ OK      Core Domain             domain/purchase_sales/sales_delivery_note_entity     0.7
+   179  ✅ OK      Core Domain             domain/purchase_sales/sales_invoice_entity        0.3
+   180  ✅ OK      Core Domain             domain/purchase_sales/sales_order_aggregate       0.3
+   181  ✅ OK      Core Domain             domain/purchase_sales/sales_order_entity          0.5
+   182  ✅ OK      Core Domain             domain/purchase_sales/sales_return_entity         0.4
+   183  ✅ OK      Core Domain             domain/reality/asset_existence_validator          2.2
+   184  ✅ OK      Core Domain             domain/reality/economic_event_immutable           0.6
+   185  ✅ OK      Core Domain             domain/reality/effective_date_vo                  1.9
+   186  ✅ OK      Core Domain             domain/reality/financial_entitlement              2.4
+   187  ✅ OK      Core Domain             domain/reality/financial_obligation               5.1
+   188  ✅ OK      Core Domain             domain/reality/reality_exceptions                 1.3
+   189  ✅ OK      Core Domain             domain/reality/reality_to_accounting_mapper       2.6
+   190  ✅ OK      Core Domain             domain/reality/reality_validation_service         1.6
+   191  ✅ OK      Core Domain             domain/shared_value_objects/accounting_period_vo     0.2
+   192  ✅ OK      Core Domain             domain/shared_value_objects/cost_center_vo        0.4
+   193  ✅ OK      Core Domain             domain/shared_value_objects/currency_vo           0.3
+   194  ✅ OK      Core Domain             domain/shared_value_objects/date_range_vo         0.3
+   195  ✅ OK      Core Domain             domain/shared_value_objects/department_vo         0.3
+   196  ✅ OK      Core Domain             domain/shared_value_objects/document_number_vo     0.3
+   197  ✅ OK      Core Domain             domain/shared_value_objects/exchange_rate_vo      0.2
+   198  ✅ OK      Core Domain             domain/shared_value_objects/fiscal_year_vo        0.3
+   199  ✅ OK      Core Domain             domain/shared_value_objects/hash_chain_link_vo     0.3
+   200  ✅ OK      Core Domain             domain/shared_value_objects/idempotency_key_vo     0.3
+   201  ✅ OK      Core Domain             domain/shared_value_objects/money_vo              0.2
+   202  ✅ OK      Core Domain             domain/shared_value_objects/npwp_vo               0.2
+   203  ✅ OK      Core Domain             domain/shared_value_objects/ntpn_vo               1.9
+   204  ✅ OK      Core Domain             domain/shared_value_objects/percentage_vo         0.2
+   205  ✅ OK      Core Domain             domain/shared_value_objects/quantity_vo           0.5
+   206  ✅ OK      Core Domain             domain/shared_value_objects/signature_vo          0.5
+   207  ✅ OK      Core Domain             domain/shared_value_objects/tax_rate_vo           0.2
+   208  ✅ OK      Core Domain             domain/shared_value_objects/warehouse_vo          0.3
+   209  ✅ OK      Core Domain             domain/subledger_ap/aggregate_root               25.4
+   210  ✅ OK      Core Domain             domain/subledger_ap/aging_bucket_vo               0.5
+   211  ✅ OK      Core Domain             domain/subledger_ap/credit_note_entity            0.9
+   212  ✅ OK      Core Domain             domain/subledger_ap/debit_note_entity             0.5
+   213  ✅ OK      Core Domain             domain/subledger_ap/domain_events                 0.6
+   214  ✅ OK      Core Domain             domain/subledger_ap/invariants                    0.6
+   215  ✅ OK      Core Domain             domain/subledger_ap/invoice_entity                0.6
+   216  ✅ OK      Core Domain             domain/subledger_ap/payment_entity                0.6
+   217  ✅ OK      Core Domain             domain/subledger_ap/three_way_match_engine        0.3
+   218  ✅ OK      Core Domain             domain/subledger_ap/vendor_card                   0.5
+   219  ✅ OK      Core Domain             domain/subledger_ar/aggregate_root               21.6
+   220  ✅ OK      Core Domain             domain/subledger_ar/aging_bucket_vo               0.7
+   221  ✅ OK      Core Domain             domain/subledger_ar/bad_debt_provision_engine     2.7
+   222  ✅ OK      Core Domain             domain/subledger_ar/credit_note_entity            0.8
+   223  ✅ OK      Core Domain             domain/subledger_ar/customer_card                 0.5
+   224  ✅ OK      Core Domain             domain/subledger_ar/debit_note_entity             0.5
+   225  ✅ OK      Core Domain             domain/subledger_ar/domain_events                 0.7
+   226  ✅ OK      Core Domain             domain/subledger_ar/invariants                    1.5
+   227  ✅ OK      Core Domain             domain/subledger_ar/invoice_entity                0.6
+   228  ✅ OK      Core Domain             domain/subledger_ar/payment_entity                0.5
+   229  ✅ OK      Core Domain             domain/system_settings/aggregate_root             7.1
+   230  ✅ OK      Core Domain             domain/system_settings/domain_events              4.4
+   231  ✅ OK      Core Domain             domain/system_settings/invariants                 1.5
+   232  ✅ OK      Core Domain             domain/system_settings/setting_definition_entity     0.5
+   233  ✅ OK      Core Domain             domain/system_settings/setting_value_vo           0.8
+   234  ✅ OK      Core Domain             domain/tax_transaction/aggregate_root            16.6
+   235  ✅ OK      Core Domain             domain/tax_transaction/domain_events              0.9
+   236  ✅ OK      Core Domain             domain/tax_transaction/faktur_line_entity         2.7
+   237  ✅ OK      Core Domain             domain/tax_transaction/invariants                 0.6
+   238  ✅ OK      Core Domain             domain/tax_transaction/repositories               0.6
+   239  ✅ OK      Core Domain             domain/tax_transaction/value_objects              0.6
+   240  ✅ OK      Core Domain             domain/umkm_simplified/domain_events              6.4
+   241  ✅ OK      Core Domain             domain/umkm_simplified/invariants                 2.1
+   242  ✅ OK      Core Domain             domain/umkm_simplified/simplified_journal_entity     0.4
+   243  ✅ OK      Core Domain             domain/umkm_simplified/tax_compliance_helper      2.0
+   244  ✅ OK      Core Domain             domain/umkm_simplified/transaction_aggregate      2.7
+   245  ✅ OK      Core Domain             domain/umkm_simplified/value_objects              2.3
+   246  ✅ OK      Port Interface          ports/primary/account_repository_port            76.4
+   247  ✅ OK      Port Interface          ports/primary/aml_repository_port                 3.1
+   248  ✅ OK      Port Interface          ports/primary/ap_repository_port                  0.6
+   249  ✅ OK      Port Interface          ports/primary/approval_repository_port            2.1
+   250  ✅ OK      Port Interface          ports/primary/ar_repository_port                  0.5
+   251  ✅ OK      Port Interface          ports/primary/audit_repository_port               1.7
+   252  ✅ OK      Port Interface          ports/primary/bank_cash_repository_port           0.4
+   253  ✅ OK      Port Interface          ports/primary/bank_statement_import_port          0.3
+   254  ✅ OK      Port Interface          ports/primary/bill_of_materials_repository_port     0.9
+   255  ✅ OK      Port Interface          ports/primary/budget_repository_port              1.1
+   256  ✅ OK      Port Interface          ports/primary/cache_port                          0.8
+   257  ✅ OK      Port Interface          ports/primary/consolidation_group_report          1.7
+   258  ✅ OK      Port Interface          ports/primary/consolidation_repository_port       1.1
+   259  ✅ OK      Port Interface          ports/primary/core_tax_port                       0.4
+   260  ✅ OK      Port Interface          ports/primary/customer_repository_port            1.5
+   261  ✅ OK      Port Interface          ports/primary/customer_supplier_repository_port     0.6
+   262  ✅ OK      Port Interface          ports/primary/employee_repository_port            0.3
+   263  ✅ OK      Port Interface          ports/primary/encryption_key_vault_port           0.3
+   264  ✅ OK      Port Interface          ports/primary/event_publisher_port                0.6
+   265  ✅ OK      Port Interface          ports/primary/file_storage_port                   0.2
+   266  ✅ OK      Port Interface          ports/primary/fiscal_period_repository_port       1.1
+   267  ✅ OK      Port Interface          ports/primary/fixed_asset_repository_port         0.3
+   268  ✅ OK      Port Interface          ports/primary/forex_repository_port               1.2
+   269  ✅ OK      Port Interface          ports/primary/goods_receipt_repository_port       1.1
+   270  ✅ OK      Port Interface          ports/primary/goodwill_repository_port            0.7
+   271  ✅ OK      Port Interface          ports/primary/hash_chain_service_port             0.2
+   272  ✅ OK      Port Interface          ports/primary/hedge_repository_port               0.7
+   273  ✅ OK      Port Interface          ports/primary/iam_repository_port                 0.9
+   274  ✅ OK      Port Interface          ports/primary/iam_user_repository_port            0.2
+   275  ✅ OK      Port Interface          ports/primary/intangible_asset_repository_port     0.7
+   276  ✅ OK      Port Interface          ports/primary/inventory_repository_port           0.7
+   277  ✅ OK      Port Interface          ports/primary/journal_repository_port             0.2
+   278  ✅ OK      Port Interface          ports/primary/ledger_repository_port              0.2
+   279  ✅ OK      Port Interface          ports/primary/legal_entity_repository_port        0.3
+   280  ✅ OK      Port Interface          ports/primary/manufacturing_repository_port       0.9
+   281  ✅ OK      Port Interface          ports/primary/notification_port                   0.2
+   282  ✅ OK      Port Interface          ports/primary/outbox_repository_port              0.7
+   283  ✅ OK      Port Interface          ports/primary/payroll_repository_port             0.7
+   284  ✅ OK      Port Interface          ports/primary/project_repository_port             0.9
+   285  ✅ OK      Port Interface          ports/primary/purchase_order_repository_port      0.7
+   286  ✅ OK      Port Interface          ports/primary/report_repository_port              4.3
+   287  ✅ OK      Port Interface          ports/primary/saga_state_store_port               1.1
+   288  ✅ OK      Port Interface          ports/primary/sales_order_repository_port         0.7
+   289  ✅ OK      Port Interface          ports/primary/sales_repository_port               0.7
+   290  ✅ OK      Port Interface          ports/primary/supplier_repository_port            1.9
+   291  ✅ OK      Port Interface          ports/primary/system_setting_repository_port      0.3
+   292  ✅ OK      Port Interface          ports/primary/tax_authority_coretax_port          0.2
+   293  ✅ OK      Port Interface          ports/primary/tax_repository_port                 0.9
+   294  ✅ OK      Port Interface          ports/primary/tax_transaction_repository_port     0.2
+   295  ✅ OK      Port Interface          ports/primary/timestamp_notary_port               0.3
+   296  ✅ OK      Port Interface          ports/primary/umkm_repository_port                1.2
+   297  ✅ OK      Port Interface          ports/primary/unit_of_work_port                   0.2
+   298  ✅ OK      Port Interface          ports/primary/work_order_repository_port          0.9
+   299  ✅ OK      Port Interface          ports/secondary/analytics_export_port             8.8
+   300  ✅ OK      Port Interface          ports/secondary/cqrs_query_handler_port           0.2
+   301  ✅ OK      Port Interface          ports/secondary/read_model_projection_port        0.2
+   302  ✅ OK      Port Interface          ports/secondary/snapshot_store_port               0.3
+   303  ✅ OK      Core Domain             axioms/accrual_basis                             78.5
+   304  ✅ OK      Core Domain             axioms/axiom_violation                            0.7
+   305  ✅ OK      Core Domain             axioms/causality_chain                            0.5
+   306  ✅ OK      Core Domain             axioms/conservation_of_value                      0.5
+   307  ✅ OK      Core Domain             axioms/double_entry                               0.5
+   308  ✅ OK      Core Domain             axioms/entity_isolation                           0.5
+   309  ✅ OK      Core Domain             axioms/going_concern                              0.5
+   310  ✅ OK      Core Domain             axioms/immutability                               0.7
+   311  ✅ OK      Core Domain             axioms/materiality                                0.5
+   312  ✅ OK      Core Domain             axioms/monetary_unit                              0.7
+   313  ✅ OK      Core Domain             axioms/period_bound                               0.6
+   314  ✅ OK      Core Domain             axioms/substance_over_form                        0.4
+   315  ✅ OK      Core Domain             axioms/time_irreversibility                       0.7
+   316  ✅ OK      Core Domain             constitution/constitution_exceptions              0.6
+   317  ✅ OK      Core Domain             constitution/constitutional_invariants            0.4
+   318  ✅ OK      Core Domain             constitution/enforcement_engine                   0.3
+   319  ✅ OK      Core Domain             constitution/forbidden_states                     0.3
+   320  ✅ OK      Core Domain             constitution/sovereignty_declaration              0.2
+   321  ✅ OK      Core Domain             constitution/supreme_law                          0.2
+   322  ✅ OK      Core Domain             constitution/version_lock                         0.3
+   323  ✅ OK      Core Domain             kernel/audit_hook_injector                        4.3
+   324  ✅ OK      Core Domain             kernel/circuit_breaker                            1.6
+   325  ✅ OK      Core Domain             kernel/command_dispatcher                         3.3
+   326  ✅ OK      Core Domain             kernel/command_envelope                           0.3
+   327  ✅ OK      Core Domain             kernel/command_handler_registry                   0.4
+   328  ✅ OK      Core Domain             kernel/context_holder                             1.9
+   329  ✅ OK      Core Domain             kernel/dependency_injector                       12.9
+   330  ✅ OK      Core Domain             kernel/distributed_lock_redis                     0.5
+   331  ✅ OK      Core Domain             kernel/guards/async_guards/anti_money_laundering     7.6
+   332  ✅ OK      Core Domain             kernel/guards/async_guards/fraud_pattern_detector     0.5
+   333  ✅ OK      Core Domain             kernel/guards/authority_matrix                    4.7
+   334  ✅ OK      Core Domain             kernel/guards/balance_checker                     3.2
+   335  ✅ OK      Core Domain             kernel/guards/budget_availability                 3.5
+   336  ✅ OK      Core Domain             kernel/guards/coretax_format_validator            2.8
+   337  ✅ OK      Core Domain             kernel/guards/credit_limit_enforcer               2.6
+   338  ✅ OK      Core Domain             kernel/guards/currency_validator                  2.1
+   339  ✅ OK      Core Domain             kernel/guards/emergency_freeze                    2.5
+   340  ✅ OK      Core Domain             kernel/guards/evidence_attacher                   3.7
+   341  ✅ OK      Core Domain             kernel/guards/guard_exceptions                    0.6
+   342  ✅ OK      Core Domain             kernel/guards/legal_entity_boundary               2.0
+   343  ✅ OK      Core Domain             kernel/guards/period_lock                         3.3
+   344  ✅ OK      Core Domain             kernel/guards/regulatory_compliance               2.2
+   345  ✅ OK      Core Domain             kernel/guards/sod_enforcer                        3.2
+   346  ✅ OK      Core Domain             kernel/guards/temporal_consistency                2.9
+   347  ✅ OK      Core Domain             kernel/health_indicator                           0.5
+   348  ✅ OK      Core Domain             kernel/immutable_laws                             2.9
+   349  ✅ OK      Core Domain             kernel/immutable_laws/asset_existence_enforcer     4.3
+   350  ✅ OK      Core Domain             kernel/immutable_laws/audit_trail_completeness_enforcer     3.4
+   351  ✅ OK      Core Domain             kernel/immutable_laws/dual_approval_enforcer      2.4
+   352  ✅ OK      Core Domain             kernel/immutable_laws/evidence_mandate_enforcer     2.8
+   353  ✅ OK      Core Domain             kernel/immutable_laws/fair_value_measurement_enforcer     2.7
+   354  ✅ OK      Core Domain             kernel/immutable_laws/gl_supremacy_enforcer       2.9
+   355  ✅ OK      Core Domain             kernel/immutable_laws/immutability_enforcer       2.5
+   356  ✅ OK      Core Domain             kernel/immutable_laws/law_violation_exceptions     0.5
+   357  ✅ OK      Core Domain             kernel/immutable_laws/no_retroactive_policy_enforcer     3.9
+   358  ✅ OK      Core Domain             kernel/immutable_laws/period_closure_enforcer     3.7
+   359  ✅ OK      Core Domain             kernel/immutable_laws/reversal_constraint_enforcer     3.7
+   360  ✅ OK      Core Domain             kernel/immutable_laws/segregation_of_duties_enforcer     3.3
+   361  ✅ OK      Core Domain             kernel/immutable_laws/traceability_enforcer       3.5
+   362  ✅ OK      Core Domain             kernel/kernel_exceptions                          2.6
+   363  ✅ OK      Core Domain             kernel/lifecycle_listener                         0.5
+   364  ✅ OK      Core Domain             kernel/metric_collector                           0.5
+   365  ✅ OK      Core Domain             kernel/retry_policy                               0.4
+   366  ✅ OK      Core Domain             kernel/sealed_gate                                0.4
+   367  ✅ OK      Core Domain             kernel/transactional_executor                     0.5
+   368  ✅ OK      Core Domain             kernel/validation_pipeline                        0.3
+   369  ✅ OK      Application Service     application/commands_cqrs/command_bus_unified    76.4
+   370  ✅ OK      Application Service     application/commands_cqrs/command_executor_with_audit     1.1
+   371  ✅ OK      Application Service     application/commands_cqrs/command_handler_registry     1.2
+   372  ✅ OK      Application Service     application/commands_cqrs/command_result_envelope     0.6
+   373  ✅ OK      Application Service     application/commands_cqrs/command_validator       0.5
+   374  ✅ OK      Application Service     application/commands_cqrs/query_bus_unified       0.9
+   375  ✅ OK      Application Service     application/commands_cqrs/query_executor_readonly     0.7
+   376  ✅ OK      Application Service     application/commands_cqrs/query_handler_registry     0.8
+   377  ✅ OK      Application Service     application/dto_objects/account_dto             117.0
+   378  ✅ OK      Application Service     application/dto_objects/ap_invoice_request        0.5
+   379  ✅ OK      Application Service     application/dto_objects/ap_response               0.4
+   380  ✅ OK      Application Service     application/dto_objects/ar_invoice_request        0.7
+   381  ✅ OK      Application Service     application/dto_objects/bank_cash_request         0.2
+   382  ✅ OK      Application Service     application/dto_objects/budget_request            7.1
+   383  ✅ OK      Application Service     application/dto_objects/coa_request               0.3
+   384  ✅ OK      Application Service     application/dto_objects/coretax_submission_request     0.7
+   385  ✅ OK      Application Service     application/dto_objects/financial_statement_request     0.4
+   386  ✅ OK      Application Service     application/dto_objects/fixed_asset_request       0.5
+   387  ✅ OK      Application Service     application/dto_objects/forex_request             0.5
+   388  ✅ OK      Application Service     application/dto_objects/intangible_asset_request     0.3
+   389  ✅ OK      Application Service     application/dto_objects/inventory_request         0.2
+   390  ✅ OK      Application Service     application/dto_objects/inventory_response        0.2
+   391  ✅ OK      Application Service     application/dto_objects/journal_request           0.2
+   392  ✅ OK      Application Service     application/dto_objects/journal_response          0.2
+   393  ✅ OK      Application Service     application/dto_objects/manufacturing_request     0.2
+   394  ✅ OK      Application Service     application/dto_objects/payment_run_request       0.2
+   395  ✅ OK      Application Service     application/dto_objects/period_close_request      0.2
+   396  ✅ OK      Application Service     application/events/all_event_handlers            10.2
+   397  ✅ OK      Application Service     application/events/global_event_subscribers       0.2
+   398  ✅ OK      Application Service     application/events/handler_registry               0.2
+   399  ✅ OK      Application Service     application/events/publisher_application          0.6
+   400  ✅ OK      Application Service     application/events/subscriber_application         0.4
+   401  ✅ OK      Application Service     application/lifecycle_handler                     0.4
+   402  ✅ OK      Application Service     application/mappers/domain_to_dto                 7.4
+   403  ✅ OK      Application Service     application/mappers/dto_to_command                0.4
+   404  ✅ OK      Application Service     application/mappers/event_to_read_model           0.7
+   405  ✅ OK      Application Service     application/outbox/outbox_exceptions              4.8
+   406  ✅ OK      Application Service     application/outbox/outbox_poller                  0.3
+   407  ✅ OK      Application Service     application/outbox/outbox_relay_service           0.5
+   408  ✅ OK      Application Service     application/sagas/coretax_submission_saga        15.7
+   409  ✅ OK      Application Service     application/sagas/coretax_submission_saga_state     0.3
+   410  ✅ OK      Application Service     application/sagas/manufacturing_saga              0.7
+   411  ✅ OK      Application Service     application/sagas/payroll_saga                    0.7
+   412  ✅ OK      Application Service     application/sagas/payroll_saga_state              0.5
+   413  ✅ OK      Application Service     application/sagas/procurement_saga                0.7
+   414  ✅ OK      Application Service     application/sagas/procurement_saga_state          0.6
+   415  ✅ OK      Application Service     application/sagas/saga_exceptions                 0.4
+   416  ✅ OK      Application Service     application/sagas/saga_orchestrator_base          0.4
+   417  ✅ OK      Application Service     application/sagas/saga_state_store                0.4
+   418  ✅ OK      Application Service     application/sagas/sales_saga                      0.3
+   419  ✅ OK      Application Service     application/service_layer/service_account       890.3
+   420  ✅ OK      Application Service     application/service_layer/service_ap              0.7
+   421  ✅ OK      Application Service     application/service_layer/service_approval        0.5
+   422  ✅ OK      Application Service     application/service_layer/service_ar              0.9
+   423  ✅ OK      Application Service     application/service_layer/service_asset_group     3.5
+   424  ✅ OK      Application Service     application/service_layer/service_audit           0.5
+   425  ✅ OK      Application Service     application/service_layer/service_bank_cash       0.9
+   426  ✅ OK      Application Service     application/service_layer/service_budget          0.6
+   427  ✅ OK      Application Service     application/service_layer/service_capital         3.5
+   428  ✅ OK      Application Service     application/service_layer/service_coa             0.4
+   429  ✅ OK      Application Service     application/service_layer/service_consolidation     0.4
+   430  ✅ OK      Application Service     application/service_layer/service_coretax         0.6
+   431  ✅ OK      Application Service     application/service_layer/service_customer        2.3
+   432  ✅ OK      Application Service     application/service_layer/service_document        0.3
+   433  ✅ OK      Application Service     application/service_layer/service_employee        2.1
+   434  ✅ OK      Application Service     application/service_layer/service_fiscal_period     0.5
+   435  ✅ OK      Application Service     application/service_layer/service_fixed_asset     0.5
+   436  ✅ OK      Application Service     application/service_layer/service_forex           0.2
+   437  ✅ OK      Application Service     application/service_layer/service_goodwill        0.3
+   438  ✅ OK      Application Service     application/service_layer/service_hedge           0.3
+   439  ✅ OK      Application Service     application/service_layer/service_hierarchy       2.5
+   440  ✅ OK      Application Service     application/service_layer/service_iam             0.4
+   441  ✅ OK      Application Service     application/service_layer/service_intangible_asset     0.4
+   442  ✅ OK      Application Service     application/service_layer/service_inventory       0.3
+   443  ✅ OK      Application Service     application/service_layer/service_journal         0.2
+   444  ✅ OK      Application Service     application/service_layer/service_ledger          0.2
+   445  ✅ OK      Application Service     application/service_layer/service_legal_entity     0.2
+   446  ✅ OK      Application Service     application/service_layer/service_manufacturing     1.1
+   447  ✅ OK      Application Service     application/service_layer/service_payment         2.1
+   448  ✅ OK      Application Service     application/service_layer/service_payroll         0.2
+   449  ✅ OK      Application Service     application/service_layer/service_project         0.2
+   450  ✅ OK      Application Service     application/service_layer/service_purchase_sales     0.2
+   451  ✅ OK      Application Service     application/service_layer/service_report          0.2
+   452  ✅ OK      Application Service     application/service_layer/service_retainer        1.7
+   453  ✅ OK      Application Service     application/service_layer/service_sales           0.7
+   454  ✅ OK      Application Service     application/service_layer/service_standard_cost     1.8
+   455  ✅ OK      Application Service     application/service_layer/service_supplier        2.0
+   456  ✅ OK      Application Service     application/service_layer/service_system_settings     0.5
+   457  ✅ OK      Application Service     application/service_layer/service_tax             0.2
+   458  ✅ OK      Application Service     application/service_layer/service_umkm            0.2
+   459  ✅ OK      Application Service     application/use_cases/aml_screening_transaction    26.8
+   460  ✅ OK      Application Service     application/use_cases/amortization_monthly_run     2.5
+   461  ✅ OK      Application Service     application/use_cases/ap_payment_run              0.5
+   462  ✅ OK      Application Service     application/use_cases/approve_journal_four_eyes     0.2
+   463  ✅ OK      Application Service     application/use_cases/ar_collection_workflow      0.4
+   464  ✅ OK      Application Service     application/use_cases/bank_reconciliation         0.2
+   465  ✅ OK      Application Service     application/use_cases/budget_vs_actual_analysis     0.3
+   466  ✅ OK      Application Service     application/use_cases/cogs_calculation            0.2
+   467  ✅ OK      Application Service     application/use_cases/consolidation_group_report     0.3
+   468  ✅ OK      Application Service     application/use_cases/coretax_bulk_submission     0.3
+   469  ✅ OK      Application Service     application/use_cases/depreciation_monthly_run     0.2
+   470  ✅ OK      Application Service     application/use_cases/disaster_recovery_replay     0.2
+   471  ✅ OK      Application Service     application/use_cases/financial_statement_generation     0.3
+   472  ✅ OK      Application Service     application/use_cases/fiscal_reconciliation       0.4
+   473  ✅ OK      Application Service     application/use_cases/forex_revaluation           0.3
+   474  ✅ OK      Application Service     application/use_cases/handlers                    1.0
+   475  ✅ OK      Application Service     application/use_cases/hedge_accounting_execution     0.2
+   476  ✅ OK      Application Service     application/use_cases/hpp_manufacturing_close     0.2
+   477  ✅ OK      Application Service     application/use_cases/hpp_manufacturing_close_use_case     1.0
+   478  ✅ OK      Application Service     application/use_cases/intercompany_elimination     0.3
+   479  ✅ OK      Application Service     application/use_cases/payroll_monthly_run         0.3
+   480  ✅ OK      Application Service     application/use_cases/period_close                0.2
+   481  ✅ OK      Application Service     application/use_cases/period_reopen_with_audit     0.2
+   482  ✅ OK      Application Service     application/use_cases/post_adjusting_journal      0.2
+   483  ✅ OK      Application Service     application/use_cases/post_closing_journal        0.2
+   484  ✅ OK      Application Service     application/use_cases/post_journal_entry          0.2
+   485  ✅ OK      Application Service     application/use_cases/registry                    0.4
+   486  ✅ OK      Application Service     application/use_cases/reverse_journal             0.2
+   487  ✅ OK      Application Service     application/use_cases/stock_opname_cycle          0.2
+   488  ✅ OK      Application Service     application/use_cases/tax_filing_submission       0.2
+   489  ✅ OK      Application Service     application/use_cases/year_end_closing            0.2
+   490  ✅ OK      Application Service     application/workflows/audit_forensic_reconstruction     6.2
+   491  ✅ OK      Application Service     application/workflows/inventory_to_cogs           0.2
+   492  ✅ OK      Application Service     application/workflows/manufacturing_cost_flow     0.4
+   493  ✅ OK      Application Service     application/workflows/payroll_to_gl_full          0.2
+   494  ✅ OK      Application Service     application/workflows/procurement_to_ap_full      0.2
+   495  ✅ OK      Application Service     application/workflows/project_billing_poc         0.2
+   496  ✅ OK      Application Service     application/workflows/sales_to_ar_full            0.2
+   497  ✅ OK      Application Service     application/workflows/umkm_simplified             0.2
+   498  ✅ OK      Application Service     policy_engine/cache_engine                        0.2
+   499  ✅ OK      Application Service     policy_engine/conflict_resolver                   0.3
+   500  ✅ OK      Application Service     policy_engine/ifrs/ias_01_presentation          123.8
+   501  ✅ OK      Application Service     policy_engine/ifrs/ias_02_inventories             1.0
+   502  ✅ OK      Application Service     policy_engine/ifrs/ias_12_income_taxes            0.6
+   503  ✅ OK      Application Service     policy_engine/ifrs/ias_16_ppe                     0.4
+   504  ✅ OK      Application Service     policy_engine/ifrs/ias_19_employee_benefits       0.5
+   505  ✅ OK      Application Service     policy_engine/ifrs/ias_21_foreign_exchange        0.4
+   506  ✅ OK      Application Service     policy_engine/ifrs/ias_36_impairment              0.2
+   507  ✅ OK      Application Service     policy_engine/ifrs/ias_37_provisions              0.3
+   508  ✅ OK      Application Service     policy_engine/ifrs/ifrs_09_financial_instruments     1.2
+   509  ✅ OK      Application Service     policy_engine/ifrs/ifrs_10_consolidation          0.7
+   510  ✅ OK      Application Service     policy_engine/ifrs/ifrs_14_deferral               1.4
+   511  ✅ OK      Application Service     policy_engine/ifrs/ifrs_15_revenue                0.2
+   512  ✅ OK      Application Service     policy_engine/ifrs/ifrs_16_leases                 0.6
+   513  ✅ OK      Application Service     policy_engine/ifrs/ifrs_9_financial_instruments     0.2
+   514  ✅ OK      Application Service     policy_engine/ifrs/ifrs_aggregator                0.6
+   515  ✅ OK      Application Service     policy_engine/ifrs/ifrs_for_smes                  0.6
+   516  ✅ OK      Application Service     policy_engine/interpreter                         0.2
+   517  ✅ OK      Application Service     policy_engine/jurisdiction_resolver               0.3
+   518  ✅ OK      Application Service     policy_engine/loader_yaml                         0.2
+   519  ✅ OK      Application Service     policy_engine/override_authorizer                 0.2
+   520  ✅ OK      Application Service     policy_engine/policy_exceptions                   0.2
+   521  ✅ OK      Application Service     policy_engine/psak/psak_01_presentation           0.2
+   522  ✅ OK      Application Service     policy_engine/psak/psak_02_cash_flow              0.2
+   523  ✅ OK      Application Service     policy_engine/psak/psak_05_operating_segments     0.2
+   524  ✅ OK      Application Service     policy_engine/psak/psak_07_related_party          0.2
+   525  ✅ OK      Application Service     policy_engine/psak/psak_08_events_after_reporting     0.2
+   526  ✅ OK      Application Service     policy_engine/psak/psak_10_foreign_exchange       0.3
+   527  ✅ OK      Application Service     policy_engine/psak/psak_13_investment_property     0.5
+   528  ✅ OK      Application Service     policy_engine/psak/psak_14_inventories            0.3
+   529  ✅ OK      Application Service     policy_engine/psak/psak_16_ppe                    3.9
+   530  ✅ OK      Application Service     policy_engine/psak/psak_16_property_plant_equipment     0.4
+   531  ✅ OK      Application Service     policy_engine/psak/psak_19_intangible_assets      0.2
+   532  ✅ OK      Application Service     policy_engine/psak/psak_22_business_combinations     0.2
+   533  ✅ OK      Application Service     policy_engine/psak/psak_23_revenue_legacy         0.3
+   534  ✅ OK      Application Service     policy_engine/psak/psak_24_employee_benefits      0.2
+   535  ✅ OK      Application Service     policy_engine/psak/psak_25_policies_estimates_errors     0.2
+   536  ✅ OK      Application Service     policy_engine/psak/psak_26_borrowing_costs        0.2
+   537  ✅ OK      Application Service     policy_engine/psak/psak_30_leases_legacy          0.2
+   538  ✅ OK      Application Service     policy_engine/psak/psak_38_common_control         0.2
+   539  ✅ OK      Application Service     policy_engine/psak/psak_46_income_taxes           0.2
+   540  ✅ OK      Application Service     policy_engine/psak/psak_48_impairment             0.2
+   541  ✅ OK      Application Service     policy_engine/psak/psak_50_financial_instruments_presentation     0.2
+   542  ✅ OK      Application Service     policy_engine/psak/psak_55_financial_instruments_recognition     0.2
+   543  ✅ OK      Application Service     policy_engine/psak/psak_60_financial_instruments_disclosures     0.2
+   544  ✅ OK      Application Service     policy_engine/psak/psak_67_interests_in_other_entities     0.2
+   545  ✅ OK      Application Service     policy_engine/psak/psak_71_financial_instruments_ifrs9     0.2
+   546  ✅ OK      Application Service     policy_engine/psak/psak_72_revenue                0.2
+   547  ✅ OK      Application Service     policy_engine/psak/psak_73_leases                 0.2
+   548  ✅ OK      Application Service     policy_engine/psak/psak_aggregator                1.9
+   549  ✅ OK      Application Service     policy_engine/tax_indonesia/bea_meterai_calculator     0.2
+   550  ✅ OK      Application Service     policy_engine/tax_indonesia/penalty_interest_engine     0.2
+   551  ✅ OK      Application Service     policy_engine/tax_indonesia/pph_21_calculator     0.2
+   552  ✅ OK      Application Service     policy_engine/tax_indonesia/pph_22_calculator     0.2
+   553  ✅ OK      Application Service     policy_engine/tax_indonesia/pph_23_calculator     0.2
+   554  ✅ OK      Application Service     policy_engine/tax_indonesia/pph_25_calculator     0.2
+   555  ✅ OK      Application Service     policy_engine/tax_indonesia/pph_26_calculator     0.2
+   556  ✅ OK      Application Service     policy_engine/tax_indonesia/pph_4_ayat_2_calculator     0.2
+   557  ✅ OK      Application Service     policy_engine/tax_indonesia/pph_badan_calculator     0.2
+   558  ✅ OK      Application Service     policy_engine/tax_indonesia/ppn_calculator        0.2
+   559  ✅ OK      Application Service     policy_engine/tax_indonesia/rate_registry_dynamic     0.2
+   560  ✅ OK      Application Service     policy_engine/tax_indonesia/tax_exceptions        0.2
+   561  ✅ OK      Application Service     policy_engine/tax_indonesia/treaty_resolver       0.2
+   562  ✅ OK      Application Service     policy_engine/tax_indonesia/withholding_engine     0.2
+   563  ✅ OK      Application Service     policy_engine/temporal_resolver                   0.2
+   564  ✅ OK      Application Service     policy_engine/version_manager                     0.2
+   565  ✅ OK      Application Service     compliance/aml_risk_scorer                       24.9
+   566  ✅ OK      Application Service     compliance/compliance_exceptions                  0.9
+   567  ✅ OK      Application Service     compliance/compliance_report_for_audit_committee     0.3
+   568  ✅ OK      Application Service     compliance/coretax_validator                      1.0
+   569  ✅ OK      Application Service     compliance/deficiency_tracker                     0.4
+   570  ✅ OK      Application Service     compliance/ethics/conflict_of_interest_declaration_store    12.0
+   571  ✅ OK      Application Service     compliance/ethics/correction_doctrine_engine      0.5
+   572  ✅ OK      Application Service     compliance/ethics/disclosure_requirement_checker     0.4
+   573  ✅ OK      Application Service     compliance/ethics/error_classifier_psak25         0.3
+   574  ✅ OK      Application Service     compliance/ethics/ethics_committee_decision_log     0.3
+   575  ✅ OK      Application Service     compliance/ethics/ethics_exceptions               0.4
+   576  ✅ OK      Application Service     compliance/ethics/ethics_training_certificate_tracker     0.3
+   577  ✅ OK      Application Service     compliance/ethics/ethics_violation_detector       0.5
+   578  ✅ OK      Application Service     compliance/ethics/materiality_threshold_qualitative     0.2
+   579  ✅ OK      Application Service     compliance/ethics/materiality_threshold_quantitative     0.2
+   580  ✅ OK      Application Service     compliance/ethics/professional_judgment_approver     0.2
+   581  ✅ OK      Application Service     compliance/ethics/professional_judgment_template     0.4
+   582  ✅ OK      Application Service     compliance/ethics/reversal_authorization_policy     0.3
+   583  ✅ OK      Application Service     compliance/ethics/segregation_of_duties_enforcer     0.8
+   584  ✅ OK      Application Service     compliance/ethics/whistleblower_case_tracker      0.6
+   585  ✅ OK      Application Service     compliance/gdpr_privacy_checker                   0.5
+   586  ✅ OK      Application Service     compliance/ifrs_checker                           0.2
+   587  ✅ OK      Application Service     compliance/legal/authority_hierarchy             14.7
+   588  ✅ OK      Application Service     compliance/legal/binding_precedence_resolver      0.5
+   589  ✅ OK      Application Service     compliance/legal/compliance_scope_determiner      0.4
+   590  ✅ OK      Application Service     compliance/legal/coretax_legal_basis_catalog      0.4
+   591  ✅ OK      Application Service     compliance/legal/jurisdiction_definition          0.4
+   592  ✅ OK      Application Service     compliance/legal/legal_exceptions                 0.7
+   593  ✅ OK      Application Service     compliance/legal/legal_obligation_calendar        0.2
+   594  ✅ OK      Application Service     compliance/legal/legal_opinion_document_store     0.4
+   595  ✅ OK      Application Service     compliance/legal/legal_override_with_citation     0.5
+   596  ✅ OK      Application Service     compliance/legal/legal_risk_assessment_engine     0.3
+   597  ✅ OK      Application Service     compliance/legal/litigation_case_linker           0.6
+   598  ✅ OK      Application Service     compliance/legal/regulatory_body_registry         0.2
+   599  ✅ OK      Application Service     compliance/legal/regulatory_filing_tracker        0.4
+   600  ✅ OK      Application Service     compliance/legal/sanction_list_checker            0.4
+   601  ✅ OK      Application Service     compliance/legal/sovereignty_boundary_guard       0.6
+   602  ✅ OK      Application Service     compliance/ojk_lkpub_builder                      0.4
+   603  ✅ OK      Application Service     compliance/psak_checker                           0.3
+   604  ✅ OK      Application Service     compliance/sanction_list_checker                  2.0
+   605  ✅ OK      Application Service     audit/audit_exceptions                            1.0
+   606  ✅ OK      Application Service     audit/audit_metrics                               0.8
+   607  ✅ OK      Application Service     audit/duplicate_detector_fuzzy                    2.2
+   608  ✅ OK      Application Service     audit/event_types_catalog                         0.4
+   609  ✅ OK      Application Service     audit/event_writer_immutable                      0.8
+   610  ✅ OK      Application Service     audit/forensic_replayer                           0.5
+   611  ✅ OK      Application Service     audit/forensic_report_generator_pdf               2.2
+   612  ✅ OK      Application Service     audit/gap_detector                                0.3
+   613  ✅ OK      Application Service     audit/hash_chain_builder                          0.3
+   614  ✅ OK      Application Service     audit/intent_recorder_audit_link                  1.2
+   615  ✅ OK      Application Service     audit/sampling_materiality/audit_exception_aggregator     1.2
+   616  ✅ OK      Application Service     audit/sampling_materiality/audit_sampling_engine     0.4
+   617  ✅ OK      Application Service     audit/sampling_materiality/audit_sampling_engine_materiality_based     2.3
+   618  ✅ OK      Application Service     audit/sampling_materiality/audit_sampling_statistical     0.2
+   619  ✅ OK      Application Service     audit/sampling_materiality/materiality_threshold_calculator     0.2
+   620  ✅ OK      Application Service     audit/tamper_alert_trigger                        0.4
+   621  ✅ OK      Infrastructure          infrastructure/background_task_monitor            2.0
+   622  ✅ OK      Infrastructure          infrastructure/caching/caching_exceptions        13.3
+   623  ✅ OK      Infrastructure          infrastructure/caching/compression_lz4          122.5
+   624  ✅ OK      Infrastructure          infrastructure/caching/invalidator_event_listener     2.1
+   625  ✅ OK      Infrastructure          infrastructure/caching/metrics_collector         28.2
+   626  ✅ OK      Infrastructure          infrastructure/caching/namespace_isolation        3.6
+   627  ✅ OK      Infrastructure          infrastructure/caching/redis_manager              0.6
+   628  ✅ OK      Infrastructure          infrastructure/caching/serialization_json         1.3
+   629  ✅ OK      Infrastructure          infrastructure/caching/warmer_scheduled         133.8
+   630  ✅ OK      Infrastructure          infrastructure/database/audit_trigger_installer   287.1
+   631  ✅ OK      Infrastructure          infrastructure/database/connection_pool_asyncpg    29.5
+   632  ✅ OK      Infrastructure          infrastructure/database/connection_pool_psycopg2    14.1
+   633  ✅ OK      Infrastructure          infrastructure/database/database_backup_pgdump     8.5
+   634  ✅ OK      Infrastructure          infrastructure/database/database_encryption_tde     1.6
+   635  ✅ OK      Infrastructure          infrastructure/database/database_exceptions       1.5
+   636  ✅ OK      Infrastructure          infrastructure/database/database_health_probe     2.0
+   637  ✅ OK      Infrastructure          infrastructure/database/database_metrics_collector     1.9
+   638  ✅ OK      Infrastructure          infrastructure/database/database_restore_pitr     1.9
+   639  ✅ OK      Infrastructure          infrastructure/database/migration_rollback_executor   211.3
+   640  ✅ OK      Infrastructure          infrastructure/database/partition_archiver        1.7
+   641  ✅ OK      Infrastructure          infrastructure/database/partition_manager_pg_partman     2.0
+   642  ✅ OK      Infrastructure          infrastructure/database/read_replica_router       2.1
+   643  ✅ OK      Infrastructure          infrastructure/database/seed_data_loader        606.0
+   644  ✅ OK      Infrastructure          infrastructure/database/seed_data_validator       4.5
+   645  ✅ OK      Infrastructure          infrastructure/database/transaction_manager       1.0
+   646  ✅ OK      Infrastructure          infrastructure/event_store/append_only_store      8.6
+   647  ✅ OK      Infrastructure          infrastructure/event_store/event_store            2.5
+   648  ✅ OK      Infrastructure          infrastructure/event_store/event_store_backup_archiver     1.6
+   649  ✅ OK      Infrastructure          infrastructure/event_store/event_store_exceptions     2.3
+   650  ✅ OK      Infrastructure          infrastructure/event_store/event_store_metrics    46.5
+   651  ✅ OK      Infrastructure          infrastructure/event_store/hash_chain_builder     1.1
+   652  ✅ OK      Infrastructure          infrastructure/event_store/integrity_verifier     2.5
+   653  ✅ OK      Infrastructure          infrastructure/event_store/replay_engine          1.6
+   654  ✅ OK      Infrastructure          infrastructure/event_store/snapshot_compression_service     0.5
+   655  ✅ OK      Infrastructure          infrastructure/event_store/snapshot_manager       0.2
+   656  ✅ OK      Infrastructure          infrastructure/event_store/snapshot_store_aggregate     0.5
+   657  ✅ OK      Infrastructure          infrastructure/event_store/tamper_detection_scanner     0.3
+   658  ✅ OK      Infrastructure          infrastructure/file_storage/abstract_port         0.3
+   659  ✅ OK      Infrastructure          infrastructure/file_storage/evidence_document_retriever    75.3
+   660  ✅ OK      Infrastructure          infrastructure/file_storage/evidence_document_uploader     3.7
+   661  ✅ OK      Infrastructure          infrastructure/file_storage/file_integrity_hasher     0.4
+   662  ✅ OK      Infrastructure          infrastructure/file_storage/file_storage_exceptions     2.0
+   663  ✅ OK      Infrastructure          infrastructure/file_storage/glacier_cold_storage_adapter     0.6
+   664  ✅ OK      Infrastructure          infrastructure/file_storage/minio_evidence_adapter     0.5
+   665  ✅ OK      Infrastructure          infrastructure/file_storage/report_archiver_permanent     1.8
+   666  ✅ OK      Infrastructure          infrastructure/file_storage/retention_policy_enforcer     1.7
+   667  ✅ OK      Infrastructure          infrastructure/file_storage/s3_adapter            0.5
+   668  ✅ OK      Infrastructure          infrastructure/message_broker/broker_exceptions     1.9
+   669  ✅ OK      Infrastructure          infrastructure/message_broker/kafka_consumer_wrapper    56.6
+   670  ✅ OK      Infrastructure          infrastructure/message_broker/kafka_dead_letter_handler     2.8
+   671  ✅ OK      Infrastructure          infrastructure/message_broker/kafka_producer_wrapper     3.5
+   672  ✅ OK      Infrastructure          infrastructure/message_broker/schema_registry_client     3.1
+   673  ✅ OK      Infrastructure          infrastructure/message_broker/transactional_outbox_poller     2.3
+   674  ✅ OK      Infrastructure          infrastructure/persistence_orm/account_table      0.6
+   675  ✅ OK      Infrastructure          infrastructure/persistence_orm/aggregate_snapshot_table     0.4
+   676  ✅ OK      Infrastructure          infrastructure/persistence_orm/aml_risk_score_table     0.5
+   677  ✅ OK      Infrastructure          infrastructure/persistence_orm/aml_suspicious_transaction_table     0.5
+   678  ✅ OK      Infrastructure          infrastructure/persistence_orm/amortization_schedule_table     0.5
+   679  ✅ OK      Infrastructure          infrastructure/persistence_orm/ap_credit_note_table     0.4
+   680  ✅ OK      Infrastructure          infrastructure/persistence_orm/ap_invoice_line_table     0.5
+   681  ✅ OK      Infrastructure          infrastructure/persistence_orm/ap_invoice_table     0.5
+   682  ✅ OK      Infrastructure          infrastructure/persistence_orm/ap_payment_table     0.7
+   683  ✅ OK      Infrastructure          infrastructure/persistence_orm/approval_request_table     1.0
+   684  ✅ OK      Infrastructure          infrastructure/persistence_orm/approval_rule_table     0.4
+   685  ✅ OK      Infrastructure          infrastructure/persistence_orm/ar_credit_note_table     0.5
+   686  ✅ OK      Infrastructure          infrastructure/persistence_orm/ar_debit_note_table     5.0
+   687  ✅ OK      Infrastructure          infrastructure/persistence_orm/ar_invoice_line_table     1.0
+   688  ✅ OK      Infrastructure          infrastructure/persistence_orm/ar_invoice_table     0.8
+   689  ✅ OK      Infrastructure          infrastructure/persistence_orm/ar_payment_table     0.4
+   690  ✅ OK      Infrastructure          infrastructure/persistence_orm/asset_category_alias_table     0.5
+   691  ✅ OK      Infrastructure          infrastructure/persistence_orm/asset_category_table     0.5
+   692  ✅ OK      Infrastructure          infrastructure/persistence_orm/audit_event_table     0.7
+   693  ✅ OK      Infrastructure          infrastructure/persistence_orm/audit_table        0.8
+   694  ✅ OK      Infrastructure          infrastructure/persistence_orm/bank_account_table     0.2
+   695  ✅ OK      Infrastructure          infrastructure/persistence_orm/bank_reconciliation_alias_table     0.5
+   696  ✅ OK      Infrastructure          infrastructure/persistence_orm/bank_reconciliation_table     0.3
+   697  ✅ OK      Infrastructure          infrastructure/persistence_orm/bank_transaction_table     0.4
+   698  ✅ OK      Infrastructure          infrastructure/persistence_orm/base_model         0.3
+   699  ✅ OK      Infrastructure          infrastructure/persistence_orm/bill_of_materials_line_table     0.4
+   700  ✅ OK      Infrastructure          infrastructure/persistence_orm/bill_of_materials_table     0.4
+   701  ✅ OK      Infrastructure          infrastructure/persistence_orm/budget_actual_table     0.2
+   702  ✅ OK      Infrastructure          infrastructure/persistence_orm/budget_table       0.4
+   703  ✅ OK      Infrastructure          infrastructure/persistence_orm/cash_book_table     0.4
+   704  ✅ OK      Infrastructure          infrastructure/persistence_orm/company_entity_table     0.5
+   705  ✅ OK      Infrastructure          infrastructure/persistence_orm/consolidation_group_member_table     0.5
+   706  ✅ OK      Infrastructure          infrastructure/persistence_orm/consolidation_group_table     0.2
+   707  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_audit_log_table     0.5
+   708  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_bupot_table     0.3
+   709  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_emeterai_table     0.5
+   710  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_faktur_keluaran_table     0.3
+   711  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_faktur_line_table     0.6
+   712  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_faktur_masukan_table     0.3
+   713  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_faktur_table     0.3
+   714  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_nsfp_table     0.2
+   715  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_ntpn_table     0.5
+   716  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_spt_electronic_table     0.3
+   717  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_spt_table     0.3
+   718  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_submission_log_table     0.3
+   719  ✅ OK      Infrastructure          infrastructure/persistence_orm/coretax_webhook_inbound_table     0.4
+   720  ✅ OK      Infrastructure          infrastructure/persistence_orm/cost_card_table     0.2
+   721  ✅ OK      Infrastructure          infrastructure/persistence_orm/customer_table     0.5
+   722  ✅ OK      Infrastructure          infrastructure/persistence_orm/dead_letter_table     0.2
+   723  ✅ OK      Infrastructure          infrastructure/persistence_orm/delivery_order_lines_table     0.2
+   724  ✅ OK      Infrastructure          infrastructure/persistence_orm/delivery_order_table     0.9
+   725  ✅ OK      Infrastructure          infrastructure/persistence_orm/depreciation_schedule_table     0.2
+   726  ✅ OK      Infrastructure          infrastructure/persistence_orm/derivative_instrument_table     0.2
+   727  ✅ OK      Infrastructure          infrastructure/persistence_orm/disposal_table     0.2
+   728  ✅ OK      Infrastructure          infrastructure/persistence_orm/employee_table     0.3
+   729  ✅ OK      Infrastructure          infrastructure/persistence_orm/equity_tables      0.2
+   730  ✅ OK      Infrastructure          infrastructure/persistence_orm/event_store_table     0.3
+   731  ✅ OK      Infrastructure          infrastructure/persistence_orm/exchange_rate_table     0.5
+   732  ✅ OK      Infrastructure          infrastructure/persistence_orm/fair_value_hierarchy_table     0.7
+   733  ✅ OK      Infrastructure          infrastructure/persistence_orm/fiscal_period_table     0.3
+   734  ✅ OK      Infrastructure          infrastructure/persistence_orm/fixed_asset_schedule_table     0.4
+   735  ✅ OK      Infrastructure          infrastructure/persistence_orm/fixed_asset_table     0.3
+   736  ✅ OK      Infrastructure          infrastructure/persistence_orm/general_ledger_table     0.2
+   737  ✅ OK      Infrastructure          infrastructure/persistence_orm/goods_receipt_line_table     0.2
+   738  ✅ OK      Infrastructure          infrastructure/persistence_orm/goods_receipt_note_table     0.3
+   739  ✅ OK      Infrastructure          infrastructure/persistence_orm/goodwill_impairment_table     0.4
+   740  ✅ OK      Infrastructure          infrastructure/persistence_orm/goodwill_table     0.2
+   741  ✅ OK      Infrastructure          infrastructure/persistence_orm/hash_chain_table     0.2
+   742  ✅ OK      Infrastructure          infrastructure/persistence_orm/hedge_instrument_table     0.2
+   743  ✅ OK      Infrastructure          infrastructure/persistence_orm/hedged_item_table     0.2
+   744  ✅ OK      Infrastructure          infrastructure/persistence_orm/hedging_relationship_table     0.3
+   745  ✅ OK      Infrastructure          infrastructure/persistence_orm/iam_permission_table     0.8
+   746  ✅ OK      Infrastructure          infrastructure/persistence_orm/iam_role_table     0.6
+   747  ✅ OK      Infrastructure          infrastructure/persistence_orm/iam_session_table     0.9
+   748  ✅ OK      Infrastructure          infrastructure/persistence_orm/iam_user_table     0.5
+   749  ✅ OK      Infrastructure          infrastructure/persistence_orm/intangible_asset_table     0.3
+   750  ✅ OK      Infrastructure          infrastructure/persistence_orm/intangible_revaluation_table     0.2
+   751  ✅ OK      Infrastructure          infrastructure/persistence_orm/integrity_check_result_table     0.2
+   752  ✅ OK      Infrastructure          infrastructure/persistence_orm/inventory_fifo_layer_table     0.3
+   753  ✅ OK      Infrastructure          infrastructure/persistence_orm/inventory_item_table     0.2
+   754  ✅ OK      Infrastructure          infrastructure/persistence_orm/inventory_movement_table     0.3
+   755  ✅ OK      Infrastructure          infrastructure/persistence_orm/inventory_stock_card_table     0.4
+   756  ✅ OK      Infrastructure          infrastructure/persistence_orm/journal_header_table     0.2
+   757  ✅ OK      Infrastructure          infrastructure/persistence_orm/journal_line_partitioned_table     0.3
+   758  ✅ OK      Infrastructure          infrastructure/persistence_orm/journal_line_table     0.3
+   759  ✅ OK      Infrastructure          infrastructure/persistence_orm/journal_line_template_table     0.2
+   760  ✅ OK      Infrastructure          infrastructure/persistence_orm/ledger_entry_partitioned_table     0.2
+   761  ✅ OK      Infrastructure          infrastructure/persistence_orm/ledger_entry_table     0.2
+   762  ✅ OK      Infrastructure          infrastructure/persistence_orm/ledger_entry_template_table     0.2
+   763  ✅ OK      Infrastructure          infrastructure/persistence_orm/legal_entity_branch_table     0.2
+   764  ✅ OK      Infrastructure          infrastructure/persistence_orm/legal_entity_table     0.2
+   765  ✅ OK      Infrastructure          infrastructure/persistence_orm/login_attempt_orm_table     0.2
+   766  ✅ OK      Infrastructure          infrastructure/persistence_orm/login_attempt_table     0.9
+   767  ✅ OK      Infrastructure          infrastructure/persistence_orm/machine_table      0.2
+   768  ✅ OK      Infrastructure          infrastructure/persistence_orm/manufacturing_cost_card_table     0.2
+   769  ✅ OK      Infrastructure          infrastructure/persistence_orm/manufacturing_routing_table     0.3
+   770  ✅ OK      Infrastructure          infrastructure/persistence_orm/manufacturing_wip_table     0.3
+   771  ✅ OK      Infrastructure          infrastructure/persistence_orm/manufacturing_work_order_table     0.2
+   772  ✅ OK      Infrastructure          infrastructure/persistence_orm/outbox_checkpoint_table     0.2
+   773  ✅ OK      Infrastructure          infrastructure/persistence_orm/outbox_dead_letter_table     0.2
+   774  ✅ OK      Infrastructure          infrastructure/persistence_orm/outbox_kafka_partition_checkpoint_table     0.2
+   775  ✅ OK      Infrastructure          infrastructure/persistence_orm/outbox_message_table     0.7
+   776  ✅ OK      Infrastructure          infrastructure/persistence_orm/outbox_relay_checkpoint_table     0.2
+   777  ✅ OK      Infrastructure          infrastructure/persistence_orm/outbox_relay_metrics_table     0.2
+   778  ✅ OK      Infrastructure          infrastructure/persistence_orm/outbox_table       0.6
+   779  ✅ OK      Infrastructure          infrastructure/persistence_orm/payroll_detail_table     0.2
+   780  ✅ OK      Infrastructure          infrastructure/persistence_orm/payroll_payslip_orm_table     0.3
+   781  ✅ OK      Infrastructure          infrastructure/persistence_orm/payroll_payslip_table     0.8
+   782  ✅ OK      Infrastructure          infrastructure/persistence_orm/payroll_run_table     0.2
+   783  ✅ OK      Infrastructure          infrastructure/persistence_orm/payslip_table      0.2
+   784  ✅ OK      Infrastructure          infrastructure/persistence_orm/petty_cash_fund_table     0.2
+   785  ✅ OK      Infrastructure          infrastructure/persistence_orm/project_table      0.2
+   786  ✅ OK      Infrastructure          infrastructure/persistence_orm/projection_checkpoint_table     0.2
+   787  ✅ OK      Infrastructure          infrastructure/persistence_orm/projection_read_models     0.2
+   788  ✅ OK      Infrastructure          infrastructure/persistence_orm/purchase_order_lines_table     0.3
+   789  ✅ OK      Infrastructure          infrastructure/persistence_orm/purchase_order_table     0.3
+   790  ✅ OK      Infrastructure          infrastructure/persistence_orm/report_definition_table     0.4
+   791  ✅ OK      Infrastructure          infrastructure/persistence_orm/report_output_table     0.2
+   792  ✅ OK      Infrastructure          infrastructure/persistence_orm/report_schedule_table     0.2
+   793  ✅ OK      Infrastructure          infrastructure/persistence_orm/retainer_contract_table     0.2
+   794  ✅ OK      Infrastructure          infrastructure/persistence_orm/revaluation_table     0.2
+   795  ✅ OK      Infrastructure          infrastructure/persistence_orm/routing_step_table     0.5
+   796  ✅ OK      Infrastructure          infrastructure/persistence_orm/saga_orchestration_table     0.2
+   797  ✅ OK      Infrastructure          infrastructure/persistence_orm/saga_state_table     0.2
+   798  ✅ OK      Infrastructure          infrastructure/persistence_orm/salary_component_table     0.3
+   799  ✅ OK      Infrastructure          infrastructure/persistence_orm/sales_invoice_table     0.3
+   800  ✅ OK      Infrastructure          infrastructure/persistence_orm/sales_order_line_table     0.2
+   801  ✅ OK      Infrastructure          infrastructure/persistence_orm/sales_order_lines_table     0.2
+   802  ✅ OK      Infrastructure          infrastructure/persistence_orm/sales_order_table     0.2
+   803  ✅ OK      Infrastructure          infrastructure/persistence_orm/snapshot_store_table     0.3
+   804  ✅ OK      Infrastructure          infrastructure/persistence_orm/stock_card_table     0.3
+   805  ✅ OK      Infrastructure          infrastructure/persistence_orm/stock_opname_line_table     0.3
+   806  ✅ OK      Infrastructure          infrastructure/persistence_orm/stock_opname_lines_table     0.2
+   807  ✅ OK      Infrastructure          infrastructure/persistence_orm/stock_opname_table     0.3
+   808  ✅ OK      Infrastructure          infrastructure/persistence_orm/supplier_table     0.2
+   809  ✅ OK      Infrastructure          infrastructure/persistence_orm/system_setting_table     0.2
+   810  ✅ OK      Infrastructure          infrastructure/persistence_orm/tax_settlement_table     0.2
+   811  ✅ OK      Infrastructure          infrastructure/persistence_orm/tax_transaction_table     0.2
+   812  ✅ OK      Infrastructure          infrastructure/persistence_orm/time_entry_table     0.2
+   813  ✅ OK      Infrastructure          infrastructure/persistence_orm/umkm_business_profile_alias_table     0.2
+   814  ✅ OK      Infrastructure          infrastructure/persistence_orm/umkm_business_profile_table     0.2
+   815  ✅ OK      Infrastructure          infrastructure/persistence_orm/umkm_journal_table     0.2
+   816  ✅ OK      Infrastructure          infrastructure/persistence_orm/umkm_transaction_table     0.2
+   817  ✅ OK      Infrastructure          infrastructure/persistence_orm/unit_of_work       0.9
+   818  ✅ OK      Infrastructure          infrastructure/persistence_orm/warehouse_table     0.3
+   819  ✅ OK      Infrastructure          infrastructure/persistence_orm/work_order_table     0.3
+   820  ✅ OK      Infrastructure          infrastructure/security/api_key_validator         1.2
+   821  ✅ OK      Infrastructure          infrastructure/security/audit_log_security_events    63.4
+   822  ✅ OK      Infrastructure          infrastructure/security/authority_matrix          0.3
+   823  ✅ OK      Infrastructure          infrastructure/security/digital_signature_verifier     2.5
+   824  ✅ OK      Infrastructure          infrastructure/security/digital_signer_rsa_pss     0.2
+   825  ✅ OK      Infrastructure          infrastructure/security/field_decryption_service     1.4
+   826  ✅ OK      Infrastructure          infrastructure/security/field_encryption_aes256_gcm     0.2
+   827  ✅ OK      Infrastructure          infrastructure/security/hashing_service_sha3_256     1.3
+   828  ✅ OK      Infrastructure          infrastructure/security/hsm_pkcs11_signing_adapter     0.7
+   829  ✅ OK      Infrastructure          infrastructure/security/jwt_issuer                0.2
+   830  ✅ OK      Infrastructure          infrastructure/security/jwt_revocation_list       0.2
+   831  ✅ OK      Infrastructure          infrastructure/security/jwt_validator             3.4
+   832  ✅ OK      Infrastructure          infrastructure/security/key_rotation_scheduler_vault    38.9
+   833  ✅ OK      Infrastructure          infrastructure/security/mtls_certificate_loader     2.2
+   834  ✅ OK      Infrastructure          infrastructure/security/mtls_certificate_renewer     2.7
+   835  ✅ OK      Infrastructure          infrastructure/security/rbac_enforcer_unified     0.5
+   836  ✅ OK      Infrastructure          infrastructure/security/security_exceptions       1.5
+   837  ✅ OK      Infrastructure          infrastructure/security/securitykey_management_vault     0.7
+   838  ✅ OK      Infrastructure          infrastructure/security/sod_constraint_checker     1.6
+   839  ✅ OK      Infrastructure          infrastructure/security/vault_dynamic_secret_provider     1.7
+   840  ✅ OK      Infrastructure          infrastructure/telemetry/alert_manager_router     0.4
+   841  ✅ OK      Infrastructure          infrastructure/telemetry/alert_manager_trigger     0.7
+   842  ✅ OK      Infrastructure          infrastructure/telemetry/alert_sla_breach         4.5
+   843  ✅ OK      Infrastructure          infrastructure/telemetry/audit_chain_length_metrics     2.3
+   844  ✅ OK      Infrastructure          infrastructure/telemetry/coretax_api_latency_metrics     1.8
+   845  ✅ OK      Infrastructure          infrastructure/telemetry/correlation_id_injector     1.3
+   846  ✅ OK      Infrastructure          infrastructure/telemetry/gl_balance_total_metrics     2.6
+   847  ✅ OK      Infrastructure          infrastructure/telemetry/jaeger_exporter          2.0
+   848  ✅ OK      Infrastructure          infrastructure/telemetry/journal_posting_latency_metrics     1.9
+   849  ✅ OK      Infrastructure          infrastructure/telemetry/opentelemetry_setup     79.8
+   850  ✅ OK      Infrastructure          infrastructure/telemetry/prometheus_registry      0.6
+   851  ✅ OK      Infrastructure          infrastructure/telemetry/slo_monitor_bank_reconciliation     2.3
+   852  ✅ OK      Infrastructure          infrastructure/telemetry/slo_monitor_period_close     1.7
+   853  ✅ OK      Infrastructure          infrastructure/telemetry/structured_json_logging     0.7
+   854  ✅ OK      Infrastructure          infrastructure/telemetry/telemetry_exceptions     1.3
+   855  ✅ OK      Infrastructure          adapters/coretax_djp/api_oauth2_client          484.3
+   856  ✅ OK      Infrastructure          adapters/coretax_djp/audit_logger                13.8
+   857  ✅ OK      Infrastructure          adapters/coretax_djp/coretax_exceptions           2.4
+   858  ✅ OK      Infrastructure          adapters/coretax_djp/e_bupot_generator            0.6
+   859  ✅ OK      Infrastructure          adapters/coretax_djp/e_meterai_integrator         0.7
+   860  ✅ OK      Infrastructure          adapters/coretax_djp/faktur_keluaran_generator     0.4
+   861  ✅ OK      Infrastructure          adapters/coretax_djp/faktur_masukan_processor     0.5
+   862  ✅ OK      Infrastructure          adapters/coretax_djp/health_dashboard             0.5
+   863  ✅ OK      Infrastructure          adapters/coretax_djp/nsfp_manager                 0.4
+   864  ✅ OK      Infrastructure          adapters/coretax_djp/ntpn_validator               0.4
+   865  ✅ OK      Infrastructure          adapters/coretax_djp/spt_masa_pph_21_builder      3.3
+   866  ✅ OK      Infrastructure          adapters/coretax_djp/spt_masa_pph_23_builder      2.5
+   867  ✅ OK      Infrastructure          adapters/coretax_djp/spt_masa_ppn_builder         0.4
+   868  ✅ OK      Infrastructure          adapters/coretax_djp/spt_tahunan_badan_builder     0.5
+   869  ✅ OK      Infrastructure          adapters/coretax_djp/webhook_receiver            12.3
+   870  ✅ OK      Infrastructure          adapters/dependency_provider                      1.6
+   871  ✅ OK      Infrastructure          adapters/primary_api/batch_job_scheduler_adapter    12.9
+   872  ✅ OK      Infrastructure          adapters/primary_api/cli_command_adapter         75.3
+   873  ✅ OK      Infrastructure          adapters/primary_api/common/fastapi_audit_middleware     3.0
+   874  ✅ OK      Infrastructure          adapters/primary_api/common/fastapi_auth_jwt_middleware     1.7
+   875  ✅ OK      Infrastructure          adapters/primary_api/common/fastapi_rate_limit_middleware     1.2
+   876  ✅ OK      Infrastructure          adapters/primary_api/common/fastapi_request_id_middleware     0.3
+   877  ✅ OK      Infrastructure          adapters/primary_api/graphql_adapter_schema     206.0
+   878  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_ap_router      1858.5
+   879  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_approval_router     1.6
+   880  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_ar_router         0.9
+   881  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_audit_router      0.9
+   882  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_bank_cash_router     1.4
+   883  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_budget_router     1.0
+   884  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_capital_router     0.5
+   885  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_coa_router        1.2
+   886  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_consolidation_router     1.0
+   887  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_currency_exchange_router     1.4
+   888  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_customer_router     0.7
+   889  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_document_router     0.7
+   890  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_employee_router     0.7
+   891  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_fiscal_period_router     0.8
+   892  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_fixed_asset_router     1.2
+   893  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_forex_router      1.2
+   894  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_goodwill_router     0.8
+   895  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_hedge_router      0.5
+   896  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_iam_router        0.8
+   897  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_intangible_asset_router     0.9
+   898  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_inventory_router     0.5
+   899  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_journal_router     0.5
+   900  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_ledger_router     0.6
+   901  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_legal_entity_router     0.5
+   902  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_maintenance_router     0.5
+   903  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_manufacturing_router     0.6
+   904  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_payment_router     0.6
+   905  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_payroll_router     0.6
+   906  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_project_router     0.4
+   907  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_purchase_sales_router     0.2
+   908  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_report_router     0.4
+   909  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_supplier_router     0.6
+   910  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_system_settings_router     0.3
+   911  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_tax_coretax_router     0.6
+   912  ✅ OK      Infrastructure          adapters/primary_api/v1/fastapi_umkm_router       0.4
+   913  ✅ OK      Infrastructure          adapters/primary_api/webhook_receiver_adapter     0.6
+   914  ✅ OK      Infrastructure          adapters/secondary_impl/bank_api_payments_adapter     2.1
+   915  ✅ OK      Infrastructure          adapters/secondary_impl/bank_mt940_parser_adapter     1.6
+   916  ✅ OK      Infrastructure          adapters/secondary_impl/bank_statement_import_adapter     2.0
+   917  ✅ OK      Infrastructure          adapters/secondary_impl/consolidation_group_report_adapter     1.4
+   918  ✅ OK      Infrastructure          adapters/secondary_impl/core_tax_adapter_impl     4.4
+   919  ✅ OK      Infrastructure          adapters/secondary_impl/coretax_authority_adapter     1.6
+   920  ✅ OK      Infrastructure          adapters/secondary_impl/email_smtp_notification     9.8
+   921  ✅ OK      Infrastructure          adapters/secondary_impl/encryption_key_vault_impl     1.8
+   922  ✅ OK      Infrastructure          adapters/secondary_impl/glacier_cold_storage_adapter     1.2
+   923  ✅ OK      Infrastructure          adapters/secondary_impl/hash_chain_service_impl     0.9
+   924  ✅ OK      Infrastructure          adapters/secondary_impl/hashicorp_vault_adapter     0.9
+   925  ✅ OK      Infrastructure          adapters/secondary_impl/hsm_pkcs11_signing_adapter     1.5
+   926  ✅ OK      Infrastructure          adapters/secondary_impl/kafka_consumer_wrapper     1.0
+   927  ✅ OK      Infrastructure          adapters/secondary_impl/kafka_dead_letter_handler     1.0
+   928  ✅ OK      Infrastructure          adapters/secondary_impl/kafka_event_consumer_impl     1.1
+   929  ✅ OK      Infrastructure          adapters/secondary_impl/kafka_event_publisher_impl     1.4
+   930  ✅ OK      Infrastructure          adapters/secondary_impl/kafka_producer_wrapper     0.7
+   931  ✅ OK      Infrastructure          adapters/secondary_impl/minio_evidence_store      0.9
+   932  ✅ OK      Infrastructure          adapters/secondary_impl/pagerduty_incident_adapter     1.2
+   933  ✅ OK      Infrastructure          adapters/secondary_impl/postgres_audit_append_only_store     0.9
+   934  ✅ OK      Infrastructure          adapters/secondary_impl/postgres_connection_pool_manager     0.8
+   935  ✅ OK      Infrastructure          adapters/secondary_impl/postgres_read_replica_router     0.9
+   936  ✅ OK      Infrastructure          adapters/secondary_impl/postgres_snapshot_store_impl     0.8
+   937  ✅ OK      Infrastructure          adapters/secondary_impl/redis_cache_adapter_impl     1.9
+   938  ✅ OK      Infrastructure          adapters/secondary_impl/s3_file_storage_adapter_impl     1.6
+   939  ✅ OK      Infrastructure          adapters/secondary_impl/saga_state_store_adapter     1.6
+   940  ✅ OK      Infrastructure          adapters/secondary_impl/slack_alert_adapter       0.9
+   941  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_account_repository_impl     1.6
+   942  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_aml_repository_impl     1.3
+   943  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_analytics_export_impl     0.9
+   944  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_ap_repository_impl     1.1
+   945  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_approval_repository_impl     1.6
+   946  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_ar_repository_impl     1.4
+   947  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_audit_event_adapter     3.1
+   948  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_audit_repository     2.6
+   949  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_audit_repository_port_impl     2.6
+   950  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_balance_sheet_repository     2.6
+   951  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_bank_cash_repository_impl     3.2
+   952  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_bill_of_materials_repository_impl     4.3
+   953  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_budget_repository_impl     1.8
+   954  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_cache_repository     1.4
+   955  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_cash_book_repository     3.6
+   956  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_cash_flow_repository     2.1
+   957  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_consolidation_repository_impl     6.3
+   958  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_core_tax_port_impl     6.2
+   959  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_cqrs_query_handler_impl     2.2
+   960  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_customer_category_adapter     3.8
+   961  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_customer_repository_impl     3.9
+   962  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_customer_supplier_repository_port_impl     5.5
+   963  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_employee_repository_impl     4.0
+   964  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_event_publisher_port_impl     2.9
+   965  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_event_status_adapter     4.2
+   966  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_file_storage_port_impl     5.2
+   967  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_file_storage_status_adapter     3.5
+   968  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_fiscal_period_repository_impl     3.1
+   969  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_fixed_asset_repository_impl     2.2
+   970  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_forex_repository_impl     5.8
+   971  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_general_ledger_repository_impl     1.2
+   972  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_goods_receipt_repository_impl     2.5
+   973  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_goodwill_repository_impl     2.4
+   974  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_hedge_repository_impl     3.4
+   975  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_iam_user_repository_impl    20.6
+   976  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_income_statement_repository     2.5
+   977  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_intangible_asset_repository_impl     4.3
+   978  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_inventory_repository_impl     2.0
+   979  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_journal_repository_impl     1.4
+   980  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_ledger_repository_impl     2.4
+   981  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_legal_entity_repository_impl     2.1
+   982  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_manufacturing_repository_impl     2.1
+   983  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_notification_channel_adapter     2.7
+   984  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_notification_port_impl     2.1
+   985  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_outbox_repository_impl     1.7
+   986  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_payroll_repository_impl     1.4
+   987  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_project_repository_impl     6.9
+   988  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_purchase_order_repository_impl     4.5
+   989  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_read_model_projection_impl     1.5
+   990  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_report_repositories     2.3
+   991  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_report_repository_impl     1.4
+   992  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_saga_state_store     3.9
+   993  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_sales_order_repository_impl     4.5
+   994  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_sales_repository_impl     5.0
+   995  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_supplier_repository_impl     4.0
+   996  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_system_setting_repository_impl     1.9
+   997  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_tax_repository_impl     4.3
+   998  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_tax_transaction_repository_impl     2.3
+   999  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_trial_balance_repository     1.8
+  1000  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_umkm_repository_impl     1.4
+  1001  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_unit_of_work_impl     1.9
+  1002  ✅ OK      Infrastructure          adapters/secondary_impl/sqlalchemy_work_order_repository_impl     4.7
+  1003  ✅ OK      Infrastructure          adapters/secondary_impl/tax_authority_coretax_adapter     2.1
+  1004  ✅ OK      Infrastructure          adapters/secondary_impl/timestamp_notary_impl     2.3
+  1005  ✅ OK      Infrastructure          adapters/secondary_impl/whatsapp_business_notification     2.2
+  1006  ✅ OK      Infrastructure          event_gateway/event_dead_letter_queue_manager    66.2
+  1007  ✅ OK      Infrastructure          event_gateway/event_deduplicator_idempotency      1.1
+  1008  ✅ OK      Infrastructure          event_gateway/event_enricher_context              1.0
+  1009  ✅ OK      Infrastructure          event_gateway/event_envelope                      1.4
+  1010  ✅ OK      Infrastructure          event_gateway/event_gate_singleton                0.7
+  1011  ✅ OK      Infrastructure          event_gateway/event_normalizer_canonical          0.9
+  1012  ✅ OK      Infrastructure          event_gateway/event_router_to_transformer         0.8
+  1013  ✅ OK      Infrastructure          event_gateway/event_schema_validator              0.7
+  1014  ✅ OK      Infrastructure          event_gateway/event_source_authenticator          0.5
+  1015  ✅ OK      Infrastructure          event_gateway/gateway_exceptions                  0.6
+  1016  ✅ OK      Infrastructure          projections/analytics_bi/dashboard_data_provider    32.3
+  1017  ✅ OK      Infrastructure          projections/analytics_bi/financial_ratios_calculator     0.9
+  1018  ✅ OK      Infrastructure          projections/analytics_bi/kpi_threshold_alerter     1.2
+  1019  ✅ OK      Infrastructure          projections/analytics_bi/profitability_by_segment     0.9
+  1020  ✅ OK      Infrastructure          projections/analytics_bi/trend_analyzer_12month     1.2
+  1021  ✅ OK      Infrastructure          projections/analytics_bi/variance_analyzer_actual_vs_budget     1.2
+  1022  ✅ OK      Infrastructure          projections/ledger/balance_sheet_snapshot         1.1
+  1023  ✅ OK      Infrastructure          projections/ledger/cash_flow_indirect             0.8
+  1024  ✅ OK      Infrastructure          projections/ledger/equity_statement               7.7
+  1025  ✅ OK      Infrastructure          projections/ledger/fiscal_income_statement        4.6
+  1026  ✅ OK      Infrastructure          projections/ledger/general_ledger_table           0.6
+  1027  ✅ OK      Infrastructure          projections/ledger/income_statement_period        0.7
+  1028  ✅ OK      Infrastructure          projections/ledger/trial_balance_cube             0.6
+  1029  ✅ OK      Infrastructure          projections/subledger/ap_aging_buckets            6.4
+  1030  ✅ OK      Infrastructure          projections/subledger/ar_aging_buckets            6.0
+  1031  ✅ OK      Infrastructure          projections/subledger/bank_reconciliation_status     7.0
+  1032  ✅ OK      Infrastructure          projections/subledger/cost_card_per_work_order     5.2
+  1033  ✅ OK      Infrastructure          projections/subledger/fixed_asset_nbv_schedule     4.1
+  1034  ✅ OK      Infrastructure          projections/subledger/stock_card_fifo_layers      3.3
+  1035  ✅ OK      Infrastructure          projections/tax/coretax_faktur_dashboard          7.5
+  1036  ✅ OK      Infrastructure          projections/tax/pph_withholding_summary           7.9
+  1037  ✅ OK      Infrastructure          projections/tax/ppn_output_input_settlement       4.0
+  1038  ✅ OK      Infrastructure          reports/audit_package_zipper                     35.0
+  1039  ✅ OK      Infrastructure          reports/distributor_email_whatsapp               12.1
+  1040  ✅ OK      Infrastructure          reports/format_converter_csv_json                 2.1
+  1041  ✅ OK      Infrastructure          reports/generator_pdf_excel_html                  0.8
+  1042  ✅ OK      Infrastructure          reports/ojk_format_builder                        0.6
+  1043  ✅ OK      Infrastructure          reports/report_exceptions                         3.4
+  1044  ✅ OK      Infrastructure          reports/scheduler_cron                            2.2
+  1045  ✅ OK      Infrastructure          reports/xbrl_ifrs_exporter                        2.8
+  1046  ✅ OK      Composition Root        bootstrap/bootstrap_exceptions                   16.1
+  1047  ✅ OK      Composition Root        bootstrap/dependency_container/adapter_registry     5.5
+  1048  ✅ OK      Composition Root        bootstrap/dependency_container/auto_register_ports     0.8
+  1049  ✅ OK      Composition Root        bootstrap/dependency_container/dependency_graph_validator     2.6
+  1050  ✅ OK      Composition Root        bootstrap/dependency_container/di_exceptions      1.9
+  1051  ✅ OK      Composition Root        bootstrap/dependency_container/di_health_probe     1.3
+  1052  ✅ OK      Composition Root        bootstrap/dependency_container/interfaces         0.9
+  1053  ✅ OK      Composition Root        bootstrap/dependency_container/ioc_container      0.4
+  1054  ✅ OK      Composition Root        bootstrap/dependency_container/lifecycle_hook_registry     2.9
+  1055  ✅ OK      Composition Root        bootstrap/dependency_container/scoped_context_manager     1.2
+  1056  ✅ OK      Composition Root        bootstrap/dependency_container/service_registry     1.3
+  1057  ✅ OK      Composition Root        bootstrap/health_probe                            0.5
+  1058  ✅ OK      Composition Root        bootstrap/orchestrator                            0.3
+  1059  ✅ OK      Composition Root        bootstrap/phased_startup                          0.7
+  1060  ✅ OK      Composition Root        bootstrap/rollback_handler                        0.5
+  1061  ✅ OK      Composition Root        config/encryption_master                          2.2
+  1062  ✅ OK      Composition Root        config/environment_resolver                       0.7
+  1063  ✅ OK      Composition Root        config/exceptions                                 0.6
+  1064  ✅ OK      Composition Root        config/hot_reload_watcher                         3.1
+  1065  ✅ OK      Composition Root        config/loader_yaml                                0.7
+  1066  ✅ OK      Composition Root        config/schema_validator                           0.3
+  1067  ✅ OK      Composition Root        config/vault_integrator                           3.0
+  1068  ✅ OK      Composition Root        config/version_controller                         2.4
+  1069  ✅ OK      Composition Root        app/main                                       1781.3
+
+================================================================================
+  Report JSON: E:\full_erp_accounting_engine\audit_reports\p50_import_scan_20260629_113804_C806E108.json
+  Report TXT : E:\full_erp_accounting_engine\audit_reports\p50_import_scan_20260629_113804_C806E108.txt
+================================================================================

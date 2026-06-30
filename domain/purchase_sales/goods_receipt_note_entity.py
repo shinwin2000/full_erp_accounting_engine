@@ -336,6 +336,14 @@ class GoodsReceiptNoteRepository:
 
 
 # ============================================================================
+# ALIAS FOR BACKWARD COMPATIBILITY
+# ============================================================================
+
+# Alias for import compatibility (e.g., "GoodsReceiptNote" used in tests)
+GoodsReceiptNote = GoodsReceiptNoteEntity
+
+
+# ============================================================================
 # Exports
 # ============================================================================
 
@@ -344,4 +352,5 @@ __all__ = [
     "GRNStatus",
     "GoodsReceiptNoteEntity",
     "GoodsReceiptNoteRepository",
+    "GoodsReceiptNote",  
 ]

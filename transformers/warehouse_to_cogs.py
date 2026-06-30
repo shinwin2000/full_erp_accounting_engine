@@ -22,7 +22,6 @@ from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
 from application.dto_objects.journal_request import JournalCreateRequest, JournalLineRequest
 from application.service_layer.service_inventory import InventoryService
 from application.service_layer.service_journal import JournalService
-from bootstrap.dependency_container.ioc_container import get_container
 from domain.inventory.valuation_method import (
     AverageValuation as AverageValuationEngine,
 )
@@ -60,7 +59,7 @@ HANDLED_EVENT_TYPES = [
 
 
 # ============================================================================
-# BaseTransformer (didefinisikan ulang untuk kemandirian file)
+# BaseTransformer
 # ============================================================================
 class BaseTransformer:
     def __init__(self, name: str):
@@ -72,7 +71,6 @@ class BaseTransformer:
 
     def _take_snapshot(self):
         import datetime
-
         self._snapshots.append(
             {
                 "version": self._version,
@@ -86,7 +84,6 @@ class BaseTransformer:
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]):
         import datetime
-
         self._audit_trail.append(
             {
                 "action": action,
@@ -119,7 +116,6 @@ class BaseTransformer:
 
     def snapshot(self) -> dict[str, Any]:
         import datetime
-
         return {
             "version": self._version,
             "transformer_id": self._transformer_id,
@@ -231,45 +227,27 @@ class COGSCalculator(BaseTransformer):
 # WarehouseToCOGSTransformer (dengan entity dasar)
 # ============================================================================
 class WarehouseToCOGSTransformer(BaseTransformer):
-    def __init__(self):
+    def __init__(
+        self,
+        command_bus: UnifiedCommandBus,
+        inventory_service: InventoryService,
+        journal_service: JournalService,
+        inventory_repo: InventoryRepositoryPort,
+    ):
         super().__init__("WarehouseToCOGSTransformer")
-        self._command_bus: UnifiedCommandBus | None = None
-        self._inventory_service: InventoryService | None = None
-        self._journal_service: JournalService | None = None
-        self._inventory_repo: InventoryRepositoryPort | None = None
+        self._command_bus = command_bus
+        self._inventory_service = inventory_service
+        self._journal_service = journal_service
+        self._inventory_repo = inventory_repo
         self._processed_events: set = set()
         self._cogs_calculators: dict[UUID, COGSCalculator] = {}
-
-    async def _get_command_bus(self) -> UnifiedCommandBus:
-        if self._command_bus is None:
-            container = get_container()
-            self._command_bus = container.resolve(UnifiedCommandBus)
-        return self._command_bus
-
-    async def _get_inventory_service(self) -> InventoryService:
-        if self._inventory_service is None:
-            container = get_container()
-            self._inventory_service = container.resolve(InventoryService)
-        return self._inventory_service
-
-    async def _get_journal_service(self) -> JournalService:
-        if self._journal_service is None:
-            container = get_container()
-            self._journal_service = container.resolve(JournalService)
-        return self._journal_service
-
-    async def _get_inventory_repo(self) -> InventoryRepositoryPort:
-        if self._inventory_repo is None:
-            container = get_container()
-            self._inventory_repo = container.resolve(InventoryRepositoryPort)
-        return self._inventory_repo
 
     async def _get_cogs_calculator(
         self, item_id: UUID, item: InventoryItemAggregate
     ) -> COGSCalculator:
         if item_id not in self._cogs_calculators:
             calculator = COGSCalculator(item.valuation_method)
-            await calculator.initialize(item_id, await self._get_inventory_service())
+            await calculator.initialize(item_id, self._inventory_service)
             self._cogs_calculators[item_id] = calculator
         return self._cogs_calculators[item_id]
 
@@ -400,8 +378,7 @@ class WarehouseToCOGSTransformer(BaseTransformer):
                 or UUID("00000000-0000-0000-0000-000000000000"),
                 legal_entity_id=shipment_data["legal_entity_id"],
             )
-            command_bus = await self._get_command_bus()
-            result = await command_bus.dispatch(
+            result = await self._command_bus.dispatch(
                 {"type": "journal.create", "data": create_request.to_dict()}
             )
             self._processed_events.add(event_id)
@@ -517,8 +494,7 @@ class WarehouseToCOGSTransformer(BaseTransformer):
     async def _get_item(
         self, item_id: UUID, legal_entity_id: UUID
     ) -> InventoryItemAggregate | None:
-        inventory_repo = await self._get_inventory_repo()
-        return await inventory_repo.get_item_by_id(item_id)
+        return await self._inventory_repo.get_item_by_id(item_id)
 
     async def reset(self) -> None:
         self._processed_events.clear()
@@ -540,13 +516,24 @@ class WarehouseToCOGSTransformer(BaseTransformer):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WarehouseToCOGSTransformer:
-        instance = cls()
+        instance = cls.__new__(cls)
         instance._version = data.get("version", 1)
         instance._transformer_id = data.get("transformer_id", str(uuid4()))
+        instance._command_bus = None
+        instance._inventory_service = None
+        instance._journal_service = None
+        instance._inventory_repo = None
+        instance._processed_events = set()
+        instance._cogs_calculators = {}
         return instance
 
     def clone(self) -> WarehouseToCOGSTransformer:
-        new = WarehouseToCOGSTransformer()
+        new = WarehouseToCOGSTransformer(
+            command_bus=self._command_bus,
+            inventory_service=self._inventory_service,
+            journal_service=self._journal_service,
+            inventory_repo=self._inventory_repo,
+        )
         new._version = self._version + 1
         new._record_audit("CLONE", "system", {"source": self._transformer_id})
         return new
@@ -571,7 +558,19 @@ _warehouse_to_cogs_transformer: WarehouseToCOGSTransformer | None = None
 async def get_warehouse_to_cogs_transformer() -> WarehouseToCOGSTransformer:
     global _warehouse_to_cogs_transformer
     if _warehouse_to_cogs_transformer is None:
-        _warehouse_to_cogs_transformer = WarehouseToCOGSTransformer()
+        from bootstrap.dependency_container.ioc_container import get_container
+
+        container = get_container()
+        command_bus = container.resolve(UnifiedCommandBus)
+        inventory_service = container.resolve(InventoryService)
+        journal_service = container.resolve(JournalService)
+        inventory_repo = container.resolve(InventoryRepositoryPort)
+        _warehouse_to_cogs_transformer = WarehouseToCOGSTransformer(
+            command_bus=command_bus,
+            inventory_service=inventory_service,
+            journal_service=journal_service,
+            inventory_repo=inventory_repo,
+        )
     return _warehouse_to_cogs_transformer
 
 

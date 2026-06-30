@@ -578,16 +578,24 @@ class HPPPerProductCalculator:
 
 
 # ============================================================================
-# Exports (including alias for backward compatibility)
+# Aliases for backward compatibility (various naming conventions)
 # ============================================================================
 
 # Alias to match import name used in service_manufacturing.py
 HPPCalculator = HPPPerProductCalculator
+# Also add case-insensitive alias for test compatibility
+HppCalculator = HPPPerProductCalculator  # matches the import in test_manufacturing_cost_to_cogs.py
+
+
+# ============================================================================
+# Exports
+# ============================================================================
 
 __all__ = [
     "HPPCalculationMethod",
     "HPPCalculationResult",
-    "HPPCalculator",  # Added alias
+    "HPPCalculator",
+    "HppCalculator",         
     "HPPComponent",
     "HPPPerProductCalculator",
 ]

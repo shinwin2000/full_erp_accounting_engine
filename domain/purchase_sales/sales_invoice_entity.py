@@ -533,6 +533,14 @@ class SalesInvoiceRepository:
 
 
 # ============================================================================
+# Aliases for Backward Compatibility
+# ============================================================================
+
+# Alias for import compatibility (e.g., "SalesInvoice" used in tests)
+SalesInvoice = SalesInvoiceEntity
+
+
+# ============================================================================
 # Exports
 # ============================================================================
 
@@ -542,4 +550,5 @@ __all__ = [
     "SalesInvoiceRepository",
     "SalesInvoiceStatus",
     "SalesInvoiceType",
+    "SalesInvoice",  
 ]

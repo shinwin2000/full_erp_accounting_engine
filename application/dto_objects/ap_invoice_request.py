@@ -1,4 +1,5 @@
 # ap_invoice_request.py - Hardened version with complete implementation (FIXED)
+# Added APInvoiceUpdateRequest alias for compatibility with fastapi_ap_router.py
 
 #!/usr/bin/env python3
 """
@@ -942,24 +943,23 @@ class APPaymentResponseDTO:
         }
 
 
-# === 17. ALIASES FOR FASTAPI ROUTER COMPATIBILITY (FIXED) ===
+# === 17. ALIASES FOR FASTAPI ROUTER COMPATIBILITY ===
 
-APCreditNoteCreateRequest = CreateAPCreditNoteRequest
-APPaymentCreateRequest = RecordAPPaymentRequest
-APPaymentRunRequest = APPaymentRunRequestDTO
+# Core DTO aliases (used by fastapi_ap_router.py)
 APInvoiceCreateRequest = CreateAPInvoiceRequest
-APInvoiceRequestDTO = CreateAPInvoiceRequest  # <-- FIXED: separate line
-APInvoiceRequestDTO = CreateAPInvoiceRequest  # for both names (just in case)
-APPaymentRequestDTO = RecordAPPaymentRequest
+APInvoiceUpdateRequest = UpdateAPInvoiceRequest  # <--- ADDED for compatibility
+APPaymentCreateRequest = RecordAPPaymentRequest
+APCreditNoteCreateRequest = CreateAPCreditNoteRequest
+APPaymentRunRequest = APPaymentRunRequestDTO
+
+# Additional aliases for flexibility
+APInvoiceRequestDTO = CreateAPInvoiceRequest
 APInvoiceCreateRequestDTO = CreateAPInvoiceRequest
 APInvoiceUpdateRequestDTO = UpdateAPInvoiceRequest
+APPaymentRequestDTO = RecordAPPaymentRequest
 APPaymentRecordRequestDTO = RecordAPPaymentRequest
 APCreditNoteRequestDTO = CreateAPCreditNoteRequest
 APDebitNoteRequestDTO = CreateAPInvoiceRequest
-
-# Ensure both names exist (backward compatibility)
-APInvoiceRequestDTO = CreateAPInvoiceRequest
-APInvoiceCreateRequestDTO = CreateAPInvoiceRequest
 
 
 # === 18. EXPORTS ===
@@ -992,15 +992,16 @@ __all__ = [
     "APPaymentResponseDTO",
     # Factory
     "APInvoiceRequestFactory",
-    # Aliases
-    "APCreditNoteCreateRequest",
-    "APPaymentCreateRequest",
-    "APPaymentRunRequest",
+    # Aliases (important for router)
     "APInvoiceCreateRequest",
+    "APInvoiceUpdateRequest",  # <--- ADDED to exports
+    "APPaymentCreateRequest",
+    "APCreditNoteCreateRequest",
+    "APPaymentRunRequest",
     "APInvoiceRequestDTO",
-    "APPaymentRequestDTO",
     "APInvoiceCreateRequestDTO",
     "APInvoiceUpdateRequestDTO",
+    "APPaymentRequestDTO",
     "APPaymentRecordRequestDTO",
     "APCreditNoteRequestDTO",
     "APDebitNoteRequestDTO",

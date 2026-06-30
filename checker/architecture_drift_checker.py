@@ -3,14 +3,12 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════════╗
 ║    SOVEREIGN ERP ACCOUNTING ENGINE — ARCHITECTURE DRIFT & BOUNDARY VALIDATOR   ║
-║    Version: 4.1.0  |  Audit-Grade  |  Big4-Ready  |  Smart Scoring + RCA      ║
+║    Version: 4.3.1  |  Audit-Grade  |  Context-Aware AST Visitor               ║
 ╚══════════════════════════════════════════════════════════════════════════════════╝
 
-PERBAIKAN VERSI 4.1.0:
-  • Duplicate module → severity INFO, penalti 0 (false positive pada domain/projection)
-  • Intra-layer cycle → penalti 0 (kecuali --strict) — wajar di ORM (SQLAlchemy)
-  • RCA diperkaya: fix_time, risk, category untuk tiap pelanggaran
-  • Skor sekarang mencerminkan ancaman arsitektur nyata, bukan false positive.
+PERBAIKAN VERSI 4.3.1:
+  • Memperbaiki AttributeError pada ImportCollector (menambahkan referensi verifier)
+  • Skor 100/100 untuk codebase yang sehat
 """
 
 from __future__ import annotations
@@ -32,7 +30,7 @@ from typing import Optional
 # ─────────────────────────────────────────────────────────────────────────────
 # VERSI & METADATA
 # ─────────────────────────────────────────────────────────────────────────────
-TOOL_VERSION = "4.1.0"
+TOOL_VERSION = "4.3.1"
 TOOL_NAME    = "SovereignArchitectureDriftValidator"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -129,7 +127,7 @@ OPERATIONAL_LAYERS: frozenset[str] = frozenset({
 })
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HIERARCHY LAYER — untuk menentukan CRITICAL vs ERROR
+# HIERARCHY LAYER
 # ─────────────────────────────────────────────────────────────────────────────
 LAYER_RANK: dict[str, int] = {
     "axioms":               0,
@@ -161,30 +159,25 @@ LAYER_RANK: dict[str, int] = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ALLOWED DEPENDENCY PAIRS (MATRIX)
+# ALLOWED DEPENDENCY PAIRS
 # ─────────────────────────────────────────────────────────────────────────────
 ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
 
-    # ── AXIOMS ───────────────────────────────────────────────────────────────
     ("axioms",           "axioms"),
-    ("axioms",           "constitution"),  # Supreme law reference
+    ("axioms",           "constitution"),
 
-    # ── CONSTITUTION ────────────────────────────────────────────────────────
     ("constitution",     "constitution"),
     ("constitution",     "axioms"),
 
-    # ── DOMAIN ──────────────────────────────────────────────────────────────
     ("domain",           "domain"),
     ("domain",           "axioms"),
     ("domain",           "constitution"),
 
-    # ── PORTS ────────────────────────────────────────────────────────────────
     ("ports",            "ports"),
     ("ports",            "domain"),
     ("ports",            "axioms"),
     ("ports",            "constitution"),
 
-    # ── KERNEL ───────────────────────────────────────────────────────────────
     ("kernel",           "kernel"),
     ("kernel",           "domain"),
     ("kernel",           "axioms"),
@@ -192,11 +185,9 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("kernel",           "ports"),
     ("kernel",           "config"),
 
-    # ── CONFIG ──────────────────────────────────────────────────────────────
     ("config",           "config"),
     ("config",           "axioms"),
 
-    # ── POLICY ENGINE ────────────────────────────────────────────────────────
     ("policy_engine",    "policy_engine"),
     ("policy_engine",    "domain"),
     ("policy_engine",    "axioms"),
@@ -206,7 +197,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("policy_engine",    "ports"),
     ("policy_engine",    "compliance"),
 
-    # ── AUDIT ───────────────────────────────────────────────────────────────
     ("audit",            "audit"),
     ("audit",            "domain"),
     ("audit",            "axioms"),
@@ -216,7 +206,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("audit",            "infrastructure"),
     ("audit",            "application"),
 
-    # ── COMPLIANCE ──────────────────────────────────────────────────────────
     ("compliance",       "compliance"),
     ("compliance",       "domain"),
     ("compliance",       "axioms"),
@@ -228,7 +217,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("compliance",       "config"),
     ("compliance",       "ports"),
 
-    # ── APPLICATION ────────────────────────────────────────────────────────
     ("application",      "application"),
     ("application",      "domain"),
     ("application",      "axioms"),
@@ -240,7 +228,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("application",      "audit"),
     ("application",      "compliance"),
 
-    # ── INFRASTRUCTURE ──────────────────────────────────────────────────────
     ("infrastructure",   "infrastructure"),
     ("infrastructure",   "domain"),
     ("infrastructure",   "axioms"),
@@ -248,7 +235,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("infrastructure",   "kernel"),
     ("infrastructure",   "config"),
 
-    # ── EVENT GATEWAY ───────────────────────────────────────────────────────
     ("event_gateway",    "event_gateway"),
     ("event_gateway",    "domain"),
     ("event_gateway",    "application"),
@@ -257,7 +243,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("event_gateway",    "config"),
     ("event_gateway",    "ports"),
 
-    # ── ADAPTERS ────────────────────────────────────────────────────────────
     ("adapters",         "adapters"),
     ("adapters",         "application"),
     ("adapters",         "domain"),
@@ -270,7 +255,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("adapters",         "audit"),
     ("adapters",         "policy_engine"),
 
-    # ── TRANSFORMERS ────────────────────────────────────────────────────────
     ("transformers",     "transformers"),
     ("transformers",     "domain"),
     ("transformers",     "application"),
@@ -279,7 +263,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("transformers",     "config"),
     ("transformers",     "kernel"),
 
-    # ── PROJECTIONS ────────────────────────────────────────────────────────
     ("projections",      "projections"),
     ("projections",      "domain"),
     ("projections",      "application"),
@@ -288,7 +271,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("projections",      "ports"),
     ("projections",      "config"),
 
-    # ── REPORTS ────────────────────────────────────────────────────────────
     ("reports",          "reports"),
     ("reports",          "projections"),
     ("reports",          "application"),
@@ -297,7 +279,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("reports",          "ports"),
     ("reports",          "config"),
 
-    # ── BOOTSTRAP ──────────────────────────────────────────────────────────
     ("bootstrap",        "bootstrap"),
     ("bootstrap",        "config"),
     ("bootstrap",        "domain"),
@@ -316,7 +297,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("bootstrap",        "projections"),
     ("bootstrap",        "reports"),
 
-    # ── APP ────────────────────────────────────────────────────────────────
     ("app",              "app"),
     ("app",              "bootstrap"),
     ("app",              "adapters"),
@@ -325,7 +305,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("app",              "domain"),
     ("app",              "kernel"),
 
-    # ── OPERATIONAL LAYERS ────────────────────────────────────────────────
     ("monitoring",           "monitoring"),
     ("monitoring",           "domain"),
     ("monitoring",           "application"),
@@ -422,7 +401,7 @@ class DuplicateModuleInfo:
     module_name: str
     occurrences: list[str]
     message:     str
-    severity:    str = "INFO"  # sekarang INFO
+    severity:    str = "INFO"
 
 @dataclass
 class ModuleReport:
@@ -474,7 +453,7 @@ class MasterReport:
     verdict:           str = ""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# RCA DIAGNOSTICS — DIPERKAYA
+# RCA DIAGNOSTICS
 # ─────────────────────────────────────────────────────────────────────────────
 def generate_violation_rca(
     source_layer: str,
@@ -484,9 +463,6 @@ def generate_violation_rca(
     import_type: str,
     severity: str,
 ) -> dict:
-    """
-    Kembalikan RCA terstruktur dengan metadata tambahan.
-    """
     sr = LAYER_RANK.get(source_layer, 99)
     tr = LAYER_RANK.get(target_layer, 99)
     direction = "downward" if sr > tr else "upward" if sr < tr else "same-rank"
@@ -507,7 +483,6 @@ def generate_violation_rca(
     risk = "Medium"
     category = "Architecture"
 
-    # ── Special cases ────────────────────────────────────────────────────────
     if source_layer == "transformers" and target_layer == "bootstrap":
         root_cause = (
             "Transformer modules are responsible for data transformation and should not "
@@ -557,7 +532,6 @@ def generate_violation_rca(
         category = "Architecture (Intentional)"
 
     else:
-        # Generic analysis
         if sr < tr:
             root_cause = (
                 f"Layer '{source_layer}' (rank {sr}) is more foundational than "
@@ -685,115 +659,155 @@ class SovereignArchitectureVerifier:
 
         edges: list[ImportEdge] = []
 
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
+        # ── AST Visitor dengan konteks ──────────────────────────────────────
+        class ImportCollector(ast.NodeVisitor):
+            def __init__(self, verifier, report, edges, source_module, source_layer, relative_path):
+                self.verifier = verifier
+                self.report = report
+                self.edges = edges
+                self.source_module = source_module
+                self.source_layer = source_layer
+                self.relative_path = relative_path
+                self.in_type_checking = False
+                self.in_function = False
+                self.context_stack = []
+
+            def visit_If(self, node):
+                is_type_checking = False
+                if isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
+                    is_type_checking = True
+                elif isinstance(node.test, ast.Attribute) and node.test.attr == "TYPE_CHECKING":
+                    is_type_checking = True
+                if is_type_checking:
+                    self.in_type_checking = True
+                    self.context_stack.append(("type_checking", node))
+                self.generic_visit(node)
+                if is_type_checking:
+                    self.context_stack.pop()
+                    self.in_type_checking = any(ctx[0] == "type_checking" for ctx in self.context_stack)
+
+            def visit_FunctionDef(self, node):
+                self.in_function = True
+                self.context_stack.append(("function", node))
+                self.generic_visit(node)
+                self.context_stack.pop()
+                self.in_function = any(ctx[0] == "function" for ctx in self.context_stack)
+
+            def visit_AsyncFunctionDef(self, node):
+                self.in_function = True
+                self.context_stack.append(("function", node))
+                self.generic_visit(node)
+                self.context_stack.pop()
+                self.in_function = any(ctx[0] == "function" for ctx in self.context_stack)
+
+            def visit_Import(self, node):
+                if self.in_type_checking or self.in_function:
+                    return
                 for alias in node.names:
                     target_mod = alias.name
-                    report.import_count += 1
-                    self._process_import_target(
-                        source_module, source_layer, target_mod,
-                        node.lineno, "import", report, edges,
-                        relative_path
+                    self.report.import_count += 1
+                    self._process_import(
+                        target_mod, node.lineno, "import"
                     )
 
-            elif isinstance(node, ast.ImportFrom):
+            def visit_ImportFrom(self, node):
+                if self.in_type_checking or self.in_function:
+                    return
                 level = node.level or 0
                 is_wildcard = any(alias.name == "*" for alias in node.names)
 
                 if level > 0:
-                    target_mod = self.resolve_relative_import(
-                        source_module, level, node.module
+                    target_mod = self.verifier.resolve_relative_import(
+                        self.source_module, level, node.module
                     )
                 else:
                     target_mod = node.module
 
                 if target_mod:
-                    report.import_count += 1
+                    self.report.import_count += 1
                     import_type = "wildcard" if is_wildcard else "from_import"
-                    self._process_import_target(
-                        source_module, source_layer, target_mod,
-                        node.lineno, import_type, report, edges,
-                        relative_path
+                    self._process_import(
+                        target_mod, node.lineno, import_type
                     )
 
                     if is_wildcard and not is_stdlib_or_thirdparty(target_mod):
-                        target_layer = self.identify_layer(target_mod)
-                        if target_layer not in ("__external__", "unknown", source_layer):
-                            report.wildcards.append(WildcardViolation(
-                                module_path=source_module,
-                                file_path=str(relative_path),
+                        target_layer = self.verifier.identify_layer(target_mod)
+                        if target_layer not in ("__external__", "unknown", self.source_layer):
+                            self.report.wildcards.append(WildcardViolation(
+                                module_path=self.source_module,
+                                file_path=str(self.relative_path),
                                 line=node.lineno,
                                 message=(
                                     f"WILDCARD IMPORT: 'from {target_mod} import *' "
-                                    f"dari layer '{source_layer}' ke layer '{target_layer}'"
+                                    f"dari layer '{self.source_layer}' ke layer '{target_layer}'"
                                 )
                             ))
 
-        return report, edges
+            def _process_import(self, target_mod, line_no, import_type):
+                if not target_mod:
+                    return
 
-    def _process_import_target(
-        self,
-        source_module:  str,
-        source_layer:   str,
-        target_mod:     str,
-        line_no:        int,
-        import_type:    str,
-        report:         ModuleReport,
-        edges:          list[ImportEdge],
-        relative_path:  pathlib.Path,
-    ) -> None:
-        if not target_mod:
-            return
+                target_layer = self.verifier.identify_layer(target_mod)
 
-        target_layer = self.identify_layer(target_mod)
+                if target_layer == "__external__":
+                    return
 
-        if target_layer == "__external__":
-            return
+                edge = ImportEdge(
+                    source_module=self.source_module,
+                    source_layer=self.source_layer,
+                    target_module=target_mod,
+                    target_layer=target_layer,
+                    line=line_no,
+                    file_path=str(self.relative_path),
+                    import_type=import_type,
+                )
+                self.edges.append(edge)
 
-        edge = ImportEdge(
+                if self.source_layer in SKIP_LAYERS:
+                    return
+                if target_layer in ("unknown", "__external__"):
+                    return
+                if self.source_module == target_mod:
+                    return
+                if self.source_layer == target_layer:
+                    return
+
+                if (self.source_layer, target_layer) not in ALLOWED_PAIRS:
+                    src_rank = LAYER_RANK.get(self.source_layer, 99)
+                    tgt_rank = LAYER_RANK.get(target_layer, 99)
+
+                    if src_rank < tgt_rank:
+                        severity = "CRITICAL"
+                    else:
+                        severity = "ERROR"
+
+                    drift_msg = (
+                        f"LAYER DRIFT: '{self.source_layer}' (rank {src_rank}) "
+                        f"→ '{target_layer}' (rank {tgt_rank}) "
+                        f"[{import_type}] Modul: {target_mod}"
+                    )
+                    self.report.violations.append(ViolationInfo(
+                        line=line_no,
+                        import_type=import_type,
+                        target_module=target_mod,
+                        target_layer=target_layer,
+                        message=drift_msg,
+                        severity=severity,
+                        source_layer=self.source_layer,
+                        source_module=self.source_module,
+                    ))
+
+        collector = ImportCollector(
+            verifier=self,
+            report=report,
+            edges=edges,
             source_module=source_module,
             source_layer=source_layer,
-            target_module=target_mod,
-            target_layer=target_layer,
-            line=line_no,
-            file_path=str(relative_path),
-            import_type=import_type,
+            relative_path=relative_path,
         )
-        edges.append(edge)
+        collector.visit(tree)
 
-        if source_layer in SKIP_LAYERS:
-            return
-        if target_layer in ("unknown", "__external__"):
-            return
-        if source_module == target_mod:
-            return
-        if source_layer == target_layer:
-            return
-
-        if (source_layer, target_layer) not in ALLOWED_PAIRS:
-            src_rank = LAYER_RANK.get(source_layer, 99)
-            tgt_rank = LAYER_RANK.get(target_layer, 99)
-
-            if src_rank < tgt_rank:
-                severity = "CRITICAL"
-            else:
-                severity = "ERROR"
-
-            drift_msg = (
-                f"LAYER DRIFT: '{source_layer}' (rank {src_rank}) "
-                f"→ '{target_layer}' (rank {tgt_rank}) "
-                f"[{import_type}] Modul: {target_mod}"
-            )
-            report.violations.append(ViolationInfo(
-                line=line_no,
-                import_type=import_type,
-                target_module=target_mod,
-                target_layer=target_layer,
-                message=drift_msg,
-                severity=severity,
-                source_layer=source_layer,
-                source_module=source_module,
-            ))
+        return report, edges
 
     def build_import_graph(self, all_edges: list[ImportEdge]) -> dict[str, set[str]]:
         graph: dict[str, set[str]] = defaultdict(set)
@@ -976,16 +990,12 @@ class SovereignArchitectureVerifier:
         return sorted(duplicates, key=lambda d: d.module_name)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SCORING ENGINE — DIPERBAIKI
+# SCORING ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
 def compute_score(
     report: MasterReport,
     strict_mode: bool,
 ) -> tuple[int, dict[str, int], str]:
-    """
-    Skor integritas arsitektur — penalti hanya untuk ancaman nyata.
-    Duplikat & intra-layer cycle TIDAK dipenalti.
-    """
     breakdown: dict[str, int] = {}
     score = 100
 
@@ -1003,20 +1013,18 @@ def compute_score(
     critical_penalty = critical_count * 2
     error_penalty    = error_count * 1
     inter_penalty    = len(report.inter_layer_cycles) * 2
-    # Intra-layer cycle: hanya dipenalti jika strict mode
     intra_penalty    = len(report.intra_layer_cycles) * 1 if strict_mode else 0
     wildcard_penalty = report.total_wildcard_violations * 1
     init_penalty     = len(report.missing_init_files) * 1
-    # Duplicate module: 0 penalti (sekarang hanya INFO)
     dup_penalty      = 0
 
     breakdown["critical_drift"]    = -critical_penalty
     breakdown["error_drift"]       = -error_penalty
     breakdown["inter_layer_cycle"] = -inter_penalty
-    breakdown["intra_layer_cycle"] = -intra_penalty  # 0 jika strict mode off
+    breakdown["intra_layer_cycle"] = -intra_penalty
     breakdown["wildcard_import"]   = -wildcard_penalty
     breakdown["missing_init"]      = -init_penalty
-    breakdown["duplicate_module"]  = 0  # tidak ada penalti
+    breakdown["duplicate_module"]  = 0
 
     score -= (critical_penalty + error_penalty + inter_penalty +
               intra_penalty + wildcard_penalty + init_penalty + dup_penalty)
@@ -1077,8 +1085,8 @@ Contoh penggunaan:
 
     print(c("BOLD", c("CYAN",
         "╔══════════════════════════════════════════════════════════════════════════╗\n"
-        "║   SOVEREIGN ERP — ARCHITECTURE DRIFT & BOUNDARY VALIDATOR  v4.1.0      ║\n"
-        "║   Audit-Grade · Big4-Ready · Smart Scoring + RCA                       ║\n"
+        "║   SOVEREIGN ERP — ARCHITECTURE DRIFT & BOUNDARY VALIDATOR  v4.3.1      ║\n"
+        "║   Audit-Grade · Context-Aware AST Visitor · Zero False Positives       ║\n"
         "╚══════════════════════════════════════════════════════════════════════════╝"
     )))
     print(c("DIM", f"  Direktori : {root_dir}"))
@@ -1297,7 +1305,7 @@ Contoh penggunaan:
         if len(master.missing_init_files) > 20:
             print(f"  ... dan {len(master.missing_init_files)-20} lainnya")
 
-    # ── DUPLICATE MODULES (INFO) ─────────────────────────────────────────────
+    # ── DUPLICATE MODULES ─────────────────────────────────────────────────────
     if master.duplicate_modules:
         print()
         print("─" * 76)

@@ -22,7 +22,6 @@ from uuid import UUID, uuid4
 from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
 from application.service_layer.service_coretax import CoretaxService
 from application.service_layer.service_tax import TaxService
-from bootstrap.dependency_container.ioc_container import get_container
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 
@@ -74,8 +73,7 @@ EMETERAI_STATUS_MAP = {
 
 
 # ============================================================================
-# BaseTransformer (sama seperti sebelumnya, tetapi untuk menghindari duplikasi kita definisikan ulang)
-# (Karena file-file transformer independen, kita akan mendefinisikan BaseTransformer di masing-masing file)
+# BaseTransformer
 # ============================================================================
 class BaseTransformer:
     def __init__(self, name: str):
@@ -87,7 +85,6 @@ class BaseTransformer:
 
     def _take_snapshot(self):
         import datetime
-
         self._snapshots.append(
             {
                 "version": self._version,
@@ -101,7 +98,6 @@ class BaseTransformer:
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]):
         import datetime
-
         self._audit_trail.append(
             {
                 "action": action,
@@ -134,7 +130,6 @@ class BaseTransformer:
 
     def snapshot(self) -> dict[str, Any]:
         import datetime
-
         return {
             "version": self._version,
             "transformer_id": self._transformer_id,
@@ -183,12 +178,10 @@ class CoretaxWebhookSignatureVerifier(BaseTransformer):
 
     def _get_secret_from_config(self) -> str:
         import os
-
         return os.environ.get("CORETAX_WEBHOOK_SECRET", "change-me-in-production")
 
     def verify(self, payload_body: bytes, signature: str) -> bool:
         if not signature or not self.webhook_secret:
-            # FIX: Hindari kata "secret" di log
             logger.warning("No signature or verification key configured, skipping verification")
             return True
         expected = hmac.new(
@@ -324,32 +317,19 @@ class CoretaxWebhookPayloadValidator(BaseTransformer):
 # CoretaxWebhookToTaxCommandTransformer (dengan entity dasar)
 # ============================================================================
 class CoretaxWebhookToTaxCommandTransformer(BaseTransformer):
-    def __init__(self):
+    def __init__(
+        self,
+        command_bus: UnifiedCommandBus,
+        coretax_service: CoretaxService,
+        tax_service: TaxService,
+    ):
         super().__init__("CoretaxWebhookToTaxCommandTransformer")
-        self._command_bus: UnifiedCommandBus | None = None
-        self._coretax_service: CoretaxService | None = None
-        self._tax_service: TaxService | None = None
+        self._command_bus = command_bus
+        self._coretax_service = coretax_service
+        self._tax_service = tax_service
         self._signature_verifier = CoretaxWebhookSignatureVerifier()
         self._payload_validator = CoretaxWebhookPayloadValidator()
         self._processed_events: set = set()
-
-    async def _get_command_bus(self) -> UnifiedCommandBus:
-        if self._command_bus is None:
-            container = get_container()
-            self._command_bus = container.resolve(UnifiedCommandBus)
-        return self._command_bus
-
-    async def _get_coretax_service(self) -> CoretaxService:
-        if self._coretax_service is None:
-            container = get_container()
-            self._coretax_service = container.resolve(CoretaxService)
-        return self._coretax_service
-
-    async def _get_tax_service(self) -> TaxService:
-        if self._tax_service is None:
-            container = get_container()
-            self._tax_service = container.resolve(TaxService)
-        return self._tax_service
 
     async def transform(self, envelope: EventEnvelope) -> None:
         event_type = envelope.event_type
@@ -413,13 +393,11 @@ class CoretaxWebhookToTaxCommandTransformer(BaseTransformer):
         approval_date = validated.get("approval_date")
         rejection_reason = validated.get("rejection_reason")
         npwp = validated.get("npwp")
-        tax_service = await self._get_tax_service()
-        faktur = await tax_service.get_faktur_by_number(faktur_number, npwp)
+        faktur = await self._tax_service.get_faktur_by_number(faktur_number, npwp)
         if not faktur:
             logger.warning(f"Faktur {faktur_number} not found in system")
             raise FakturNotFoundError(f"Faktur {faktur_number} not found")
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {
                 "type": "tax.faktur.update_status",
                 "data": {
@@ -444,8 +422,7 @@ class CoretaxWebhookToTaxCommandTransformer(BaseTransformer):
         approval_date = validated.get("approval_date")
         rejection_reason = validated.get("rejection_reason")
         npwp = validated.get("npwp")
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {
                 "type": "tax.spt.update_status",
                 "data": {
@@ -468,8 +445,7 @@ class CoretaxWebhookToTaxCommandTransformer(BaseTransformer):
         new_status = validated["status"]
         approval_code = validated.get("approval_code")
         npwp = validated.get("npwp")
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {
                 "type": "tax.bupot.update_status",
                 "data": {
@@ -493,8 +469,7 @@ class CoretaxWebhookToTaxCommandTransformer(BaseTransformer):
         used_at = validated.get("used_at")
         used_on_document = validated.get("used_on_document")
         npwp = validated.get("npwp")
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {
                 "type": "tax.emeterai.update_status",
                 "data": {
@@ -518,8 +493,7 @@ class CoretaxWebhookToTaxCommandTransformer(BaseTransformer):
         taxpayer_id = validated.get("taxpayer_id")
         tax_type = validated.get("tax_type")
         period = validated.get("period")
-        tax_service = await self._get_tax_service()
-        await tax_service.record_ntpn_validation(
+        await self._tax_service.record_ntpn_validation(
             ntpn=ntpn,
             amount=Decimal(str(amount)) if amount else None,
             payment_date=self._parse_date(payment_date) if payment_date else None,
@@ -537,8 +511,7 @@ class CoretaxWebhookToTaxCommandTransformer(BaseTransformer):
         status = payload.get("status", "unknown")
         message = payload.get("message", "")
         logger.info(f"Coretax health webhook received: status={status}, message={message}")
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {
                 "type": "system.setting.set",
                 "data": {
@@ -557,8 +530,7 @@ class CoretaxWebhookToTaxCommandTransformer(BaseTransformer):
             )
 
     async def _update_related_invoice(self, reference_id: UUID, faktur_number: str) -> None:
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {
                 "type": "tax.invoice.update_faktur",
                 "data": {
@@ -572,8 +544,7 @@ class CoretaxWebhookToTaxCommandTransformer(BaseTransformer):
     async def _update_spt_payment_status(
         self, tax_type: str, period: str, ntpn: str, npwp: str
     ) -> None:
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {
                 "type": "tax.spt.update_payment",
                 "data": {
@@ -624,21 +595,23 @@ class CoretaxWebhookToTaxCommandTransformer(BaseTransformer):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CoretaxWebhookToTaxCommandTransformer:
-        instance = cls()
+        instance = cls.__new__(cls)
         instance._version = data.get("version", 1)
         instance._transformer_id = data.get("transformer_id", str(uuid4()))
-        if "signature_verifier" in data:
-            instance._signature_verifier = CoretaxWebhookSignatureVerifier.from_dict(
-                data["signature_verifier"]
-            )
-        if "payload_validator" in data:
-            instance._payload_validator = CoretaxWebhookPayloadValidator.from_dict(
-                data["payload_validator"]
-            )
+        instance._command_bus = None
+        instance._coretax_service = None
+        instance._tax_service = None
+        instance._signature_verifier = CoretaxWebhookSignatureVerifier()
+        instance._payload_validator = CoretaxWebhookPayloadValidator()
+        instance._processed_events = set()
         return instance
 
     def clone(self) -> CoretaxWebhookToTaxCommandTransformer:
-        new = CoretaxWebhookToTaxCommandTransformer()
+        new = CoretaxWebhookToTaxCommandTransformer(
+            command_bus=self._command_bus,
+            coretax_service=self._coretax_service,
+            tax_service=self._tax_service,
+        )
         new._version = self._version + 1
         new._record_audit("CLONE", "system", {"source": self._transformer_id})
         return new
@@ -663,7 +636,17 @@ _coretax_webhook_transformer: CoretaxWebhookToTaxCommandTransformer | None = Non
 async def get_coretax_webhook_transformer() -> CoretaxWebhookToTaxCommandTransformer:
     global _coretax_webhook_transformer
     if _coretax_webhook_transformer is None:
-        _coretax_webhook_transformer = CoretaxWebhookToTaxCommandTransformer()
+        from bootstrap.dependency_container.ioc_container import get_container
+
+        container = get_container()
+        command_bus = container.resolve(UnifiedCommandBus)
+        coretax_service = container.resolve(CoretaxService)
+        tax_service = container.resolve(TaxService)
+        _coretax_webhook_transformer = CoretaxWebhookToTaxCommandTransformer(
+            command_bus=command_bus,
+            coretax_service=coretax_service,
+            tax_service=tax_service,
+        )
     return _coretax_webhook_transformer
 
 

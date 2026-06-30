@@ -329,10 +329,19 @@ class SalesOrderRepository:
 
 
 # ============================================================================
+# Aliases for Backward Compatibility
+# ============================================================================
+
+# Alias for import compatibility (e.g., "SalesOrder" used in tests)
+SalesOrder = SalesOrderAggregate
+
+
+# ============================================================================
 # Exports
 # ============================================================================
 
 __all__ = [
     "SalesOrderAggregate",
     "SalesOrderRepository",
+    "SalesOrder",  
 ]

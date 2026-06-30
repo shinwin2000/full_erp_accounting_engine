@@ -287,6 +287,20 @@ async def get_connection_pool() -> AsyncPGConnectionPool:
     return _connection_pool
 
 
+# ============================================================================
+# BACKWARD COMPATIBILITY ALIAS
+# ============================================================================
+# Fungsi get_pool() disediakan untuk kompatibilitas dengan kode lama yang
+# mengimpor 'get_pool' dari modul ini (misal health_dashboard.py:301).
+# Mengembalikan instance pool yang sama dengan get_connection_pool().
+async def get_pool() -> AsyncPGConnectionPool:
+    """
+    Alias untuk get_connection_pool().
+    Digunakan untuk kompatibilitas mundur dengan import 'get_pool'.
+    """
+    return await get_connection_pool()
+
+
 async def close_connection_pool() -> None:
     """Close connection pool globally."""
     global _connection_pool
@@ -305,4 +319,5 @@ __all__ = [
     "DatabasePoolError",
     "close_connection_pool",
     "get_connection_pool",
+    "get_pool",                 
 ]

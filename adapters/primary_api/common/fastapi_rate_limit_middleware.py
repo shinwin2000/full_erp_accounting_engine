@@ -29,12 +29,12 @@ from starlette.status import HTTP_429_TOO_MANY_REQUESTS
 
 # Internal imports
 try:
-    from infrastructure.caching.redis_manager import RedisClient, get_redis_client
+    from infrastructure.caching.redis_manager import get_redis_client
 
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False
-    RedisClient = None
+    get_redis_client = None
 
 logger = logging.getLogger(__name__)
 
@@ -522,7 +522,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 async def get_redis_rate_limiter() -> Any | None:
     """Dependency untuk mendapatkan Redis client untuk rate limiting."""
-    if REDIS_AVAILABLE:
+    if REDIS_AVAILABLE and get_redis_client is not None:
         try:
             return await get_redis_client()
         except Exception as e:

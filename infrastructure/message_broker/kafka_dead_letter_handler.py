@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -339,6 +340,33 @@ class KafkaDeadLetterHandler:
 
         return purged
 
+    # ========================================================================
+    # COMPATIBILITY METHODS (for existing integration tests)
+    # ========================================================================
+
+    async def send_to_dlq(self, failed_event: dict, topic: str) -> None:
+        """
+        Send a failed event to the dead letter queue.
+        This is a convenience method used by integration tests.
+        """
+        dlq_data = {
+            "original_topic": topic,
+            "original_key": failed_event.get("key"),
+            "original_value": failed_event,
+            "error": failed_event.get("error", "Unknown error"),
+            "failed_at": time.time(),
+            "retry_count": 0,
+        }
+        producer = await self._get_producer()
+        if producer:
+            await producer.send(
+                topic=self.config.get("dlq_topic", "erp-dead-letter"),
+                value=json.dumps(dlq_data).encode("utf-8"),
+            )
+            logger.info(f"Sent event to DLQ for topic {topic}")
+        else:
+            logger.error("Kafka producer not available, cannot send to DLQ")
+
 
 # ============================================================================
 # SINGLETON INSTANCE
@@ -370,11 +398,20 @@ async def stop_dead_letter_handler() -> None:
 
 
 # ============================================================================
+# ALIASES FOR BACKWARD COMPATIBILITY
+# ============================================================================
+
+# Provide the class name expected by integration tests
+DeadLetterHandler = KafkaDeadLetterHandler
+
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
 __all__ = [
     "DLQProcessingError",
+    "DeadLetterHandler",              
     "DeadLetterHandlerError",
     "KafkaDeadLetterHandler",
     "get_dead_letter_handler",

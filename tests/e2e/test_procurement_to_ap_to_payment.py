@@ -165,7 +165,8 @@ try:
     from application.use_cases.ap_payment_run import ApPaymentRun
     from domain.purchase_sales.goods_receipt_note_entity import GoodsReceiptNote
     from domain.purchase_sales.purchase_order_aggregate import PurchaseOrder
-    from domain.subledger_ap.invoice_entity import ApInvoice
+    # FIX: Use the correct alias APInvoice (all caps) from invoice_entity
+    from domain.subledger_ap.invoice_entity import APInvoice as ApInvoice
     from domain.subledger_ap.three_way_match_engine import ThreeWayMatchEngine
 
     REAL_MODULES_AVAILABLE = True

@@ -21,7 +21,6 @@ from uuid import UUID, uuid4
 from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
 from application.dto_objects.ap_invoice_request import APInvoiceCreateRequest
 from application.service_layer.service_ap import APService
-from bootstrap.dependency_container.ioc_container import get_container
 from domain.subledger_ap.three_way_match_engine import ThreeWayMatchEngine, ThreeWayMatchResult
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
@@ -64,7 +63,6 @@ class BaseTransformer:
 
     def _take_snapshot(self):
         import datetime
-
         self._snapshots.append(
             {
                 "version": self._version,
@@ -78,7 +76,6 @@ class BaseTransformer:
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]):
         import datetime
-
         self._audit_trail.append(
             {
                 "action": action,
@@ -111,7 +108,6 @@ class BaseTransformer:
 
     def snapshot(self) -> dict[str, Any]:
         import datetime
-
         return {
             "version": self._version,
             "transformer_id": self._transformer_id,
@@ -158,46 +154,23 @@ class DuplicateInvoiceError(ProcurementToAPTransformerError):
 # ProcurementToAPTransformer (dengan entity dasar)
 # ============================================================================
 class ProcurementToAPTransformer(BaseTransformer):
-    def __init__(self):
+    def __init__(
+        self,
+        command_bus: UnifiedCommandBus,
+        ap_service: APService,
+        supplier_repo: SupplierRepositoryPort,
+        po_repo: PurchaseOrderRepositoryPort,
+        grn_repo: GoodsReceiptRepositoryPort,
+    ):
         super().__init__("ProcurementToAPTransformer")
-        self._command_bus: UnifiedCommandBus | None = None
-        self._ap_service: APService | None = None
-        self._supplier_repo: SupplierRepositoryPort | None = None
-        self._po_repo: PurchaseOrderRepositoryPort | None = None
-        self._grn_repo: GoodsReceiptRepositoryPort | None = None
+        self._command_bus = command_bus
+        self._ap_service = ap_service
+        self._supplier_repo = supplier_repo
+        self._po_repo = po_repo
+        self._grn_repo = grn_repo
         self._match_engine = ThreeWayMatchEngine(tolerance_percent=MATCH_TOLERANCE_PERCENT)
         self._mapping_cache: dict[str, str] = {}
         self._processed_events: set = set()
-
-    async def _get_command_bus(self) -> UnifiedCommandBus:
-        if self._command_bus is None:
-            container = get_container()
-            self._command_bus = container.resolve(UnifiedCommandBus)
-        return self._command_bus
-
-    async def _get_ap_service(self) -> APService:
-        if self._ap_service is None:
-            container = get_container()
-            self._ap_service = container.resolve(APService)
-        return self._ap_service
-
-    async def _get_supplier_repo(self) -> SupplierRepositoryPort:
-        if self._supplier_repo is None:
-            container = get_container()
-            self._supplier_repo = container.resolve(SupplierRepositoryPort)
-        return self._supplier_repo
-
-    async def _get_po_repo(self) -> PurchaseOrderRepositoryPort:
-        if self._po_repo is None:
-            container = get_container()
-            self._po_repo = container.resolve(PurchaseOrderRepositoryPort)
-        return self._po_repo
-
-    async def _get_grn_repo(self) -> GoodsReceiptRepositoryPort:
-        if self._grn_repo is None:
-            container = get_container()
-            self._grn_repo = container.resolve(GoodsReceiptRepositoryPort)
-        return self._grn_repo
 
     async def transform(self, envelope: EventEnvelope) -> None:
         event_type = envelope.event_type
@@ -266,8 +239,7 @@ class ProcurementToAPTransformer(BaseTransformer):
                     "legal_entity_id", procurement_data.get("legal_entity_id")
                 ),
             )
-            command_bus = await self._get_command_bus()
-            result = await command_bus.dispatch(
+            result = await self._command_bus.dispatch(
                 {"type": "ap.invoice.create", "data": create_request.to_dict()}
             )
             procurement_id = procurement_data.get("procurement_id") or procurement_data.get(
@@ -368,34 +340,30 @@ class ProcurementToAPTransformer(BaseTransformer):
         return None
 
     async def _get_supplier(self, supplier_id: Any) -> SupplierAggregate:
-        supplier_repo = await self._get_supplier_repo()
         if isinstance(supplier_id, str):
             try:
                 supplier_uuid = UUID(supplier_id)
-                supplier = await supplier_repo.get_by_id(supplier_uuid)
+                supplier = await self._supplier_repo.get_by_id(supplier_uuid)
                 if supplier:
                     return supplier
             except ValueError:
                 pass
         if isinstance(supplier_id, str):
-            supplier = await supplier_repo.get_by_code(supplier_id)
+            supplier = await self._supplier_repo.get_by_code(supplier_id)
             if supplier:
                 return supplier
         raise SupplierNotFoundError(f"Supplier not found for identifier: {supplier_id}")
 
     async def _check_duplicate_invoice(self, invoice_number_vendor: str, vendor_id: UUID) -> bool:
-        ap_service = await self._get_ap_service()
-        existing = await ap_service.get_invoice_by_vendor_number(invoice_number_vendor, vendor_id)
+        existing = await self._ap_service.get_invoice_by_vendor_number(invoice_number_vendor, vendor_id)
         return existing is not None
 
     async def _perform_three_way_match(
         self, po_id: UUID, grn_id: UUID, invoice_lines: list[dict]
     ) -> ThreeWayMatchResult | None:
         try:
-            po_repo = await self._get_po_repo()
-            grn_repo = await self._get_grn_repo()
-            po = await po_repo.get_by_id(po_id)
-            grn = await grn_repo.get_by_id(grn_id)
+            po = await self._po_repo.get_by_id(po_id)
+            grn = await self._grn_repo.get_by_id(grn_id)
             if not po or not grn:
                 logger.warning(f"PO {po_id} or GRN {grn_id} not found for 3-way match")
                 return None
@@ -455,8 +423,7 @@ class ProcurementToAPTransformer(BaseTransformer):
         return invoice_date + timedelta(days=DEFAULT_PAYMENT_TERM_DAYS)
 
     async def _flag_invoice_for_review(self, invoice_id: UUID, discrepancies: list[str]) -> None:
-        ap_service = await self._get_ap_service()
-        await ap_service.flag_for_review(invoice_id, discrepancies)
+        await self._ap_service.flag_for_review(invoice_id, discrepancies)
         logger.warning(f"Invoice {invoice_id} flagged for review due to 3-way match mismatch")
 
     async def get_mapping(self, procurement_id: str) -> str | None:
@@ -468,7 +435,6 @@ class ProcurementToAPTransformer(BaseTransformer):
         self._version += 1
         logger.info("ProcurementToAPTransformer reset")
 
-    # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
         errors = []
         if self._match_engine is None:
@@ -483,13 +449,27 @@ class ProcurementToAPTransformer(BaseTransformer):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ProcurementToAPTransformer:
-        instance = cls()
+        instance = cls.__new__(cls)
         instance._version = data.get("version", 1)
         instance._transformer_id = data.get("transformer_id", str(uuid4()))
+        instance._command_bus = None
+        instance._ap_service = None
+        instance._supplier_repo = None
+        instance._po_repo = None
+        instance._grn_repo = None
+        instance._match_engine = ThreeWayMatchEngine(tolerance_percent=MATCH_TOLERANCE_PERCENT)
+        instance._mapping_cache = {}
+        instance._processed_events = set()
         return instance
 
     def clone(self) -> ProcurementToAPTransformer:
-        new = ProcurementToAPTransformer()
+        new = ProcurementToAPTransformer(
+            command_bus=self._command_bus,
+            ap_service=self._ap_service,
+            supplier_repo=self._supplier_repo,
+            po_repo=self._po_repo,
+            grn_repo=self._grn_repo,
+        )
         new._version = self._version + 1
         new._record_audit("CLONE", "system", {"source": self._transformer_id})
         return new
@@ -514,7 +494,21 @@ _procurement_to_ap_transformer: ProcurementToAPTransformer | None = None
 async def get_procurement_to_ap_transformer() -> ProcurementToAPTransformer:
     global _procurement_to_ap_transformer
     if _procurement_to_ap_transformer is None:
-        _procurement_to_ap_transformer = ProcurementToAPTransformer()
+        from bootstrap.dependency_container.ioc_container import get_container
+
+        container = get_container()
+        command_bus = container.resolve(UnifiedCommandBus)
+        ap_service = container.resolve(APService)
+        supplier_repo = container.resolve(SupplierRepositoryPort)
+        po_repo = container.resolve(PurchaseOrderRepositoryPort)
+        grn_repo = container.resolve(GoodsReceiptRepositoryPort)
+        _procurement_to_ap_transformer = ProcurementToAPTransformer(
+            command_bus=command_bus,
+            ap_service=ap_service,
+            supplier_repo=supplier_repo,
+            po_repo=po_repo,
+            grn_repo=grn_repo,
+        )
     return _procurement_to_ap_transformer
 
 

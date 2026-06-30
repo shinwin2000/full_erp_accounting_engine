@@ -1,4 +1,5 @@
-# ar_invoice_request.py - Hardened version with complete implementation
+# ar_invoice_request.py - Hardened version with complete implementation (FIXED)
+# Added ARInvoiceUpdateRequest alias for compatibility with fastapi_ar_router.py
 
 #!/usr/bin/env python3
 """
@@ -785,6 +786,7 @@ class ARInvoiceRequestFactory:
 # === 13. ALIASES FOR API ROUTER ===
 
 ARInvoiceCreateRequest = CreateARInvoiceRequest
+ARInvoiceUpdateRequest = UpdateARInvoiceRequest  # <--- ADDED for compatibility
 ARPaymentCreateRequest = RecordARPaymentRequest
 ARCreditNoteCreateRequest = CreateARCreditNoteRequest
 ARInvoiceRequestDTO = CreateARInvoiceRequest
@@ -817,6 +819,7 @@ __all__ = [
     "ARInvoiceRequestFactory",
     # Aliases
     "ARInvoiceCreateRequest",
+    "ARInvoiceUpdateRequest",  
     "ARPaymentCreateRequest",
     "ARCreditNoteCreateRequest",
     "ARInvoiceRequestDTO",

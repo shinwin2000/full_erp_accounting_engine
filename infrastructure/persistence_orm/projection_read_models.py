@@ -8,15 +8,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from sqlalchemy import UUID as SQLUUID
-from sqlalchemy import (
-    Column,
-    Date,
-    DateTime,
-    Integer,
-    Numeric,
-    String,
-)
+from sqlalchemy import Column, Date, DateTime, Integer, Numeric, String, Text, JSON
+from sqlalchemy.dialects.postgresql import UUID as SQLUUID
 
 from infrastructure.persistence_orm.base_model import Base
 
@@ -216,3 +209,29 @@ class ProjectionKpiAlerterTable(Base):
     alert_message = Column(String(500), nullable=True)
     created_at = Column(DateTime, server_default="now()")
     resolved_at = Column(DateTime, nullable=True)
+
+
+# ============================================================================
+# ADDED TABLES for ReadModelProjectionPort implementation
+# ============================================================================
+
+class ProjectionReadModelTable(Base):
+    """Table untuk menyimpan state read model / projection."""
+    __tablename__ = "projection_read_models"
+
+    id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    projection_name = Column(String(100), unique=True, nullable=False, index=True)
+    data = Column(JSON, nullable=False, server_default="{}")   # Stored as JSON
+    updated_at = Column(DateTime, server_default="now()", onupdate="now()")
+    created_at = Column(DateTime, server_default="now()")
+
+
+class ProjectionCheckpointTable(Base):
+    """Table untuk menyimpan checkpoint (last processed event id) per projector."""
+    __tablename__ = "projection_checkpoints"
+
+    id = Column(SQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    projection_name = Column(String(100), unique=True, nullable=False, index=True)
+    checkpoint = Column(String(255), nullable=False)  # event id or timestamp
+    updated_at = Column(DateTime, server_default="now()", onupdate="now()")
+    created_at = Column(DateTime, server_default="now()")

@@ -21,7 +21,6 @@ from uuid import UUID, uuid4
 from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
 from application.service_layer.service_bank_cash import BankCashService
 from application.use_cases.bank_reconciliation import BankReconciliationUseCase
-from bootstrap.dependency_container.ioc_container import get_container
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 from ports.primary.bank_cash_repository_port import BankCashRepositoryPort
@@ -59,11 +58,9 @@ FORMAT_JSON_WEBHOOK = "json_webhook"
 
 
 # ============================================================================
-# BaseTransformer (dengan entity dasar)
+# BaseTransformer
 # ============================================================================
 class BaseTransformer:
-    """Base class untuk semua transformer dengan metode entity dasar."""
-
     def __init__(self, name: str):
         self.name = name
         self._version = 1
@@ -73,7 +70,6 @@ class BaseTransformer:
 
     def _take_snapshot(self):
         import datetime
-
         self._snapshots.append(
             {
                 "version": self._version,
@@ -87,7 +83,6 @@ class BaseTransformer:
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]):
         import datetime
-
         self._audit_trail.append(
             {
                 "action": action,
@@ -99,16 +94,11 @@ class BaseTransformer:
             }
         )
 
-    # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
         return {"is_valid": True, "errors": []}
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "transformer_id": self._transformer_id,
-            "name": self.name,
-            "version": self._version,
-        }
+        return {"transformer_id": self._transformer_id, "name": self.name, "version": self._version}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BaseTransformer:
@@ -125,7 +115,6 @@ class BaseTransformer:
 
     def snapshot(self) -> dict[str, Any]:
         import datetime
-
         return {
             "version": self._version,
             "transformer_id": self._transformer_id,
@@ -234,7 +223,6 @@ class StatementParser(BaseTransformer):
 
     async def _parse_camt(self, content: str, bank_account_number: str) -> list[dict[str, Any]]:
         import re
-
         transactions = []
         pattern = r"<TxDtls>.*?<Amt>([^<]+)</Amt>.*?<BookgDt>([^<]+)</BookgDt>.*?</TxDtls>"
         matches = re.findall(pattern, content, re.DOTALL)
@@ -259,7 +247,6 @@ class StatementParser(BaseTransformer):
     async def _parse_csv_bca(self, content: str, bank_account_number: str) -> list[dict[str, Any]]:
         import csv
         from io import StringIO
-
         transactions = []
         reader = csv.DictReader(StringIO(content))
         for row in reader:
@@ -292,7 +279,6 @@ class StatementParser(BaseTransformer):
     ) -> list[dict[str, Any]]:
         import csv
         from io import StringIO
-
         transactions = []
         reader = csv.reader(StringIO(content))
         for row in reader:
@@ -331,7 +317,6 @@ class StatementParser(BaseTransformer):
     async def _parse_csv_bri(self, content: str, bank_account_number: str) -> list[dict[str, Any]]:
         return await self._parse_csv_mandiri(content, bank_account_number)
 
-    # ==================== ENTITY DASAR METHODS (override) ====================
     def validate(self) -> dict[str, Any]:
         errors = []
         for fmt, parser in self._parsers.items():
@@ -432,7 +417,6 @@ class BankTransactionMatcher(BaseTransformer):
                     score += 0.1 * (overlap / total)
         return score
 
-    # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
         errors = []
         if self.amount_tolerance <= 0:
@@ -467,39 +451,21 @@ class BankTransactionMatcher(BaseTransformer):
 # BankStatementToReconciliationTransformer (dengan entity dasar)
 # ============================================================================
 class BankStatementToReconciliationTransformer(BaseTransformer):
-    def __init__(self):
+    def __init__(
+        self,
+        command_bus: UnifiedCommandBus,
+        bank_cash_service: BankCashService,
+        reconciliation_use_case: BankReconciliationUseCase,
+        bank_repo: BankCashRepositoryPort,
+    ):
         super().__init__("BankStatementToReconciliationTransformer")
-        self._command_bus: UnifiedCommandBus | None = None
-        self._bank_cash_service: BankCashService | None = None
-        self._reconciliation_use_case: BankReconciliationUseCase | None = None
-        self._bank_repo: BankCashRepositoryPort | None = None
+        self._command_bus = command_bus
+        self._bank_cash_service = bank_cash_service
+        self._reconciliation_use_case = reconciliation_use_case
+        self._bank_repo = bank_repo
         self._parser = StatementParser()
         self._matcher = BankTransactionMatcher()
         self._processed_events: set = set()
-
-    async def _get_command_bus(self) -> UnifiedCommandBus:
-        if self._command_bus is None:
-            container = get_container()
-            self._command_bus = container.resolve(UnifiedCommandBus)
-        return self._command_bus
-
-    async def _get_bank_cash_service(self) -> BankCashService:
-        if self._bank_cash_service is None:
-            container = get_container()
-            self._bank_cash_service = container.resolve(BankCashService)
-        return self._bank_cash_service
-
-    async def _get_reconciliation_use_case(self) -> BankReconciliationUseCase:
-        if self._reconciliation_use_case is None:
-            container = get_container()
-            self._reconciliation_use_case = container.resolve(BankReconciliationUseCase)
-        return self._reconciliation_use_case
-
-    async def _get_bank_repo(self) -> BankCashRepositoryPort:
-        if self._bank_repo is None:
-            container = get_container()
-            self._bank_repo = container.resolve(BankCashRepositoryPort)
-        return self._bank_repo
 
     async def transform(self, envelope: EventEnvelope) -> None:
         event_type = envelope.event_type
@@ -546,8 +512,7 @@ class BankStatementToReconciliationTransformer(BaseTransformer):
             if payload.get("legal_entity_id")
             else envelope.metadata.get("legal_entity_id")
         )
-        bank_repo = await self._get_bank_repo()
-        bank_account = await bank_repo.get_bank_account_by_id(bank_account_id)
+        bank_account = await self._bank_repo.get_bank_account_by_id(bank_account_id)
         if not bank_account:
             raise BankAccountNotFoundError(f"Bank account {bank_account_id} not found")
         statement_transactions = await self._parser.parse(
@@ -560,7 +525,7 @@ class BankStatementToReconciliationTransformer(BaseTransformer):
             return
         end_date = statement_date
         start_date = end_date - timedelta(days=MATCH_LOOKBACK_DAYS)
-        book_transactions = await bank_repo.get_bank_transactions_by_account(
+        book_transactions = await self._bank_repo.get_bank_transactions_by_account(
             bank_account_id, start_date, end_date, is_reconciled=False
         )
         book_tx_list = [
@@ -580,8 +545,7 @@ class BankStatementToReconciliationTransformer(BaseTransformer):
             statement_transactions, book_tx_list
         )
         ending_balance = bank_account.current_balance.amount
-        reconciliation_use_case = await self._get_reconciliation_use_case()
-        await reconciliation_use_case.reconcile(
+        await self._reconciliation_use_case.reconcile(
             legal_entity_id=legal_entity_id,
             bank_account_id=bank_account_id,
             statement_date=statement_date,
@@ -614,13 +578,12 @@ class BankStatementToReconciliationTransformer(BaseTransformer):
         if not statement_transactions:
             logger.warning(f"No transactions in parsed statement for {bank_account_id}")
             return
-        bank_repo = await self._get_bank_repo()
-        bank_account = await bank_repo.get_bank_account_by_id(bank_account_id)
+        bank_account = await self._bank_repo.get_bank_account_by_id(bank_account_id)
         if not bank_account:
             raise BankAccountNotFoundError(f"Bank account {bank_account_id} not found")
         end_date = statement_date
         start_date = end_date - timedelta(days=MATCH_LOOKBACK_DAYS)
-        book_transactions = await bank_repo.get_bank_transactions_by_account(
+        book_transactions = await self._bank_repo.get_bank_transactions_by_account(
             bank_account_id, start_date, end_date, is_reconciled=False
         )
         book_tx_list = [
@@ -636,8 +599,7 @@ class BankStatementToReconciliationTransformer(BaseTransformer):
         _matched, _unmatched_statement, _unmatched_book = await self._matcher.match_transactions(
             statement_transactions, book_tx_list
         )
-        reconciliation_use_case = await self._get_reconciliation_use_case()
-        await reconciliation_use_case.reconcile(
+        await self._reconciliation_use_case.reconcile(
             legal_entity_id=legal_entity_id,
             bank_account_id=bank_account_id,
             statement_date=statement_date,
@@ -662,15 +624,13 @@ class BankStatementToReconciliationTransformer(BaseTransformer):
             if payload.get("legal_entity_id")
             else envelope.metadata.get("legal_entity_id")
         )
-        bank_repo = await self._get_bank_repo()
-        bank_account = await bank_repo.get_bank_account_by_number(
+        bank_account = await self._bank_repo.get_bank_account_by_number(
             bank_account_number, legal_entity_id
         )
         if not bank_account:
             logger.warning(f"Bank account {bank_account_number} not found for webhook")
             return
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {
                 "type": "bank.transaction.record",
                 "data": {
@@ -695,13 +655,11 @@ class BankStatementToReconciliationTransformer(BaseTransformer):
             if payload.get("legal_entity_id")
             else envelope.metadata.get("legal_entity_id")
         )
-        bank_repo = await self._get_bank_repo()
-        bank_accounts = await bank_repo.list_bank_accounts(legal_entity_id)
+        bank_accounts = await self._bank_repo.list_bank_accounts(legal_entity_id)
         results = []
         for account in bank_accounts:
             try:
-                reconciliation_use_case = await self._get_reconciliation_use_case()
-                result = await reconciliation_use_case.reconcile_auto(
+                result = await self._reconciliation_use_case.reconcile_auto(
                     legal_entity_id=legal_entity_id,
                     bank_account_id=account.id,
                     as_of_date=as_of_date,
@@ -736,7 +694,6 @@ class BankStatementToReconciliationTransformer(BaseTransformer):
         self._version += 1
         logger.info("BankStatementToReconciliationTransformer reset")
 
-    # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
         errors = []
         if self._parser is None:
@@ -754,17 +711,25 @@ class BankStatementToReconciliationTransformer(BaseTransformer):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BankStatementToReconciliationTransformer:
-        instance = cls()
+        instance = cls.__new__(cls)
         instance._version = data.get("version", 1)
         instance._transformer_id = data.get("transformer_id", str(uuid4()))
-        if "parser" in data:
-            instance._parser = StatementParser.from_dict(data["parser"])
-        if "matcher" in data:
-            instance._matcher = BankTransactionMatcher.from_dict(data["matcher"])
+        instance._command_bus = None
+        instance._bank_cash_service = None
+        instance._reconciliation_use_case = None
+        instance._bank_repo = None
+        instance._parser = StatementParser()
+        instance._matcher = BankTransactionMatcher()
+        instance._processed_events = set()
         return instance
 
     def clone(self) -> BankStatementToReconciliationTransformer:
-        new = BankStatementToReconciliationTransformer()
+        new = BankStatementToReconciliationTransformer(
+            command_bus=self._command_bus,
+            bank_cash_service=self._bank_cash_service,
+            reconciliation_use_case=self._reconciliation_use_case,
+            bank_repo=self._bank_repo,
+        )
         new._version = self._version + 1
         new._record_audit("CLONE", "system", {"source": self._transformer_id})
         return new
@@ -789,7 +754,19 @@ _bank_statement_transformer: BankStatementToReconciliationTransformer | None = N
 async def get_bank_statement_transformer() -> BankStatementToReconciliationTransformer:
     global _bank_statement_transformer
     if _bank_statement_transformer is None:
-        _bank_statement_transformer = BankStatementToReconciliationTransformer()
+        from bootstrap.dependency_container.ioc_container import get_container
+
+        container = get_container()
+        command_bus = container.resolve(UnifiedCommandBus)
+        bank_cash_service = container.resolve(BankCashService)
+        reconciliation_use_case = container.resolve(BankReconciliationUseCase)
+        bank_repo = container.resolve(BankCashRepositoryPort)
+        _bank_statement_transformer = BankStatementToReconciliationTransformer(
+            command_bus=command_bus,
+            bank_cash_service=bank_cash_service,
+            reconciliation_use_case=reconciliation_use_case,
+            bank_repo=bank_repo,
+        )
     return _bank_statement_transformer
 
 

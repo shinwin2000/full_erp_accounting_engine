@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-E2E: Sales â†’ Accounts Receivable â†’ GL â†’ Cash Collection
-Alur: Sales order â†’ delivery â†’ invoice AR â†’ pengakuan pendapatan â†’ penerimaan kas.
+E2E: Sales → Accounts Receivable → GL → Cash Collection
+Alur: Sales order → delivery → invoice AR → pengakuan pendapatan → penerimaan kas.
 """
 
 from __future__ import annotations
@@ -171,7 +171,7 @@ try:
     from application.use_cases.ar_collection_workflow import ArCollectionWorkflow
     from domain.purchase_sales.sales_invoice_entity import SalesInvoice
     from domain.purchase_sales.sales_order_aggregate import SalesOrder
-    from domain.subledger_ar.payment_entity import ArPayment
+    from domain.subledger_ar.payment_entity import ARPayment  # changed from ArPayment to ARPayment
 
     REAL_MODULES_AVAILABLE = True
 except ImportError:
@@ -208,7 +208,7 @@ def test_sales_to_ar_collection_real():
     assert journal.get_credit_total() == Decimal("1110000")
 
     # 6. Koleksi pembayaran
-    payment = ArPayment(invoice_id=invoice.id, amount=Decimal("1110000"), payment_date=date.today())
+    payment = ARPayment(invoice_id=invoice.id, amount=Decimal("1110000"), payment_date=date.today())  # changed to ARPayment
     workflow = ArCollectionWorkflow()
     result = workflow.process(payment)
     assert result.is_reconciled is True

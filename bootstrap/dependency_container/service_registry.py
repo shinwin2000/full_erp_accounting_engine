@@ -227,11 +227,6 @@ class ServiceRegistrar:
         except ImportError:
             pass
 
-        # --- Process services yang memiliki metadata dari dekorator @service ---
-        # (tidak wajib karena semua sudah didaftarkan di atas, tapi untuk kelengkapan)
-        # Kita bisa scan semua kelas yang memiliki _service_metadata dan daftarkan
-        # Namun karena registrasi sudah manual, kita lewati.
-
         logger.info("All application services registered to IoC container")
 
     @staticmethod

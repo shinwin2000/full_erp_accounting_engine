@@ -752,6 +752,9 @@ def is_fully_depreciated(
 # === ALIAS FOR REPOSITORY COMPATIBILITY ===
 DepreciationScheduleLine = DepreciationEntry
 
+# === ALIAS FOR TEST COMPATIBILITY ===
+DepreciationEngine = DepreciationScheduleEngine
+
 
 __all__ = [
     "DepreciationEntry",
@@ -760,6 +763,7 @@ __all__ = [
     "DepreciationSchedule",
     "DepreciationScheduleEngine",
     "DepreciationScheduleLine",
+    "DepreciationEngine",  
     "InvalidDepreciationMethodError",
     "calculate_remaining_useful_life",
     "is_fully_depreciated",

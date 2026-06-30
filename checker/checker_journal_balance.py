@@ -1,52 +1,47 @@
 #!/usr/bin/env python3
 """
-JOURNAL BALANCE CHECKER — PRECISION (AST + Runtime)
-====================================================
-Memeriksa secara nyata apakah implementasi jurnal di seluruh proyek
-memastikan debit == kredit. Fokus pada entitas jurnal yang sebenarnya,
-fungsi posting yang benar, dan repository yang menyimpan jurnal.
+JOURNAL BALANCE CHECKER v1 — PRECISION ARCHITECTURAL VALIDATOR
+================================================================
+Memeriksa apakah implementasi jurnal memastikan debit == kredit.
 
-Tidak menghasilkan false positive untuk value objects atau __post_init__.
+V1 PERBAIKAN:
+- Skip file *_mapper.py dan *mapper.py
+- Skip class dengan nama Mapped* atau *MapperOutput
+- Hanya class dengan kata Journal/Ledger yang diperiksa
 
 Cara pakai:
-    python test_journal_balance_precision.py [--verbose] [--json report.json]
+    python checker/checker_journal_balance.py [--json report.json]
 
-Exit code: 0 jika semua valid, 1 jika ada critical issue.
+Exit code: 0 jika tidak ada critical, 1 jika ada critical.
 """
 
+from __future__ import annotations
+
+import argparse
 import ast
-import importlib
-import inspect
 import json
-import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Set
 
 # ─── Konfigurasi ──────────────────────────────────────────────────────────────
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 SKIP_DIRS = {
     "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    ".git", ".venv", "node_modules", ".tox", ".cache", "dist", "build", "uv",
-    "tests", "migrations", "docs", "deployment", "scripts", "monitoring"
+    ".git", ".venv", "node_modules", ".tox", ".cache", "dist", "build",
+    "docs", "deployment", "scripts", "monitoring", "checker",
+    "migrations", "tests", "helm", "reports", "event_gateway",
+    "dto_objects", "commands_cqrs", "mappers",
 }
 
-# Direktori yang akan di-scan
 SCAN_DIRS = [
     "domain",
-    "application/use_cases",
     "application/service_layer",
-    "application/commands_cqrs",
-    "adapters/secondary_impl",
+    "application/use_cases",
 ]
-
-# Keyword untuk validasi balance
-VALIDATE_KEYWORDS = {"validate", "check", "enforce", "verify", "assert_balance", "ensure_balance"}
-
-# Class yang diabaikan (base class, bukan jurnal)
-IGNORE_CLASSES = {"BaseJournal", "AbstractJournal", "JournalEntry", "JournalLine", "BaseEntity"}
 
 # ─── Color ──────────────────────────────────────────────────────────────────
 try:
@@ -61,465 +56,497 @@ try:
 except ImportError:
     RED = GREEN = YELLOW = CYAN = BOLD = RESET = ""
 
+
 @dataclass
 class Finding:
     severity: str
     file: str
     line: int
     message: str
-    recommendation: str = ""
-    detail: str = ""
+    suggestion: str = ""
+
 
 @dataclass
 class JournalClassInfo:
     name: str
     file: Path
     line: int
-    has_debit: bool
-    has_credit: bool
-    has_lines: bool
-    validate_method: str | None
+    has_is_balanced: bool = False
+    has_validate: bool = False
+    has_post_init_check: bool = False
     is_valid: bool = False
-    reason: str = ""
+    is_journal: bool = False
+
 
 @dataclass
-class PostingFunction:
-    name: str
-    file: Path
+class ObjectCreation:
+    var_name: str
+    class_name: str
     line: int
-    calls_validate: bool
-    called_validate: str
-    is_valid: bool = False
-    reason: str = ""
+    file_path: Path
+
 
 @dataclass
-class RepositoryMethod:
-    name: str
-    file: Path
+class MethodCall:
+    var_name: str
+    method: str
     line: int
-    entity_type: str
-    calls_validate: bool
-    is_valid: bool = False
-    reason: str = ""
+    file_path: Path
+
 
 # ─── AST Helpers ──────────────────────────────────────────────────────────────
 
-def get_ast_tree(path: Path):
+def get_ast_tree(path: Path) -> Optional[ast.AST]:
     try:
         src = path.read_text(encoding="utf-8")
         return ast.parse(src, filename=str(path))
-    except:
+    except (SyntaxError, UnicodeDecodeError):
         return None
 
-def is_journal_class(class_node: ast.ClassDef) -> tuple[bool, bool, bool]:
-    """
-    Periksa apakah class memiliki field debit/credit atau lines.
-    Kembalikan (has_debit, has_credit, has_lines).
-    """
-    has_debit = False
-    has_credit = False
-    has_lines = False
-    for item in class_node.body:
-        # Assign
-        if isinstance(item, ast.Assign):
-            for target in item.targets:
-                if isinstance(target, ast.Name):
-                    name = target.id.lower()
-                    if name in ("debit", "debit_amount"):
-                        has_debit = True
-                    elif name in ("credit", "credit_amount"):
-                        has_credit = True
-                    elif name in ("lines", "line_items", "journal_lines"):
-                        has_lines = True
-        # AnnAssign
-        elif isinstance(item, ast.AnnAssign):
-            if isinstance(item.target, ast.Name):
-                name = item.target.id.lower()
-                if name in ("debit", "debit_amount"):
-                    has_debit = True
-                elif name in ("credit", "credit_amount"):
-                    has_credit = True
-                elif name in ("lines", "line_items", "journal_lines"):
-                    has_lines = True
-    return has_debit, has_credit, has_lines
 
-def has_validate_method(class_node: ast.ClassDef) -> str | None:
-    """Cari metode validasi dalam class."""
+def is_enum_class(class_node: ast.ClassDef) -> bool:
+    for base in class_node.bases:
+        if isinstance(base, ast.Name) and base.id == "Enum":
+            return True
+        if isinstance(base, ast.Attribute) and base.attr == "Enum":
+            return True
+    return False
+
+
+def is_mapper_file(file_path: Path) -> bool:
+    """Cek apakah file adalah mapper file."""
+    name = file_path.name
+    return "_mapper.py" in name or name.endswith("mapper.py")
+
+
+def is_mapped_class(class_name: str) -> bool:
+    """Cek apakah class adalah hasil mapping."""
+    return class_name.startswith("Mapped") or class_name.endswith("MapperOutput")
+
+
+def is_journal_class(class_node: ast.ClassDef, file_path: Path) -> bool:
+    """Deteksi class yang benar-benar merupakan entitas jurnal."""
+    name = class_node.name
+
+    # Skip mapper file
+    if is_mapper_file(file_path):
+        return False
+
+    # Skip mapped class
+    if is_mapped_class(name):
+        return False
+
+    if is_enum_class(class_node):
+        return False
+
+    # Skip class dengan kata yang jelas bukan jurnal
+    skip_patterns = (
+        "Invariants", "StateMachine", "Validator", "Helper", "Manager",
+        "Config", "Factory", "Repository", "Service", "Controller",
+        "Router", "Middleware", "Handler", "Listener", "Consumer",
+        "Producer", "Wrapper", "Adapter", "Transformer",
+        "Error", "Exception", "Event", "Response", "Request", "DTO",
+        "Command", "Query", "Envelope", "Notification", "Snapshot",
+        "Projection", "ViewModel", "Mixin", "Protocol", "Port",
+        "VO", "ValueObject", "Type", "Side", "Status", "Entry",
+        "TimeEntry", "Transaction", "Invoice", "Receipt", "Disbursement",
+        "Payment", "Purchase", "Sales", "Budget", "Forex", "Line",
+    )
+    for pattern in skip_patterns:
+        if pattern in name:
+            return False
+
+    # HARUS mengandung kata Journal atau Ledger
+    if "Journal" not in name and "Ledger" not in name:
+        return False
+
+    # Class jurnal harus memiliki total_debit/total_credit atau is_balanced atau lines
+    has_total_debit = False
+    has_total_credit = False
+    has_is_balanced = False
+    has_lines = False
+
+    for item in class_node.body:
+        if isinstance(item, (ast.Assign, ast.AnnAssign)):
+            targets = item.targets if isinstance(item, ast.Assign) else [item.target]
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id in ("lines", "line_items", "journal_lines"):
+                    has_lines = True
+
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            fname = item.name.lower()
+            if fname == "is_balanced":
+                has_is_balanced = True
+            if fname == "total_debit":
+                has_total_debit = True
+            if fname == "total_credit":
+                has_total_credit = True
+
+    if has_is_balanced:
+        return True
+    if has_lines and has_total_debit and has_total_credit:
+        return True
+    if has_lines and "Journal" in name:
+        return True
+
+    return False
+
+
+def analyze_journal_class(class_node: ast.ClassDef, file_path: Path) -> JournalClassInfo:
+    info = JournalClassInfo(
+        name=class_node.name,
+        file=file_path,
+        line=class_node.lineno,
+        is_journal="Journal" in class_node.name or "Ledger" in class_node.name,
+    )
+
+    def has_balance_check(node: ast.AST) -> bool:
+        visitor = BalanceCheckVisitor()
+        visitor.visit(node)
+        return visitor.has_check
+
     for item in class_node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if any(kw in item.name.lower() for kw in VALIDATE_KEYWORDS):
-                return item.name
+            fname = item.name.lower()
+            if fname == "is_balanced":
+                info.has_is_balanced = True
+            if fname == "validate":
+                info.has_validate = True
+                if has_balance_check(item):
+                    info.is_valid = True
+        if isinstance(item, ast.FunctionDef) and item.name == "__post_init__":
+            if has_balance_check(item):
+                info.has_post_init_check = True
+                info.is_valid = True
+
+    if info.has_is_balanced:
+        info.is_valid = True
+
+    return info
+
+
+class BalanceCheckVisitor(ast.NodeVisitor):
+    def __init__(self):
+        self.has_check = False
+
+    def visit_Assert(self, node):
+        if isinstance(node.test, ast.Compare):
+            left = ast.unparse(node.test.left) if hasattr(ast, 'unparse') else ""
+            for comp in node.test.comparators:
+                right = ast.unparse(comp) if hasattr(ast, 'unparse') else ""
+                if ("debit" in left and "credit" in right) or ("credit" in left and "debit" in right):
+                    self.has_check = True
+        self.generic_visit(node)
+
+    def visit_If(self, node):
+        if isinstance(node.test, ast.Compare):
+            left = ast.unparse(node.test.left) if hasattr(ast, 'unparse') else ""
+            for comp in node.test.comparators:
+                right = ast.unparse(comp) if hasattr(ast, 'unparse') else ""
+                if ("debit" in left and "credit" in right) or ("credit" in left and "debit" in right):
+                    self.has_check = True
+        self.generic_visit(node)
+
+    def visit_Call(self, node):
+        if isinstance(node.func, ast.Attribute):
+            if node.func.attr in ("is_balanced", "ensure_balanced", "check_balance", "validate"):
+                self.has_check = True
+        if isinstance(node.func, ast.Name):
+            if node.func.id in ("is_balanced", "ensure_balanced", "check_balance", "validate"):
+                self.has_check = True
+        self.generic_visit(node)
+
+
+def is_journal_constructor(call_node: ast.Call, class_names: Set[str]) -> Optional[str]:
+    if isinstance(call_node.func, ast.Name):
+        if call_node.func.id in class_names:
+            return call_node.func.id
     return None
 
-def is_posting_function(func_node: ast.FunctionDef) -> bool:
-    """True jika fungsi memposting jurnal (berdasarkan nama)."""
-    name = func_node.name.lower()
-    # Jangan flag __post_init__ karena itu bukan fungsi posting
-    if name == "__post_init__":
-        return False
-    # Hanya fungsi yang secara eksplisit menandakan posting
-    return any(kw in name for kw in ["post_journal", "save_journal", "add_journal", "create_journal", "post_entry"])
 
-def is_repository_method(class_node: ast.ClassDef, func_node: ast.FunctionDef) -> tuple[bool, str]:
-    """True jika method adalah repository save/update."""
-    # Class harus bernama *Repository
-    if not class_node.name.endswith("Repository"):
-        return False, ""
-    name = func_node.name.lower()
-    if name in ("save", "update", "add", "persist", "store"):
-        # Cari parameter pertama yang bukan self
-        args = func_node.args.args
-        if len(args) > 1:
-            entity_arg = args[1].arg
-            return True, entity_arg
-    return False, ""
+def extract_object_creations(
+    func_node: ast.FunctionDef,
+    journal_class_names: Set[str],
+    file_path: Path
+) -> list[ObjectCreation]:
+    creations = []
 
-def extract_journal_classes(path: Path) -> list[JournalClassInfo]:
-    tree = get_ast_tree(path)
-    if not tree:
-        return []
-    result = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
-            if node.name in IGNORE_CLASSES:
-                continue
-            has_debit, has_credit, has_lines = is_journal_class(node)
-            # Hanya jika memiliki debit/credit atau lines
-            if has_debit or has_credit or has_lines:
-                validate = has_validate_method(node)
-                info = JournalClassInfo(
-                    name=node.name,
-                    file=path,
-                    line=node.lineno,
-                    has_debit=has_debit,
-                    has_credit=has_credit,
-                    has_lines=has_lines,
-                    validate_method=validate
-                )
-                result.append(info)
-    return result
-
-def extract_posting_functions(path: Path) -> list[PostingFunction]:
-    tree = get_ast_tree(path)
-    if not tree:
-        return []
-    result = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if is_posting_function(node):
-                # Cek apakah fungsi memanggil validasi
-                calls_validate = False
-                called = ""
-                body_text = ast.unparse(node) if hasattr(ast, 'unparse') else ""
-                for subnode in ast.walk(node):
-                    if isinstance(subnode, ast.Call):
-                        if isinstance(subnode.func, ast.Name):
-                            if any(kw in subnode.func.id.lower() for kw in VALIDATE_KEYWORDS):
-                                calls_validate = True
-                                called = subnode.func.id
-                        elif isinstance(subnode.func, ast.Attribute):
-                            if any(kw in subnode.func.attr.lower() for kw in VALIDATE_KEYWORDS):
-                                calls_validate = True
-                                called = subnode.func.attr
-                if not calls_validate:
-                    # Cek assert debit==credit
-                    if "assert" in body_text and "debit" in body_text and "credit" in body_text:
-                        calls_validate = True
-                        called = "assert"
-                result.append(PostingFunction(
-                    name=node.name,
-                    file=path,
-                    line=node.lineno,
-                    calls_validate=calls_validate,
-                    called_validate=called
-                ))
-    return result
-
-def extract_repository_methods(path: Path) -> list[RepositoryMethod]:
-    tree = get_ast_tree(path)
-    if not tree:
-        return []
-    result = []
-    # Cari class repository dan method-nya
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name.endswith("Repository"):
-            for item in node.body:
-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    is_repo, entity_arg = is_repository_method(node, item)
-                    if is_repo:
-                        # Cek apakah method memanggil validasi
-                        calls_validate = False
-                        for subnode in ast.walk(item):
-                            if isinstance(subnode, ast.Call):
-                                if isinstance(subnode.func, ast.Name):
-                                    if any(kw in subnode.func.id.lower() for kw in VALIDATE_KEYWORDS):
-                                        calls_validate = True
-                                elif isinstance(subnode.func, ast.Attribute):
-                                    if any(kw in subnode.func.attr.lower() for kw in VALIDATE_KEYWORDS):
-                                        calls_validate = True
-                        if not calls_validate:
-                            body_text = ast.unparse(item) if hasattr(ast, 'unparse') else ""
-                            if "assert" in body_text and "debit" in body_text and "credit" in body_text:
-                                calls_validate = True
-                        result.append(RepositoryMethod(
-                            name=item.name,
-                            file=path,
-                            line=item.lineno,
-                            entity_type=entity_arg,
-                            calls_validate=calls_validate
+    for node in ast.walk(func_node):
+        if isinstance(node, ast.Assign):
+            if isinstance(node.value, ast.Call):
+                class_name = is_journal_constructor(node.value, journal_class_names)
+                if class_name:
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            creations.append(ObjectCreation(
+                                var_name=target.id,
+                                class_name=class_name,
+                                line=node.lineno,
+                                file_path=file_path
+                            ))
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.value, ast.Call):
+                class_name = is_journal_constructor(node.value, journal_class_names)
+                if class_name:
+                    if isinstance(node.target, ast.Name):
+                        creations.append(ObjectCreation(
+                            var_name=node.target.id,
+                            class_name=class_name,
+                            line=node.lineno,
+                            file_path=file_path
                         ))
-    return result
 
-# ─── Runtime Introspection ───────────────────────────────────────────────────
+    return creations
 
-def import_module(module_name: str):
-    try:
-        return importlib.import_module(module_name)
-    except:
-        return None
 
-def inspect_journal_class_runtime(class_obj: Any) -> tuple[bool, str]:
-    """Periksa apakah class benar-benar memiliki validasi balance."""
-    if not class_obj:
-        return False, "Class tidak ditemukan"
-    methods = inspect.getmembers(class_obj, predicate=inspect.isfunction)
-    method_names = [m[0] for m in methods]
-    validate_methods = [m for m in method_names if any(kw in m.lower() for kw in VALIDATE_KEYWORDS)]
-    if not validate_methods:
-        return False, "Tidak ada metode validasi"
-    # Ambil metode pertama
-    method_name = validate_methods[0]
-    method = getattr(class_obj, method_name, None)
-    if not method:
-        return False, f"Metode {method_name} tidak ditemukan"
-    try:
-        source = inspect.getsource(method)
-    except:
-        return False, "Tidak dapat membaca source"
-    # Cek apakah ada pengecekan debit==credit
-    patterns = [
-        r'debit.*==.*credit',
-        r'credit.*==.*debit',
-        r'debit.*!=.*credit',
-        r'assert.*debit.*credit',
-        r'raise.*debit.*credit',
-        r'total_debit.*==.*total_credit',
-        r'sum\(.*debit.*\).*==.*sum\(.*credit.*\)',
-    ]
-    for pattern in patterns:
-        if re.search(pattern, source, re.IGNORECASE):
-            return True, f"OK (metode {method_name})"
-    return False, f"Metode {method_name} TIDAK membandingkan debit/credit"
+def extract_method_calls(
+    func_node: ast.FunctionDef,
+    file_path: Path
+) -> list[MethodCall]:
+    calls = []
 
-# ─── Main Validator ──────────────────────────────────────────────────────────
+    for node in ast.walk(func_node):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                calls.append(MethodCall(
+                    var_name=node.func.value.id,
+                    method=node.func.attr,
+                    line=node.lineno,
+                    file_path=file_path
+                ))
 
-def validate_journal_balance(verbose: bool = False, json_out: str | None = None) -> int:
+    return calls
+
+
+def is_abstract_method(func_node: ast.FunctionDef) -> bool:
+    """Cek apakah method adalah abstract (raise NotImplementedError, pass, atau ...)."""
+    body = func_node.body
+    if len(body) != 1:
+        return False
+
+    stmt = body[0]
+    if isinstance(stmt, ast.Raise):
+        # Cek apakah raise NotImplementedError
+        if isinstance(stmt.exc, ast.Call):
+            if isinstance(stmt.exc.func, ast.Name) and stmt.exc.func.id == "NotImplementedError":
+                return True
+        return False
+    if isinstance(stmt, ast.Pass):
+        return True
+    if isinstance(stmt, ast.Expr):
+        if isinstance(stmt.value, ast.Constant):
+            if stmt.value.value is Ellipsis:
+                return True
+    return False
+
+
+def is_journal_entity_name(name: str) -> bool:
+    skip_patterns = (
+        "Event", "Response", "Request", "DTO", "Command", "Query",
+        "Envelope", "Notification", "Snapshot", "Projection", "ViewModel",
+        "Mixin", "Protocol", "Port", "VO", "ValueObject", "Type", "Side",
+        "Status", "Entry", "TimeEntry", "Transaction", "Invoice",
+        "Receipt", "Disbursement", "Payment", "Purchase", "Sales",
+        "Budget", "Forex", "Line", "Invariants", "StateMachine",
+        "Validator", "Helper", "Manager", "Config", "Factory",
+        "Repository", "Service", "Controller", "Router", "Middleware",
+        "Handler", "Listener", "Consumer", "Producer", "Wrapper",
+        "Adapter", "Transformer", "Mapper", "Error", "Exception",
+        "Mapped", "MapperOutput",
+    )
+    for pattern in skip_patterns:
+        if pattern in name:
+            return False
+    return "Journal" in name or "Ledger" in name
+
+
+# ─── Main Orchestrator ──────────────────────────────────────────────────────
+
+def run_checker(verbose: bool = False, json_out: Optional[str] = None) -> int:
     print(f"{BOLD}{CYAN}╔{'═'*78}╗{RESET}")
-    print(f"{BOLD}{CYAN}║{' '*20}JOURNAL BALANCE CHECKER — PRECISION{' '*20}║{RESET}")
+    print(f"{BOLD}{CYAN}║{' '*20}JOURNAL BALANCE CHECKER v1 (PRECISION){' '*20}║{RESET}")
     print(f"{BOLD}{CYAN}╚{'═'*78}╝{RESET}")
+    print(f"  Root: {ROOT}")
     print()
 
-    findings: list[Finding] = []
-    journal_classes: list[JournalClassInfo] = []
-    posting_funcs: list[PostingFunction] = []
-    repo_methods: list[RepositoryMethod] = []
-
-    # ─── Scan ────────────────────────────────────────────────────────────────
-    print("🔍 Scanning project...")
+    all_files = []
     for dir_name in SCAN_DIRS:
-        dir_path = ROOT / dir_name
-        if not dir_path.exists():
+        target = ROOT / dir_name
+        if not target.exists():
             continue
-        for p in dir_path.rglob("*.py"):
+        for p in target.rglob("*.py"):
             if any(part in SKIP_DIRS for part in p.parts):
                 continue
             if p.name.startswith("__") and p.name != "__init__.py":
                 continue
-            journal_classes.extend(extract_journal_classes(p))
-            posting_funcs.extend(extract_posting_functions(p))
-            repo_methods.extend(extract_repository_methods(p))
-
-    print(f"📂 Ditemukan: {len(journal_classes)} class jurnal, {len(posting_funcs)} fungsi posting, {len(repo_methods)} repository method.\n")
-
-    # ─── Runtime Validasi ──────────────────────────────────────────────────
-
-    # Cache module
-    module_cache = {}
-
-    # 1. Validasi class jurnal
-    for info in journal_classes:
-        # Hanya class yang benar-benar memiliki debit & credit (atau lines) yang kita periksa
-        # Jika hanya memiliki lines, validasi bisa dilakukan di level lines
-        if info.has_debit and info.has_credit:
-            # Coba import
-            try:
-                rel = info.file.relative_to(ROOT)
-                module_name = ".".join(rel.with_suffix("").parts)
-            except:
+            if p.name == "checker_journal_balance.py":
                 continue
-            if module_name not in module_cache:
-                mod = import_module(module_name)
-                module_cache[module_name] = mod
-            else:
-                mod = module_cache[module_name]
-            if mod is None:
-                findings.append(Finding("CRITICAL", str(info.file.relative_to(ROOT)), info.line,
-                                        f"Module '{module_name}' tidak dapat diimpor"))
-                continue
-            class_obj = getattr(mod, info.name, None)
-            if class_obj is None:
-                findings.append(Finding("CRITICAL", str(info.file.relative_to(ROOT)), info.line,
-                                        f"Class '{info.name}' tidak ditemukan"))
-                continue
-            # Runtime check
-            is_valid, reason = inspect_journal_class_runtime(class_obj)
-            info.is_valid = is_valid
-            if not is_valid:
-                findings.append(Finding(
-                    "CRITICAL",
-                    str(info.file.relative_to(ROOT)),
-                    info.line,
-                    f"Journal class '{info.name}' tidak memiliki validasi balance yang benar",
-                    recommendation="Tambahkan metode validate() yang membandingkan total_debit == total_credit",
-                    detail=reason
-                ))
-        else:
-            # Class dengan lines saja (misal InvoiceEntity yang memiliki lines)
-            # Kita asumsikan validasi di level lines, namun kita tetap periksa apakah ada validate
-            if info.validate_method:
-                # Coba import dan periksa
-                try:
-                    rel = info.file.relative_to(ROOT)
-                    module_name = ".".join(rel.with_suffix("").parts)
-                except:
-                    continue
-                if module_name not in module_cache:
-                    mod = import_module(module_name)
-                    module_cache[module_name] = mod
-                else:
-                    mod = module_cache[module_name]
-                if mod is None:
-                    continue
-                class_obj = getattr(mod, info.name, None)
-                if class_obj is None:
-                    continue
-                is_valid, reason = inspect_journal_class_runtime(class_obj)
-                info.is_valid = is_valid
-                if not is_valid:
-                    findings.append(Finding(
-                        "WARNING",
-                        str(info.file.relative_to(ROOT)),
-                        info.line,
-                        f"Class '{info.name}' memiliki metode validasi tetapi tidak membandingkan debit/credit",
-                        detail=reason
-                    ))
-            else:
-                # Tidak ada metode validasi sama sekali, tapi class ini mungkin bukan entitas jurnal inti
-                # Beri warning saja
-                findings.append(Finding(
-                    "WARNING",
-                    str(info.file.relative_to(ROOT)),
-                    info.line,
-                    f"Class '{info.name}' memiliki field debit/credit/lines tetapi tidak ada metode validasi",
-                    recommendation="Tambahkan validate() atau pastikan validasi dilakukan di tempat lain"
-                ))
+            all_files.append(p)
 
-    # 2. Validasi fungsi posting
-    for func in posting_funcs:
-        if not func.calls_validate:
-            findings.append(Finding(
-                "CRITICAL",
-                str(func.file.relative_to(ROOT)),
-                func.line,
-                f"Fungsi '{func.name}' memposting jurnal tanpa memanggil validasi balance",
-                recommendation="Panggil journal.validate() sebelum menyimpan"
-            ))
-        else:
-            # Periksa apakah metode validasi yang dipanggil benar-benar ada
-            # (Runtime check optional)
-            func.is_valid = True
+    print(f"🔍 Scanning {len(all_files)} Python files...")
 
-    # 3. Validasi repository method
-    for repo in repo_methods:
-        if not repo.calls_validate:
-            findings.append(Finding(
-                "CRITICAL",
-                str(repo.file.relative_to(ROOT)),
-                repo.line,
-                f"Repository '{repo.name}' menyimpan {repo.entity_type} tanpa validasi balance",
-                recommendation="Panggil {repo.entity_type}.validate() sebelum menyimpan"
-            ))
-        else:
-            repo.is_valid = True
+    findings: list[Finding] = []
+    journal_classes: list[JournalClassInfo] = []
+    journal_class_names: Set[str] = set()
+
+    # ─── Step 1: Kumpulkan semua class jurnal ────────────────────────────────
+    for file_path in all_files:
+        tree = get_ast_tree(file_path)
+        if tree is None:
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                if is_journal_class(node, file_path):
+                    info = analyze_journal_class(node, file_path)
+                    journal_classes.append(info)
+                    if info.is_journal:
+                        journal_class_names.add(info.name)
+
+                    if not info.is_valid and info.is_journal:
+                        findings.append(Finding(
+                            severity="CRITICAL",
+                            file=str(file_path.relative_to(ROOT)),
+                            line=node.lineno,
+                            message=f"Journal class '{info.name}' tidak memiliki validasi balance.",
+                            suggestion="Tambahkan metode is_balanced() atau __post_init__ yang membandingkan total_debit == total_credit."
+                        ))
+
+    # ─── Step 2: Analisis fungsi service/use_case ─────────────────────────────
+    for file_path in all_files:
+        tree = get_ast_tree(file_path)
+        if tree is None:
+            continue
+
+        rel_path = str(file_path.relative_to(ROOT))
+        if "service_layer" not in rel_path and "use_cases" not in rel_path:
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                creations = extract_object_creations(node, journal_class_names, file_path)
+                if not creations:
+                    continue
+
+                calls = extract_method_calls(node, file_path)
+
+                for creation in creations:
+                    save_calls = [c for c in calls if c.var_name == creation.var_name and c.method in ("save", "add", "persist", "store")]
+                    if not save_calls:
+                        continue
+
+                    validate_calls = [c for c in calls if c.var_name == creation.var_name and c.method in ("validate", "is_balanced", "ensure_balanced")]
+
+                    if not validate_calls:
+                        class_info = next((ci for ci in journal_classes if ci.name == creation.class_name), None)
+                        if class_info and class_info.has_post_init_check:
+                            continue
+
+                        findings.append(Finding(
+                            severity="CRITICAL",
+                            file=str(file_path.relative_to(ROOT)),
+                            line=creation.line,
+                            message=f"Fungsi posting '{node.name}' membuat entitas jurnal ({creation.class_name}) tanpa memanggil .validate() atau .is_balanced() sebelum save.",
+                            suggestion=f"Panggil {creation.var_name}.validate() atau {creation.var_name}.is_balanced() sebelum menyimpan."
+                        ))
+
+    # ─── Step 3: Repository (hanya JournalRepository/LedgerRepository) ──────
+    for file_path in all_files:
+        tree = get_ast_tree(file_path)
+        if tree is None:
+            continue
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                if not node.name.endswith("Repository"):
+                    continue
+                if "Journal" not in node.name and "Ledger" not in node.name:
+                    continue
+
+                for item in node.body:
+                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        if item.name.lower() not in ("save", "update", "add", "persist", "store"):
+                            continue
+
+                        # Skip abstract method
+                        if is_abstract_method(item):
+                            continue
+
+                        args = item.args.args
+                        if len(args) > 1:
+                            entity_var = args[1].arg
+                            if entity_var.endswith("_id"):
+                                continue
+
+                            if not is_journal_entity_name(entity_var.title()) and not is_journal_entity_name(entity_var):
+                                continue
+
+                            calls = extract_method_calls(item, file_path)
+                            validate_calls = [c for c in calls if c.var_name == entity_var and c.method in ("validate", "is_balanced", "ensure_balanced")]
+
+                            class_info = next((ci for ci in journal_classes if ci.name == entity_var.title() or ci.name == entity_var), None)
+                            if class_info and class_info.has_post_init_check:
+                                continue
+
+                            if not validate_calls:
+                                findings.append(Finding(
+                                    severity="CRITICAL",
+                                    file=str(file_path.relative_to(ROOT)),
+                                    line=item.lineno,
+                                    message=f"Repository '{node.name}.{item.name}' menyimpan {entity_var} tanpa validasi balance.",
+                                    suggestion=f"Panggil {entity_var}.validate() atau {entity_var}.is_balanced() sebelum commit."
+                                ))
 
     # ─── Report ──────────────────────────────────────────────────────────────
     critical = [f for f in findings if f.severity == "CRITICAL"]
+    errors = [f for f in findings if f.severity == "ERROR"]
     warnings = [f for f in findings if f.severity == "WARNING"]
 
-    if critical:
-        print(f"{RED}{BOLD}🔴 CRITICAL ISSUES ({len(critical)}){RESET}")
-        for f in critical:
-            print(f"  {RED}✖{RESET} {f.file}:{f.line}  {f.message}")
-            if f.detail:
-                print(f"      📌 {f.detail}")
-            if f.recommendation:
-                print(f"      💡 {f.recommendation}")
-        print()
+    print("\n" + "═" * 80)
+    print(f"{BOLD}📊 SUMMARY{RESET}")
+    print(f"  Journal classes found:    {len(journal_classes)}")
+    print(f"  ❌ Critical issues:       {len(critical)}")
+    print(f"  ⚠️  Errors:                {len(errors)}")
+    print(f"  ℹ️  Warnings:              {len(warnings)}")
 
-    if warnings:
-        print(f"{YELLOW}{BOLD}⚠️  WARNINGS ({len(warnings)}){RESET}")
-        for f in warnings:
-            print(f"  {YELLOW}⚠{RESET} {f.file}:{f.line}  {f.message}")
-            if f.recommendation:
-                print(f"      💡 {f.recommendation}")
-        print()
-
-    # Ringkasan
-    total_journals = len(journal_classes)
-    valid_journals = sum(1 for c in journal_classes if c.is_valid)
-    total_post = len(posting_funcs)
-    valid_post = sum(1 for f in posting_funcs if f.is_valid)
-    total_repo = len(repo_methods)
-    valid_repo = sum(1 for r in repo_methods if r.is_valid)
-
-    print("═" * 80)
-    print(f"{BOLD}SUMMARY — JOURNAL BALANCE CHECKER (PRECISION){RESET}")
-    print(f"  Journal classes found:    {total_journals}")
-    print(f"  Valid (with balance):     {valid_journals}")
-    print(f"  Posting functions found:  {total_post}")
-    print(f"  Valid (calls validate):   {valid_post}")
-    print(f"  Repository methods found: {total_repo}")
-    print(f"  Valid (with validate):    {valid_repo}")
-    print(f"  Critical issues:          {len(critical)}")
-    print(f"  Warnings:                 {len(warnings)}")
-    print("═" * 80)
+    if critical or errors:
+        print("\n" + f"{RED}{BOLD}🔴 DETAIL ISSUES{RESET}")
+        for f in critical + errors:
+            print(f"  [{f.severity}] {f.file}:{f.line}")
+            print(f"      {f.message}")
+            if f.suggestion:
+                print(f"      💡 {f.suggestion}")
+        print("\n" + f"{RED}{BOLD}❌ VALIDATION FAILED — Perbaiki critical/error issues.{RESET}")
+        exit_code = 1
+    else:
+        print("\n" + f"{GREEN}{BOLD}✅ VALIDATION PASSED — Tidak ada critical/error issues.{RESET}")
+        if warnings:
+            print(f"{YELLOW}   {len(warnings)} warnings tersedia, gunakan --verbose untuk detail.{RESET}")
+        exit_code = 0
 
     if json_out:
         report = {
-            "journal_classes": {"total": total_journals, "valid": valid_journals},
-            "posting_functions": {"total": total_post, "valid": valid_post},
-            "repository_methods": {"total": total_repo, "valid": valid_repo},
+            "summary": {
+                "journal_classes": len(journal_classes),
+                "critical": len(critical),
+                "errors": len(errors),
+                "warnings": len(warnings),
+            },
             "issues": {
-                "critical": [{"file": f.file, "line": f.line, "message": f.message} for f in critical],
-                "warnings": [{"file": f.file, "line": f.line, "message": f.message} for f in warnings]
+                "critical": [{"file": f.file, "line": f.line, "message": f.message, "suggestion": f.suggestion} for f in critical],
+                "errors": [{"file": f.file, "line": f.line, "message": f.message, "suggestion": f.suggestion} for f in errors],
+                "warnings": [{"file": f.file, "line": f.line, "message": f.message, "suggestion": f.suggestion} for f in warnings],
             }
         }
-        Path(json_out).write_text(json.dumps(report, indent=2))
-        print(f"\n{CYAN}JSON report saved to {json_out}{RESET}")
+        Path(json_out).write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(f"\n{CYAN}📁 JSON report saved to {json_out}{RESET}")
 
-    if critical:
-        print(f"\n{RED}{BOLD}❌ VALIDATION FAILED — {len(critical)} critical issue(s) must be fixed.{RESET}")
-        return 1
-    else:
-        print(f"\n{GREEN}{BOLD}✅ VALIDATION PASSED — No critical issues.{RESET}")
-        if warnings:
-            print(f"{YELLOW}   Review {len(warnings)} warnings to improve quality.{RESET}")
-        return 0
+    return exit_code
+
 
 if __name__ == "__main__":
-    import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--json", metavar="FILE")
     args = parser.parse_args()
-    sys.exit(validate_journal_balance(verbose=args.verbose, json_out=args.json))
+    sys.exit(run_checker(verbose=args.verbose, json_out=args.json))

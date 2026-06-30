@@ -20,7 +20,6 @@ from uuid import UUID, uuid4
 from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
 from application.dto_objects.ar_invoice_request import ARInvoiceCreateRequest
 from application.service_layer.service_ar import ARService
-from bootstrap.dependency_container.ioc_container import get_container
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 from ports.primary.customer_supplier_repository_port import CustomerRepositoryPort
@@ -57,7 +56,6 @@ class BaseTransformer:
 
     def _take_snapshot(self):
         import datetime
-
         self._snapshots.append(
             {
                 "version": self._version,
@@ -71,7 +69,6 @@ class BaseTransformer:
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]):
         import datetime
-
         self._audit_trail.append(
             {
                 "action": action,
@@ -104,7 +101,6 @@ class BaseTransformer:
 
     def snapshot(self) -> dict[str, Any]:
         import datetime
-
         return {
             "version": self._version,
             "transformer_id": self._transformer_id,
@@ -143,31 +139,18 @@ class InvalidEventDataError(SalesToARTransformerError):
 # SalesToARTransformer (dengan entity dasar)
 # ============================================================================
 class SalesToARTransformer(BaseTransformer):
-    def __init__(self):
+    def __init__(
+        self,
+        command_bus: UnifiedCommandBus,
+        ar_service: ARService,
+        customer_repo: CustomerRepositoryPort,
+    ):
         super().__init__("SalesToARTransformer")
-        self._command_bus: UnifiedCommandBus | None = None
-        self._ar_service: ARService | None = None
-        self._customer_repo: CustomerRepositoryPort | None = None
+        self._command_bus = command_bus
+        self._ar_service = ar_service
+        self._customer_repo = customer_repo
         self._mapping_cache: dict[str, str] = {}
         self._processed_events: set = set()
-
-    async def _get_command_bus(self) -> UnifiedCommandBus:
-        if self._command_bus is None:
-            container = get_container()
-            self._command_bus = container.resolve(UnifiedCommandBus)
-        return self._command_bus
-
-    async def _get_ar_service(self) -> ARService:
-        if self._ar_service is None:
-            container = get_container()
-            self._ar_service = container.resolve(ARService)
-        return self._ar_service
-
-    async def _get_customer_repo(self) -> CustomerRepositoryPort:
-        if self._customer_repo is None:
-            container = get_container()
-            self._customer_repo = container.resolve(CustomerRepositoryPort)
-        return self._customer_repo
 
     async def transform(self, envelope: EventEnvelope) -> None:
         event_type = envelope.event_type
@@ -206,8 +189,7 @@ class SalesToARTransformer(BaseTransformer):
                     "legal_entity_id", sales_data.get("legal_entity_id")
                 ),
             )
-            command_bus = await self._get_command_bus()
-            result = await command_bus.dispatch(
+            result = await self._command_bus.dispatch(
                 {"type": "ar.invoice.create", "data": create_request.to_dict()}
             )
             sales_id = sales_data.get("sales_id") or sales_data.get("sales_order_id")
@@ -315,17 +297,16 @@ class SalesToARTransformer(BaseTransformer):
         return None
 
     async def _get_customer(self, customer_id: Any) -> CustomerAggregate:
-        customer_repo = await self._get_customer_repo()
         if isinstance(customer_id, str):
             try:
                 customer_uuid = UUID(customer_id)
-                customer = await customer_repo.get_by_id(customer_uuid)
+                customer = await self._customer_repo.get_by_id(customer_uuid)
                 if customer:
                     return customer
             except ValueError:
                 pass
         if isinstance(customer_id, str):
-            customer = await customer_repo.get_by_code(customer_id)
+            customer = await self._customer_repo.get_by_code(customer_id)
             if customer:
                 return customer
         raise CustomerNotFoundError(f"Customer not found for identifier: {customer_id}")
@@ -390,13 +371,23 @@ class SalesToARTransformer(BaseTransformer):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SalesToARTransformer:
-        instance = cls()
+        # Factory will set dependencies; this is for serialization only
+        instance = cls.__new__(cls)
         instance._version = data.get("version", 1)
         instance._transformer_id = data.get("transformer_id", str(uuid4()))
+        instance._command_bus = None
+        instance._ar_service = None
+        instance._customer_repo = None
+        instance._mapping_cache = {}
+        instance._processed_events = set()
         return instance
 
     def clone(self) -> SalesToARTransformer:
-        new = SalesToARTransformer()
+        new = SalesToARTransformer(
+            command_bus=self._command_bus,
+            ar_service=self._ar_service,
+            customer_repo=self._customer_repo,
+        )
         new._version = self._version + 1
         new._record_audit("CLONE", "system", {"source": self._transformer_id})
         return new
@@ -421,7 +412,18 @@ _sales_to_ar_transformer: SalesToARTransformer | None = None
 async def get_sales_to_ar_transformer() -> SalesToARTransformer:
     global _sales_to_ar_transformer
     if _sales_to_ar_transformer is None:
-        _sales_to_ar_transformer = SalesToARTransformer()
+        # Composition Root: use container to resolve dependencies
+        from bootstrap.dependency_container.ioc_container import get_container
+
+        container = get_container()
+        command_bus = container.resolve(UnifiedCommandBus)
+        ar_service = container.resolve(ARService)
+        customer_repo = container.resolve(CustomerRepositoryPort)
+        _sales_to_ar_transformer = SalesToARTransformer(
+            command_bus=command_bus,
+            ar_service=ar_service,
+            customer_repo=customer_repo,
+        )
     return _sales_to_ar_transformer
 
 

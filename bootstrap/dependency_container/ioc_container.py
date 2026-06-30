@@ -282,81 +282,70 @@ _global_container: IoCContainer | None = None
 
 
 def get_container() -> IoCContainer:
+    """Get global container instance (lazy initialized)."""
     global _global_container
     if _global_container is None:
         _global_container = IoCContainer()
-
-        # --- Adapter registry ---
-        try:
-            # Import lokal untuk menghindari siklus
-            from bootstrap.dependency_container.adapter_registry import (
-                AdapterRegistry,
-                set_adapter_registry_instance,
-            )
-            registry = AdapterRegistry(container=_global_container)
-            set_adapter_registry_instance(registry)
-            registry.register_all()
-            logger.info("Adapter registry registration completed")
-        except ImportError as e:
-            logger.warning(f"Adapter registry not available: {e}")
-        except Exception as e:
-            logger.warning(f"Adapter registry registration failed: {e}")
-
-        # --- Service registry ---
-        try:
-            from bootstrap.dependency_container.service_registry import ServiceRegistrar
-            sig = inspect.signature(ServiceRegistrar.register_all)
-            params = sig.parameters
-            if len(params) == 0:
-                coro = ServiceRegistrar.register_all()
-            else:
-                coro = ServiceRegistrar.register_all(_global_container)
-
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-
-            if loop and loop.is_running():
-                loop.create_task(coro)
-                logger.info("Service registry scheduled inside existing running event loop")
-            else:
-                asyncio.run(coro)
-            logger.info("Service registry registration completed")
-        except ImportError as e:
-            logger.warning(f"Service registry not available: {e}")
-        except Exception as e:
-            logger.error(f"Service registry registration failed: {e}")
-
-        # --- Aliases ---
-        alias_map = {
-            "IJournalRepository": "JournalRepositoryPort",
-            "IUnitOfWork": "UnitOfWorkPort",
-            "IEventPublisher": "EventPublisherPort",
-            "ITaxAuthorityPort": "CoreTaxPort",
-            "IUserRepository": "IAMUserRepositoryPort",
-            "IAccountRepository": "AccountRepositoryPort",
-            "IArRepository": "ARRepositoryPort",
-            "IApRepository": "APRepositoryPort",
-            "IInventoryRepository": "InventoryRepositoryPort",
-            "IFixedAssetRepository": "FixedAssetRepositoryPort",
-            "IPayrollRepository": "PayrollRepositoryPort",
-            "IManufacturingRepository": "ManufacturingRepositoryPort",
-            "IConsolidationRepository": "ConsolidationRepositoryPort",
-            "IForexRepository": "ForexRepositoryPort",
-            "IHedgeRepository": "HedgeRepositoryPort",
-        }
-        for alias, target in alias_map.items():
-            if not _global_container.has_registration(alias):
-                _global_container.register_alias(alias, target)
-
-        logger.info("Alias registration completed (using string targets)")
-        logger.info(f"Total registered types: {len(_global_container.get_registered_types())}")
-
     return _global_container
 
 
+def initialize_container() -> None:
+    """
+    Initialize the global container with all registrations.
+    This should be called once at application startup.
+    """
+    container = get_container()
+
+    # Import registrations locally to break circular dependency
+    from bootstrap.dependency_container.adapter_registry import AdapterRegistry, set_adapter_registry_instance
+    from bootstrap.dependency_container.service_registry import ServiceRegistrar
+
+    # Adapter registry
+    registry = AdapterRegistry(container=container)
+    set_adapter_registry_instance(registry)
+    registry.register_all()
+    logger.info("Adapter registry completed")
+
+    # Service registry
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            loop.create_task(ServiceRegistrar.register_all(container))
+            logger.info("Service registry scheduled on existing loop")
+        else:
+            asyncio.run(ServiceRegistrar.register_all(container))
+    except RuntimeError:
+        asyncio.run(ServiceRegistrar.register_all(container))
+    logger.info("Service registry completed")
+
+    # Aliases
+    alias_map = {
+        "IJournalRepository": "JournalRepositoryPort",
+        "IUnitOfWork": "UnitOfWorkPort",
+        "IEventPublisher": "EventPublisherPort",
+        "ITaxAuthorityPort": "CoreTaxPort",
+        "IUserRepository": "IAMUserRepositoryPort",
+        "IAccountRepository": "AccountRepositoryPort",
+        "IArRepository": "ARRepositoryPort",
+        "IApRepository": "APRepositoryPort",
+        "IInventoryRepository": "InventoryRepositoryPort",
+        "IFixedAssetRepository": "FixedAssetRepositoryPort",
+        "IPayrollRepository": "PayrollRepositoryPort",
+        "IManufacturingRepository": "ManufacturingRepositoryPort",
+        "IConsolidationRepository": "ConsolidationRepositoryPort",
+        "IForexRepository": "ForexRepositoryPort",
+        "IHedgeRepository": "HedgeRepositoryPort",
+    }
+    for alias, target in alias_map.items():
+        if not container.has_registration(alias):
+            container.register_alias(alias, target)
+    logger.info("Aliases registered")
+
+    logger.info(f"Container initialized with {len(container.get_registered_types())} registered types")
+
+
 def build_container() -> IoCContainer:
+    initialize_container()
     return get_container()
 
 
@@ -385,5 +374,6 @@ __all__ = [
     "clear_request_container",
     "get_container",
     "get_request_container",
+    "initialize_container",
     "injectable",
 ]

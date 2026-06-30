@@ -13,7 +13,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from bootstrap.dependency_container.interfaces import ContainerInterface
 
-from bootstrap.dependency_container.auto_register_ports import register_all_ports
+# Import get_container from ioc_container (no circular because ioc_container doesn't import this)
+from bootstrap.dependency_container.ioc_container import get_container
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,9 @@ class AdapterRegistry:
             raise RuntimeError("Container not set. Call set_container() first.")
 
         self._logger.info("Starting adapter registration via auto-discover...")
+
+        # Import lokal untuk menghindari siklus
+        from bootstrap.dependency_container.auto_register_ports import register_all_ports
 
         registered, fallback = register_all_ports(self._container)
 
@@ -199,7 +203,6 @@ def set_adapter_registry_instance(registry: AdapterRegistry) -> None:
 def get_adapter_registry() -> AdapterRegistry:
     global _adapter_registry
     if _adapter_registry is None:
-        from bootstrap.dependency_container.ioc_container import get_container
         container = get_container()
         registry = AdapterRegistry(container)
         _adapter_registry = registry

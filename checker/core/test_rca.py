@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_rca.py — pytest suite untuk rca.py
+test_rca.py — pytest suite untuk rca.py (v3.0.0)
 Jalankan: pytest test_rca.py -v --tb=short
 """
 import sys, os
@@ -501,10 +501,17 @@ class TestRCAEngine:
             assert r is not None
 
     def test_stats_keys_present(self, engine):
+        """Perbaikan: stats() v3.0.0 mengembalikan {'engine': ..., 'cache': ..., 'rules': ...}.
+        Uji keberadaan kunci di level engine dan total_analyses di dalam engine.
+        """
         s = engine.stats()
-        for k in ("total_analyses", "total_time", "cache_hits",
-                  "cache_misses", "rules", "version"):
-            assert k in s, f"Missing key: {k}"
+        # Level atas harus memiliki 'engine', 'cache', 'rules'
+        for top_key in ("engine", "cache", "rules"):
+            assert top_key in s, f"Missing top-level key: {top_key}"
+        # Di dalam 'engine' harus ada 'total_analyses', 'total_time', 'version', dll.
+        engine_stats = s.get("engine", {})
+        for eng_key in ("total_analyses", "total_time", "version", "rule_count"):
+            assert eng_key in engine_stats, f"Missing engine key: {eng_key}"
 
     def test_register_custom_rule(self):
         """Custom rule dengan priority tinggi harus override IndexErrorRule."""

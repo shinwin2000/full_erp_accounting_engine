@@ -21,7 +21,6 @@ from uuid import UUID, uuid4
 from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
 from application.service_layer.service_payroll import PayrollService
 from application.service_layer.service_tax import TaxService
-from bootstrap.dependency_container.ioc_container import get_container
 from domain.payroll.aggregate_root import PayrollAggregate as PayrollRun
 from domain.payroll.tax_withholding_engine import TaxWithholdingEngine
 from infrastructure.telemetry.alert_manager_router import trigger_alert
@@ -83,7 +82,7 @@ HANDLED_EVENT_TYPES = [
 
 
 # ============================================================================
-# BaseTransformer (sama seperti sebelumnya, tetapi untuk menghindari duplikasi kita definisikan ulang)
+# BaseTransformer
 # ============================================================================
 class BaseTransformer:
     def __init__(self, name: str):
@@ -95,7 +94,6 @@ class BaseTransformer:
 
     def _take_snapshot(self):
         import datetime
-
         self._snapshots.append(
             {
                 "version": self._version,
@@ -109,7 +107,6 @@ class BaseTransformer:
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]):
         import datetime
-
         self._audit_trail.append(
             {
                 "action": action,
@@ -142,7 +139,6 @@ class BaseTransformer:
 
     def snapshot(self) -> dict[str, Any]:
         import datetime
-
         return {
             "version": self._version,
             "transformer_id": self._transformer_id,
@@ -295,45 +291,22 @@ class PayrollCalculator(BaseTransformer):
 # HRToPayrollTransformer (dengan entity dasar)
 # ============================================================================
 class HRToPayrollTransformer(BaseTransformer):
-    def __init__(self):
+    def __init__(
+        self,
+        command_bus: UnifiedCommandBus,
+        payroll_service: PayrollService,
+        tax_service: TaxService,
+        employee_repo: EmployeeRepositoryPort,
+        payroll_repo: PayrollRepositoryPort,
+    ):
         super().__init__("HRToPayrollTransformer")
-        self._command_bus: UnifiedCommandBus | None = None
-        self._payroll_service: PayrollService | None = None
-        self._tax_service: TaxService | None = None
-        self._employee_repo: EmployeeRepositoryPort | None = None
-        self._payroll_repo: PayrollRepositoryPort | None = None
+        self._command_bus = command_bus
+        self._payroll_service = payroll_service
+        self._tax_service = tax_service
+        self._employee_repo = employee_repo
+        self._payroll_repo = payroll_repo
         self._calculator = PayrollCalculator()
         self._processed_events: set = set()
-
-    async def _get_command_bus(self) -> UnifiedCommandBus:
-        if self._command_bus is None:
-            container = get_container()
-            self._command_bus = container.resolve(UnifiedCommandBus)
-        return self._command_bus
-
-    async def _get_payroll_service(self) -> PayrollService:
-        if self._payroll_service is None:
-            container = get_container()
-            self._payroll_service = container.resolve(PayrollService)
-        return self._payroll_service
-
-    async def _get_tax_service(self) -> TaxService:
-        if self._tax_service is None:
-            container = get_container()
-            self._tax_service = container.resolve(TaxService)
-        return self._tax_service
-
-    async def _get_employee_repo(self) -> EmployeeRepositoryPort:
-        if self._employee_repo is None:
-            container = get_container()
-            self._employee_repo = container.resolve(EmployeeRepositoryPort)
-        return self._employee_repo
-
-    async def _get_payroll_repo(self) -> PayrollRepositoryPort:
-        if self._payroll_repo is None:
-            container = get_container()
-            self._payroll_repo = container.resolve(PayrollRepositoryPort)
-        return self._payroll_repo
 
     async def transform(self, envelope: EventEnvelope) -> None:
         event_type = envelope.event_type
@@ -434,8 +407,7 @@ class HRToPayrollTransformer(BaseTransformer):
             status="calculated",
             created_at=datetime.now(UTC),
         )
-        payroll_repo = await self._get_payroll_repo()
-        await payroll_repo.save_payroll_run(payroll_run, payroll_results)
+        await self._payroll_repo.save_payroll_run(payroll_run, payroll_results)
         await self._create_payroll_journal(payroll_run_id, payroll_results, legal_entity_id)
         logger.info(f"Payroll run {payroll_run_id} completed for {len(payroll_results)} employees")
         await self._trigger_payment_command(payroll_run_id, total_net_salary, legal_entity_id)
@@ -498,14 +470,12 @@ class HRToPayrollTransformer(BaseTransformer):
             created_by=UUID("00000000-0000-0000-0000-000000000000"),
             legal_entity_id=legal_entity_id,
         )
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch({"type": "journal.create", "data": create_request.to_dict()})
+        await self._command_bus.dispatch({"type": "journal.create", "data": create_request.to_dict()})
 
     async def _trigger_payment_command(
         self, payroll_run_id: UUID, total_net_salary: Decimal, legal_entity_id: UUID
     ) -> None:
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {
                 "type": "payment.create",
                 "data": {
@@ -525,11 +495,9 @@ class HRToPayrollTransformer(BaseTransformer):
             if payload.get("legal_entity_id")
             else envelope.metadata.get("legal_entity_id")
         )
-        employee_repo = await self._get_employee_repo()
-        employee = await employee_repo.get_by_id(employee_id)
+        employee = await self._employee_repo.get_by_id(employee_id)
         if employee:
-            payroll_service = await self._get_payroll_service()
-            await payroll_service.sync_employee(employee, legal_entity_id)
+            await self._payroll_service.sync_employee(employee, legal_entity_id)
             logger.info(f"Employee {employee.employee_code} synced to payroll")
 
     async def _update_payroll_component(
@@ -550,8 +518,7 @@ class HRToPayrollTransformer(BaseTransformer):
             "BonusApproved": "bonus",
         }.get(event_type, "unknown")
         if component_type != "unknown":
-            payroll_service = await self._get_payroll_service()
-            await payroll_service.update_payroll_component(
+            await self._payroll_service.update_payroll_component(
                 employee_id=employee_id,
                 component_type=component_type,
                 data=payload,
@@ -562,8 +529,7 @@ class HRToPayrollTransformer(BaseTransformer):
             logger.info(f"Payroll component {component_type} updated for employee {employee_id}")
 
     async def _get_active_employees(self, legal_entity_id: UUID) -> list[dict[str, Any]]:
-        employee_repo = await self._get_employee_repo()
-        employees = await employee_repo.find_active_for_payroll(
+        employees = await self._employee_repo.find_active_for_payroll(
             datetime.now().date(), legal_entity_id
         )
         return [
@@ -582,44 +548,37 @@ class HRToPayrollTransformer(BaseTransformer):
     async def _get_attendance_data(
         self, employee_id: UUID, fiscal_year: int, period_month: int
     ) -> dict[str, Any]:
-        payroll_service = await self._get_payroll_service()
-        return await payroll_service.get_attendance_summary(employee_id, fiscal_year, period_month)
+        return await self._payroll_service.get_attendance_summary(employee_id, fiscal_year, period_month)
 
     async def _get_overtime_data(
         self, employee_id: UUID, fiscal_year: int, period_month: int
     ) -> dict[str, Any]:
-        payroll_service = await self._get_payroll_service()
-        return await payroll_service.get_overtime_summary(employee_id, fiscal_year, period_month)
+        return await self._payroll_service.get_overtime_summary(employee_id, fiscal_year, period_month)
 
     async def _get_leave_data(
         self, employee_id: UUID, fiscal_year: int, period_month: int
     ) -> dict[str, Any]:
-        payroll_service = await self._get_payroll_service()
-        return await payroll_service.get_leave_summary(employee_id, fiscal_year, period_month)
+        return await self._payroll_service.get_leave_summary(employee_id, fiscal_year, period_month)
 
     async def _get_bonus_data(
         self, employee_id: UUID, fiscal_year: int, period_month: int
     ) -> dict[str, Any]:
-        payroll_service = await self._get_payroll_service()
-        return await payroll_service.get_bonus_summary(employee_id, fiscal_year, period_month)
+        return await self._payroll_service.get_bonus_summary(employee_id, fiscal_year, period_month)
 
     async def _get_ytd_gross_income(
         self, employee_id: UUID, fiscal_year: int, current_month: int
     ) -> Decimal:
-        payroll_service = await self._get_payroll_service()
-        return await payroll_service.get_ytd_gross_income(employee_id, fiscal_year, current_month)
+        return await self._payroll_service.get_ytd_gross_income(employee_id, fiscal_year, current_month)
 
     async def _get_tax_paid_ytd(
         self, employee_id: UUID, fiscal_year: int, current_month: int
     ) -> Decimal:
-        payroll_service = await self._get_payroll_service()
-        return await payroll_service.get_tax_paid_ytd(employee_id, fiscal_year, current_month)
+        return await self._payroll_service.get_tax_paid_ytd(employee_id, fiscal_year, current_month)
 
     async def _is_period_closed(
         self, fiscal_year: int, period_month: int, legal_entity_id: UUID
     ) -> bool:
-        payroll_repo = await self._get_payroll_repo()
-        return await payroll_repo.is_period_closed(fiscal_year, period_month, legal_entity_id)
+        return await self._payroll_repo.is_period_closed(fiscal_year, period_month, legal_entity_id)
 
     async def reset(self) -> None:
         self._processed_events.clear()
@@ -640,15 +599,26 @@ class HRToPayrollTransformer(BaseTransformer):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> HRToPayrollTransformer:
-        instance = cls()
+        instance = cls.__new__(cls)
         instance._version = data.get("version", 1)
         instance._transformer_id = data.get("transformer_id", str(uuid4()))
-        if "calculator" in data:
-            instance._calculator = PayrollCalculator.from_dict(data["calculator"])
+        instance._command_bus = None
+        instance._payroll_service = None
+        instance._tax_service = None
+        instance._employee_repo = None
+        instance._payroll_repo = None
+        instance._calculator = PayrollCalculator()
+        instance._processed_events = set()
         return instance
 
     def clone(self) -> HRToPayrollTransformer:
-        new = HRToPayrollTransformer()
+        new = HRToPayrollTransformer(
+            command_bus=self._command_bus,
+            payroll_service=self._payroll_service,
+            tax_service=self._tax_service,
+            employee_repo=self._employee_repo,
+            payroll_repo=self._payroll_repo,
+        )
         new._version = self._version + 1
         new._record_audit("CLONE", "system", {"source": self._transformer_id})
         return new
@@ -673,7 +643,21 @@ _hr_to_payroll_transformer: HRToPayrollTransformer | None = None
 async def get_hr_to_payroll_transformer() -> HRToPayrollTransformer:
     global _hr_to_payroll_transformer
     if _hr_to_payroll_transformer is None:
-        _hr_to_payroll_transformer = HRToPayrollTransformer()
+        from bootstrap.dependency_container.ioc_container import get_container
+
+        container = get_container()
+        command_bus = container.resolve(UnifiedCommandBus)
+        payroll_service = container.resolve(PayrollService)
+        tax_service = container.resolve(TaxService)
+        employee_repo = container.resolve(EmployeeRepositoryPort)
+        payroll_repo = container.resolve(PayrollRepositoryPort)
+        _hr_to_payroll_transformer = HRToPayrollTransformer(
+            command_bus=command_bus,
+            payroll_service=payroll_service,
+            tax_service=tax_service,
+            employee_repo=employee_repo,
+            payroll_repo=payroll_repo,
+        )
     return _hr_to_payroll_transformer
 
 

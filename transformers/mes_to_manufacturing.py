@@ -28,7 +28,6 @@ from application.dto_objects.manufacturing_request import (
 )
 from application.service_layer.service_inventory import InventoryService
 from application.service_layer.service_manufacturing import ManufacturingService
-from bootstrap.dependency_container.ioc_container import get_container
 from domain.manufacturing.hpp_per_product_calculator import HPPCalculator
 from domain.manufacturing.overhead_allocation_engine import OverheadAllocationEngine
 from infrastructure.telemetry.alert_manager_router import trigger_alert
@@ -68,7 +67,7 @@ HANDLED_EVENT_TYPES = [
 
 
 # ============================================================================
-# BaseTransformer (sama seperti sebelumnya, didefinisikan ulang untuk kemandirian file)
+# BaseTransformer
 # ============================================================================
 class BaseTransformer:
     def __init__(self, name: str):
@@ -80,7 +79,6 @@ class BaseTransformer:
 
     def _take_snapshot(self):
         import datetime
-
         self._snapshots.append(
             {
                 "version": self._version,
@@ -94,7 +92,6 @@ class BaseTransformer:
 
     def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]):
         import datetime
-
         self._audit_trail.append(
             {
                 "action": action,
@@ -127,7 +124,6 @@ class BaseTransformer:
 
     def snapshot(self) -> dict[str, Any]:
         import datetime
-
         return {
             "version": self._version,
             "transformer_id": self._transformer_id,
@@ -244,49 +240,26 @@ class ManufacturingCostCalculator(BaseTransformer):
 # MESToManufacturingTransformer (dengan entity dasar)
 # ============================================================================
 class MESToManufacturingTransformer(BaseTransformer):
-    def __init__(self):
+    def __init__(
+        self,
+        command_bus: UnifiedCommandBus,
+        manufacturing_service: ManufacturingService,
+        inventory_service: InventoryService,
+        work_order_repo: WorkOrderRepositoryPort,
+        bom_repo: BillOfMaterialsRepositoryPort,
+    ):
         super().__init__("MESToManufacturingTransformer")
-        self._command_bus: UnifiedCommandBus | None = None
-        self._manufacturing_service: ManufacturingService | None = None
-        self._inventory_service: InventoryService | None = None
-        self._work_order_repo: WorkOrderRepositoryPort | None = None
-        self._bom_repo: BillOfMaterialsRepositoryPort | None = None
+        self._command_bus = command_bus
+        self._manufacturing_service = manufacturing_service
+        self._inventory_service = inventory_service
+        self._work_order_repo = work_order_repo
+        self._bom_repo = bom_repo
         self._cost_calculator = ManufacturingCostCalculator()
         self._processed_events: set = set()
         self._wip_costs: dict[UUID, dict] = {}
         self._material_issues: dict[UUID, list] = {}
         self._labor_records: dict[UUID, list] = {}
         self._machine_records: dict[UUID, list] = {}
-
-    async def _get_command_bus(self) -> UnifiedCommandBus:
-        if self._command_bus is None:
-            container = get_container()
-            self._command_bus = container.resolve(UnifiedCommandBus)
-        return self._command_bus
-
-    async def _get_manufacturing_service(self) -> ManufacturingService:
-        if self._manufacturing_service is None:
-            container = get_container()
-            self._manufacturing_service = container.resolve(ManufacturingService)
-        return self._manufacturing_service
-
-    async def _get_inventory_service(self) -> InventoryService:
-        if self._inventory_service is None:
-            container = get_container()
-            self._inventory_service = container.resolve(InventoryService)
-        return self._inventory_service
-
-    async def _get_work_order_repo(self) -> WorkOrderRepositoryPort:
-        if self._work_order_repo is None:
-            container = get_container()
-            self._work_order_repo = container.resolve(WorkOrderRepositoryPort)
-        return self._work_order_repo
-
-    async def _get_bom_repo(self) -> BillOfMaterialsRepositoryPort:
-        if self._bom_repo is None:
-            container = get_container()
-            self._bom_repo = container.resolve(BillOfMaterialsRepositoryPort)
-        return self._bom_repo
 
     async def transform(self, envelope: EventEnvelope) -> None:
         event_type = envelope.event_type
@@ -354,8 +327,7 @@ class MESToManufacturingTransformer(BaseTransformer):
             legal_entity_id=legal_entity_id,
             created_by=UUID(payload.get("created_by")) if payload.get("created_by") else None,
         )
-        command_bus = await self._get_command_bus()
-        result = await command_bus.dispatch(
+        result = await self._command_bus.dispatch(
             {"type": "manufacturing.work_order.create", "data": create_request.to_dict()}
         )
         self._wip_costs[work_order_id] = {
@@ -391,8 +363,7 @@ class MESToManufacturingTransformer(BaseTransformer):
             issued_by=UUID(payload.get("issued_by")) if payload.get("issued_by") else None,
             legal_entity_id=legal_entity_id,
         )
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {"type": "manufacturing.material.issue", "data": issue_request.to_dict()}
         )
         total_cost = quantity * unit_cost
@@ -427,8 +398,7 @@ class MESToManufacturingTransformer(BaseTransformer):
             recorded_by=UUID(payload.get("recorded_by")) if payload.get("recorded_by") else None,
             legal_entity_id=legal_entity_id,
         )
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {"type": "manufacturing.labor.record", "data": labor_request.to_dict()}
         )
         total_cost = hours * hourly_rate
@@ -480,8 +450,7 @@ class MESToManufacturingTransformer(BaseTransformer):
             if payload.get("legal_entity_id")
             else envelope.metadata.get("legal_entity_id")
         )
-        work_order_repo = await self._get_work_order_repo()
-        work_order = await work_order_repo.get_by_id(work_order_id)
+        work_order = await self._work_order_repo.get_by_id(work_order_id)
         if not work_order:
             raise WorkOrderNotFoundError(f"Work order {work_order_id} not found")
         wip = self._wip_costs.get(
@@ -507,8 +476,7 @@ class MESToManufacturingTransformer(BaseTransformer):
             completed_by=UUID(payload.get("completed_by")) if payload.get("completed_by") else None,
             legal_entity_id=legal_entity_id,
         )
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {"type": "manufacturing.production.complete", "data": completion_request.to_dict()}
         )
         await self._create_manufacturing_journal(
@@ -529,8 +497,7 @@ class MESToManufacturingTransformer(BaseTransformer):
             if payload.get("legal_entity_id")
             else envelope.metadata.get("legal_entity_id")
         )
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch(
+        await self._command_bus.dispatch(
             {
                 "type": "manufacturing.work_order.close",
                 "data": {
@@ -617,12 +584,10 @@ class MESToManufacturingTransformer(BaseTransformer):
             created_by=UUID("00000000-0000-0000-0000-000000000000"),
             legal_entity_id=legal_entity_id,
         )
-        command_bus = await self._get_command_bus()
-        await command_bus.dispatch({"type": "journal.create", "data": create_request.to_dict()})
+        await self._command_bus.dispatch({"type": "journal.create", "data": create_request.to_dict()})
 
     async def _get_bom_for_product(self, product_id: UUID, legal_entity_id: UUID) -> Any | None:
-        bom_repo = await self._get_bom_repo()
-        return await bom_repo.get_active_by_product(product_id, legal_entity_id)
+        return await self._bom_repo.get_active_by_product(product_id, legal_entity_id)
 
     def _parse_date(self, date_value: Any) -> date | None:
         if date_value is None:
@@ -663,17 +628,30 @@ class MESToManufacturingTransformer(BaseTransformer):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> MESToManufacturingTransformer:
-        instance = cls()
+        instance = cls.__new__(cls)
         instance._version = data.get("version", 1)
         instance._transformer_id = data.get("transformer_id", str(uuid4()))
-        if "cost_calculator" in data:
-            instance._cost_calculator = ManufacturingCostCalculator.from_dict(
-                data["cost_calculator"]
-            )
+        instance._command_bus = None
+        instance._manufacturing_service = None
+        instance._inventory_service = None
+        instance._work_order_repo = None
+        instance._bom_repo = None
+        instance._cost_calculator = ManufacturingCostCalculator()
+        instance._processed_events = set()
+        instance._wip_costs = {}
+        instance._material_issues = {}
+        instance._labor_records = {}
+        instance._machine_records = {}
         return instance
 
     def clone(self) -> MESToManufacturingTransformer:
-        new = MESToManufacturingTransformer()
+        new = MESToManufacturingTransformer(
+            command_bus=self._command_bus,
+            manufacturing_service=self._manufacturing_service,
+            inventory_service=self._inventory_service,
+            work_order_repo=self._work_order_repo,
+            bom_repo=self._bom_repo,
+        )
         new._version = self._version + 1
         new._record_audit("CLONE", "system", {"source": self._transformer_id})
         return new
@@ -698,7 +676,21 @@ _mes_to_manufacturing_transformer: MESToManufacturingTransformer | None = None
 async def get_mes_to_manufacturing_transformer() -> MESToManufacturingTransformer:
     global _mes_to_manufacturing_transformer
     if _mes_to_manufacturing_transformer is None:
-        _mes_to_manufacturing_transformer = MESToManufacturingTransformer()
+        from bootstrap.dependency_container.ioc_container import get_container
+
+        container = get_container()
+        command_bus = container.resolve(UnifiedCommandBus)
+        manufacturing_service = container.resolve(ManufacturingService)
+        inventory_service = container.resolve(InventoryService)
+        work_order_repo = container.resolve(WorkOrderRepositoryPort)
+        bom_repo = container.resolve(BillOfMaterialsRepositoryPort)
+        _mes_to_manufacturing_transformer = MESToManufacturingTransformer(
+            command_bus=command_bus,
+            manufacturing_service=manufacturing_service,
+            inventory_service=inventory_service,
+            work_order_repo=work_order_repo,
+            bom_repo=bom_repo,
+        )
     return _mes_to_manufacturing_transformer
 
 

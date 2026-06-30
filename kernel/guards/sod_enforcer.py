@@ -966,6 +966,7 @@ SoDEnforcer = SODEnforcer  # alias with lowercase 'o' for tests
 
 # The checker expects 'SodEnforcer' (case-sensitive) or 'enforce_sod' or 'check_segregation'
 SodEnforcer = SODEnforcer  # Alias with lowercase 'o' after S
+SegregationOfDutiesGuard = SODEnforcer  # <-- ADDED for test_sox_404_controls.py
 
 
 def enforce_sod(
@@ -1032,8 +1033,8 @@ __all__ = [
     "SODViolation",
     "SoDEnforcer",
     "SodEnforcer",
+    "SegregationOfDutiesGuard",  
     "check_segregation",
     "enforce_sod",
     "get_sod_enforcer",
-
 ]
