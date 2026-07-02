@@ -166,9 +166,7 @@ class KafkaProducerWrapper:
                 logger.info(f"Kafka producer started: {self.config.get('bootstrap_servers')}")
             except Exception as e:
                 logger.error(f"Failed to start Kafka producer: {e}")
-                logger.warning("Starting dummy producer instead (Kafka unavailable).")
-                # Pastikan producer yang gagal start di-cleanup dengan benar
-                # agar tidak muncul "Unclosed AIOKafkaProducer" warning dari asyncio
+                # Cleanup: tutup producer jika sudah dibuat
                 if self._producer is not None:
                     try:
                         await self._producer.stop()
@@ -176,17 +174,23 @@ class KafkaProducerWrapper:
                         pass
                     finally:
                         self._producer = None
-                self._connected = True  # tetap connected secara dummy
+                # Jalankan dalam mode dummy
+                self._connected = True
                 self._running = True
-                self._producer = None  # dummy mode
+                logger.warning("Starting dummy producer instead (Kafka unavailable).")
 
     async def stop(self) -> None:
         """Stop Kafka producer and close connections."""
         self._running = False
         if self._producer:
-            await self._producer.stop()
-            self._connected = False
-            logger.info("Kafka producer stopped")
+            try:
+                await self._producer.stop()
+                self._connected = False
+                logger.info("Kafka producer stopped")
+            except Exception as e:
+                logger.warning(f"Error stopping Kafka producer: {e}")
+            finally:
+                self._producer = None
 
     async def send(
         self,

@@ -1,0 +1,14 @@
+{
+  "keys": {
+    "default": {
+      "key_id": "default",
+      "key": "V33+dPJ/fhAjybbbFlBsPUrF5e1sFDPxIlChhPcfB4Y=",
+      "created_at": "2026-06-30T08:45:50.381048+00:00",
+      "version": 1,
+      "metadata": {
+        "source": "auto_generated"
+      }
+    }
+  },
+  "current": "default"
+}

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, or_, select, update
@@ -114,19 +115,19 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
     # FAKTUR PAJAK - KELUARAN & MASUKAN
     # ========================================================================
 
-    async def save_faktur_keluaran(self, faktur: FakturPajak) -> UUID:
+    async def save_faktur_keluaran(self, faktur: FakturPajak) -> None:  # ← return None
         """Simpan faktur pajak keluaran."""
         if not faktur.is_keluaran:
             raise TaxRepositoryError("Cannot save non-keluaran as faktur keluaran")
-        return await self._save_faktur(faktur)
+        await self._save_faktur(faktur)
 
-    async def save_faktur_masukan(self, faktur: FakturPajak) -> UUID:
+    async def save_faktur_masukan(self, faktur: FakturPajak) -> None:  # ← return None
         """Simpan faktur pajak masukan."""
         if faktur.is_keluaran:
             raise TaxRepositoryError("Cannot save keluaran as faktur masukan")
-        return await self._save_faktur(faktur)
+        await self._save_faktur(faktur)
 
-    async def _save_faktur(self, faktur: FakturPajak) -> UUID:
+    async def _save_faktur(self, faktur: FakturPajak) -> None:  # ← return None
         """Internal: simpan faktur (keluaran/masukan)."""
         try:
             # Cek duplikasi nomor faktur
@@ -187,7 +188,6 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
 
             await self.session.flush()
             logger.info("Faktur saved: %s", faktur.faktur_number)
-            return faktur.id
 
         except DuplicateFakturNumberError:
             raise
@@ -195,14 +195,14 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
             await self.session.rollback()
             raise TaxRepositoryError(f"Failed to save faktur: {e}") from e
 
-    async def get_faktur_keluaran(self, faktur_id: UUID) -> FakturPajak | None:
+    async def get_faktur_keluaran(self, faktur_id: UUID) -> Any | None:  # ← return Any
         """Ambil faktur keluaran by ID."""
         faktur = await self.get_faktur_by_id(faktur_id)
         if faktur and not faktur.is_keluaran:
             return None
         return faktur
 
-    async def get_faktur_masukan(self, faktur_id: UUID) -> FakturPajak | None:
+    async def get_faktur_masukan(self, faktur_id: UUID) -> Any | None:  # ← return Any
         """Ambil faktur masukan by ID."""
         faktur = await self.get_faktur_by_id(faktur_id)
         if faktur and faktur.is_keluaran:
@@ -406,7 +406,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
 
     async def list_faktur_keluaran_by_npwp(
         self, npwp: str, limit: int = 100, offset: int = 0
-    ) -> list[FakturPajak]:
+    ) -> list[Any]:  # ← return list[Any]
         """List faktur keluaran berdasarkan NPWP."""
         stmt = (
             select(CoretaxFakturTable)
@@ -427,7 +427,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
 
     async def list_faktur_masukan_by_npwp(
         self, npwp: str, limit: int = 100, offset: int = 0
-    ) -> list[FakturPajak]:
+    ) -> list[Any]:  # ← return list[Any]
         """List faktur masukan berdasarkan NPWP."""
         stmt = (
             select(CoretaxFakturTable)
@@ -447,7 +447,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
         return fakturs
 
     # ========================================================================
-    # NSFP (FIXED: signature sesuai port)
+    # NSFP
     # ========================================================================
 
     async def save_nsfp_range(
@@ -496,7 +496,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
             await self.session.rollback()
             raise TaxRepositoryError(f"Failed to save NSFP range: {e}") from e
 
-    async def get_current_nsfp_range(self, legal_entity_id: UUID) -> dict | None:
+    async def get_current_nsfp_range(self, legal_entity_id: UUID) -> Any | None:  # ← return Any
         """
         Ambil range NSFP yang tersedia untuk legal entity.
         Return dict dengan start, end, current (nomor pertama available).
@@ -566,19 +566,19 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
     # SPT
     # ========================================================================
 
-    async def save_spt_pph21(self, spt: SPTSubmission) -> UUID:
+    async def save_spt_pph21(self, spt: SPTSubmission) -> None:  # ← return None
         """Simpan SPT PPh 21."""
-        return await self._save_spt(spt)
+        await self._save_spt(spt)
 
-    async def save_spt_ppn(self, spt: SPTSubmission) -> UUID:
+    async def save_spt_ppn(self, spt: SPTSubmission) -> None:  # ← return None
         """Simpan SPT PPN."""
-        return await self._save_spt(spt)
+        await self._save_spt(spt)
 
-    async def save_spt_tahunan(self, spt: SPTSubmission) -> UUID:
+    async def save_spt_tahunan(self, spt: SPTSubmission) -> None:  # ← return None
         """Simpan SPT Tahunan."""
-        return await self._save_spt(spt)
+        await self._save_spt(spt)
 
-    async def _save_spt(self, spt: SPTSubmission) -> UUID:
+    async def _save_spt(self, spt: SPTSubmission) -> None:  # ← return None
         try:
             table = CoretaxSPTTable(
                 id=spt.id,
@@ -601,7 +601,6 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
             )
             self.session.add(table)
             await self.session.flush()
-            return spt.id
         except Exception as e:
             await self.session.rollback()
             raise TaxRepositoryError(f"Failed to save SPT: {e}") from e
@@ -664,7 +663,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
             await self.session.rollback()
             raise TaxRepositoryError(f"Failed to update SPT status: {e}") from e
 
-    async def count_spt_by_status(self, legal_entity_id: UUID, spt_type: str, status: str) -> int:
+    async def count_spt_by_status(self, legal_entity_id: UUID, status: str, spt_type: str) -> int:
         """Hitung jumlah SPT berdasarkan status."""
         stmt = (
             select(func.count())
@@ -699,41 +698,40 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
     # E-BUPOT
     # ========================================================================
 
-    async def save_bukti_potong(self, bupot: Bupot) -> UUID:
+    async def save_bukti_potong(self, bukti: Bupot) -> None:  # ← parameter "bukti" dan return None
         """Simpan e-Bupot."""
         try:
             table = CoretaxBupotTable(
-                id=bupot.id,
-                bupot_number=bupot.bupot_number,
-                npwp_pemotong=bupot.npwp_pemotong,
-                npwp_penerima=bupot.npwp_penerima,
-                nama_penerima=bupot.nama_penerima,
-                jenis_pajak=bupot.jenis_pajak,
-                masa_pajak=bupot.masa_pajak,
-                tahun_pajak=bupot.tahun_pajak,
-                dasar_pemotongan=bupot.dasar_pemotongan,
-                tarif=float(bupot.tarif),
-                pph_dipotong=bupot.pph_dipotong,
-                status=bupot.status,
-                coretax_id=bupot.coretax_id,
-                invoice_reference=bupot.invoice_reference,
-                created_by=bupot.created_by,
+                id=bukti.id,
+                bupot_number=bukti.bupot_number,
+                npwp_pemotong=bukti.npwp_pemotong,
+                npwp_penerima=bukti.npwp_penerima,
+                nama_penerima=bukti.nama_penerima,
+                jenis_pajak=bukti.jenis_pajak,
+                masa_pajak=bukti.masa_pajak,
+                tahun_pajak=bukti.tahun_pajak,
+                dasar_pemotongan=bukti.dasar_pemotongan,
+                tarif=float(bukti.tarif),
+                pph_dipotong=bukti.pph_dipotong,
+                status=bukti.status,
+                coretax_id=bukti.coretax_id,
+                invoice_reference=bukti.invoice_reference,
+                created_by=bukti.created_by,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
                 version=1,
-                legal_entity_id=bupot.legal_entity_id,
+                legal_entity_id=bukti.legal_entity_id,
             )
             self.session.add(table)
             await self.session.flush()
-            return bupot.id
         except Exception as e:
             await self.session.rollback()
             raise TaxRepositoryError(f"Failed to save bupot: {e}") from e
 
-    async def get_bukti_potong(self, bupot_id: UUID) -> Bupot | None:
+    async def get_bukti_potong(self, bukti_id: UUID) -> Any | None:  # ← parameter "bukti_id", return Any
         """Ambil e-Bupot by ID."""
         try:
-            stmt = select(CoretaxBupotTable).where(CoretaxBupotTable.id == bupot_id)
+            stmt = select(CoretaxBupotTable).where(CoretaxBupotTable.id == bukti_id)
             result = await self.session.execute(stmt)
             table = result.scalar_one_or_none()
             if not table:
@@ -785,7 +783,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
 
     async def list_bupot(
         self, npwp_pemotong: str, masa_pajak: int | None = None, tahun_pajak: int | None = None
-    ) -> list[Bupot]:
+    ) -> list[Any]:  # ← return list[Any]
         """List e-Bupot."""
         conditions = [CoretaxBupotTable.npwp_pemotong == npwp_pemotong]
         if masa_pajak:

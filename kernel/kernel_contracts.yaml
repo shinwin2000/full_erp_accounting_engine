@@ -1,0 +1,64 @@
+base_class_contracts:
+  BaseAuditHookInjector:
+    required: [start_context, before_execution, after_execution, on_error]
+    optional: [flush_all, shutdown, validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch, get_statistics, reset]
+
+  BaseRetryPolicy:
+    required: [should_retry]
+    optional: [backoff_delay, calculate_delay]
+
+  BaseContextHolder:
+    required: [get_current_user, set_current_user]
+    optional: [clear]
+
+  BaseSealedGate:
+    required: [can_access, authorize]
+    optional: [seal]
+
+  BaseCommandDispatcher:
+    required: [dispatch]
+    optional: [register_handler]
+
+  BaseCircuitBreaker:
+    required: [can_execute]
+    optional: [record_success, record_failure]
+
+  BaseDistributedLock:
+    required: [acquire, release]
+    optional: [extend]
+
+  BaseHealthIndicator:
+    required: [check_health]
+    optional: [get_status, health]
+
+  BaseTransactionalExecutor:
+    required: [execute, execute_in_transaction]
+    optional: []
+
+  BaseLifecycleListener:
+    required: [on_start, on_stop]
+    optional: [on_shutdown]
+
+  BaseMetricCollector:
+    required: [collect]
+    optional: [export, reset]
+
+  BaseDependencyInjector:
+    required: [resolve]
+    optional: [register, get]
+
+  BaseValidationPipeline:
+    required: [validate]
+    optional: [add_validator, run]
+
+  BaseCommandEnvelope:
+    required: [wrap, unwrap]
+    optional: [metadata]
+
+  BaseCommandHandlerRegistry:
+    required: [register, get_handler]
+    optional: [list_handlers]
+
+  BaseKernelHealthIndicator:
+    required: [check_health]
+    optional: [get_status, health]

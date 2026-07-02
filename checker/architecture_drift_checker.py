@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-╔══════════════════════════════════════════════════════════════════════════════════╗
-║    SOVEREIGN ERP ACCOUNTING ENGINE — ARCHITECTURE DRIFT & BOUNDARY VALIDATOR   ║
-║    Version: 4.3.1  |  Audit-Grade  |  Context-Aware AST Visitor               ║
-╚══════════════════════════════════════════════════════════════════════════════════╝
-
-PERBAIKAN VERSI 4.3.1:
-  • Memperbaiki AttributeError pada ImportCollector (menambahkan referensi verifier)
-  • Skor 100/100 untuk codebase yang sehat
+╔══════════════════════════════════════════════════════════════════════════════╗
+║    SOVEREIGN ERP — ARCHITECTURE DRIFT & BOUNDARY VALIDATOR   v5.1.1       ║
+║    Big‑4 Audit Grade  •  Full RCA Integration  •  Zero False Positives    ║
+║    Context‑Aware AST Visitor  •  Complete Coverage Reporting             ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  PERBAIKAN v5.1.1:                                                         ║
+║  ✅ Membaca file dengan utf-8-sig terlebih dahulu (dukungan BOM)          ║
+║  ✅ Fallback encoding: utf-8, latin-1, cp1252                             ║
+║  ✅ Menampilkan detail file gagal scan dengan --show-skipped             ║
+║  ✅ RCA Engine terintegrasi penuh (multiple fallback import paths)        ║
+║  ✅ Mode --deep-rca untuk analisis root cause berbasis engine             ║
+║  ✅ Coverage 100% setelah file diperbaiki                                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
-import hashlib
 import json
 import os
 import pathlib
@@ -25,12 +29,12 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Any, List, Dict, Set, Tuple
 
 # ─────────────────────────────────────────────────────────────────────────────
 # VERSI & METADATA
 # ─────────────────────────────────────────────────────────────────────────────
-TOOL_VERSION = "4.3.1"
+TOOL_VERSION = "5.1.1"
 TOOL_NAME    = "SovereignArchitectureDriftValidator"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -55,7 +59,73 @@ def c(key: str, text: str) -> str:
     return f"{COLOR[key]}{text}{COLOR['RESET']}"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# STDLIB / BUILTIN — FILTER
+# RCA ENGINE – INTEGRASI ROBUST
+# ─────────────────────────────────────────────────────────────────────────────
+RCA_ENGINE: Any = None
+RCA_AVAILABLE: bool = False
+RCA_ANALYZE = None
+RCA_SEVERITY = None
+
+def _init_rca_engine() -> bool:
+    """Inisialisasi RCA engine dengan multiple fallback paths."""
+    global RCA_ENGINE, RCA_AVAILABLE, RCA_ANALYZE, RCA_SEVERITY
+
+    # 1. Coba import langsung
+    try:
+        from checker.core.rca import get_engine, analyze_exception, Severity
+        RCA_ENGINE = get_engine()
+        RCA_ANALYZE = analyze_exception
+        RCA_SEVERITY = Severity
+        RCA_AVAILABLE = True
+        return True
+    except ImportError:
+        pass
+
+    # 2. Tambahkan root proyek ke sys.path
+    root = pathlib.Path(__file__).resolve().parent.parent
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    try:
+        from checker.core.rca import get_engine, analyze_exception, Severity
+        RCA_ENGINE = get_engine()
+        RCA_ANALYZE = analyze_exception
+        RCA_SEVERITY = Severity
+        RCA_AVAILABLE = True
+        return True
+    except ImportError:
+        pass
+
+    # 3. Coba dari subfolder core
+    core_path = root / "checker" / "core"
+    if core_path.exists() and str(core_path) not in sys.path:
+        sys.path.insert(0, str(core_path))
+    try:
+        from rca import get_engine, analyze_exception, Severity
+        RCA_ENGINE = get_engine()
+        RCA_ANALYZE = analyze_exception
+        RCA_SEVERITY = Severity
+        RCA_AVAILABLE = True
+        return True
+    except ImportError:
+        pass
+
+    # 4. Fallback terakhir: dari core.rca
+    try:
+        from core.rca import get_engine, analyze_exception, Severity
+        RCA_ENGINE = get_engine()
+        RCA_ANALYZE = analyze_exception
+        RCA_SEVERITY = Severity
+        RCA_AVAILABLE = True
+        return True
+    except ImportError:
+        pass
+
+    return False
+
+_init_rca_engine()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STDLIB / THIRD‑PARTY
 # ─────────────────────────────────────────────────────────────────────────────
 STDLIB_TOP_LEVEL: frozenset[str] = frozenset({
     "abc", "ast", "asyncio", "base64", "builtins", "collections", "concurrent",
@@ -67,7 +137,6 @@ STDLIB_TOP_LEVEL: frozenset[str] = frozenset({
     "subprocess", "sys", "tempfile", "textwrap", "threading", "time", "traceback",
     "typing", "typing_extensions", "unittest", "urllib", "uuid", "warnings",
     "weakref", "xml", "zipfile", "zlib",
-    # Third-party
     "alembic", "anyio", "click", "cryptography", "fastapi", "grpc",
     "httpx", "jose", "kafka", "kombu", "minio", "opentelemetry", "passlib",
     "pydantic", "pydantic_settings", "pymongo", "pytest", "redis",
@@ -79,7 +148,7 @@ STDLIB_TOP_LEVEL: frozenset[str] = frozenset({
     "pkg_resources", "setuptools", "packaging", "attrs", "cattrs",
     "marshmallow", "cerberus", "voluptuous", "aiohttp", "tenacity",
     "backoff", "retry", "cachetools", "diskcache", "apscheduler",
-    "celery", "dramatiq", "rq", "arq", "faust", "confluent_kafka",
+    "dramatiq", "rq", "arq", "faust", "confluent_kafka",
     "__future__",
 })
 
@@ -126,9 +195,6 @@ OPERATIONAL_LAYERS: frozenset[str] = frozenset({
     "monitoring", "disaster_recovery", "security_hardening", "architecture",
 })
 
-# ─────────────────────────────────────────────────────────────────────────────
-# HIERARCHY LAYER
-# ─────────────────────────────────────────────────────────────────────────────
 LAYER_RANK: dict[str, int] = {
     "axioms":               0,
     "constitution":         1,
@@ -148,7 +214,6 @@ LAYER_RANK: dict[str, int] = {
     "reports":              10,
     "bootstrap":            11,
     "app":                  12,
-    # Operational
     "monitoring":           99,
     "disaster_recovery":    99,
     "security_hardening":   99,
@@ -158,36 +223,26 @@ LAYER_RANK: dict[str, int] = {
     "unknown":              99,
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ALLOWED DEPENDENCY PAIRS
-# ─────────────────────────────────────────────────────────────────────────────
 ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
-
     ("axioms",           "axioms"),
     ("axioms",           "constitution"),
-
     ("constitution",     "constitution"),
     ("constitution",     "axioms"),
-
     ("domain",           "domain"),
     ("domain",           "axioms"),
     ("domain",           "constitution"),
-
     ("ports",            "ports"),
     ("ports",            "domain"),
     ("ports",            "axioms"),
     ("ports",            "constitution"),
-
     ("kernel",           "kernel"),
     ("kernel",           "domain"),
     ("kernel",           "axioms"),
     ("kernel",           "constitution"),
     ("kernel",           "ports"),
     ("kernel",           "config"),
-
     ("config",           "config"),
     ("config",           "axioms"),
-
     ("policy_engine",    "policy_engine"),
     ("policy_engine",    "domain"),
     ("policy_engine",    "axioms"),
@@ -196,7 +251,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("policy_engine",    "config"),
     ("policy_engine",    "ports"),
     ("policy_engine",    "compliance"),
-
     ("audit",            "audit"),
     ("audit",            "domain"),
     ("audit",            "axioms"),
@@ -205,7 +259,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("audit",            "config"),
     ("audit",            "infrastructure"),
     ("audit",            "application"),
-
     ("compliance",       "compliance"),
     ("compliance",       "domain"),
     ("compliance",       "axioms"),
@@ -216,7 +269,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("compliance",       "infrastructure"),
     ("compliance",       "config"),
     ("compliance",       "ports"),
-
     ("application",      "application"),
     ("application",      "domain"),
     ("application",      "axioms"),
@@ -227,14 +279,12 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("application",      "policy_engine"),
     ("application",      "audit"),
     ("application",      "compliance"),
-
     ("infrastructure",   "infrastructure"),
     ("infrastructure",   "domain"),
     ("infrastructure",   "axioms"),
     ("infrastructure",   "ports"),
     ("infrastructure",   "kernel"),
     ("infrastructure",   "config"),
-
     ("event_gateway",    "event_gateway"),
     ("event_gateway",    "domain"),
     ("event_gateway",    "application"),
@@ -242,7 +292,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("event_gateway",    "kernel"),
     ("event_gateway",    "config"),
     ("event_gateway",    "ports"),
-
     ("adapters",         "adapters"),
     ("adapters",         "application"),
     ("adapters",         "domain"),
@@ -254,7 +303,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("adapters",         "config"),
     ("adapters",         "audit"),
     ("adapters",         "policy_engine"),
-
     ("transformers",     "transformers"),
     ("transformers",     "domain"),
     ("transformers",     "application"),
@@ -262,7 +310,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("transformers",     "infrastructure"),
     ("transformers",     "config"),
     ("transformers",     "kernel"),
-
     ("projections",      "projections"),
     ("projections",      "domain"),
     ("projections",      "application"),
@@ -270,7 +317,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("projections",      "kernel"),
     ("projections",      "ports"),
     ("projections",      "config"),
-
     ("reports",          "reports"),
     ("reports",          "projections"),
     ("reports",          "application"),
@@ -278,7 +324,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("reports",          "infrastructure"),
     ("reports",          "ports"),
     ("reports",          "config"),
-
     ("bootstrap",        "bootstrap"),
     ("bootstrap",        "config"),
     ("bootstrap",        "domain"),
@@ -296,7 +341,6 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("bootstrap",        "transformers"),
     ("bootstrap",        "projections"),
     ("bootstrap",        "reports"),
-
     ("app",              "app"),
     ("app",              "bootstrap"),
     ("app",              "adapters"),
@@ -304,60 +348,56 @@ ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("app",              "config"),
     ("app",              "domain"),
     ("app",              "kernel"),
-
-    ("monitoring",           "monitoring"),
-    ("monitoring",           "domain"),
-    ("monitoring",           "application"),
-    ("monitoring",           "infrastructure"),
-    ("monitoring",           "kernel"),
-    ("monitoring",           "config"),
-    ("monitoring",           "ports"),
-    ("monitoring",           "adapters"),
-    ("monitoring",           "bootstrap"),
-    ("monitoring",           "app"),
-
-    ("security_hardening",   "security_hardening"),
-    ("security_hardening",   "domain"),
-    ("security_hardening",   "application"),
-    ("security_hardening",   "infrastructure"),
-    ("security_hardening",   "kernel"),
-    ("security_hardening",   "config"),
-    ("security_hardening",   "ports"),
-    ("security_hardening",   "adapters"),
-    ("security_hardening",   "audit"),
-    ("security_hardening",   "compliance"),
-
-    ("disaster_recovery",    "disaster_recovery"),
-    ("disaster_recovery",    "domain"),
-    ("disaster_recovery",    "infrastructure"),
-    ("disaster_recovery",    "kernel"),
-    ("disaster_recovery",    "config"),
-    ("disaster_recovery",    "adapters"),
-    ("disaster_recovery",    "bootstrap"),
-
-    ("architecture",         "architecture"),
-    ("architecture",         "domain"),
-    ("architecture",         "application"),
-    ("architecture",         "infrastructure"),
-    ("architecture",         "kernel"),
-    ("architecture",         "ports"),
-    ("architecture",         "adapters"),
-    ("architecture",         "config"),
-    ("architecture",         "axioms"),
-    ("architecture",         "constitution"),
-    ("architecture",         "policy_engine"),
-    ("architecture",         "compliance"),
-    ("architecture",         "audit"),
-    ("architecture",         "projections"),
-    ("architecture",         "reports"),
-    ("architecture",         "event_gateway"),
-    ("architecture",         "transformers"),
-    ("architecture",         "bootstrap"),
-    ("architecture",         "app"),
-    ("architecture",         "security_hardening"),
-    ("architecture",         "monitoring"),
-    ("architecture",         "disaster_recovery"),
-    ("architecture",         "checker"),
+    ("monitoring",       "monitoring"),
+    ("monitoring",       "domain"),
+    ("monitoring",       "application"),
+    ("monitoring",       "infrastructure"),
+    ("monitoring",       "kernel"),
+    ("monitoring",       "config"),
+    ("monitoring",       "ports"),
+    ("monitoring",       "adapters"),
+    ("monitoring",       "bootstrap"),
+    ("monitoring",       "app"),
+    ("security_hardening", "security_hardening"),
+    ("security_hardening", "domain"),
+    ("security_hardening", "application"),
+    ("security_hardening", "infrastructure"),
+    ("security_hardening", "kernel"),
+    ("security_hardening", "config"),
+    ("security_hardening", "ports"),
+    ("security_hardening", "adapters"),
+    ("security_hardening", "audit"),
+    ("security_hardening", "compliance"),
+    ("disaster_recovery", "disaster_recovery"),
+    ("disaster_recovery", "domain"),
+    ("disaster_recovery", "infrastructure"),
+    ("disaster_recovery", "kernel"),
+    ("disaster_recovery", "config"),
+    ("disaster_recovery", "adapters"),
+    ("disaster_recovery", "bootstrap"),
+    ("architecture",     "architecture"),
+    ("architecture",     "domain"),
+    ("architecture",     "application"),
+    ("architecture",     "infrastructure"),
+    ("architecture",     "kernel"),
+    ("architecture",     "ports"),
+    ("architecture",     "adapters"),
+    ("architecture",     "config"),
+    ("architecture",     "axioms"),
+    ("architecture",     "constitution"),
+    ("architecture",     "policy_engine"),
+    ("architecture",     "compliance"),
+    ("architecture",     "audit"),
+    ("architecture",     "projections"),
+    ("architecture",     "reports"),
+    ("architecture",     "event_gateway"),
+    ("architecture",     "transformers"),
+    ("architecture",     "bootstrap"),
+    ("architecture",     "app"),
+    ("architecture",     "security_hardening"),
+    ("architecture",     "monitoring"),
+    ("architecture",     "disaster_recovery"),
+    ("architecture",     "checker"),
 })
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -404,6 +444,12 @@ class DuplicateModuleInfo:
     severity:    str = "INFO"
 
 @dataclass
+class SkippedFileInfo:
+    file_path: pathlib.Path
+    error:     str
+    error_type: str  # SyntaxError, UnicodeDecodeError, OSError, dll.
+
+@dataclass
 class ModuleReport:
     module_path:  str
     file_path:    str
@@ -434,6 +480,8 @@ class MasterReport:
     total_files_skipped:  int = 0
     total_files_excluded: int = 0
 
+    skipped_files:        list[SkippedFileInfo] = field(default_factory=list)
+
     total_drift_violations:   int = 0
     total_wildcard_violations: int = 0
     violated_modules_count:   int = 0
@@ -453,133 +501,118 @@ class MasterReport:
     verdict:           str = ""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# RCA DIAGNOSTICS
+# RCA HELPER
 # ─────────────────────────────────────────────────────────────────────────────
-def generate_violation_rca(
+def analyze_violation_with_rca(
     source_layer: str,
     target_layer: str,
     source_module: str,
     target_module: str,
     import_type: str,
     severity: str,
+    use_deep_rca: bool = False,
 ) -> dict:
+    global RCA_AVAILABLE, RCA_ANALYZE, RCA_SEVERITY
+
+    if use_deep_rca and RCA_AVAILABLE and RCA_ANALYZE:
+        try:
+            msg = (
+                f"Architecture drift violation: {source_layer} (rank {LAYER_RANK.get(source_layer, 99)}) "
+                f"→ {target_layer} (rank {LAYER_RANK.get(target_layer, 99)}) "
+                f"via {import_type} from {source_module} to {target_module}"
+            )
+            exc = ValueError(msg)
+            ctx = {
+                "source_layer": source_layer,
+                "target_layer": target_layer,
+                "source_module": source_module,
+                "target_module": target_module,
+                "import_type": import_type,
+                "severity": severity,
+            }
+            r = RCA_ANALYZE(exc, ctx)
+            if r:
+                return {
+                    "severity": severity,
+                    "category": "Architecture",
+                    "root_cause": r.root_cause,
+                    "evidence": r.evidence[:5] if r.evidence else [msg],
+                    "impact": r.impact[:3] if r.impact else ["Architecture boundary violation detected."],
+                    "suggested_fix": r.suggested_fix,
+                    "confidence": r.confidence,
+                    "fix_time_estimate": "Unknown",
+                    "risk": "Critical" if severity == "CRITICAL" else "High" if severity == "ERROR" else "Medium",
+                }
+        except Exception:
+            pass
+
+    # ── FALLBACK MANUAL ──────────────────────────────────────────────────────
     sr = LAYER_RANK.get(source_layer, 99)
     tr = LAYER_RANK.get(target_layer, 99)
-    direction = "downward" if sr > tr else "upward" if sr < tr else "same-rank"
 
-    evidence = [
-        f"Source layer: {source_layer} (rank {sr})",
-        f"Target layer: {target_layer} (rank {tr})",
-        f"Import type: {import_type}",
-        f"Module: {source_module} → {target_module}",
-        f"Dependency direction: {direction}",
-    ]
-
-    impact = []
-    root_cause = ""
-    suggested_fix = ""
-    confidence = 0.8
-    fix_time = "Unknown"
-    risk = "Medium"
-    category = "Architecture"
-
-    if source_layer == "transformers" and target_layer == "bootstrap":
+    if sr < tr:
+        root_cause = (
+            f"Layer '{source_layer}' (rank {sr}) is more foundational than "
+            f"'{target_layer}' (rank {tr}). Foundational layers must not depend on higher layers."
+        )
+        impact = [
+            "The foundational layer becomes coupled to higher-level details.",
+            "Changes in higher layers can break foundational invariants.",
+        ]
+        suggested_fix = (
+            "Move the dependency to an interface/port defined in a lower layer, "
+            "and inject the implementation from the composition root."
+        )
+        fix_time = "1 hour"
+        risk = "Critical" if severity == "CRITICAL" else "High"
+    elif source_layer == "transformers" and target_layer == "bootstrap":
         root_cause = (
             "Transformer modules are responsible for data transformation and should not "
-            "know about the Dependency Injection container (IoC). Direct import of "
-            "bootstrap.dependency_container violates Separation of Concerns."
+            "know about the Dependency Injection container (IoC)."
         )
         impact = [
             "Transformers become hard to unit test (need to mock the container).",
             "Reusability is reduced because the transformer carries container dependencies.",
-            "Changes in the container may break transformers unexpectedly.",
         ]
         suggested_fix = (
-            "Inject required dependencies (e.g., services, repositories) as constructor "
-            "parameters or via a port interface. The composition root (bootstrap) should "
-            "wire the dependencies, not the transformer itself."
+            "Inject required dependencies as constructor parameters or via a port interface."
         )
-        confidence = 0.95
         fix_time = "2 hours"
         risk = "Critical"
-        category = "Clean Architecture / DI"
-
-    elif source_layer == "transformers" and target_layer == "event_gateway":
+    else:
         root_cause = (
-            "Transformer should not publish events directly. Event publishing is a "
-            "responsibility of the application or domain layer."
+            f"Layer '{source_layer}' depends on '{target_layer}' which is "
+            "not allowed by the architecture definition."
         )
         impact = [
-            "Event publishing becomes scattered and harder to audit.",
-            "Transformer now has side effects, violating Single Responsibility Principle.",
+            "Code becomes harder to maintain and evolve.",
+            "Layer boundaries are blurred, reducing the benefits of hexagonal architecture.",
         ]
         suggested_fix = (
-            "Have the transformer return a command or DTO that the application layer "
-            "then uses to publish events via the event gateway."
+            f"Consider whether the dependency is truly needed. If so, add "
+            f"({source_layer}, {target_layer}) to ALLOWED_PAIRS after architectural review."
         )
-        confidence = 0.92
-        fix_time = "1.5 hours"
-        risk = "High"
-        category = "CQRS / Event Sourcing"
-
-    elif source_layer == "axioms" and target_layer == "constitution":
-        root_cause = "Axioms naturally refer to the supreme law (constitution) for validation."
-        impact = ["No negative impact; this is a legitimate dependency."]
-        suggested_fix = "Keep as is; already allowed."
-        confidence = 1.0
-        fix_time = "0 minutes"
-        risk = "Low"
-        category = "Architecture (Intentional)"
-
-    else:
-        if sr < tr:
-            root_cause = (
-                f"Layer '{source_layer}' (rank {sr}) is more foundational than "
-                f"'{target_layer}' (rank {tr}). Foundational layers must not depend "
-                "on higher layers; this inverts the dependency direction."
-            )
-            impact = [
-                "The foundational layer becomes coupled to higher-level details.",
-                "Changes in higher layers can break foundational invariants.",
-            ]
-            suggested_fix = (
-                "Move the dependency to an interface/port defined in a lower layer, "
-                "and inject the implementation from the composition root."
-            )
-            fix_time = "1 hour"
-            risk = "High"
-            category = "Dependency Inversion"
-        else:
-            root_cause = (
-                f"Layer '{source_layer}' depends on '{target_layer}' which is "
-                "not allowed by the architecture definition."
-            )
-            impact = [
-                "Code becomes harder to maintain and evolve.",
-                "Layer boundaries are blurred, reducing the benefits of hexagonal architecture.",
-            ]
-            suggested_fix = (
-                f"Consider whether the dependency is truly needed. If so, add "
-                f"({source_layer}, {target_layer}) to ALLOWED_PAIRS after architectural review."
-            )
-            fix_time = "30 minutes"
-            risk = "Medium"
-            category = "Layer Isolation"
+        fix_time = "30 minutes"
+        risk = "Medium" if severity != "CRITICAL" else "High"
 
     return {
         "severity": severity,
-        "category": category,
+        "category": "Architecture",
         "root_cause": root_cause,
-        "evidence": evidence,
-        "impact": impact,
+        "evidence": [
+            f"Source: {source_layer} ({source_module})",
+            f"Target: {target_layer} ({target_module})",
+            f"Import type: {import_type}",
+        ],
+        "impact": impact[:3],
         "suggested_fix": suggested_fix,
-        "confidence": confidence,
+        "confidence": 0.85,
         "fix_time_estimate": fix_time,
         "risk": risk,
     }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPER
+# GIT HELPER
 # ─────────────────────────────────────────────────────────────────────────────
 def get_git_commit(root_dir: pathlib.Path) -> str:
     try:
@@ -595,21 +628,24 @@ def get_git_commit(root_dir: pathlib.Path) -> str:
 # CORE VERIFIER
 # ─────────────────────────────────────────────────────────────────────────────
 class SovereignArchitectureVerifier:
-
     def __init__(self, root_dir: pathlib.Path, strict_mode: bool = False):
         self.root_dir    = root_dir
         self.strict_mode = strict_mode
+        self._layer_cache: dict[str, str] = {}
 
     def identify_layer(self, module_name: str) -> str:
         if not module_name:
             return "unknown"
-        module_name = module_name.replace("/", ".").replace("\\", ".")
-        top = module_name.split(".")[0]
-        if not top:
-            return "unknown"
+        if module_name in self._layer_cache:
+            return self._layer_cache[module_name]
+        mod = module_name.replace("/", ".").replace("\\", ".")
+        top = mod.split(".")[0]
         if top in STDLIB_TOP_LEVEL:
-            return "__external__"
-        return LAYER_MAP.get(top, "unknown")
+            result = "__external__"
+        else:
+            result = LAYER_MAP.get(top, "unknown")
+        self._layer_cache[module_name] = result
+        return result
 
     def resolve_relative_import(
         self,
@@ -629,24 +665,45 @@ class SovereignArchitectureVerifier:
         else:
             return base if base else None
 
+    @staticmethod
+    def _read_file_with_encodings(path: pathlib.Path) -> tuple[Optional[str], Optional[str]]:
+        """Baca file dengan mencoba beberapa encoding. Return (content, error_msg)."""
+        encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']
+        for enc in encodings:
+            try:
+                content = path.read_text(encoding=enc, errors='strict')
+                return content, None
+            except UnicodeDecodeError:
+                continue
+            except OSError as e:
+                return None, f"OSError: {e}"
+        return None, f"UnicodeDecodeError: cannot decode with any of {encodings}"
+
     def parse_module(
         self,
         file_path: pathlib.Path,
-    ) -> tuple[Optional[ModuleReport], list[ImportEdge]]:
-        try:
-            source_code = file_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return None, []
+    ) -> tuple[Optional[ModuleReport], list[ImportEdge], Optional[str]]:
+        """Return: (ModuleReport or None, list of edges, error message or None)"""
+        # ── Baca file dengan multi-encoding ──────────────────────────────
+        source_code, error = self._read_file_with_encodings(file_path)
+        if error:
+            return None, [], error
 
+        # ── Parse AST ─────────────────────────────────────────────────────
         try:
             tree = ast.parse(source_code, filename=str(file_path))
-        except SyntaxError:
-            return None, []
+        except SyntaxError as e:
+            col = f", col {e.offset}" if e.offset else ""
+            return None, [], f"SyntaxError at line {e.lineno}{col}: {e.msg}"
+        except MemoryError:
+            return None, [], "MemoryError: file too large"
+        except Exception as e:
+            return None, [], f"Unexpected parse error: {type(e).__name__}: {e}"
 
         try:
             relative_path = file_path.relative_to(self.root_dir)
         except ValueError:
-            return None, []
+            return None, [], f"Path outside root: {file_path}"
 
         source_module = str(relative_path.with_suffix("")).replace(os.sep, ".")
         source_layer  = self.identify_layer(source_module)
@@ -659,7 +716,6 @@ class SovereignArchitectureVerifier:
 
         edges: list[ImportEdge] = []
 
-        # ── AST Visitor dengan konteks ──────────────────────────────────────
         class ImportCollector(ast.NodeVisitor):
             def __init__(self, verifier, report, edges, source_module, source_layer, relative_path):
                 self.verifier = verifier
@@ -706,9 +762,7 @@ class SovereignArchitectureVerifier:
                 for alias in node.names:
                     target_mod = alias.name
                     self.report.import_count += 1
-                    self._process_import(
-                        target_mod, node.lineno, "import"
-                    )
+                    self._process_import(target_mod, node.lineno, "import")
 
             def visit_ImportFrom(self, node):
                 if self.in_type_checking or self.in_function:
@@ -726,9 +780,7 @@ class SovereignArchitectureVerifier:
                 if target_mod:
                     self.report.import_count += 1
                     import_type = "wildcard" if is_wildcard else "from_import"
-                    self._process_import(
-                        target_mod, node.lineno, import_type
-                    )
+                    self._process_import(target_mod, node.lineno, import_type)
 
                     if is_wildcard and not is_stdlib_or_thirdparty(target_mod):
                         target_layer = self.verifier.identify_layer(target_mod)
@@ -742,6 +794,18 @@ class SovereignArchitectureVerifier:
                                     f"dari layer '{self.source_layer}' ke layer '{target_layer}'"
                                 )
                             ))
+                else:
+                    # Kasus: from . import x (node.module is None)
+                    if level > 0 and node.module is None:
+                        parts = self.source_module.split(".")
+                        if level < len(parts):
+                            base = ".".join(parts[:-level])
+                            if base:
+                                for alias in node.names:
+                                    if alias.name != "*":
+                                        full = f"{base}.{alias.name}"
+                                        self.report.import_count += 1
+                                        self._process_import(full, node.lineno, "from_import")
 
             def _process_import(self, target_mod, line_no, import_type):
                 if not target_mod:
@@ -807,7 +871,7 @@ class SovereignArchitectureVerifier:
         )
         collector.visit(tree)
 
-        return report, edges
+        return report, edges, None
 
     def build_import_graph(self, all_edges: list[ImportEdge]) -> dict[str, set[str]]:
         graph: dict[str, set[str]] = defaultdict(set)
@@ -829,9 +893,8 @@ class SovereignArchitectureVerifier:
 
         return dict(graph)
 
-    def tarjan_scc_iterative(
-        self, graph: dict[str, set[str]]
-    ) -> list[list[str]]:
+    def tarjan_scc_recursive(self, graph: dict[str, set[str]]) -> list[list[str]]:
+        sys.setrecursionlimit(10000)
         index_counter = [0]
         indices:  dict[str, int]  = {}
         lowlinks: dict[str, int]  = {}
@@ -839,66 +902,39 @@ class SovereignArchitectureVerifier:
         stack:    list[str]       = []
         sccs:     list[list[str]] = []
 
-        all_nodes = list(graph.keys())
+        all_nodes = set(graph.keys())
         for node in list(graph.keys()):
-            for neighbor in graph[node]:
-                if neighbor not in graph:
-                    all_nodes.append(neighbor)
-        all_nodes = list(dict.fromkeys(all_nodes))
+            all_nodes.update(graph[node])
+        all_nodes = list(all_nodes)
 
-        def _strongconnect(start: str) -> None:
-            iter_stack: list[tuple[str, list[str], int]] = []
-
-            if start in indices:
-                return
-
-            indices[start]  = index_counter[0]
-            lowlinks[start] = index_counter[0]
+        def strongconnect(v: str) -> None:
+            indices[v] = index_counter[0]
+            lowlinks[v] = index_counter[0]
             index_counter[0] += 1
-            stack.append(start)
-            on_stack.add(start)
+            stack.append(v)
+            on_stack.add(v)
 
-            neighbors = list(graph.get(start, set()))
-            iter_stack.append((start, neighbors, 0))
+            for w in graph.get(v, set()):
+                if w not in indices:
+                    strongconnect(w)
+                    lowlinks[v] = min(lowlinks[v], lowlinks[w])
+                elif w in on_stack:
+                    lowlinks[v] = min(lowlinks[v], indices[w])
 
-            while iter_stack:
-                v, nbrs, ni = iter_stack[-1]
-
-                if ni < len(nbrs):
-                    iter_stack[-1] = (v, nbrs, ni + 1)
-                    w = nbrs[ni]
-
-                    if w not in indices:
-                        indices[w]  = index_counter[0]
-                        lowlinks[w] = index_counter[0]
-                        index_counter[0] += 1
-                        stack.append(w)
-                        on_stack.add(w)
-                        w_neighbors = list(graph.get(w, set()))
-                        iter_stack.append((w, w_neighbors, 0))
-                    elif w in on_stack:
-                        lowlinks[v] = min(lowlinks[v], indices[w])
-                else:
-                    iter_stack.pop()
-
-                    if iter_stack:
-                        parent, _, _ = iter_stack[-1]
-                        lowlinks[parent] = min(lowlinks[parent], lowlinks[v])
-
-                    if lowlinks[v] == indices[v]:
-                        scc: list[str] = []
-                        while True:
-                            w = stack.pop()
-                            on_stack.discard(w)
-                            scc.append(w)
-                            if w == v:
-                                break
-                        if len(scc) > 1:
-                            sccs.append(scc)
+            if lowlinks[v] == indices[v]:
+                scc: list[str] = []
+                while True:
+                    w = stack.pop()
+                    on_stack.discard(w)
+                    scc.append(w)
+                    if w == v:
+                        break
+                if len(scc) > 1:
+                    sccs.append(scc)
 
         for node in all_nodes:
             if node not in indices:
-                _strongconnect(node)
+                strongconnect(node)
 
         return sccs
 
@@ -964,28 +1000,28 @@ class SovereignArchitectureVerifier:
                 continue
             try:
                 rel = f.relative_to(self.root_dir)
-                name_to_paths[f.stem].append(str(rel))
+                mod_name = str(rel.with_suffix("")).replace(os.sep, ".")
+                name_to_paths[mod_name].append(str(rel))
             except ValueError:
                 pass
 
         duplicates: list[DuplicateModuleInfo] = []
-        for name, paths in name_to_paths.items():
+        for mod_name, paths in name_to_paths.items():
             if len(paths) > 1:
                 layers = {
-                    self.identify_layer(str(pathlib.Path(p).with_suffix("")).replace(os.sep, "."))
+                    self.identify_layer(mod_name)
                     for p in paths
                 }
-                if len(layers) > 1:
-                    duplicates.append(DuplicateModuleInfo(
-                        module_name=name,
-                        occurrences=sorted(paths),
-                        message=(
-                            f"DUPLICATE MODULE '{name}' di {len(paths)} lokasi "
-                            f"berbeda ({', '.join(sorted(layers))}) — "
-                            f"risiko import shadowing (INFO)"
-                        ),
-                        severity="INFO"
-                    ))
+                duplicates.append(DuplicateModuleInfo(
+                    module_name=mod_name,
+                    occurrences=sorted(paths),
+                    message=(
+                        f"DUPLICATE MODULE '{mod_name}' di {len(paths)} lokasi "
+                        f"berbeda ({', '.join(sorted(layers))}) — "
+                        f"risiko import shadowing (INFO)"
+                    ),
+                    severity="INFO"
+                ))
 
         return sorted(duplicates, key=lambda d: d.module_name)
 
@@ -1016,7 +1052,7 @@ def compute_score(
     intra_penalty    = len(report.intra_layer_cycles) * 1 if strict_mode else 0
     wildcard_penalty = report.total_wildcard_violations * 1
     init_penalty     = len(report.missing_init_files) * 1
-    dup_penalty      = 0
+    dup_penalty      = len(report.duplicate_modules) * 0.5
 
     breakdown["critical_drift"]    = -critical_penalty
     breakdown["error_drift"]       = -error_penalty
@@ -1024,18 +1060,18 @@ def compute_score(
     breakdown["intra_layer_cycle"] = -intra_penalty
     breakdown["wildcard_import"]   = -wildcard_penalty
     breakdown["missing_init"]      = -init_penalty
-    breakdown["duplicate_module"]  = 0
+    breakdown["duplicate_module"]  = -int(dup_penalty)
 
     score -= (critical_penalty + error_penalty + inter_penalty +
               intra_penalty + wildcard_penalty + init_penalty + dup_penalty)
-    score = max(0, score)
+    score = max(0, min(100, score))
 
     if score == 100:
         verdict = "SEMPURNA — Nol pelanggaran terdeteksi. Siap audit Big4."
     elif score >= 90:
         verdict = "SANGAT BAIK — Pelanggaran minor. Segera perbaiki."
     elif score >= 75:
-        verdict = "BAIK — Beberapa pelanggaran signifikan. Perlu perbaikan segera."
+        verdict = "BAIK — Beberapa pelanggaran signifikan. Perbaiki segera."
     elif score >= 50:
         verdict = "PERHATIAN — Banyak pelanggaran. Integritas arsitektur terancam."
     elif score >= 25:
@@ -1050,16 +1086,13 @@ def compute_score(
 # ─────────────────────────────────────────────────────────────────────────────
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=(
-            f"{TOOL_NAME} v{TOOL_VERSION} — "
-            "Validator Arsitektur Tingkat Auditor untuk ERP Accounting Engine"
-        ),
+        description=f"{TOOL_NAME} v{TOOL_VERSION} — Validator Arsitektur + RCA",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Contoh penggunaan:
+Contoh:
   python architecture_drift_checker.py --verbose --rca
-  python architecture_drift_checker.py --json laporan.json
-  python architecture_drift_checker.py --strict --verbose
+  python architecture_drift_checker.py --json report.json --deep-rca
+  python architecture_drift_checker.py --strict --verbose --show-skipped
         """
     )
     parser.add_argument("--verbose", "-v", action="store_true")
@@ -1069,13 +1102,16 @@ Contoh penggunaan:
     parser.add_argument("--hide-intra-cycles", action="store_true")
     parser.add_argument("--show-clean", action="store_true")
     parser.add_argument("--show-wildcards", action="store_true")
-    parser.add_argument("--rca", action="store_true")
-    parser.add_argument(
-        "--exclude",
-        default=".venv,venv,__pycache__,node_modules,dist,build,migrations,deployment,docs",
-    )
+    parser.add_argument("--show-skipped", action="store_true", help="Tampilkan detail file yang gagal di-scan")
+    parser.add_argument("--rca", action="store_true", help="Aktifkan analisis RCA pada pelanggaran (fallback manual)")
+    parser.add_argument("--deep-rca", action="store_true", help="Gunakan RCA Engine sungguhan (jika tersedia) untuk analisis mendalam")
+    parser.add_argument("--exclude", default=".venv,venv,__pycache__,node_modules,dist,build,migrations,deployment,docs")
     parser.add_argument("--layer-report", action="store_true")
+    parser.add_argument("--fail-on-warning", action="store_true")
     args = parser.parse_args()
+
+    use_rca = args.rca or args.deep_rca
+    use_deep_rca = args.deep_rca and RCA_AVAILABLE
 
     start_time = time.monotonic()
     root_dir   = pathlib.Path.cwd()
@@ -1085,14 +1121,21 @@ Contoh penggunaan:
 
     print(c("BOLD", c("CYAN",
         "╔══════════════════════════════════════════════════════════════════════════╗\n"
-        "║   SOVEREIGN ERP — ARCHITECTURE DRIFT & BOUNDARY VALIDATOR  v4.3.1      ║\n"
-        "║   Audit-Grade · Context-Aware AST Visitor · Zero False Positives       ║\n"
+        "║   SOVEREIGN ERP — ARCHITECTURE DRIFT VALIDATOR v5.1.1                  ║\n"
+        "║   Big‑4 Audit Grade · Full RCA Integration · Zero False Positives       ║\n"
         "╚══════════════════════════════════════════════════════════════════════════╝"
     )))
     print(c("DIM", f"  Direktori : {root_dir}"))
-    print(c("DIM", f"  Git Commit : {git_commit}"))
-    print(c("DIM", f"  Timestamp  : {scan_ts}"))
-    print(c("DIM", f"  Python     : {sys.version.split()[0]}"))
+    print(c("DIM", f"  Git Commit: {git_commit}"))
+    print(c("DIM", f"  Timestamp : {scan_ts}"))
+    print(c("DIM", f"  Python    : {sys.version.split()[0]}"))
+
+    if RCA_AVAILABLE:
+        print(c("GREEN", f"  ✅ RCA Engine aktif (v{RCA_ENGINE.VERSION if RCA_ENGINE and hasattr(RCA_ENGINE, 'VERSION') else '?'})"))
+        if use_deep_rca:
+            print(c("GREEN", "  ✅ Mode DEEP-RCA diaktifkan"))
+    else:
+        print(c("YELLOW", "  ⚠️  RCA Engine tidak ditemukan – gunakan fallback manual"))
     print()
 
     exclude_set = {d.strip() for d in args.exclude.split(",") if d.strip()}
@@ -1128,38 +1171,47 @@ Contoh penggunaan:
     all_edges: list[ImportEdge] = []
     skipped_count = 0
 
-    for file_path in py_files:
-        report, edges = verifier.parse_module(file_path)
+    try:
+        for file_path in py_files:
+            report, edges, error = verifier.parse_module(file_path)
 
-        if report is None:
-            skipped_count += 1
-            continue
+            if report is None:
+                skipped_count += 1
+                master.skipped_files.append(SkippedFileInfo(
+                    file_path=file_path,
+                    error=error or "Unknown error",
+                    error_type="ParseError"
+                ))
+                continue
 
-        master.total_files_scanned += 1
-        all_edges.extend(edges)
-        master.modules[report.module_path] = report
+            master.total_files_scanned += 1
+            all_edges.extend(edges)
+            master.modules[report.module_path] = report
 
-        layer = report.layer
-        if layer not in master.layer_stats:
-            master.layer_stats[layer] = LayerStats(layer=layer)
-        ls = master.layer_stats[layer]
-        ls.total_modules += 1
+            layer = report.layer
+            if layer not in master.layer_stats:
+                master.layer_stats[layer] = LayerStats(layer=layer)
+            ls = master.layer_stats[layer]
+            ls.total_modules += 1
 
-        if report.violations:
-            master.violated_modules_count  += 1
-            master.total_drift_violations  += len(report.violations)
-            ls.violated_modules += 1
-            ls.total_violations += len(report.violations)
-        else:
-            master.clean_modules_count += 1
+            if report.violations:
+                master.violated_modules_count  += 1
+                master.total_drift_violations  += len(report.violations)
+                ls.violated_modules += 1
+                ls.total_violations += len(report.violations)
+            else:
+                master.clean_modules_count += 1
 
-        master.total_wildcard_violations += len(report.wildcards)
-        ls.wildcard_imports += len(report.wildcards)
+            master.total_wildcard_violations += len(report.wildcards)
+            ls.wildcard_imports += len(report.wildcards)
+    except KeyboardInterrupt:
+        print("\n" + c("YELLOW", "⏹️  Dibatalkan oleh pengguna."))
+        sys.exit(130)
 
     master.total_files_skipped = skipped_count
 
     graph      = verifier.build_import_graph(all_edges)
-    raw_cycles = verifier.tarjan_scc_iterative(graph)
+    raw_cycles = verifier.tarjan_scc_recursive(graph)
     inter_cycles, intra_cycles = verifier.classify_cycles(raw_cycles)
 
     master.inter_layer_cycles = inter_cycles
@@ -1181,7 +1233,7 @@ Contoh penggunaan:
     print("─" * 76)
     print(f"  Total File Ditemukan      : {master.total_files_found}")
     print(f"  Total File Di-scan        : {master.total_files_scanned}")
-    print(f"  File Dilewati (error)     : {master.total_files_skipped}")
+    print(f"  File Dilewati (error)     : {c('RED' if master.total_files_skipped > 0 else 'GREEN', str(master.total_files_skipped))}")
     print(f"  ✅ Modul Bersih           : {c('GREEN', str(master.clean_modules_count))}")
     print(f"  ❌ Modul Bermasalah       : {c('RED', str(master.violated_modules_count)) if master.violated_modules_count else c('GREEN', '0')}")
     print(f"  ⚠️  Pelanggaran Layer Drift : {c('RED', str(master.total_drift_violations)) if master.total_drift_violations else c('GREEN', '0')}")
@@ -1202,11 +1254,27 @@ Contoh penggunaan:
         if v != 0:
             label = k.replace("_", " ").title()
             print(f"  {c('DIM', f'  {label:<30}: {v:+d} poin')}")
-
     print()
 
-    # ── DETAIL PELANGGARAN ────────────────────────────────────────────────────
-    if master.total_drift_violations > 0 and (args.verbose or True):
+    # ─── FILE GAGAL DI-SCAN ──────────────────────────────────────────────────
+    if master.skipped_files and (args.verbose or args.show_skipped):
+        print("─" * 76)
+        print(c("BOLD", c("RED", f"  ⚠️ FILE GAGAL DI-SCAN ({len(master.skipped_files)} FILE)")))
+        print("─" * 76)
+        for sf in master.skipped_files[:20]:
+            try:
+                rel = sf.file_path.relative_to(root_dir)
+            except ValueError:
+                rel = sf.file_path
+            print(f"  ❌ {rel}")
+            print(f"     {c('YELLOW', sf.error_type)}: {sf.error[:200]}")
+        if len(master.skipped_files) > 20:
+            print(f"  ... dan {len(master.skipped_files)-20} file lainnya.")
+        print(c("YELLOW", "\n  🔧 Perbaiki file-file di atas agar coverage mencapai 100%."))
+        print()
+
+    # ─── DETAIL PELANGGARAN ────────────────────────────────────────────────────
+    if master.total_drift_violations > 0:
         print("─" * 76)
         print(c("BOLD", c("RED", "  DETAIL PELANGGARAN LAYER DRIFT")))
         print("─" * 76)
@@ -1225,14 +1293,15 @@ Contoh penggunaan:
             for v in rep.violations:
                 icon = sev_icons.get(v.severity, "⚠️")
                 print(f"     {icon} [{v.severity}] Baris {v.line}: {v.message}")
-                if args.rca or args.verbose:
-                    rca = generate_violation_rca(
+                if use_rca:
+                    rca = analyze_violation_with_rca(
                         source_layer=v.source_layer or rep.layer,
                         target_layer=v.target_layer,
                         source_module=mod_name,
                         target_module=v.target_module,
                         import_type=v.import_type,
                         severity=v.severity,
+                        use_deep_rca=use_deep_rca,
                     )
                     print(f"        {c('BOLD', 'RCA')}:")
                     print(f"          {c('YELLOW', 'Category')}   : {rca['category']}")
@@ -1243,8 +1312,9 @@ Contoh penggunaan:
                     for imp in rca['impact']:
                         print(f"            - {imp}")
                     print(f"          {c('YELLOW', 'Suggested Fix')}: {rca['suggested_fix']}")
-                    confidence_pct = int(rca['confidence'] * 100)
-                    print(f"          {c('DIM', f'Confidence: {confidence_pct}%')}")
+                    conf = rca.get('confidence', 0.0)
+                    if isinstance(conf, float):
+                        print(f"          {c('DIM', f'Confidence: {int(conf*100)}%')}")
 
     elif master.total_drift_violations == 0:
         print(f"\n  {c('GREEN', '✅ Tidak ada pelanggaran layer drift terdeteksi.')}")
@@ -1266,7 +1336,8 @@ Contoh penggunaan:
     if inter_cycles:
         print(c("BOLD", c("RED", "  🚨 SIKLUS DEPENDENSI ANTAR LAYER (KRITIS)")))
         print("─" * 76)
-        for idx, chain in enumerate(inter_cycles, 1):
+        max_cycles = 50
+        for idx, chain in enumerate(inter_cycles[:max_cycles], 1):
             layers_in_cycle = sorted({
                 verifier.identify_layer(m) for m in chain
                 if verifier.identify_layer(m) not in ("unknown", "__external__")
@@ -1277,6 +1348,8 @@ Contoh penggunaan:
             preview = chain[:6]
             suffix  = f" ... (+{len(chain)-6} lagi)" if len(chain) > 6 else ""
             print(f"  Rantai  : {' ➔ '.join(preview)}{suffix}")
+        if len(inter_cycles) > max_cycles:
+            print(f"\n  ... dan {len(inter_cycles)-max_cycles} siklus antar-layer lainnya.")
     else:
         print(c("GREEN", "  ✅ Tidak ada siklus antar layer terdeteksi."))
     print("─" * 76)
@@ -1284,13 +1357,14 @@ Contoh penggunaan:
     if intra_cycles and not args.hide_intra_cycles:
         print()
         print(f"  🔗 Siklus Intra-Layer [INFO] — {len(intra_cycles)} ditemukan")
-        for idx, chain in enumerate(intra_cycles[:20], 1):
+        max_cycles = 20
+        for idx, chain in enumerate(intra_cycles[:max_cycles], 1):
             layer = verifier.identify_layer(chain[0])
             preview = chain[:4]
             suffix  = f" (+{len(chain)-4})" if len(chain) > 4 else ""
             print(f"     {idx:3d}. [{layer}] {' ➔ '.join(preview)}{suffix}")
-        if len(intra_cycles) > 20:
-            print(f"         ... dan {len(intra_cycles)-20} siklus intra-layer lainnya")
+        if len(intra_cycles) > max_cycles:
+            print(f"         ... dan {len(intra_cycles)-max_cycles} siklus intra-layer lainnya")
         print(c("DIM", "         Tip: Siklus intra-layer wajar di ORM (SQLAlchemy) — "
                         "tidak mempengaruhi skor."))
 
@@ -1338,22 +1412,36 @@ Contoh penggunaan:
             )
 
     # ── CLEAN MODULES ────────────────────────────────────────────────────────
-    if args.verbose and args.show_clean:
+    if args.show_clean:
         print()
         print("─" * 76)
         print(c("BOLD", c("GREEN", "  MODUL BERSIH (TANPA PELANGGARAN)")))
         print("─" * 76)
-        for mod_name in sorted(master.modules.keys()):
-            rep = master.modules[mod_name]
-            if not rep.violations:
+        clean_list = sorted([
+            mod for mod, rep in master.modules.items()
+            if not rep.violations and rep.layer not in SKIP_LAYERS
+        ])
+        if clean_list:
+            for mod_name in clean_list[:50]:
+                rep = master.modules[mod_name]
                 print(f"  ✅ {mod_name} [{rep.layer}]")
+            if len(clean_list) > 50:
+                print(f"  ... dan {len(clean_list)-50} modul bersih lainnya.")
+        else:
+            print("  Tidak ada modul bersih (atau semuanya di-skip).")
 
     # ── FOOTER ────────────────────────────────────────────────────────────────
     print()
     print("─" * 76)
     print(f"  ⏱️  Waktu Eksekusi  : {elapsed:.3f} detik")
     print(f"  📁 Total Edge Import: {len(all_edges)} (dedup: {len(graph)} node)")
-    print(f"  🔍 Coverage         : {master.total_files_scanned} dari {len(py_files)} file")
+    total_py = len(py_files)
+    if total_py > 0:
+        coverage = master.total_files_scanned / total_py * 100
+        print(f"  🔍 Coverage         : {master.total_files_scanned} dari {total_py} file "
+              f"({c('GREEN' if coverage == 100 else 'YELLOW', f'{coverage:.1f}%')})")
+    else:
+        print("  🔍 Coverage         : 0% (tidak ada file)")
     print("─" * 76)
 
     # ── JSON ──────────────────────────────────────────────────────────────────
@@ -1367,6 +1455,8 @@ Contoh penggunaan:
                 "root_dir": master.root_dir,
                 "python_version": master.python_version,
                 "git_commit": master.git_commit,
+                "rca_enabled": RCA_AVAILABLE,
+                "rca_used": use_deep_rca,
             },
             "summary": {
                 "score": master.score,
@@ -1376,15 +1466,24 @@ Contoh penggunaan:
                 "total_files_scanned": master.total_files_scanned,
                 "total_files_skipped": master.total_files_skipped,
                 "total_files_excluded": master.total_files_excluded,
+                "coverage_percent": round(master.total_files_scanned / total_py * 100, 2) if total_py else 0,
                 "clean_modules": master.clean_modules_count,
                 "violated_modules": master.violated_modules_count,
                 "total_drift_violations": master.total_drift_violations,
                 "total_wildcard_violations": master.total_wildcard_violations,
                 "inter_layer_cycles": len(master.inter_layer_cycles),
-                "intra_layer_cycles": len(master.intra_layer_cycles),
+                "intra_layer_cycles": len(master.intra_layer_cycles) if not args.hide_intra_cycles else 0,
                 "missing_init_files": len(master.missing_init_files),
                 "duplicate_modules": len(master.duplicate_modules),
             },
+            "skipped_files": [
+                {
+                    "file": str(sf.file_path.relative_to(root_dir)) if sf.file_path.is_relative_to(root_dir) else str(sf.file_path),
+                    "error": sf.error,
+                    "error_type": sf.error_type,
+                }
+                for sf in master.skipped_files
+            ],
             "layer_stats": {
                 layer: {
                     "total_modules": ls.total_modules,
@@ -1407,14 +1506,15 @@ Contoh penggunaan:
                             "target_module": v.target_module,
                             "target_layer": v.target_layer,
                             "message": v.message,
-                            "rca": generate_violation_rca(
+                            "rca": analyze_violation_with_rca(
                                 source_layer=v.source_layer or rep.layer,
                                 target_layer=v.target_layer,
                                 source_module=mod,
                                 target_module=v.target_module,
                                 import_type=v.import_type,
                                 severity=v.severity,
-                            ),
+                                use_deep_rca=use_deep_rca,
+                            ) if use_rca else None,
                         }
                         for v in rep.violations
                     ],
@@ -1465,9 +1565,12 @@ Contoh penggunaan:
             ]),
         }
 
-        with open(args.json, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2, ensure_ascii=False)
-        print(c("GREEN", f"  ✅ Laporan JSON diekspor ke: {args.json}"))
+        try:
+            with open(args.json, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2, ensure_ascii=False)
+            print(c("GREEN", f"  ✅ Laporan JSON diekspor ke: {args.json}"))
+        except Exception as e:
+            print(c("RED", f"  ❌ Gagal menulis JSON: {e}"))
 
     # ── SARIF ──────────────────────────────────────────────────────────────────
     if args.sarif:
@@ -1519,21 +1622,28 @@ Contoh penggunaan:
             }]
         }
 
-        with open(args.sarif, "w", encoding="utf-8") as fh:
-            json.dump(sarif_payload, fh, indent=2, ensure_ascii=False)
-        print(c("GREEN", f"  ✅ SARIF report diekspor ke: {args.sarif}"))
+        try:
+            with open(args.sarif, "w", encoding="utf-8") as fh:
+                json.dump(sarif_payload, fh, indent=2, ensure_ascii=False)
+            print(c("GREEN", f"  ✅ SARIF report diekspor ke: {args.sarif}"))
+        except Exception as e:
+            print(c("RED", f"  ❌ Gagal menulis SARIF: {e}"))
 
     # ── EXIT CODE ─────────────────────────────────────────────────────────────
-    has_drift_errors  = master.total_drift_violations > 0 or len(inter_cycles) > 0
-    has_strict_errors = args.strict and len(intra_cycles) > 0
+    has_drift_errors = (
+        master.total_drift_violations > 0 or
+        len(master.inter_layer_cycles) > 0 or
+        master.total_wildcard_violations > 0
+    )
+    has_strict_errors = args.strict and len(master.intra_layer_cycles) > 0
+    has_warning = args.fail_on_warning and master.total_drift_violations > 0
 
-    if has_drift_errors:
+    if has_drift_errors or has_warning:
         sys.exit(1)
     elif has_strict_errors:
         sys.exit(2)
     else:
         sys.exit(0)
-
 
 if __name__ == "__main__":
     main()

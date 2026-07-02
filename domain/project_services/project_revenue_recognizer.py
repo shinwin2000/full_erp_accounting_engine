@@ -646,7 +646,7 @@ Project = ProjectEntity
 
 
 # =============================================================================
-#  PROJECT REVENUE RECOGNIZER
+#  PROJECT REVENUE RECOGNIZER - FIXED dengan default values
 # =============================================================================
 
 
@@ -658,22 +658,23 @@ class ProjectRevenueRecognizer:
     Immutable – every recognition produces a new instance.
     """
 
-    project_id: UUID
-    project_code: str
-    total_contract_value: Decimal
-    total_estimated_cost: Decimal  # sum of all planned costs (budget)
-    total_actual_cost: Decimal  # incurred to date
-    total_recognized_revenue: Decimal
-    total_recognized_cost: Decimal
-    total_recognized_profit: Decimal
-    cumulative_percentage: float  # 0.0 to 100.0
-    last_recognized_date: datetime | None
+    project_id: UUID = field(default_factory=uuid4)
+    project_code: str = ""
+    total_contract_value: Decimal = Decimal(0)
+    total_estimated_cost: Decimal = Decimal(0)
+    total_actual_cost: Decimal = Decimal(0)
+    total_recognized_revenue: Decimal = Decimal(0)
+    total_recognized_cost: Decimal = Decimal(0)
+    total_recognized_profit: Decimal = Decimal(0)
+    cumulative_percentage: float = 0.0
+    last_recognized_date: datetime | None = None
     version: int = 1
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     _audit_trail: list[dict] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
+        # Only perform non-raised validation
         if self.total_contract_value < 0:
             raise ValueError("Total contract value cannot be negative")
         if self.total_estimated_cost < 0:

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Sovereign ERP System - Domain Event Publish Checker (Full Data Flow + Advanced)
 =====================================================================

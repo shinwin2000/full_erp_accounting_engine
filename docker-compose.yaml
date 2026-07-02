@@ -120,7 +120,7 @@ services:
     networks:
       - erp_network
 
-# ==================== HASHICORP VAULT (Secured Credentials) ====================
+  # ==================== HASHICORP VAULT (Secured Credentials) ====================
   vault:
     image: hashicorp/vault:1.15
     container_name: erp_vault
@@ -129,7 +129,7 @@ services:
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: "root"
       VAULT_LOCAL_CONFIG: '{"ui": true, "default_lease_ttl": "168h", "max_lease_ttl": "720h"}'
-    capabilities:
+    cap_add:
       - IPC_LOCK
     healthcheck:
       test: ["CMD", "vault", "status"]

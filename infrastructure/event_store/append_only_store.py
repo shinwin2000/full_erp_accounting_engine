@@ -51,7 +51,12 @@ class StoreNotInitializedError(AppendOnlyStoreError):
 
 class AppendOnlyStore:
     def __init__(self, session_factory: async_sessionmaker | None = None):
-        self._session_factory = session_factory or get_async_session_factory()
+        # CATATAN: get_async_session_factory() adalah fungsi async, jadi
+        # tidak bisa dipanggil (dan di-await) di __init__ yang sinkron.
+        # Kalau session_factory tidak diberikan, resolusinya ditunda
+        # sampai initialize() (lihat di bawah), supaya bisa di-await
+        # dengan benar.
+        self._session_factory = session_factory
         self._hash_builder = HashChainBuilder()
         self._initialized = False
         self._cache: dict[str, list[dict]] = {}
@@ -59,6 +64,8 @@ class AppendOnlyStore:
 
     async def initialize(self) -> None:
         try:
+            if self._session_factory is None:
+                self._session_factory = await get_async_session_factory()
             async with self._session_factory() as session:
                 stmt = select(func.count()).select_from(EventStoreTable).limit(1)
                 result = await session.execute(stmt)
@@ -70,13 +77,19 @@ class AppendOnlyStore:
                         "event_type": "system.genesis",
                         "event_version": 1,
                         "data": {"message": "Event Store Genesis"},
-                        "metadata": {"created_by": "system"},
-                        "timestamp": datetime.now(UTC).isoformat(),
+                        "event_metadata": {"created_by": "system"},
+                        "timestamp": datetime.now(UTC),  # objek datetime asli, bukan string (kolom TIMESTAMPTZ)
                         "sequence_number": 1,
                         "previous_hash": GENESIS_HASH,
                         "hash": GENESIS_HASH,
                     }
-                    stmt = insert(EventStoreTable).values(**genesis_event)
+                    # CATATAN: pakai EventStoreTable.__table__ (Core Table),
+                    # bukan EventStoreTable (ORM class) langsung. Insert ORM
+                    # mencoba meresolusi key dict ke atribut Python kelas,
+                    # dan key 'metadata' di sini bentrok dengan atribut
+                    # bawaan SQLAlchemy `Base.metadata` (objek MetaData),
+                    # menyebabkan AttributeError saat insert genesis event.
+                    stmt = insert(EventStoreTable.__table__).values(**genesis_event)
                     await session.execute(stmt)
                     await session.commit()
                     logger.info("Event store initialized with genesis record")
@@ -105,15 +118,15 @@ class AppendOnlyStore:
             "event_type": event_type,
             "event_version": 1,
             "data": event_data,
-            "metadata": metadata,
-            "timestamp": timestamp.isoformat(),
+            "event_metadata": metadata,
+            "timestamp": timestamp,  # objek datetime asli, bukan string (kolom TIMESTAMPTZ)
             "sequence_number": await self._get_next_sequence(stream_name),
             "previous_hash": last_hash,
             "hash": self._compute_hash(event_data, metadata, timestamp, last_hash),
         }
         try:
             async with self._session_factory() as session, session.begin():
-                stmt = insert(EventStoreTable).values(**event_record)
+                stmt = insert(EventStoreTable.__table__).values(**event_record)
                 await session.execute(stmt)
                 await session.commit()
             if stream_name not in self._cache:
@@ -148,13 +161,13 @@ class AppendOnlyStore:
                         "event_type": event_type,
                         "event_version": 1,
                         "data": event_data,
-                        "metadata": metadata,
-                        "timestamp": timestamp.isoformat(),
+                        "event_metadata": metadata,
+                        "timestamp": timestamp,  # objek datetime asli, bukan string (kolom TIMESTAMPTZ)
                         "sequence_number": await self._get_next_sequence(stream_name, session),
                         "previous_hash": last_hash,
                         "hash": self._compute_hash(event_data, metadata, timestamp, last_hash),
                     }
-                    stmt = insert(EventStoreTable).values(**event_record)
+                    stmt = insert(EventStoreTable.__table__).values(**event_record)
                     await session.execute(stmt)
                     event_ids.append(event_id)
                     if stream_name not in self._cache:
@@ -199,7 +212,7 @@ class AppendOnlyStore:
                         "event_type": e.event_type,
                         "event_version": e.event_version,
                         "data": e.data,
-                        "metadata": e.metadata,
+                        "metadata": e.event_metadata,
                         "timestamp": e.timestamp,
                         "sequence_number": e.sequence_number,
                         "previous_hash": e.previous_hash,
@@ -235,7 +248,7 @@ class AppendOnlyStore:
                     "event_type": event.event_type,
                     "event_version": event.event_version,
                     "data": event.data,
-                    "metadata": event.metadata,
+                    "metadata": event.event_metadata,
                     "timestamp": event.timestamp,
                     "sequence_number": event.sequence_number,
                     "previous_hash": event.previous_hash,
@@ -265,7 +278,7 @@ class AppendOnlyStore:
                     event_dicts = [
                         {
                             "data": e.data,
-                            "metadata": e.metadata,
+                            "metadata": e.event_metadata,
                             "timestamp": e.timestamp,
                             "previous_hash": e.previous_hash,
                             "hash": e.hash,
@@ -441,7 +454,7 @@ class AppendOnlyStore:
                         "stream_name": e.stream_name,
                         "event_type": e.event_type,
                         "data": e.data,
-                        "metadata": e.metadata,
+                        "metadata": e.event_metadata,
                         "timestamp": e.timestamp,
                         "sequence_number": e.sequence_number,
                     }

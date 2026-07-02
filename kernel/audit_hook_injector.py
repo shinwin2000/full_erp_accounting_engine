@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, auto
@@ -115,11 +116,95 @@ class AuditContext:
 
 
 # ============================================================================
+# BASE AUDIT HOOK INJECTOR (CONTRACT)
+# ============================================================================
+
+
+class BaseAuditHookInjector(ABC):
+    """
+    Base class for AuditHookInjector.
+    Defines the contract that all audit hook injectors must implement.
+    """
+
+    @abstractmethod
+    def start_context(self, envelope: CommandEnvelope) -> AuditContext:
+        """Start a new audit context for a command envelope."""
+        pass
+
+    @abstractmethod
+    def before_execution(self, envelope: CommandEnvelope) -> None:
+        """Hook before command execution."""
+        pass
+
+    @abstractmethod
+    def after_execution(self, envelope: CommandEnvelope, result: Any) -> None:
+        """Hook after command execution (success)."""
+        pass
+
+    @abstractmethod
+    def on_error(self, envelope: CommandEnvelope, error: Exception) -> None:
+        """Hook when command execution fails."""
+        pass
+
+    @abstractmethod
+    async def flush_all(self) -> None:
+        """Flush all pending audit events."""
+        pass
+
+    @abstractmethod
+    async def shutdown(self) -> None:
+        """Gracefully shutdown the audit hook injector."""
+        pass
+
+    # Optional methods (non-abstract, can be overridden)
+    def validate(self) -> dict[str, Any]:
+        """Validate internal state."""
+        return {"is_valid": True, "errors": []}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseAuditHookInjector:
+        """Create instance from dictionary."""
+        return cls()
+
+    def clone(self) -> BaseAuditHookInjector:
+        """Create a clone of this instance."""
+        return self
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return a snapshot of current state."""
+        return {}
+
+    def version(self) -> int:
+        """Return version number."""
+        return 1
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Return audit trail entries."""
+        return []
+
+    def touch(self, touched_by: str) -> BaseAuditHookInjector:
+        """Touch the instance (increment version)."""
+        return self
+
+    def get_statistics(self) -> dict[str, Any]:
+        """Return statistics."""
+        return {}
+
+    def reset(self) -> None:
+        """Reset internal state."""
+        pass
+
+
+# ============================================================================
 # AUDIT HOOK INJECTOR — LAZY WORKER
 # ============================================================================
 
 
-class AuditHookInjector:
+class AuditHookInjector(BaseAuditHookInjector):
     _instance: AuditHookInjector | None = None
     _lock = asyncio.Lock()
 
@@ -628,6 +713,7 @@ __all__ = [
     "AuditEventType",
     "AuditHookInjector",
     "AuditSeverity",
+    "BaseAuditHookInjector",
     "audit",
     "get_audit_hook_injector",
 ]

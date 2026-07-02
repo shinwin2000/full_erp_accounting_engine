@@ -7,23 +7,29 @@ Responsibility: Implementasi berbagai report repository dengan SQLAlchemy.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ports.primary.report_repository_port import (
+    AgingReportRepositoryPort,
     BalanceSheetDataDTO,
     BalanceSheetRepositoryPort,
     CashFlowDataDTO,
     CashFlowRepositoryPort,
     IncomeStatementDataDTO,
     IncomeStatementRepositoryPort,
+    ReportRepositoryPort,
     TrialBalanceRepositoryPort,
     TrialBalanceRowDTO,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SQLAlchemyTrialBalanceRepository(TrialBalanceRepositoryPort):
@@ -46,12 +52,6 @@ class SQLAlchemyTrialBalanceRepository(TrialBalanceRepositoryPort):
         currency_code: str = "IDR",
     ) -> list[TrialBalanceRowDTO]:
         session = await self._get_session()
-        # Asumsikan ada tabel accounts dan journal_entries
-        # Query: sum(debit) - sum(credit) per account sampai as_of_date
-        # Karena tidak tahu skema pasti, saya berikan query template.
-        # Anda perlu sesuaikan dengan skema yang sebenarnya.
-
-        # Contoh query menggunakan raw SQL (aman):
         query = text("""
             SELECT
                 a.account_code,
@@ -111,7 +111,6 @@ class SQLAlchemyIncomeStatementRepository(IncomeStatementRepositoryPort):
         currency_code: str = "IDR",
     ) -> IncomeStatementDataDTO:
         session = await self._get_session()
-        # Query pendapatan dan beban berdasarkan tipe akun
         query = text("""
             SELECT
                 a.account_type,
@@ -145,7 +144,7 @@ class SQLAlchemyIncomeStatementRepository(IncomeStatementRepositoryPort):
             revenue=revenue,
             expenses=expenses,
             net_income=net_income,
-            details=[],  # bisa tambahkan detail per account jika diperlukan
+            details=[],
         )
 
 
@@ -166,7 +165,6 @@ class SQLAlchemyBalanceSheetRepository(BalanceSheetRepositoryPort):
         currency_code: str = "IDR",
     ) -> BalanceSheetDataDTO:
         session = await self._get_session()
-        # Query aset, kewajiban, ekuitas
         query = text("""
             SELECT
                 a.account_type,
@@ -224,8 +222,6 @@ class SQLAlchemyCashFlowRepository(CashFlowRepositoryPort):
         currency_code: str = "IDR",
     ) -> CashFlowDataDTO:
         session = await self._get_session()
-        # Untuk indirect method, kita butuh net income, perubahan aset/liabilitas
-        # Saya buat sederhana: ambil perubahan kas dari journal entries
         query = text("""
             SELECT
                 COALESCE(SUM(j.debit - j.credit), 0) AS net_cash_flow
@@ -243,8 +239,6 @@ class SQLAlchemyCashFlowRepository(CashFlowRepositoryPort):
         })
         row = result.fetchone()
         net_cash = Decimal(str(row[0] or 0))
-
-        # Dummy breakdown
         return CashFlowDataDTO(
             period_start=period_start,
             period_end=period_end,
@@ -258,9 +252,184 @@ class SQLAlchemyCashFlowRepository(CashFlowRepositoryPort):
         )
 
 
+# ============================================================================
+# ReportRepositoryPort + AgingReportRepositoryPort implementation
+# ============================================================================
+
+class SQLAlchemyReportRepository(ReportRepositoryPort, AgingReportRepositoryPort):
+    """
+    Implementasi gabungan untuk ReportRepositoryPort dan AgingReportRepositoryPort.
+    Mendelegasikan ke repository spesifik atau menyediakan metode langsung.
+    """
+    def __init__(self, session: AsyncSession | None = None):
+        self._session = session
+        self._trial_balance_repo = SQLAlchemyTrialBalanceRepository(session)
+        self._income_statement_repo = SQLAlchemyIncomeStatementRepository(session)
+        self._balance_sheet_repo = SQLAlchemyBalanceSheetRepository(session)
+        self._cash_flow_repo = SQLAlchemyCashFlowRepository(session)
+
+    async def _get_session(self) -> AsyncSession:
+        if self._session is None:
+            from infrastructure.database.session_factory_sqlalchemy import get_async_session
+            self._session = await get_async_session()
+            # Update session di child repos
+            self._trial_balance_repo._session = self._session
+            self._income_statement_repo._session = self._session
+            self._balance_sheet_repo._session = self._session
+            self._cash_flow_repo._session = self._session
+        return self._session
+
+    # ---- ReportRepositoryPort methods ----
+
+    async def get_trial_balance(
+        self,
+        legal_entity_id: uuid.UUID,
+        as_of_date: date,
+        account_type_filter: list[str] | None = None,
+        cost_center_id: uuid.UUID | None = None,
+        include_zero_balance: bool = False,
+        currency_code: str = "IDR",
+    ) -> list[TrialBalanceRowDTO]:
+        await self._get_session()
+        return await self._trial_balance_repo.get_trial_balance(
+            legal_entity_id,
+            as_of_date,
+            account_type_filter,
+            cost_center_id,
+            include_zero_balance,
+            currency_code,
+        )
+
+    async def get_income_statement(
+        self,
+        legal_entity_id: uuid.UUID,
+        period_start: date,
+        period_end: date,
+        show_percent_of_revenue: bool = False,
+        currency_code: str = "IDR",
+    ) -> IncomeStatementDataDTO:
+        await self._get_session()
+        return await self._income_statement_repo.get_income_statement(
+            legal_entity_id,
+            period_start,
+            period_end,
+            show_percent_of_revenue,
+            currency_code,
+        )
+
+    async def get_balance_sheet(
+        self,
+        legal_entity_id: uuid.UUID,
+        as_of_date: date,
+        currency_code: str = "IDR",
+    ) -> BalanceSheetDataDTO:
+        await self._get_session()
+        return await self._balance_sheet_repo.get_balance_sheet(
+            legal_entity_id,
+            as_of_date,
+            currency_code,
+        )
+
+    async def get_cash_flow(
+        self,
+        legal_entity_id: uuid.UUID,
+        period_start: date,
+        period_end: date,
+        method: str = "INDIRECT",
+        currency_code: str = "IDR",
+    ) -> CashFlowDataDTO:
+        await self._get_session()
+        return await self._cash_flow_repo.get_cash_flow(
+            legal_entity_id,
+            period_start,
+            period_end,
+            method,
+            currency_code,
+        )
+
+    # ---- AgingReportRepositoryPort methods ----
+
+    async def get_ar_aging(
+        self,
+        legal_entity_id: uuid.UUID,
+        as_of_date: date,
+        bucket_days: list[int] | None = None,
+        currency_code: str = "IDR",
+    ) -> list[dict[str, Any]]:
+        """
+        Mendapatkan aging report untuk piutang (AR).
+        Stub: implementasi nyata perlu query ke tabel AR invoices.
+        """
+        await self._get_session()
+        logger.warning("get_ar_aging() menggunakan data dummy - implementasi nyata belum dibuat")
+        return []
+
+    async def get_ap_aging(
+        self,
+        legal_entity_id: uuid.UUID,
+        as_of_date: date,
+        bucket_days: list[int] | None = None,
+        currency_code: str = "IDR",
+    ) -> list[dict[str, Any]]:
+        """
+        Mendapatkan aging report untuk utang (AP).
+        Stub: implementasi nyata perlu query ke tabel AP invoices.
+        """
+        await self._get_session()
+        logger.warning("get_ap_aging() menggunakan data dummy - implementasi nyata belum dibuat")
+        return []
+
+    # ---- Additional methods from ReportRepositoryPort (if any) ----
+
+    async def generate_report(
+        self,
+        report_type: str,
+        legal_entity_id: uuid.UUID,
+        parameters: dict[str, Any] | None = None,
+        format: str = "PDF",
+    ) -> dict[str, Any]:
+        """
+        Generate laporan berdasarkan tipe dan parameter.
+        Stub: implementasi nyata akan memanggil report engine.
+        """
+        await self._get_session()
+        logger.warning(
+            "generate_report() menggunakan data dummy - implementasi nyata belum dibuat "
+            f"(report_type={report_type}, format={format})"
+        )
+        return {
+            "report_type": report_type,
+            "format": format,
+            "generated_at": date.today().isoformat(),
+            "data": [],
+            "message": "Stub implementation - replace with actual report generation",
+        }
+
+    async def get_report_data(
+        self,
+        report_id: str,
+        legal_entity_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """
+        Ambil data laporan yang sudah pernah digenerate berdasarkan ID.
+        Stub: implementasi nyata perlu query ke tabel report cache.
+        """
+        await self._get_session()
+        logger.warning(
+            "get_report_data() menggunakan data dummy - implementasi nyata belum dibuat "
+            f"(report_id={report_id})"
+        )
+        return {
+            "report_id": report_id,
+            "status": "not_found",
+            "message": "Stub implementation - replace with actual report retrieval",
+        }
+
+
 __all__ = [
     "SQLAlchemyBalanceSheetRepository",
     "SQLAlchemyCashFlowRepository",
     "SQLAlchemyIncomeStatementRepository",
     "SQLAlchemyTrialBalanceRepository",
+    "SQLAlchemyReportRepository",
 ]

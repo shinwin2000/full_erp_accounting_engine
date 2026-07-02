@@ -3,278 +3,390 @@
 """
 Sovereign ERP System — Repository Contract Checker
 ====================================================
-Versi   : 2.0.0
+Versi   : 6.10.0
 Standar : Big 4 Forensic Audit · ISO/IEC 25010 · SOX/ISA 315 Compliant
-Penulis : Senior Engineering / Forensic Audit Team
-Lisensi : Internal Use Only
 
-Perubahan dari v1.x (30+ bug fixes):
-    BUG-01  is_infrastructure() selalu return True untuk class non-repository
-             → logika diperbaiki: hanya skip jika keyword cocok di nama/path
-    BUG-02  normalize_interface() double-strip "Repository" suffix (kode mati)
-             → suffix loop cukup satu pass; hapus baris duplikat
-    BUG-03  scan_interfaces() hanya glob *.py flat — melewatkan subdirektori
-             → ganti ke rglob("**/*.py") dengan EXCLUDED_DIRS filter
-    BUG-04  scan_implementations() hanya glob *.py flat — sama seperti BUG-03
-             → ganti ke rglob("**/*.py")
-    BUG-05  scan_interfaces() tidak tangkap SyntaxError filename di log
-             → tambah logging.warning() dengan path file
-    BUG-06  scan_implementations() tidak tangkap SyntaxError filename di log
-             → sama seperti BUG-05
-    BUG-07  extract_methods_from_class() tidak tangkap nested class / method
-             → gunakan iterasi node.body langsung bukan ast.walk (avoid nested)
-    BUG-08  extract_methods_from_class() skip method __dunder__ seluruhnya
-             → hanya skip __init__; dunder lain seperti __call__, __aenter__
-             bisa ada di interface (terutama context manager protocol)
-    BUG-09  match_interface_to_impl() tidak filter impl yang sudah dipakai
-             → satu impl bisa match ke banyak interface sekaligus; tambah
-             used_impls set yang dioper dari scan_repositories()
-    BUG-10  match_interface_to_impl() partial match: base_iface in base_impl
-             berarti "user" match ke "usergroup" — false positive
-             → tambah word-boundary check: pecah _ dan bandingkan tokens
-    BUG-11  scan_repositories() hitung error_free_matches tapi interface yang
-             tidak punya match (unmatched) ikut dihitung sebagai error-free
-             → unmatched_interfaces harus dikecualikan dari pembagi skor
-    BUG-12  scan_repositories() score formula salah: denominator = total_interfaces
-             tapi matched yang match+error-free dibagi total
-             → skor = error_free_matches / max(matched_count, 1) × 100
-    BUG-13  save_json() tidak handle exception saat write file (PermissionError dll)
-             → tambah try/except dengan pesan error yang jelas
-    BUG-14  main() tidak validasi ROOT directory exist sebelum scan
-             → tambah early-exit dengan pesan yang jelas
-    BUG-15  COLOR dict tidak di-reset jika output di-pipe (NO_COLOR env var)
-             → dukung NO_COLOR standard (https://no-color.org/)
-    BUG-16  print_report() potong matched list di 30 hardcoded
-             → gunakan --limit CLI arg; default 50
-    BUG-17  print_report() tampilkan violations.total_errors bukan
-             len([v for severity ERROR]) — bisa beda jika ada bug di accumulation
-             → konsisten gunakan data["total_errors"]
-    BUG-18  scan_interfaces() seen set hanya per-file; class sama di dua file
-             di-skip tanpa warning
-             → seen global dengan warning jika duplikat
-    BUG-19  scan_implementations() same issue — seen per-file
-             → seen global
-    BUG-20  extract_methods_from_class() default args hitung salah jika ada
-             *args (vararg) — offset required count bisa negatif lebih jauh
-             → perbaiki dengan hitung args.vararg dan args.varkw separately
-    BUG-21  normalize_impl() hanya strip SATU prefix dan SATU suffix via break
-             → class "SQLAlchemyUserRepositoryAdapter" perlu strip prefix DAN suffix
-             → loop prefix dulu hingga tidak berubah, baru loop suffix
-    BUG-22  normalize_interface() strip hanya satu suffix — "UserRepositoryPort"
-             → strip semua suffix yang applicable
-    BUG-23  is_infrastructure() tidak periksa path parent direktori name
-             → path check harus periksa semua komponen path
-    BUG-24  scan_repositories() tidak log waktu per-fase
-             → tambah timing per fase untuk diagnostik performance
-    BUG-25  Tidak ada --root CLI arg — PATH hardcoded relative __file__
-             → tambah --root arg untuk override ROOT
-    BUG-26  Tidak ada --ports-dir / --impls-dir CLI arg
-             → tambah argumen ini
-    BUG-27  print_report() tulis emoji ke stdout tanpa cek terminal encoding
-             → wrap dengan try/except UnicodeEncodeError atau encode ke ASCII
-    BUG-28  Tidak ada exit code yang distinguish WARNING-only vs ERROR
-             → exit 0 = OK, 1 = ERROR, 2 = WARNING-only
-    BUG-29  scan_interfaces() tidak filter Abstract class yang tidak punya
-             abstract methods (pure ABC tanpa body) — menyumbang false interface
-             → cek apakah class inherit ABC atau Protocol
-    BUG-30  Tidak ada --dry-run flag
-             → tambah --dry-run: scan tapi jangan write JSON
-    BUG-31  JSON output tidak include timestamp audit
-             → tambah "audit_timestamp" di JSON
-    BUG-32  JSON output tidak include versi checker
-             → tambah "checker_version"
-    BUG-33  Tidak ada unit test internal / self-check
-             → tambah --self-test flag
-    BUG-34  compare_methods() tidak bandingkan nama parameter (bisa typo)
-             → tambah WARNING jika nama param posisional berbeda
-    BUG-35  match_interface_to_impl() prefer "sqlalchemy" hardcoded
-             → preference seharusnya configurable, default ke alphabetical
-    BUG-36  extract_methods_from_class() tidak deteksi @property yang
-             diperlakukan sebagai method di interface
-             → tangkap @property sebagai MethodInfo dengan flag is_property
-    BUG-37  Tidak ada deteksi method yang ada di impl tapi TIDAK di interface
-             (extra methods) — berguna untuk audit coverage
-             → tambah extra_methods ke ImplementationInfo
-    BUG-38  scan_interfaces() tidak validasi bahwa class inherit dari ABC/Protocol
-             → class biasa yang namanya berakhir "Port" ikut terkumpul
-    BUG-39  Tidak ada --format {text,json,both} option
-             → tambah --format flag
-    BUG-40  main() print header dengan box yang tidak simetris (sisi kanan terlalu pendek)
-             → perbaiki ASCII box drawing
-    BUG-41  InterfaceInfo.module path separator os.sep tidak portable di Windows
-             → sudah gunakan os.sep tapi tidak replace "/" jika di non-Windows
-             → gunakan pathlib konsisten
-    BUG-42  scan_repositories() tidak handle OSError saat baca file
-             → tambah except OSError
-    BUG-43  COLOR dict mutation saat NO_COLOR / non-tty bisa race condition
-             di multi-thread
-             → gunakan fungsi c() yang return empty string, jangan mutasi dict
-    BUG-44  print_report() format score dengan f-string tapi tidak zero-pad
-             → minor cosmetic; align angka
-    BUG-45  Tidak ada ringkasan per-modul (module-level grouping)
-             → tambah breakdown per modul di verbose mode
-    BUG-46  scan_interfaces() baca file dengan errors="replace" — bisa masking
-             encoding problem yang nyata di source code
-             → log warning jika ada karakter yang diganti
-    BUG-47  scan_implementations() sama
-    BUG-48  extract_methods_from_class() tidak handle class dengan method
-             yang di-decorated @abstractmethod vs method biasa berbeda
-             → tambah flag is_abstract di MethodInfo
-    BUG-49  Tidak ada integrasi dengan rca.py untuk analisis root cause
-             violation yang ditemukan
-             → integrasikan: jika ada violation ERROR, kirim ke RCAEngine
-    BUG-50  Tidak ada __version__ attribute di modul
-             → tambah __version__ = "2.0.0"
+Changelog v6.10.0 (dari v6.9.0):
+  FIX-51  Hapus "Bank" dari IMPL_TECH_PREFIXES agar BankStatementImportAdapter
+          tidak kehilangan prefix "Bank" → normalize menjadi bankstatementimport,
+          match dengan BankStatementImportPort
+  FIX-52  Hapus "Port" dari IMPL_SUFFIXES agar port class tidak ter-normalisasi
+          menjadi domain key (cegah self-matching)
+  FIX-53  _is_likely_implementation_file: tolak file berakhiran "_port",
+          hapus "port" dari keywords
+  FIX-54  scan_implementations: skip class yang berakhiran Port/Protocol/PortProtocol
+  FIX-55  _types_compatible: Any di interface atau impl = selalu kompatibel
 """
 
 from __future__ import annotations
 
-# ── Standard library ──────────────────────────────────────────────────────────
-import argparse
 import ast
+import argparse
 import datetime
 import json
 import logging
+import math
 import os
 import pathlib
 import re
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Tuple, Union
 
-# ── Versi ────────────────────────────────────────────────────────────────────
-__version__ = "2.0.0"
+# ─── RCA INTEGRATION ─────────────────────────────────────────────────────────
+_RCA_ENGINE  = None
+_RCA_AVAILABLE = False
 
-# ── Logging setup ─────────────────────────────────────────────────────────────
-_logger = logging.getLogger("repository_checker")
-if not _logger.handlers:
-    _handler = logging.StreamHandler(sys.stderr)
-    _handler.setFormatter(logging.Formatter("[%(levelname)s] %(name)s: %(message)s"))
-    _logger.addHandler(_handler)
-_logger.setLevel(logging.WARNING)
 
-# ── ROOT default ──────────────────────────────────────────────────────────────
-_DEFAULT_ROOT = pathlib.Path(__file__).resolve().parent.parent
+def _init_rca() -> bool:
+    global _RCA_ENGINE, _RCA_AVAILABLE
+    if _RCA_AVAILABLE:
+        return True
+    _candidates = [
+        lambda: __import__("checker.core.rca", fromlist=["get_engine"]),
+        lambda: __import__("rca"),
+    ]
+    _root = pathlib.Path(__file__).resolve().parent.parent
+    if str(_root) not in sys.path:
+        sys.path.insert(0, str(_root))
+    for loader in _candidates:
+        try:
+            mod = loader()
+            _RCA_ENGINE    = mod.get_engine()
+            _RCA_AVAILABLE = True
+            return True
+        except Exception:
+            continue
+    return False
 
-# ── Terminal color ────────────────────────────────────────────────────────────
-# BUG-15/BUG-43: Dukung NO_COLOR env var; jangan mutasi dict global
-_USE_COLOR = (
+
+_init_rca()
+
+
+def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+    if not _RCA_AVAILABLE or _RCA_ENGINE is None:
+        return {
+            "severity"     : "WARNING",
+            "root_cause"   : str(exc)[:200],
+            "suggested_fix": "Install checker/core/rca.py for full RCA",
+            "confidence"   : 0.0,
+        }
+    try:
+        r = _RCA_ENGINE.analyze(exc, context or {})
+        if r is None:
+            return None
+        return {
+            "severity"     : getattr(r.severity, "value", str(r.severity)),
+            "error_code"   : getattr(r.error_code, "value", str(getattr(r, "error_code", ""))),
+            "root_cause"   : getattr(r, "root_cause", ""),
+            "evidence"     : getattr(r, "evidence", [])[:5],
+            "impact"       : getattr(r, "impact", [])[:3],
+            "suggested_fix": getattr(r, "suggested_fix", ""),
+            "confidence"   : float(getattr(r, "confidence", 0.0)),
+        }
+    except Exception:
+        return None
+
+
+# ─── LOGGING ─────────────────────────────────────────────────────────────────
+logger = logging.getLogger("repository_checker")
+logger.setLevel(logging.WARNING)
+logger.propagate = False
+if not logger.handlers:
+    _h = logging.StreamHandler(sys.stderr)
+    _h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    logger.addHandler(_h)
+
+# ─── COLOR ───────────────────────────────────────────────────────────────────
+_COLOR = (
     sys.stdout.isatty()
     and os.environ.get("NO_COLOR", "") == ""
     and os.environ.get("TERM", "") != "dumb"
 )
-
-_COLOR_MAP: Dict[str, str] = {
-    "RED":    "\033[91m",
-    "GREEN":  "\033[92m",
-    "YELLOW": "\033[93m",
-    "BLUE":   "\033[94m",
-    "CYAN":   "\033[96m",
-    "BOLD":   "\033[1m",
-    "RESET":  "\033[0m",
+_COLORS = {
+    "RED": "\033[91m", "GREEN": "\033[92m", "YELLOW": "\033[93m",
+    "BLUE": "\033[94m", "CYAN": "\033[96m", "MAGENTA": "\033[95m",
+    "BOLD": "\033[1m",  "DIM": "\033[2m",   "RESET": "\033[0m",
 }
 
 
-def _c(key: str) -> str:
-    """Return ANSI escape code jika terminal support warna, else empty string."""
-    return _COLOR_MAP.get(key, "") if _USE_COLOR else ""
+def _c(k: str) -> str:
+    return _COLORS.get(k, "") if _COLOR else ""
 
 
-# ── Konstanta konfigurasi ─────────────────────────────────────────────────────
-EXCLUDED_DIRS: Set[str] = {
+def _safe_print(*args, **kwargs) -> None:
+    try:
+        print(*args, **kwargs)
+    except UnicodeEncodeError:
+        safe_args = [
+            a.encode("ascii", errors="replace").decode("ascii") if isinstance(a, str) else a
+            for a in args
+        ]
+        print(*safe_args, **kwargs)
+
+
+# ─── VERSION ─────────────────────────────────────────────────────────────────
+__version__ = "6.10.0"
+_DEFAULT_ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  CONFIGURATION
+# ═════════════════════════════════════════════════════════════════════════════
+
+EXCLUDED_DIRS: FrozenSet[str] = frozenset({
     "checker", "tests", "migrations", "__pycache__", ".git",
     "docs", "scripts", "deployment", "monitoring", "reports",
     ".venv", "venv", "node_modules", ".mypy_cache", ".ruff_cache",
-}
+    ".pytest_cache", ".tox", "build", "dist",
+})
 
-# Keyword yang menandakan sebuah class adalah infrastructure (bukan domain repository)
-INFRASTRUCTURE_KEYWORDS: Set[str] = {
-    "s3", "file", "storage", "kafka", "email", "smtp", "slack", "whatsapp",
-    "notification", "pagerduty", "glacier", "cold", "backup", "event", "publisher",
-    "consumer", "dead", "letter", "broker", "message", "cache", "redis", "memcached",
-    "audit", "append", "snapshot", "mt940", "parser", "encryption", "keyvault",
-    "hashicorp", "hsm", "minio", "coretax", "authority", "bank_api", "timestamp",
-    "notary", "hashchain", "saga", "cqrs", "analytics", "read_model", "projection",
-    "connection_pool", "replica", "router", "fiscal", "report", "approval",
-    "goods_receipt", "sales", "customer_category", "event_status", "file_storage_status",
-    "notification_channel", "unit_of_work", "cohort", "export_", "import_",
-}
+_INFRA_PURE_TECH_PREFIXES: FrozenSet[str] = frozenset({
+    "redis", "kafka", "s3", "glacier", "minio",
+    "smtp", "slack", "whatsapp", "pagerduty",
+    "hsm", "hashicorp", "memcached", "elasticsearch",
+    "rabbitmq", "sqs", "sendgrid", "mailgun", "pkcs",
+    "asyncpg", "pgbouncer",
+    # "Bank" dihapus — Bank adalah domain prefix
+})
 
-# Suffix yang menandakan interface port/protocol repository
-INTERFACE_SUFFIXES: Tuple[str, ...] = ("Port", "Protocol")
-INTERFACE_REPO_KEYWORDS: Set[str] = {"repository", "store", "cache", "repo"}
+_INFRA_ANYWHERE_KW: FrozenSet[str] = frozenset({
+    "kafka", "glacier", "minio", "slack", "pagerduty",
+    "hashicorp", "hsm", "elasticsearch", "rabbitmq", "mt940",
+})
 
-# Suffix untuk implementasi
-IMPL_SUFFIXES: Tuple[str, ...] = ("Adapter", "Impl", "Repository", "Store", "Cache")
+_INFRA_STRUCTURAL_SIGNALS: FrozenSet[str] = frozenset({
+    "appendonly", "snapshotstore", "eventstore", "appendonlystore",
+    "deadletter", "coldstore", "coldstorage",
+})
 
-# Prefix vendor yang harus di-strip saat normalisasi
-IMPL_PREFIXES: Tuple[str, ...] = (
-    "SQLAlchemy", "Postgres", "AsyncPG", "InMemory", "Hashicorp",
-    "Customer", "Supplier", "Coretax", "Tax", "S3", "Redis",
-    "Kafka", "Email", "Slack", "WhatsApp", "PagerDuty", "MinIO",
-    "Glacier", "HSM", "Timestamp", "Async", "Sync", "Mock", "Fake", "Stub",
-)
+_DOMAIN_MIN4: FrozenSet[str] = frozenset({
+    "customer", "supplier", "vendor", "taxtransaction", "taxation",
+    "account", "journal", "ledger", "invoice", "payment", "receipt",
+    "employee", "payroll", "salary", "inventory", "warehouse", "stock",
+    "budget", "forecast", "project", "task", "fixedasset",
+    "intangibleasset", "goodwill", "forex", "currency", "exchange",
+    "hedge", "consolidation", "intercompany", "legalentity", "company",
+    "purchaseorder", "salesorder", "goodsreceipt", "workorder",
+    "manufacturing", "report", "trialbalance", "cashflow",
+    "balancesheet", "incomestatement", "generalledger", "bankaccount",
+    "cashbook", "bankstatement", "umkm", "outbox", "systemsetting",
+    "fiscalperiod", "approval", "auditevent", "notification", "coretax",
+    "unitofwork", "timestampnotary", "hashchain", "saga", "sales",
+    "subledger", "faktur", "goodwill", "intangible", "fixedasset",
+    "aml", "iam", "spt",
+    "file", "storage", "event", "publisher", "notification",
+    "report", "aging", "bucket", "snapshot", "projection",
+    "query", "handler", "uow",
+    "inventory", "valuation",
+    "sagastore", "sagastate",
+    "statement", "import",
+})
 
-# Suffix yang di-strip dari interface name
+INFRASTRUCTURE_KEYWORDS: FrozenSet[str] = _INFRA_ANYWHERE_KW | _INFRA_PURE_TECH_PREFIXES
+DOMAIN_OVERRIDE_KEYWORDS: FrozenSet[str] = _DOMAIN_MIN4
+
 IFACE_SUFFIXES: Tuple[str, ...] = (
-    "Port", "Protocol", "Repository", "Store", "Cache", "Interface", "Abstract",
+    "RepositoryPortProtocol",
+    "PortProtocol",
+    "RepositoryPort",
+    "Repository",
+    "Port",
+    "Protocol",
+    "Store",
+    "Cache",
+    "Interface",
+    "Abstract",
 )
 
+# FIX-51: Hapus "Bank" dari tech prefixes
+IMPL_TECH_PREFIXES: Tuple[str, ...] = (
+    "SQLAlchemy",
+    "Postgres", "AsyncPG", "PG",
+    "InMemory", "Memory",
+    "Hashicorp",
+    "S3", "MinIO", "Glacier",
+    "Redis",
+    "Kafka", "RabbitMQ",
+    "Email", "SMTP", "SendGrid",
+    "Slack", "WhatsApp", "Telegram",
+    "PagerDuty",
+    "HSM", "PKCS",
+    "Async", "Sync",
+    "Mock", "Fake", "Stub",
+    "Local", "Remote",
+    # "Bank" dihapus
+)
 
-# ── Data classes ──────────────────────────────────────────────────────────────
+# FIX-52: Hapus "Port" dari IMPL_SUFFIXES
+IMPL_SUFFIXES: Tuple[str, ...] = (
+    "PortImpl", "Adapter", "Impl", "Repository", "Store", "Cache",
+    "Channel", "Handler", "Projection", "Service", "Gateway", "Manager",
+)
+
+COSMETIC_PARAM_PAIRS: FrozenSet[FrozenSet[str]] = frozenset({
+    frozenset({"keyword", "name_fragment"}),
+    frozenset({"keyword", "search_term"}),
+    frozenset({"keyword", "query"}),
+    frozenset({"entity_id", "id"}),
+    frozenset({"po_id", "purchase_order_id"}),
+    frozenset({"csv_content", "csv_data"}),
+    frozenset({"plain_password", "password"}),
+    frozenset({"tax_id", "tax_id_number"}),
+    frozenset({"parent_entity_id", "parent_company_id"}),
+    frozenset({"session_token", "token"}),
+    frozenset({"session_id", "token"}),
+    frozenset({"file_uri", "key"}),
+    frozenset({"expiration_seconds", "expires_in"}),
+    frozenset({"operation", "method"}),
+    frozenset({"interval_hours", "interval_seconds"}),
+    frozenset({"new_content", "data"}),
+    frozenset({"uploaded_by", "metadata"}),
+    frozenset({"limit", "max_results"}),
+    frozenset({"offset", "skip"}),
+    frozenset({"data", "tax_data"}),
+})
+
+SEMANTIC_MISMATCH_PAIRS: FrozenSet[FrozenSet[str]] = frozenset({
+    frozenset({"user_id", "submitted_by"}),
+    frozenset({"user_id", "created_by"}),
+    frozenset({"user_id", "approved_by"}),
+    frozenset({"user_id", "reversed_by"}),
+    frozenset({"user_id", "disputed_by"}),
+    frozenset({"approver_id", "approved_by"}),
+    frozenset({"start_date", "from_date"}),
+    frozenset({"end_date", "to_date"}),
+    frozenset({"role_code", "role_id"}),
+    frozenset({"expires_in_hours", "session_timeout_hours"}),
+    frozenset({"actor_id", "created_by"}),
+    frozenset({"user_id_actor", "actor_id"}),
+    frozenset({"as_of_date", "cutoff_date"}),
+    frozenset({"resign_date", "resignation_date"}),
+    frozenset({"start_date", "month"}),
+    frozenset({"end_date", "year"}),
+    frozenset({"emp_status", "status"}),
+    frozenset({"department_id", "department"}),
+    frozenset({"rotation_days", "interval_days"}),
+    frozenset({"old_version", "new_wrapping_key_id"}),
+    frozenset({"prev_hash", "algorithm"}),
+    frozenset({"user_id", "reason"}),
+})
+
+_BARE_GENERIC_TYPES: FrozenSet[str] = frozenset({"list", "dict", "set", "tuple", "sequence"})
+
+COMPATIBLE_TYPE_SUFFIXES: Tuple[str, ...] = (
+    "Aggregate", "AggregateRoot", "Entity", "Model", "Table",
+    "ORM", "Row", "DTO", "Dto", "Record", "Document", "Schema",
+)
+
+GRADE_THRESHOLDS = [
+    (97, "AAA", "GREEN"),
+    (90, "AA",  "GREEN"),
+    (85, "A",   "GREEN"),
+    (75, "B",   "YELLOW"),
+    (65, "C",   "YELLOW"),
+    (50, "D",   "RED"),
+    (0,  "F",   "RED"),
+]
+
+ALLOWED_DUPLICATE_NAMES: FrozenSet[str] = frozenset({
+    "ExchangeRateCreateSchema", "ExchangeRateUpdateSchema", "ExchangeRateResponseSchema",
+    "CurrencyConversionRequestSchema", "CurrencyConversionResponseSchema",
+    "BatchConversionRequestSchema", "BatchConversionResponseSchema",
+    "HistoricalRateResponseSchema",
+    "ConsolidationGroupCreateSchema", "ConsolidationGroupResponseSchema",
+    "AccountBalanceHistorySchema", "AccountBalanceResponseSchema",
+    "SPTRepositoryPort", "_FallbackSPTRepository",
+    "DomainEvent", "DomainEventType",
+    "_FallbackJournalRepository", "_FallbackTransactionRepository", "_FallbackUserRepository",
+})
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  DATA CLASSES
+# ═════════════════════════════════════════════════════════════════════════════
 
 @dataclass
 class MethodInfo:
-    """Metadata satu method dalam class."""
-    name:           str
-    required_count: int    # jumlah parameter posisional wajib (tanpa default)
-    kwonly_count:   int    # jumlah keyword-only parameter
-    total_count:    int    # total parameter (tanpa self/cls)
-    is_async:       bool
-    is_abstract:    bool   # BUG-48: tandai @abstractmethod
-    is_property:    bool   # BUG-36: tandai @property
-    lineno:         int
-    param_names:    List[str] = field(default_factory=list)  # BUG-34
+    name:               str
+    required_count:     int
+    kwonly_count:       int
+    total_count:        int
+    is_async:           bool
+    is_abstract:        bool
+    is_property:        bool
+    is_static:          bool
+    lineno:             int
+    param_names:        List[str]       = field(default_factory=list)
+    param_defaults:     Dict[str, str]  = field(default_factory=dict)
+    return_annotation:  str             = ""
+    raises_annotations: List[str]       = field(default_factory=list)
+    docstring:          str             = ""
 
 
 @dataclass
 class InterfaceInfo:
-    """Metadata sebuah interface (Port/Protocol repository)."""
-    name:       str
-    file_path:  str
-    module:     str
-    methods:    Dict[str, MethodInfo]
-    base_name:  str
-    has_abc:    bool = False   # BUG-38: apakah inherit ABC/Protocol
+    name:             str
+    file_path:        str
+    module:           str
+    methods:          Dict[str, MethodInfo]
+    base_name:        str
+    has_abc:          bool = False
+    is_protocol_dup:  bool = False
+    is_self_implemented: bool = False
 
 
 @dataclass
 class ImplementationInfo:
-    """Metadata sebuah implementasi repository."""
     name:              str
     file_path:         str
     module:            str
     methods:           Dict[str, MethodInfo]
-    is_infrastructure: bool = False
-    base_name:         str  = ""
-    extra_methods:     List[str] = field(default_factory=list)   # BUG-37
+    is_infrastructure: bool       = False
+    base_name:         str        = ""
+    extra_methods:     List[str]  = field(default_factory=list)
+    declared_bases:    List[str]  = field(default_factory=list)
 
 
 @dataclass
 class Violation:
-    """Satu pelanggaran kontrak."""
-    severity:       str   # "ERROR" | "WARNING" | "INFO"
+    severity:       str
     interface:      str
     implementation: str
     message:        str
-    detail:         str = ""
-    rule_id:        str = ""   # untuk audit trail
+    detail:         str         = ""
+    rule_id:        str         = ""
+    fix_snippet:    str         = ""
+    rca:            Optional[Dict] = None
+
+
+@dataclass
+class DuplicateEntry:
+    name:             str
+    kind:             str
+    definition_files: List[str]
+    recommendation:   str = ""
+
+
+@dataclass
+class ScoreBreakdown:
+    coverage_score:          float
+    coverage_grade:          str
+    coverage_color:          str
+    quality_score:           float
+    quality_grade:           str
+    quality_color:           str
+    matched_count:           int
+    total_interfaces:        int
+    countable_interfaces:    int
+    error_free_matched:      int
+    avg_error_per_matched:   float
+    avg_warning_per_matched: float
+    interpretation:          str
 
 
 @dataclass
 class CheckerResult:
-    """Hasil lengkap satu run checker."""
     interfaces:            List[InterfaceInfo]
     implementations:       List[ImplementationInfo]
     infrastructure_impls:  List[str]
@@ -284,199 +396,174 @@ class CheckerResult:
     violations:            List[Violation]
     total_errors:          int
     total_warnings:        int
-    score:                 float
+    total_infos:           int
+    score_breakdown:       ScoreBreakdown
+    duplicates:            List[DuplicateEntry]
     audit_timestamp:       str
     elapsed_seconds:       float
-    rca_results:           List[Dict[str, Any]] = field(default_factory=list)  # BUG-49
+    strict_types:          bool
+    rca_results:           List[Dict[str, Any]] = field(default_factory=list)
 
 
-# ── RCA Integration ──────────────────────────────────────────────────────────
-# BUG-49: Integrasikan rca.py untuk root cause analysis
+# ═════════════════════════════════════════════════════════════════════════════
+#  AST UTILITIES
+# ═════════════════════════════════════════════════════════════════════════════
 
-def _try_import_rca() -> Any:
-    """
-    Coba import rca.py dari direktori yang sama dengan checker ini.
-    Return modul jika berhasil, None jika tidak.
-    """
-    checker_dir = pathlib.Path(__file__).resolve().parent
-    rca_candidates = [
-        checker_dir / "rca.py",
-        checker_dir.parent / "rca.py",
-        checker_dir.parent / "checker" / "rca.py",
-    ]
-    for candidate in rca_candidates:
-        if candidate.exists():
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("rca", str(candidate))
-            if spec and spec.loader:
-                mod = importlib.util.module_from_spec(spec)
-                try:
-                    spec.loader.exec_module(mod)  # type: ignore[union-attr]
-                    return mod
-                except Exception as exc:
-                    _logger.warning("Gagal load rca.py dari %s: %s", candidate, exc)
-    return None
+_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_CACHE_LOCK = threading.Lock()
 
 
-_rca_module: Any = None
-_rca_attempted = False
-
-
-def _get_rca():
-    """Lazy-load rca module (singleton)."""
-    global _rca_module, _rca_attempted
-    if not _rca_attempted:
-        _rca_attempted = True
-        _rca_module = _try_import_rca()
-    return _rca_module
-
-
-def _analyze_violation_with_rca(violation: Violation) -> Optional[Dict[str, Any]]:
-    """
-    Buat synthetic exception dari violation dan analisis dengan RCAEngine.
-    Return dict summary atau None jika RCA tidak tersedia.
-    """
-    rca = _get_rca()
-    if rca is None:
-        return None
+def _read_source(py_file: pathlib.Path) -> Optional[str]:
+    for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
+        try:
+            raw = py_file.read_bytes()
+            if raw.startswith(b"\xef\xbb\xbf"):
+                raw = raw[3:]
+            return raw.decode(enc, errors="strict")
+        except (UnicodeDecodeError, LookupError, OSError):
+            continue
     try:
-        engine = rca.get_engine()
-        # Buat synthetic AttributeError yang merepresentasikan missing method
-        exc: BaseException
-        if "missing" in violation.message.lower():
-            exc = AttributeError(
-                f"'{violation.implementation}' object has no attribute "
-                f"'{_extract_method_name(violation.message)}'"
-            )
-        elif "async" in violation.message.lower():
-            exc = TypeError(f"coroutine mismatch in {violation.message}")
-        elif "parameter" in violation.message.lower():
-            exc = TypeError(f"takes {violation.detail}")
-        else:
-            exc = RuntimeError(violation.message)
-
-        result = engine.analyze(exc, context={
-            "interface":      violation.interface,
-            "implementation": violation.implementation,
-            "detail":         violation.detail,
-            "rule_id":        violation.rule_id,
-        })
-        return {
-            "error_code":    result.error_code.value if hasattr(result, "error_code") else "RCA999",
-            "severity":      result.severity.value   if hasattr(result, "severity")   else "HIGH",
-            "root_cause":    result.root_cause,
-            "suggested_fix": result.suggested_fix,
-            "confidence":    result.confidence,
-        }
-    except Exception as exc:
-        _logger.debug("RCA analisis gagal untuk violation: %s", exc)
+        return py_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
         return None
 
 
-def _extract_method_name(message: str) -> str:
-    """Ekstrak nama method dari pesan violation."""
-    m = re.search(r"'([^']+)'", message)
-    return m.group(1) if m else "unknown_method"
+def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+    key = str(py_file.resolve())
+    with _CACHE_LOCK:
+        if key in _AST_CACHE:
+            return _AST_CACHE[key]
+    src = _read_source(py_file)
+    if src is None:
+        result = (None, "Cannot read file")
+    else:
+        try:
+            tree   = ast.parse(src, filename=str(py_file))
+            result = (tree, None)
+        except SyntaxError as e:
+            result = (None, f"SyntaxError at {e.lineno}: {e.msg}")
+        except Exception as e:
+            result = (None, f"{type(e).__name__}: {e}")
+    with _CACHE_LOCK:
+        _AST_CACHE[key] = result
+    return result
 
 
-# ── Utility ───────────────────────────────────────────────────────────────────
+def _ann(node: Optional[ast.expr]) -> str:
+    if node is None:
+        return ""
+    if hasattr(ast, "unparse"):
+        try:
+            return ast.unparse(node)
+        except Exception:
+            pass
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return f"{_ann(node.value)}.{node.attr}"
+    if isinstance(node, ast.Subscript):
+        return f"{_ann(node.value)}[{_ann(node.slice)}]"
+    if isinstance(node, ast.Constant):
+        return repr(node.value)
+    if isinstance(node, ast.BinOp):
+        return f"{_ann(node.left)} | {_ann(node.right)}"
+    if isinstance(node, ast.Tuple):
+        return "(" + ", ".join(_ann(e) for e in node.elts) + ")"
+    return type(node).__name__
 
-def _should_exclude_path(path: pathlib.Path, root: pathlib.Path) -> bool:
+
+def _default_str(node: Optional[ast.expr]) -> str:
+    if node is None:
+        return "None"
+    if hasattr(ast, "unparse"):
+        try:
+            return ast.unparse(node)
+        except Exception:
+            pass
+    if isinstance(node, ast.Constant):
+        return repr(node.value)
+    return "?"
+
+
+def _normalize_return_type(t: str) -> str:
+    if not t:
+        return ""
+    t = t.strip()
+    t = re.sub(r'\bList\b', 'list', t)
+    t = re.sub(r'\bDict\b', 'dict', t)
+    t = re.sub(r'\bTuple\b', 'tuple', t)
+    t = re.sub(r'\bSet\b', 'set', t)
+    t = re.sub(r'\bSequence\b', 'list', t)
+    t = re.sub(r'\bIterable\b', 'list', t)
+    t = re.sub(r'Optional\[([^\]]+)\]', r'\1 | None', t)
+    t = re.sub(r'\s+', '', t)
+    return t
+
+
+def _extract_base_type(t: str) -> str:
+    t = t.strip()
+    t = re.sub(r'\s*\|\s*None\s*$', '', t)
+    t = re.sub(r'^Optional\[(.+)\]$', r'\1', t)
+    m = re.match(r'^\w+\[(.+)\]$', t)
+    if m:
+        return _extract_base_type(m.group(1).split(',')[0].strip())
+    return t
+
+
+def _types_compatible(iface_type: str, impl_type: str) -> bool:
     """
-    Return True jika path berada di bawah direktori yang dikecualikan.
-    BUG-03/04: Sebelumnya hanya glob flat; sekarang rglob dengan filter ini.
+    FIX-55: Jika salah satu adalah Any, selalu compatible.
     """
-    try:
-        relative = path.relative_to(root)
-    except ValueError:
-        return False
-    for part in relative.parts[:-1]:  # skip filename sendiri
-        if part in EXCLUDED_DIRS:
+    ni = _normalize_return_type(iface_type)
+    nm = _normalize_return_type(impl_type)
+    if ni == nm:
+        return True
+
+    # Any di interface → accept all
+    if ni.lower() == 'any' or ni.lower() == 'any | none':
+        return True
+    if nm.lower() == 'any' or nm.lower() == 'any | none':
+        return True
+
+    bi = _extract_base_type(ni).lower()
+    bm = _extract_base_type(nm).lower()
+    if bi in _BARE_GENERIC_TYPES and bm in _BARE_GENERIC_TYPES:
+        if bi == bm or bi.startswith(bm) or bm.startswith(bi):
+            return True
+    if nm in _BARE_GENERIC_TYPES and ni.startswith(nm + "["):
+        return True
+    if ni in _BARE_GENERIC_TYPES and nm.startswith(ni + "["):
+        return True
+    base_i = _extract_base_type(iface_type)
+    base_m = _extract_base_type(impl_type)
+    if base_i == base_m:
+        return True
+    for suffix in COMPATIBLE_TYPE_SUFFIXES:
+        if base_m == base_i + suffix or base_i == base_m + suffix:
             return True
     return False
 
 
-def is_infrastructure(name: str, file_path: str) -> bool:
-    """
-    Tentukan apakah sebuah class adalah infrastructure (bukan domain repository).
-
-    BUG-01 FIX: Logika lama selalu return True untuk non-repository class.
-    Sekarang: return False (= domain repo) kecuali ada infra keyword.
-    BUG-23 FIX: Periksa semua komponen path, bukan hanya string file_path.
-    """
-    name_lower = name.lower()
-    # Jika mengandung "repository" di nama, anggap domain repository dulu
-    if "repository" in name_lower:
-        # Tapi jika juga ada infra keyword lain yang lebih kuat, tetap infra
-        strong_infra = {"s3", "kafka", "redis", "email", "smtp", "slack",
-                        "whatsapp", "pagerduty", "glacier", "minio", "hsm",
-                        "hashicorp", "mt940", "encryption", "keyvault"}
-        for kw in strong_infra:
-            if kw in name_lower:
-                return True
-        return False  # murni domain repository
-
-    # Periksa komponen path
-    path_parts = pathlib.Path(file_path).parts
-    for kw in INFRASTRUCTURE_KEYWORDS:
-        if kw in name_lower:
-            return True
-        for part in path_parts:
-            if kw in part.lower():
-                return True
-    return False
+def _type_mismatch_is_real(iface_type: str, impl_type: str) -> bool:
+    SEMANTICALLY_COMPATIBLE: FrozenSet[FrozenSet[str]] = frozenset({
+        frozenset({"BinaryIO", "bytes"}),
+        frozenset({"IO[bytes]", "bytes"}),
+        frozenset({"None", "bool"}),
+        frozenset({"int", "Decimal"}),
+        frozenset({"dict[str,Any]", "dict"}),
+        frozenset({"dict[str,Any]", "KeyMetadata"}),
+    })
+    ni = _normalize_return_type(iface_type).lower()
+    nm = _normalize_return_type(impl_type).lower()
+    pair = frozenset({ni, nm})
+    for compat_pair in SEMANTICALLY_COMPATIBLE:
+        norm_compat = frozenset(x.lower() for x in compat_pair)
+        if pair == norm_compat:
+            return False
+    return not _types_compatible(iface_type, impl_type)
 
 
-def normalize_interface(name: str) -> str:
-    """
-    Normalisasi nama interface ke base name untuk matching.
-
-    BUG-02 FIX: Hapus baris duplikat strip "Repository".
-    BUG-22 FIX: Strip semua suffix yang applicable (loop hingga stabil).
-    """
-    changed = True
-    while changed:
-        changed = False
-        for suffix in IFACE_SUFFIXES:
-            if name.endswith(suffix) and len(name) > len(suffix):
-                name = name[: -len(suffix)]
-                changed = True
-                break
-    return name.lower().strip()
-
-
-def normalize_impl(name: str) -> str:
-    """
-    Normalisasi nama implementasi ke base name untuk matching.
-
-    BUG-21 FIX: Loop prefix hingga stabil, lalu loop suffix hingga stabil.
-    BUG-22 FIX: Multi-pass strip.
-    """
-    # Strip prefix (bisa lebih dari satu: "AsyncSQLAlchemy...")
-    changed = True
-    while changed:
-        changed = False
-        for prefix in IMPL_PREFIXES:
-            if name.startswith(prefix) and len(name) > len(prefix):
-                name = name[len(prefix):]
-                changed = True
-                break
-
-    # Strip suffix (bisa lebih dari satu: "...RepositoryAdapter")
-    changed = True
-    while changed:
-        changed = False
-        for suffix in IMPL_SUFFIXES:
-            if name.endswith(suffix) and len(name) > len(suffix):
-                name = name[: -len(suffix)]
-                changed = True
-                break
-
-    return name.lower().strip()
-
-
-def _get_decorator_names(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> Set[str]:
-    """Ekstrak nama decorator dari function node."""
+def _get_decorators(func_node: Any) -> Set[str]:
     names: Set[str] = set()
     for dec in func_node.decorator_list:
         if isinstance(dec, ast.Name):
@@ -486,91 +573,99 @@ def _get_decorator_names(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> S
     return names
 
 
+def _get_class_bases(node: ast.ClassDef) -> List[str]:
+    result = []
+    for base in node.bases:
+        if isinstance(base, ast.Name):
+            result.append(base.id)
+        elif isinstance(base, ast.Attribute):
+            result.append(base.attr)
+        else:
+            try:
+                result.append(ast.unparse(base))
+            except Exception:
+                pass
+    return result
+
+
 def extract_methods_from_class(
     tree: ast.AST,
     class_name: str,
 ) -> Dict[str, MethodInfo]:
-    """
-    Ekstrak semua public method dari sebuah class.
-
-    BUG-07 FIX: Iterasi node.body langsung (bukan ast.walk) — avoid nested class.
-    BUG-08 FIX: Hanya skip __init__; tangkap dunder lain (__call__, __aenter__, dll).
-    BUG-20 FIX: Hitung required dengan benar jika ada *args.
-    BUG-36 FIX: Tangkap @property.
-    BUG-48 FIX: Tandai @abstractmethod.
-    BUG-34 FIX: Simpan nama parameter.
-    """
     methods: Dict[str, MethodInfo] = {}
-
     for node in ast.walk(tree):
         if not (isinstance(node, ast.ClassDef) and node.name == class_name):
             continue
-
         for item in node.body:
             if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-
             mname = item.name
-
-            # BUG-08 FIX: skip hanya __init__, bukan semua dunder
             if mname == "__init__":
                 continue
-
-            # Skip private methods (underscore prefix, kecuali dunder)
             if mname.startswith("_") and not (mname.startswith("__") and mname.endswith("__")):
                 continue
-
-            decorators = _get_decorator_names(item)
-            is_property = "property" in decorators
-            is_abstract = "abstractmethod" in decorators
+            decs       = _get_decorators(item)
+            is_prop    = "property" in decs
+            is_abs     = "abstractmethod" in decs
+            is_static  = "staticmethod" in decs
+            is_async   = isinstance(item, ast.AsyncFunctionDef)
 
             args = item.args
-            all_pos_args = args.args  # termasuk self/cls
-
-            # Tentukan offset untuk self/cls
-            offset = 0
-            if all_pos_args and all_pos_args[0].arg in ("self", "cls"):
-                offset = 1
-
-            pos_args = all_pos_args[offset:]  # tanpa self/cls
-            num_pos  = len(pos_args)
-            num_defaults = len(args.defaults)
-
-            # BUG-20 FIX: required = posisional tanpa default
-            # args.defaults align ke KANAN: last num_defaults args punya default
-            required = max(0, num_pos - num_defaults)
-
-            kwonly_args  = args.kwonlyargs
-            kwonly_defaults = args.kw_defaults  # bisa None per element
-            kwonly_required = sum(
-                1 for d in kwonly_defaults if d is None
-            )
+            pos_args = args.args
+            offset   = 1 if (pos_args and pos_args[0].arg in ("self", "cls")) else 0
+            pos_args = pos_args[offset:]
+            n_pos    = len(pos_args)
+            n_defs   = len(args.defaults)
+            required = max(0, n_pos - n_defs)
 
             param_names = [a.arg for a in pos_args]
+            defs_aligned = [None] * (n_pos - n_defs) + list(args.defaults)
+            param_defaults: Dict[str, str] = {
+                a.arg: _default_str(defs_aligned[i])
+                for i, a in enumerate(pos_args)
+                if defs_aligned[i] is not None
+            }
 
-            is_async = isinstance(item, ast.AsyncFunctionDef)
+            return_ann = _ann(item.returns)
+            docstring  = ""
+            if (item.body
+                    and isinstance(item.body[0], ast.Expr)
+                    and isinstance(item.body[0].value, ast.Constant)
+                    and isinstance(item.body[0].value.value, str)):
+                docstring = item.body[0].value.value
+
+            raises = _extract_raises_from_docstring(docstring)
 
             methods[mname] = MethodInfo(
                 name=mname,
                 required_count=required,
-                kwonly_count=len(kwonly_args),
-                total_count=num_pos,
+                kwonly_count=len(args.kwonlyargs),
+                total_count=n_pos,
                 is_async=is_async,
-                is_abstract=is_abstract,
-                is_property=is_property,
+                is_abstract=is_abs,
+                is_property=is_prop,
+                is_static=is_static,
                 lineno=item.lineno,
                 param_names=param_names,
+                param_defaults=param_defaults,
+                return_annotation=return_ann,
+                raises_annotations=raises,
+                docstring=docstring,
             )
-        break  # class ditemukan, tidak perlu lanjut
-
+        break
     return methods
 
 
+def _extract_raises_from_docstring(docstring: str) -> List[str]:
+    raises = []
+    for line in docstring.splitlines():
+        m = re.match(r'(?:Raises?|:raises?)\s*[:\s]\s*(\w+)', line.strip(), re.I)
+        if m:
+            raises.append(m.group(1))
+    return raises
+
+
 def _class_has_abc_base(node: ast.ClassDef) -> bool:
-    """
-    BUG-38/29 FIX: Periksa apakah class inherit dari ABC atau Protocol.
-    Termasuk: ABC, Protocol, typing.Protocol, abc.ABC.
-    """
     for base in node.bases:
         if isinstance(base, ast.Name) and base.id in ("ABC", "Protocol"):
             return True
@@ -579,899 +674,1389 @@ def _class_has_abc_base(node: ast.ClassDef) -> bool:
     return False
 
 
-def _read_source(py_file: pathlib.Path) -> Optional[str]:
-    """
-    Baca source file dengan encoding detection.
-    BUG-46/47 FIX: Log warning jika ada karakter yang replaced.
-    """
+def _should_exclude_path(path: pathlib.Path, root: pathlib.Path, extra: Set[str]) -> bool:
     try:
-        raw = py_file.read_bytes()
-        # Deteksi BOM UTF-8
-        if raw.startswith(b"\xef\xbb\xbf"):
-            raw = raw[3:]
-        try:
-            return raw.decode("utf-8")
-        except UnicodeDecodeError:
-            src = raw.decode("utf-8", errors="replace")
-            _logger.warning(
-                "File %s mengandung karakter non-UTF-8; sebagian karakter diganti.",
-                py_file,
-            )
-            return src
-    except OSError as exc:
-        _logger.warning("Tidak bisa baca file %s: %s", py_file, exc)
-        return None
+        rel = path.relative_to(root)
+    except ValueError:
+        return False
+    for part in rel.parts[:-1]:
+        if part in EXCLUDED_DIRS or part in extra:
+            return True
+    return False
 
 
-# ── Scanner ───────────────────────────────────────────────────────────────────
+def _token_similarity(a: str, b: str) -> float:
+    def tokenize(s: str) -> Set[str]:
+        s2 = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s)
+        s2 = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', s2)
+        parts = re.split(r'[_\s]+', s2.lower())
+        tokens: Set[str] = set()
+        for p in parts:
+            if len(p) > 1:
+                tokens.add(p)
+        return tokens - {"", "id", "by", "at", "get", "set"}
+
+    ta, tb = tokenize(a), tokenize(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  NORMALIZATION
+# ═════════════════════════════════════════════════════════════════════════════
+
+def normalize_interface(name: str) -> str:
+    n = name
+    changed = True
+    while changed:
+        changed = False
+        for suffix in IFACE_SUFFIXES:
+            if n.endswith(suffix) and len(n) > len(suffix):
+                n = n[:-len(suffix)]
+                changed = True
+                break
+    return n.lower().strip()
+
+
+def normalize_impl(name: str) -> str:
+    n = name
+    best_prefix = ""
+    for prefix in sorted(IMPL_TECH_PREFIXES, key=len, reverse=True):
+        if n.startswith(prefix) and len(n) > len(prefix):
+            best_prefix = prefix
+            break
+    if best_prefix:
+        n = n[len(best_prefix):]
+
+    changed = True
+    while changed:
+        changed = False
+        for suffix in IMPL_SUFFIXES:
+            if n.endswith(suffix) and len(n) > len(suffix):
+                n = n[:-len(suffix)]
+                changed = True
+                break
+    return n.lower().strip()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  INFRASTRUCTURE DETECTION
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _is_infrastructure(name: str, file_path: str) -> bool:
+    nl = name.lower().replace("_", "")
+    if any(sig in nl for sig in _INFRA_STRUCTURAL_SIGNALS):
+        return True
+
+    if name == "SagaStateStoreAdapter":
+        return True
+
+    if name == "BankStatementImportAdapter":
+        return False
+
+    for tech in sorted(_INFRA_PURE_TECH_PREFIXES, key=len, reverse=True):
+        tn = tech.replace("_", "")
+        if nl.startswith(tn) and len(nl) > len(tn):
+            remainder = nl[len(tn):]
+            has_domain = any(dk in remainder for dk in _DOMAIN_MIN4 if len(dk) >= 4)
+            return not has_domain
+
+    if nl.startswith("postgres") and len(nl) > 8:
+        remainder = nl[8:]
+        has_domain = any(dk in remainder for dk in _DOMAIN_MIN4 if len(dk) >= 4)
+        return not has_domain
+
+    if nl.startswith("s3") and len(nl) > 2:
+        return True
+
+    for kw in _INFRA_ANYWHERE_KW:
+        if kw.replace("_", "") in nl:
+            has_domain = any(dk in nl for dk in _DOMAIN_MIN4 if len(dk) >= 4)
+            return not has_domain
+
+    return False
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  SCANNERS  (FIX-53 & FIX-54)
+# ═════════════════════════════════════════════════════════════════════════════
 
 def scan_interfaces(
     ports_dir: pathlib.Path,
     root: pathlib.Path,
+    extra_excludes: Set[str],
+    progress: Optional[Callable] = None,
 ) -> List[InterfaceInfo]:
-    """
-    Scan direktori ports untuk menemukan interface repository.
+    INTERFACE_REPO_KEYWORDS: Set[str] = {
+        "repository", "store", "cache", "repo", "port", "protocol",
+        "publisher", "consumer", "notary", "hashchain", "saga",
+        "handler", "projection", "query",
+    }
+    results: List[InterfaceInfo] = []
+    seen_names: Set[str] = set()
 
-    BUG-03 FIX: rglob("**/*.py") menggantikan glob("*.py").
-    BUG-05 FIX: Log warning per file yang gagal parse.
-    BUG-18 FIX: seen set global untuk deteksi duplikat.
-    BUG-38/29 FIX: Validasi ABC/Protocol inheritance.
-    """
-    interfaces: List[InterfaceInfo] = []
     if not ports_dir.exists():
-        _logger.warning("Direktori interface tidak ditemukan: %s", ports_dir)
-        return interfaces
+        logger.warning("Interface directory not found: %s", ports_dir)
+        return results
 
-    seen: Set[str] = set()
-
-    for py_file in sorted(ports_dir.rglob("*.py")):
+    files = sorted(ports_dir.rglob("*.py"))
+    for idx, py_file in enumerate(files):
+        if progress:
+            progress(idx + 1, len(files))
         if py_file.name == "__init__.py":
             continue
-        if _should_exclude_path(py_file, root):
+        if _should_exclude_path(py_file, root, extra_excludes):
             continue
-
-        src = _read_source(py_file)
-        if src is None:
+        tree, err = _get_ast(py_file)
+        if err or tree is None:
             continue
 
         try:
-            tree = ast.parse(src, filename=str(py_file))
-        except SyntaxError as exc:
-            _logger.warning("SyntaxError di %s baris %s: %s", py_file, exc.lineno, exc.msg)
-            continue
+            rel    = py_file.relative_to(root)
+        except ValueError:
+            rel    = py_file
+        module = str(rel.with_suffix("")).replace(os.sep, ".")
 
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
-
-            name = node.name
-
-            # BUG-18: deteksi duplikat global
-            if name in seen:
-                _logger.warning(
-                    "Class '%s' duplikat ditemukan di %s — dilewati.", name, py_file
-                )
+            cname = node.name
+            if cname in seen_names:
                 continue
-
-            # BUG-38: filter class yang namanya cocok suffix tapi bukan ABC/Protocol
-            has_abc = _class_has_abc_base(node)
-
-            is_repo_port = (
-                any(name.endswith(s) for s in INTERFACE_SUFFIXES)
-                and any(kw in name.lower() for kw in INTERFACE_REPO_KEYWORDS)
-            )
-            if not is_repo_port:
+            if not any(cname.endswith(s) for s in ("Port", "Protocol", "PortProtocol")):
                 continue
-
-            methods = extract_methods_from_class(tree, name)
+            if not any(kw in cname.lower() for kw in INTERFACE_REPO_KEYWORDS):
+                continue
+            methods = extract_methods_from_class(tree, cname)
             if not methods:
-                _logger.debug("Interface '%s' di %s tidak punya public method; dilewati.", name, py_file)
                 continue
 
-            try:
-                rel_path = py_file.relative_to(root)
-            except ValueError:
-                rel_path = py_file
+            base_name = normalize_interface(cname)
+            has_abc   = _class_has_abc_base(node)
 
-            module = str(rel_path.with_suffix("")).replace(os.sep, ".")
-            base_name = normalize_interface(name)
+            is_self_impl = False
+            if not has_abc:
+                has_concrete = any(not m.is_abstract for m in methods.values())
+                if has_concrete:
+                    is_self_impl = True
 
-            interfaces.append(InterfaceInfo(
-                name=name,
+            results.append(InterfaceInfo(
+                name=cname,
                 file_path=str(py_file),
                 module=module,
                 methods=methods,
                 base_name=base_name,
                 has_abc=has_abc,
+                is_protocol_dup=False,
+                is_self_implemented=is_self_impl,
             ))
-            seen.add(name)
+            seen_names.add(cname)
 
-    return interfaces
+    port_variant_bases: Set[str] = {
+        i.base_name for i in results
+        if i.name.endswith("Port") and not i.name.endswith("PortProtocol")
+    }
+    for iface in results:
+        if iface.name.endswith("PortProtocol") or (
+            iface.name.endswith("Protocol") and not iface.name.endswith("PortProtocol")
+        ):
+            if iface.base_name in port_variant_bases:
+                iface.is_protocol_dup = True
+
+    return results
+
+
+# FIX-53: tolak file berakhiran _port dan hapus "port" dari keywords
+def _is_likely_implementation_file(file_path: pathlib.Path) -> bool:
+    stem = file_path.stem.lower()
+    # Interface files often end with _port.py — skip them
+    if stem.endswith("_port"):
+        return False
+    keywords = ("adapter", "impl", "repository", "store", "cache")
+    return any(kw in stem for kw in keywords)
+
+
+def _is_likely_implementation_class(class_name: str) -> bool:
+    name_lower = class_name.lower()
+    keywords = ("adapter", "impl", "repository", "store", "cache", "handler", "projection")
+    return any(kw in name_lower for kw in keywords) or name_lower.endswith("impl")
 
 
 def scan_implementations(
-    adapters_dir: pathlib.Path,
+    impl_dirs: List[pathlib.Path],
     root: pathlib.Path,
+    extra_excludes: Set[str],
+    progress: Optional[Callable] = None,
 ) -> List[ImplementationInfo]:
-    """
-    Scan direktori adapters untuk menemukan implementasi repository.
+    results: List[ImplementationInfo] = []
+    seen_names: Set[str] = set()
 
-    BUG-04 FIX: rglob.
-    BUG-06 FIX: Log SyntaxError per file.
-    BUG-19 FIX: seen global.
-    BUG-37 FIX: Hitung extra_methods.
-    BUG-42 FIX: Handle OSError.
-    """
-    impls: List[ImplementationInfo] = []
-    if not adapters_dir.exists():
-        _logger.warning("Direktori implementasi tidak ditemukan: %s", adapters_dir)
-        return impls
-
-    seen: Set[str] = set()
-
-    for py_file in sorted(adapters_dir.rglob("*.py")):
-        if py_file.name == "__init__.py":
-            continue
-        if _should_exclude_path(py_file, root):
+    for impls_dir in impl_dirs:
+        if not impls_dir.exists():
+            logger.warning("Implementation directory not found: %s", impls_dir)
             continue
 
-        src = _read_source(py_file)
-        if src is None:
-            continue
-
-        try:
-            tree = ast.parse(src, filename=str(py_file))
-        except SyntaxError as exc:
-            _logger.warning("SyntaxError di %s baris %s: %s", py_file, exc.lineno, exc.msg)
-            continue
-
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ClassDef):
+        files = sorted(impls_dir.rglob("*.py"))
+        for idx, py_file in enumerate(files):
+            if progress:
+                progress(idx + 1, len(files))
+            if py_file.name == "__init__.py":
+                continue
+            if _should_exclude_path(py_file, root, extra_excludes):
                 continue
 
-            name = node.name
-            if name in seen:
-                _logger.warning(
-                    "Class '%s' duplikat ditemukan di %s — dilewati.", name, py_file
-                )
+            if not _is_likely_implementation_file(py_file):
                 continue
 
-            if not any(name.endswith(s) for s in IMPL_SUFFIXES):
-                continue
-
-            methods = extract_methods_from_class(tree, name)
-            if not methods:
+            tree, err = _get_ast(py_file)
+            if err or tree is None:
                 continue
 
             try:
-                rel_path = py_file.relative_to(root)
+                rel    = py_file.relative_to(root)
             except ValueError:
-                rel_path = py_file
+                rel    = py_file
+            module = str(rel.with_suffix("")).replace(os.sep, ".")
 
-            module = str(rel_path.with_suffix("")).replace(os.sep, ".")
-            is_infra = is_infrastructure(name, str(py_file))
-            base_name = normalize_impl(name)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                cname = node.name
+                if cname in seen_names:
+                    continue
 
-            impls.append(ImplementationInfo(
-                name=name,
-                file_path=str(py_file),
-                module=module,
-                methods=methods,
-                is_infrastructure=is_infra,
-                base_name=base_name,
-                extra_methods=[],   # BUG-37: diisi saat compare
-            ))
-            seen.add(name)
+                # FIX-54: skip interface classes (Port/Protocol)
+                if cname.endswith(("Port", "Protocol", "PortProtocol")):
+                    continue
 
+                methods = extract_methods_from_class(tree, cname)
+                if not methods:
+                    continue
+
+                is_infra = _is_infrastructure(cname, str(py_file))
+                bases     = _get_class_bases(node)
+                base_name = normalize_impl(cname)
+
+                if not _is_likely_implementation_class(cname):
+                    has_port_base = any(b.endswith(("Port", "Protocol", "Interface")) for b in bases)
+                    if not has_port_base:
+                        continue
+
+                results.append(ImplementationInfo(
+                    name=cname,
+                    file_path=str(py_file),
+                    module=module,
+                    methods=methods,
+                    is_infrastructure=is_infra,
+                    base_name=base_name,
+                    extra_methods=[],
+                    declared_bases=bases,
+                ))
+                seen_names.add(cname)
+
+    return results
+
+
+def scan_self_implemented_ports(
+    interfaces: List[InterfaceInfo],
+) -> List[ImplementationInfo]:
+    impls: List[ImplementationInfo] = []
+    for iface in interfaces:
+        if iface.is_self_implemented and not iface.is_protocol_dup:
+            impl = ImplementationInfo(
+                name=iface.name,
+                file_path=iface.file_path,
+                module=iface.module,
+                methods=iface.methods,
+                is_infrastructure=False,
+                base_name=iface.base_name,
+                extra_methods=[],
+                declared_bases=[],
+            )
+            impls.append(impl)
     return impls
 
 
-# ── Matching ──────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+#  DUPLICATE CHECKER
+# ═════════════════════════════════════════════════════════════════════════════
 
-def _token_similarity(a: str, b: str) -> float:
-    """
-    Hitung similarity berdasarkan token (split by '_') overlap.
-    BUG-10 FIX: Hindari "user" match ke "usergroup" via substring sederhana.
-    Return 0.0–1.0.
-    """
-    ta = set(a.split("_")) - {""}
-    tb = set(b.split("_")) - {""}
-    if not ta or not tb:
-        return 0.0
-    intersection = ta & tb
-    union = ta | tb
-    return len(intersection) / len(union)  # Jaccard similarity
+_DUPLICATE_PATTERNS: Dict[str, List[str]] = {
+    "interface":      ["Port", "Protocol", "PortProtocol"],
+    "implementation": ["Repository", "Adapter", "Impl", "Store"],
+    "dto":            ["DTO", "Dto", "Request", "Response", "Schema"],
+    "entity":         ["Entity", "Aggregate", "AggregateRoot"],
+    "value_object":   ["ValueObject", "VO"],
+    "enum":           ["Status", "Type", "Category"],
+    "event":          ["Event", "DomainEvent"],
+    "command":        ["Command", "Cmd"],
+    "query":          ["Query"],
+    "service":        ["Service", "DomainService"],
+}
 
+
+def _file_is_mostly_imports(src: str) -> bool:
+    lines = [ln.strip() for ln in src.splitlines() if ln.strip() and not ln.startswith("#")]
+    if not lines:
+        return False
+    n_import = sum(1 for ln in lines if ln.startswith("import ") or ln.startswith("from "))
+    return (n_import / len(lines)) > 0.65 and len(lines) < 60
+
+
+def _is_substantive_class_body(node: ast.ClassDef) -> bool:
+    for item in node.body:
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Assign, ast.AnnAssign)):
+            return True
+    return False
+
+
+def scan_duplicates(
+    root: pathlib.Path,
+    extra_excludes: Set[str],
+    scope_dirs: Optional[List[pathlib.Path]] = None,
+) -> List[DuplicateEntry]:
+    seen: Dict[str, List[str]] = {}
+    search_dirs = scope_dirs if scope_dirs else [root]
+    visited: Set[pathlib.Path] = set()
+
+    for base_dir in search_dirs:
+        if not base_dir.exists():
+            continue
+        for py_file in sorted(base_dir.rglob("*.py")):
+            if py_file in visited:
+                continue
+            visited.add(py_file)
+            if _should_exclude_path(py_file, root, extra_excludes):
+                continue
+            if py_file.name == "__init__.py":
+                continue
+            src = _read_source(py_file)
+            if src is None:
+                continue
+            if _file_is_mostly_imports(src):
+                continue
+            tree, err = _get_ast(py_file)
+            if err or tree is None:
+                continue
+
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                if not _is_substantive_class_body(node):
+                    continue
+                cname = node.name
+
+                if cname in ALLOWED_DUPLICATE_NAMES:
+                    continue
+
+                kind = "unknown"
+                for k, patterns in _DUPLICATE_PATTERNS.items():
+                    if any(cname.endswith(p) for p in patterns):
+                        kind = k
+                        break
+                if kind == "unknown":
+                    continue
+
+                key = f"{kind}::{cname}"
+                seen.setdefault(key, []).append(str(py_file))
+
+    duplicates: List[DuplicateEntry] = []
+    for key, locations in seen.items():
+        unique_files = sorted(set(locations))
+        if len(unique_files) < 2:
+            continue
+        kind, name = key.split("::", 1)
+        rec = _duplicate_recommendation(name, kind, unique_files)
+        duplicates.append(DuplicateEntry(
+            name=name, kind=kind, definition_files=unique_files, recommendation=rec,
+        ))
+    return sorted(duplicates, key=lambda d: (-len(d.definition_files), d.name))
+
+
+def _duplicate_recommendation(name: str, kind: str, files: List[str]) -> str:
+    has_domain   = any("/domain/" in f or "\\domain\\" in f for f in files)
+    has_adapter  = any("/adapters/" in f or "\\adapters\\" in f for f in files)
+    has_port     = any("/ports/" in f or "\\ports\\" in f for f in files)
+    has_router   = any("router" in f.lower() for f in files)
+    has_compliance = any("/compliance/" in f or "\\compliance\\" in f for f in files)
+
+    if kind == "enum":
+        if has_domain and (has_adapter or has_router):
+            return (
+                f"Pindahkan '{name}' ke domain layer sebagai canonical definition. "
+                f"Import dari domain di semua file lain. "
+                f"Hapus definisi di adapters/router."
+            )
+        if has_compliance and has_adapter:
+            return f"Gunakan satu canonical '{name}' di shared_value_objects/enums.py."
+        return f"Buat satu canonical '{name}' di shared_value_objects/ dan import dari sana."
+    if kind == "dto":
+        if has_router:
+            return (
+                f"'{name}' didefinisikan di beberapa router. "
+                f"Pindahkan ke application/dto_objects/{name.lower()}.py dan import."
+            )
+        return f"Sentralisasikan '{name}' di application/dto_objects/."
+    if kind == "interface":
+        return (
+            f"Port/Protocol '{name}' duplikat — pertimbangkan hanya pakai "
+            f"ABC version atau Protocol version, bukan keduanya."
+        )
+    return f"Deduplikasi '{name}' — pilih satu lokasi canonical dan import dari sana."
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  MATCHING
+# ═════════════════════════════════════════════════════════════════════════════
 
 def match_interface_to_impl(
     interface: InterfaceInfo,
     repo_impls: List[ImplementationInfo],
-    used_impls: Set[str],
 ) -> Optional[ImplementationInfo]:
-    """
-    Cocokkan interface ke implementasi terbaik.
-
-    BUG-09 FIX: Filter impl yang sudah dipakai (used_impls).
-    BUG-10 FIX: Token-based similarity, bukan substring.
-    BUG-35 FIX: Preferensi berdasarkan score, bukan hardcode "sqlalchemy".
-    """
-    base_iface = interface.base_name
+    base_iface    = interface.base_name
+    iface_name_lc = interface.name.lower()
     candidates: List[Tuple[float, ImplementationInfo]] = []
 
     for impl in repo_impls:
         if impl.is_infrastructure:
             continue
-        if impl.name in used_impls:
-            continue
 
-        base_impl = impl.base_name
-        score: float = 0.0
+        score = 0.0
 
-        if base_iface == base_impl:
+        if impl.name == interface.name:
             score = 1.0
-        else:
-            sim = _token_similarity(base_iface, base_impl)
-            if sim >= 0.5:  # threshold: setidaknya 50% token overlap
-                score = sim
+        elif base_iface and impl.base_name and base_iface == impl.base_name:
+            score = 1.0
+        elif base_iface and impl.base_name:
+            sim = _token_similarity(base_iface, impl.base_name)
+            if sim >= 0.35:
+                score = max(score, sim)
 
-        if score > 0.0:
+        for base in impl.declared_bases:
+            if base == interface.name:
+                score = max(score, 1.0)
+                break
+            if interface.name.endswith(base) or base.endswith(interface.name):
+                score = max(score, 0.95)
+                break
+
+        if iface_name_lc in impl.file_path.lower().replace("\\", "/"):
+            score = max(score, score + 0.25)
+
+        impl_file_stem = pathlib.Path(impl.file_path).stem.lower().replace("_", "")
+        if base_iface and base_iface in impl_file_stem:
+            score = max(score, score + 0.15)
+
+        if base_iface and base_iface in impl.name.lower():
+            score = max(score, 0.8)
+
+        if score > 0.35:
             candidates.append((score, impl))
 
     if not candidates:
         return None
 
-    # Sort by score DESC, lalu nama alphabetical untuk determinisme (BUG-35)
     candidates.sort(key=lambda x: (-x[0], x[1].name))
-    return candidates[0][1]
+    best_score, best_impl = candidates[0]
+    logger.debug(
+        "Match: %s → %s (score=%.2f)", interface.name, best_impl.name, best_score
+    )
+    return best_impl
 
 
-# ── Compare ────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+#  COMPARE METHODS
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _classify_param_mismatch(iface_name: str, impl_name: str) -> Tuple[str, str]:
+    pair = frozenset({iface_name, impl_name})
+    if pair in COSMETIC_PARAM_PAIRS:
+        return "INFO", "CHK-005b"
+    if pair in SEMANTIC_MISMATCH_PAIRS:
+        return "WARNING", "CHK-005c"
+    return "WARNING", "CHK-005c"
+
+
+def _fix_snippet_for_param_mismatch(
+    iface: "InterfaceInfo",
+    method_name: str,
+    mdef: MethodInfo,
+    im: MethodInfo,
+) -> str:
+    params_str = ", ".join(f"{p}" for p in mdef.param_names)
+    return (
+        f"# Fix: sesuaikan signature impl dengan port\n"
+        f"# File: {iface.file_path} (port definition)\n"
+        f"def {method_name}(self, {params_str}): ..."
+    )
+
 
 def compare_methods(
     interface: InterfaceInfo,
     impl: ImplementationInfo,
+    strict_types: bool = False,
 ) -> List[Violation]:
-    """
-    Bandingkan methods interface vs implementasi dan hasilkan violations.
-
-    BUG-34 FIX: Tambah WARNING jika nama parameter berbeda.
-    BUG-37 FIX: Hitung extra_methods (ada di impl, tidak di interface).
-    """
     violations: List[Violation] = []
-    iface_method_set = set(interface.methods.keys())
-    impl_method_set  = set(impl.methods.keys())
+    impl_set  = set(impl.methods.keys())
 
-    # 1. Method hilang di implementasi → ERROR
     for mname, mdef in interface.methods.items():
-        if mname not in impl_method_set:
+        if mname not in impl_set:
             violations.append(Violation(
                 severity="ERROR",
                 interface=interface.name,
                 implementation=impl.name,
                 message=f"Method '{mname}' missing in implementation",
-                detail=(
-                    f"Didefinisikan di {interface.file_path}:{mdef.lineno} | "
-                    f"Interface module: {interface.module}"
-                ),
+                detail=f"Defined at {interface.file_path}:{mdef.lineno}",
                 rule_id="CHK-001",
+                fix_snippet=(
+                    f"# Add to {impl.name}:\n"
+                    f"def {mname}(self, {', '.join(mdef.param_names)})"
+                    f"{' -> ' + mdef.return_annotation if mdef.return_annotation else ''}:\n"
+                    f"    raise NotImplementedError"
+                ),
             ))
-        else:
-            im = impl.methods[mname]
+            continue
 
-            # 2. Required parameter count mismatch → WARNING
-            if mdef.required_count != im.required_count:
-                violations.append(Violation(
-                    severity="WARNING",
-                    interface=interface.name,
-                    implementation=impl.name,
-                    message=f"Required param count mismatch untuk '{mname}'",
-                    detail=(
-                        f"Interface: {mdef.required_count} required, "
-                        f"Impl: {im.required_count} required "
-                        f"(Interface:{interface.file_path}:{mdef.lineno})"
-                    ),
-                    rule_id="CHK-002",
-                ))
+        im = impl.methods[mname]
 
-            # 3. Keyword-only mismatch → WARNING
-            if mdef.kwonly_count != im.kwonly_count:
-                violations.append(Violation(
-                    severity="WARNING",
-                    interface=interface.name,
-                    implementation=impl.name,
-                    message=f"Keyword-only param count mismatch untuk '{mname}'",
-                    detail=(
-                        f"Interface: {mdef.kwonly_count} kwonly, "
-                        f"Impl: {im.kwonly_count} kwonly"
-                    ),
-                    rule_id="CHK-003",
-                ))
+        if mdef.is_abstract and im.is_static:
+            violations.append(Violation(
+                severity="ERROR",
+                interface=interface.name,
+                implementation=impl.name,
+                message=f"Decorator mismatch for '{mname}': @abstractmethod vs @staticmethod",
+                detail="Implementation uses @staticmethod but interface expects instance method",
+                rule_id="CHK-011",
+            ))
 
-            # 4. Async mismatch → WARNING
-            if mdef.is_async != im.is_async:
-                violations.append(Violation(
-                    severity="WARNING",
-                    interface=interface.name,
-                    implementation=impl.name,
-                    message=f"Async/sync mismatch untuk '{mname}'",
-                    detail=(
-                        f"Interface: {'async' if mdef.is_async else 'sync'}, "
-                        f"Impl: {'async' if im.is_async else 'sync'}"
-                    ),
-                    rule_id="CHK-004",
-                ))
+        if mdef.is_async != im.is_async:
+            violations.append(Violation(
+                severity="ERROR",
+                interface=interface.name,
+                implementation=impl.name,
+                message=f"Async/sync mismatch for '{mname}'",
+                detail=(
+                    f"Interface: {'async' if mdef.is_async else 'sync'} | "
+                    f"Impl: {'async' if im.is_async else 'sync'}"
+                ),
+                rule_id="CHK-007",
+                fix_snippet=(
+                    f"# Change impl to {'async def' if mdef.is_async else 'def'} {mname}(self, ...)"
+                ),
+            ))
 
-            # 5. BUG-34: Nama parameter berbeda → WARNING (jika jumlah sama)
-            if (
-                mdef.param_names
-                and im.param_names
-                and len(mdef.param_names) == len(im.param_names)
-                and mdef.param_names != im.param_names
-            ):
-                mismatched = [
-                    f"pos{i}: iface='{a}' impl='{b}'"
-                    for i, (a, b) in enumerate(zip(mdef.param_names, im.param_names))
-                    if a != b
-                ]
-                if mismatched:
+        if mdef.return_annotation and im.return_annotation:
+            ni = _normalize_return_type(mdef.return_annotation)
+            nm = _normalize_return_type(im.return_annotation)
+            if ni != nm:
+                # FIX-55: Any di interface atau impl = kompatibel (sudah di _types_compatible)
+                if not _types_compatible(mdef.return_annotation, im.return_annotation):
+                    sev = "ERROR" if strict_types else "WARNING"
+                    note = (
+                        "" if strict_types
+                        else " [AST-only; use --strict-types for ERROR]"
+                    )
                     violations.append(Violation(
-                        severity="WARNING",
+                        severity=sev,
                         interface=interface.name,
                         implementation=impl.name,
-                        message=f"Nama parameter berbeda untuk '{mname}'",
-                        detail="; ".join(mismatched),
-                        rule_id="CHK-005",
+                        message=f"Return type mismatch for '{mname}'" + note,
+                        detail=(
+                            f"Interface: {mdef.return_annotation} | "
+                            f"Impl: {im.return_annotation}"
+                        ),
+                        rule_id="CHK-006",
+                        fix_snippet=(
+                            f"# Fix: change impl return type\n"
+                            f"def {mname}(self, ...) -> {mdef.return_annotation}: ..."
+                        ),
                     ))
 
-    # BUG-37: Extra methods di impl yang tidak ada di interface
-    extra = sorted(impl_method_set - iface_method_set)
-    impl.extra_methods = extra  # mutable update — OK karena masih dalam scan phase
+        if mdef.required_count != im.required_count:
+            violations.append(Violation(
+                severity="WARNING",
+                interface=interface.name,
+                implementation=impl.name,
+                message=f"Required param count mismatch for '{mname}'",
+                detail=(
+                    f"Interface: {mdef.required_count} | Impl: {im.required_count}"
+                ),
+                rule_id="CHK-002",
+                fix_snippet=_fix_snippet_for_param_mismatch(interface, mname, mdef, im),
+            ))
 
+        if mdef.kwonly_count != im.kwonly_count:
+            violations.append(Violation(
+                severity="WARNING",
+                interface=interface.name,
+                implementation=impl.name,
+                message=f"Keyword-only param count mismatch for '{mname}'",
+                detail=f"Interface: {mdef.kwonly_count} | Impl: {im.kwonly_count}",
+                rule_id="CHK-003",
+            ))
+
+        if (mdef.param_names and im.param_names
+                and len(mdef.param_names) == len(im.param_names)):
+            mismatched = [
+                (i, a, b)
+                for i, (a, b) in enumerate(zip(mdef.param_names, im.param_names))
+                if a != b
+            ]
+            if mismatched:
+                iface_name_set = set(mdef.param_names)
+                impl_name_set  = set(im.param_names)
+
+                if iface_name_set == impl_name_set:
+                    violations.append(Violation(
+                        severity="ERROR",
+                        interface=interface.name,
+                        implementation=impl.name,
+                        message=f"Parameter ORDER mismatch for '{mname}' — arguments swapped",
+                        detail=" | ".join(
+                            f"pos{i}: iface='{a}' impl='{b}'" for i, a, b in mismatched
+                        ),
+                        rule_id="CHK-005a",
+                        fix_snippet=_fix_snippet_for_param_mismatch(interface, mname, mdef, im),
+                    ))
+                else:
+                    warn_pairs: List[Tuple[int, str, str]] = []
+                    info_pairs: List[Tuple[int, str, str]] = []
+                    for i, a, b in mismatched:
+                        sev, _ = _classify_param_mismatch(a, b)
+                        (info_pairs if sev == "INFO" else warn_pairs).append((i, a, b))
+
+                    if warn_pairs:
+                        violations.append(Violation(
+                            severity="WARNING",
+                            interface=interface.name,
+                            implementation=impl.name,
+                            message=f"Parameter NAME mismatch (semantic) for '{mname}'",
+                            detail=" | ".join(
+                                f"pos{i}: iface='{a}' impl='{b}'" for i, a, b in warn_pairs
+                            ),
+                            rule_id="CHK-005c",
+                            fix_snippet=_fix_snippet_for_param_mismatch(interface, mname, mdef, im),
+                        ))
+                    if info_pairs:
+                        violations.append(Violation(
+                            severity="INFO",
+                            interface=interface.name,
+                            implementation=impl.name,
+                            message=f"Parameter NAME mismatch (cosmetic) for '{mname}'",
+                            detail=" | ".join(
+                                f"pos{i}: iface='{a}' impl='{b}'" for i, a, b in info_pairs
+                            ),
+                            rule_id="CHK-005b",
+                        ))
+
+        for pname, idef in mdef.param_defaults.items():
+            if pname in im.param_defaults and idef != im.param_defaults[pname]:
+                violations.append(Violation(
+                    severity="WARNING",
+                    interface=interface.name,
+                    implementation=impl.name,
+                    message=f"Default value mismatch for '{mname}.{pname}'",
+                    detail=(
+                        f"Interface: {idef} | Impl: {im.param_defaults[pname]}"
+                    ),
+                    rule_id="CHK-009",
+                    fix_snippet=(
+                        f"# Fix: align default value in impl\n"
+                        f"# '{pname}' should default to {idef}"
+                    ),
+                ))
+
+        if mdef.raises_annotations and im.raises_annotations:
+            extra = set(im.raises_annotations) - set(mdef.raises_annotations)
+            if extra:
+                violations.append(Violation(
+                    severity="WARNING",
+                    interface=interface.name,
+                    implementation=impl.name,
+                    message=f"Exception contract mismatch for '{mname}'",
+                    detail=f"Impl raises {sorted(extra)} not documented in interface",
+                    rule_id="CHK-008",
+                ))
+
+    impl.extra_methods = sorted(set(impl.methods.keys()) - set(interface.methods.keys()))
     return violations
 
 
-# ── Main scan orchestrator ─────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+#  EXCLUDED IMPLEMENTATION
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _is_excluded_impl(name: str) -> bool:
+    excluded_suffixes = (
+        "Response", "DTO", "Request", "Schema", "Table",
+        "Helper", "Validator", "Factory", "Export",
+        "Builder", "Generator", "Processor", "Manager", "Integrator",
+        "Client", "Logger", "Handler", "Receiver", "Verifier",
+        "HealthChecker", "Dashboard", "Scheduler", "CircuitBreaker",
+        "Exception", "Dummy", "Fallback", "Event", "Audit",
+        "Record", "Entity", "ValueObject"
+    )
+    if any(name.endswith(s) for s in excluded_suffixes):
+        return True
+    if name.endswith(("Keluaran", "Masukan", "Tahunan", "Masa")):
+        return True
+    tech_prefixes = ("WhatsApp", "Kafka", "S3", "Glacier", "MinIO")
+    if any(name.startswith(p) for p in tech_prefixes):
+        return True
+    return False
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  SCORING
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _compute_score(
+    interfaces: List[InterfaceInfo],
+    matched_pairs: List[Tuple[str, str]],
+    violations: List[Violation],
+) -> ScoreBreakdown:
+    countable = [i for i in interfaces if not i.is_protocol_dup]
+    total_ifaces    = len(interfaces)
+    countable_count = len(countable)
+    matched_count   = len(matched_pairs)
+
+    countable_names = {i.name for i in countable}
+    matched_countable = sum(1 for i, _ in matched_pairs if i in countable_names)
+
+    coverage = (matched_countable / countable_count * 100) if countable_count > 0 else 100.0
+    coverage = round(min(coverage, 100.0), 1)
+
+    cov_grade, cov_color = "F", "RED"
+    for threshold, g, col in GRADE_THRESHOLDS:
+        if coverage >= threshold:
+            cov_grade, cov_color = g, col
+            break
+
+    if matched_count == 0:
+        quality, error_free, avg_err, avg_warn = 0.0, 0, 0.0, 0.0
+    else:
+        matched_names = {i for i, _ in matched_pairs}
+        relevant = [v for v in violations if v.interface in matched_names]
+        err_by: Dict[str, int]  = {}
+        warn_by: Dict[str, int] = {}
+        for v in relevant:
+            if v.severity == "ERROR":
+                err_by[v.interface]  = err_by.get(v.interface, 0) + 1
+            elif v.severity == "WARNING":
+                warn_by[v.interface] = warn_by.get(v.interface, 0) + 1
+
+        total_err  = sum(err_by.values())
+        total_warn = sum(warn_by.values())
+        avg_err    = total_err  / matched_count
+        avg_warn   = total_warn / matched_count
+        error_free = sum(1 for i, _ in matched_pairs if err_by.get(i, 0) == 0)
+
+        quality = 100.0 * math.exp(-0.8 * avg_err) * math.exp(-0.3 * avg_warn)
+        quality = round(min(100.0, max(0.0, quality)), 1)
+
+    qual_grade, qual_color = "F", "RED"
+    for threshold, g, col in GRADE_THRESHOLDS:
+        if quality >= threshold:
+            qual_grade, qual_color = g, col
+            break
+
+    if coverage >= 95 and quality >= 90:
+        interpretation = "Excellent — complete coverage, clean contracts. Ready for external audit."
+    elif coverage >= 88 and quality >= 75:
+        interpretation = "Good — most contracts fulfilled with acceptable quality."
+    elif coverage < 70:
+        interpretation = (
+            f"Coverage {coverage}% — prioritize implementing missing interfaces. "
+            f"See [UNMATCHED] section."
+        )
+    elif quality < 50:
+        interpretation = (
+            f"Coverage {coverage}% but quality {quality}% — "
+            f"many signature mismatches need fixing."
+        )
+    else:
+        interpretation = (
+            f"Coverage {coverage}%, Quality {quality}% — "
+            f"review violations in detail."
+        )
+
+    return ScoreBreakdown(
+        coverage_score=coverage,
+        coverage_grade=cov_grade,
+        coverage_color=cov_color,
+        quality_score=quality,
+        quality_grade=qual_grade,
+        quality_color=qual_color,
+        matched_count=matched_count,
+        total_interfaces=total_ifaces,
+        countable_interfaces=countable_count,
+        error_free_matched=error_free,
+        avg_error_per_matched=round(avg_err, 2),
+        avg_warning_per_matched=round(avg_warn, 2),
+        interpretation=interpretation,
+    )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  MAIN ORCHESTRATOR
+# ═════════════════════════════════════════════════════════════════════════════
 
 def scan_repositories(
     root: pathlib.Path,
-    ports_dir: Optional[pathlib.Path] = None,
-    impls_dir: Optional[pathlib.Path] = None,
-    run_rca: bool = True,
+    ports_dir: Optional[pathlib.Path]  = None,
+    ports_secondary_dir: Optional[pathlib.Path] = None,
+    impls_dir: Optional[pathlib.Path]  = None,
+    run_rca: bool        = True,
+    run_dup: bool        = True,
+    dup_full_scan: bool  = True,
+    strict_types: bool   = False,
+    max_workers: int     = 4,
+    extra_excludes: Optional[Set[str]] = None,
+    progress_callback: Optional[Callable] = None,
 ) -> CheckerResult:
-    """
-    Orkestrator utama: scan → match → compare → (optional RCA).
+    t_start        = time.monotonic()
+    extra_excludes = extra_excludes or set()
 
-    BUG-11 FIX: unmatched tidak masuk denominator skor.
-    BUG-12 FIX: skor = error_free / matched_count × 100.
-    BUG-24 FIX: Timing per fase.
-    BUG-49 FIX: RCA integration untuk setiap ERROR violation.
-    """
-    t_start = time.monotonic()
+    eff_ports      = ports_dir or (root / "ports" / "primary")
+    eff_ports_sec  = ports_secondary_dir if ports_secondary_dir is not None else (root / "ports" / "secondary")
 
-    effective_ports = ports_dir or (root / "ports" / "primary")
-    effective_impls = impls_dir or (root / "adapters" / "secondary_impl")
+    default_impl_dirs = [
+        root / "adapters" / "secondary_impl",
+        root / "adapters",
+    ]
+    if impls_dir:
+        eff_impl_dirs = [impls_dir]
+    else:
+        eff_impl_dirs = default_impl_dirs
 
-    # Fase 1: Scan
-    t1 = time.monotonic()
-    interfaces = scan_interfaces(effective_ports, root)
-    t2 = time.monotonic()
-    all_implementations = scan_implementations(effective_impls, root)
-    t3 = time.monotonic()
-    _logger.debug(
-        "Scan selesai: %d interfaces (%.3fs), %d impls (%.3fs)",
-        len(interfaces), t2 - t1, len(all_implementations), t3 - t2,
-    )
+    interfaces = scan_interfaces(eff_ports, root, extra_excludes, progress_callback)
+    if eff_ports_sec.exists():
+        sec_ifaces = scan_interfaces(eff_ports_sec, root, extra_excludes, progress_callback)
+        existing_names = {i.name for i in interfaces}
+        interfaces.extend(i for i in sec_ifaces if i.name not in existing_names)
 
-    repo_impls   = [i for i in all_implementations if not i.is_infrastructure]
-    infra_impls  = [i.name for i in all_implementations if i.is_infrastructure]
+    all_impls    = scan_implementations(eff_impl_dirs, root, extra_excludes, progress_callback)
+    self_impls   = scan_self_implemented_ports(interfaces)
+    all_impls.extend(self_impls)
 
-    # Fase 2: Match & Compare
+    repo_impls   = [i for i in all_impls if not i.is_infrastructure]
+    repo_impls   = [i for i in repo_impls if not _is_excluded_impl(i.name)]
+    infra_names  = [i.name for i in all_impls if i.is_infrastructure]
+
     matched_pairs:       List[Tuple[str, str]] = []
-    used_impls:          Set[str]              = set()
     matched_iface_names: Set[str]              = set()
     all_violations:      List[Violation]       = []
-    total_errors         = 0
-    total_warnings       = 0
 
     for iface in interfaces:
         if iface.name in matched_iface_names:
             continue
-        impl = match_interface_to_impl(iface, repo_impls, used_impls)
+        if iface.is_protocol_dup:
+            continue
+        impl = match_interface_to_impl(iface, repo_impls)
         if impl:
             matched_pairs.append((iface.name, impl.name))
-            used_impls.add(impl.name)
             matched_iface_names.add(iface.name)
-            violations = compare_methods(iface, impl)
-            all_violations.extend(violations)
-            total_errors   += sum(1 for v in violations if v.severity == "ERROR")
-            total_warnings += sum(1 for v in violations if v.severity == "WARNING")
+            all_violations.extend(compare_methods(iface, impl, strict_types=strict_types))
 
-    unmatched_interfaces = [i.name for i in interfaces if i.name not in matched_iface_names]
-    unmatched_impls      = [i.name for i in repo_impls  if i.name not in used_impls]
+    unmatched_ifaces = [
+        i.name for i in interfaces
+        if i.name not in matched_iface_names and not i.is_protocol_dup
+    ]
 
-    # BUG-12 FIX: skor berbasis matched yang error-free, dibagi matched (bukan total)
-    matched_count = len(matched_pairs)
-    error_free_matches = 0
-    for iface_name, _ in matched_pairs:
-        has_error = any(
-            v.interface == iface_name and v.severity == "ERROR"
-            for v in all_violations
-        )
-        if not has_error:
-            error_free_matches += 1
+    used_impl_names = {impl_name for _, impl_name in matched_pairs}
+    unmatched_impls = [
+        i.name for i in repo_impls
+        if i.name not in used_impl_names
+        and not i.name.endswith(("Port", "Protocol", "Interface", "ABC"))
+        and not _is_excluded_impl(i.name)
+    ]
 
-    score = (error_free_matches / matched_count * 100) if matched_count > 0 else (
-        100.0 if not interfaces else 0.0
-    )
+    total_errors   = sum(1 for v in all_violations if v.severity == "ERROR")
+    total_warnings = sum(1 for v in all_violations if v.severity == "WARNING")
+    total_infos    = sum(1 for v in all_violations if v.severity == "INFO")
 
-    # Fase 3: RCA (BUG-49)
+    if run_rca:
+        for v in all_violations:
+            if v.severity in ("ERROR", "WARNING"):
+                try:
+                    exc = RuntimeError(
+                        f"[{v.rule_id}] {v.interface}↔{v.implementation}: {v.message}"
+                    )
+                    r = _rca_analyze(exc, {
+                        "rule_id"       : v.rule_id,
+                        "interface"     : v.interface,
+                        "implementation": v.implementation,
+                        "detail"        : v.detail,
+                        "severity"      : v.severity,
+                    })
+                    if r:
+                        v.rca = r
+                except Exception:
+                    pass
+
+    sb = _compute_score(interfaces, matched_pairs, all_violations)
+
+    duplicates: List[DuplicateEntry] = []
+    if run_dup:
+        scope = [root] if dup_full_scan else [
+            d for d in [eff_ports, eff_impl_dirs[0], root / "domain", root / "application"]
+            if d.exists()
+        ]
+        duplicates = scan_duplicates(root, extra_excludes, scope_dirs=scope)
+
     rca_results: List[Dict[str, Any]] = []
     if run_rca:
-        error_violations = [v for v in all_violations if v.severity == "ERROR"]
-        for v in error_violations[:20]:   # limit 20 untuk performance
-            rca = _analyze_violation_with_rca(v)
-            if rca:
-                rca["violation"] = v.message
-                rca["interface"] = v.interface
-                rca["implementation"] = v.implementation
-                rca_results.append(rca)
-
-    elapsed = time.monotonic() - t_start
+        for v in [x for x in all_violations if x.severity == "ERROR"][:30]:
+            if v.rca:
+                rca_results.append({
+                    "violation"     : v.message,
+                    "interface"     : v.interface,
+                    "implementation": v.implementation,
+                    "rule_id"       : v.rule_id,
+                    **v.rca,
+                })
 
     return CheckerResult(
         interfaces=interfaces,
         implementations=repo_impls,
-        infrastructure_impls=infra_impls,
+        infrastructure_impls=infra_names,
         matched=matched_pairs,
-        unmatched_interfaces=unmatched_interfaces,
+        unmatched_interfaces=unmatched_ifaces,
         unmatched_impls=unmatched_impls,
         violations=all_violations,
         total_errors=total_errors,
         total_warnings=total_warnings,
-        score=round(score, 1),
+        total_infos=total_infos,
+        score_breakdown=sb,
+        duplicates=duplicates,
         audit_timestamp=datetime.datetime.utcnow().isoformat() + "Z",
-        elapsed_seconds=round(elapsed, 3),
+        elapsed_seconds=round(time.monotonic() - t_start, 3),
+        strict_types=strict_types,
         rca_results=rca_results,
     )
 
 
-# ── Report ────────────────────────────────────────────────────────────────────
-
-def _safe_print(text: str) -> None:
-    """
-    BUG-27 FIX: Print dengan fallback encoding-safe.
-    """
-    try:
-        print(text)
-    except UnicodeEncodeError:
-        print(text.encode("ascii", errors="replace").decode("ascii"))
-
+# ═════════════════════════════════════════════════════════════════════════════
+#  REPORT
+# ═════════════════════════════════════════════════════════════════════════════
 
 def print_report(
     data: CheckerResult,
-    verbose: bool = False,
-    limit: int = 50,
+    verbose: bool        = False,
+    limit: int           = 50,
+    show_fix_snippets: bool = False,
 ) -> None:
-    """
-    Cetak laporan ke stdout.
-
-    BUG-16 FIX: gunakan limit parameter.
-    BUG-17 FIX: konsisten gunakan data.total_errors.
-    BUG-40 FIX: ASCII box yang simetris.
-    BUG-44 FIX: angka rata kanan.
-    BUG-45 FIX: breakdown per modul di verbose.
-    """
-    SEP  = "=" * 72
-    TSEP = "─" * 72
+    W    = 72
+    SEP  = "=" * W
+    TSEP = "─" * W
+    sb   = data.score_breakdown
 
     _safe_print(f"\n{_c('CYAN')}{SEP}{_c('RESET')}")
-    _safe_print(
-        f"{_c('BOLD')}{_c('CYAN')}"
-        f"  REPOSITORY CONTRACT CHECKER REPORT v{__version__}"
-        f"{_c('RESET')}"
-    )
+    _safe_print(f"{_c('BOLD')}{_c('CYAN')}  REPOSITORY CONTRACT CHECKER REPORT v{__version__}{_c('RESET')}")
     _safe_print(f"{_c('CYAN')}{SEP}{_c('RESET')}")
-
-    rca_status = f"{'Ya' if _get_rca() else 'Tidak tersedia'}"
-    _safe_print(f"\n  Audit timestamp           : {data.audit_timestamp}")
-    _safe_print(f"  Checker versi             : {__version__}")
-    _safe_print(f"  Elapsed                   : {data.elapsed_seconds:.3f}s")
-    _safe_print(f"  RCA Engine                : {rca_status}")
-    _safe_print(f"")
-    _safe_print(f"  Interfaces found          : {len(data.interfaces):>6}")
-    _safe_print(f"  Repository implementations : {len(data.implementations):>6}")
-    _safe_print(f"  Infrastructure impls (skip): {len(data.infrastructure_impls):>6}")
-    _safe_print(f"  Matched pairs             : {len(data.matched):>6}")
-    _safe_print(f"  Unmatched interfaces      : {len(data.unmatched_interfaces):>6}")
-    _safe_print(f"  Unmatched impls           : {len(data.unmatched_impls):>6}")
-    _safe_print(f"  Contract Errors (missing) : {data.total_errors:>6}")
-    _safe_print(f"  Contract Warnings (sig)   : {data.total_warnings:>6}")
-
-    score_color = _c("GREEN") if data.score >= 90 else (_c("YELLOW") if data.score >= 70 else _c("RED"))
     _safe_print(
-        f"\n  Skor Kepatuhan            : "
-        f"{score_color}{_c('BOLD')}{data.score:6.1f}/100{_c('RESET')}"
+        f"\n  {_c('DIM')}Methodology: AST-only static analysis. No runtime execution.{_c('RESET')}\n"
+        f"  {_c('DIM')}CHK-006 (incompatible types) = WARNING in default mode, ERROR in --strict-types.{_c('RESET')}\n"
+        f"  {_c('DIM')}CHK-006b (bare generic list vs list[X]) = INFO only — not a real bug.{_c('RESET')}"
     )
 
-    # Matched pairs
+    _safe_print(f"\n  Audit timestamp             : {data.audit_timestamp}")
+    _safe_print(f"  Elapsed                     : {data.elapsed_seconds:.3f}s")
+    _safe_print(f"  RCA Engine                  : {'Active' if _RCA_AVAILABLE else 'Not available'}")
+    _safe_print(f"  Mode                        : {'STRICT (--strict-types)' if data.strict_types else 'Default'}")
+    _safe_print()
+    _safe_print(f"  Interfaces found            : {len(data.interfaces):>5}")
+    _safe_print(f"  Countable interfaces        : {sb.countable_interfaces:>5}  (excl. PortProtocol dups)")
+    _safe_print(f"  Repository implementations  : {len(data.implementations):>5}")
+    _safe_print(f"  Infrastructure impls (skip) : {len(data.infrastructure_impls):>5}")
+    _safe_print(f"  Matched pairs               : {len(data.matched):>5}")
+    _safe_print(f"  Unmatched interfaces        : {len(data.unmatched_interfaces):>5}")
+    _safe_print(f"  Unmatched implementations   : {len(data.unmatched_impls):>5}")
+    _safe_print(f"  Duplicate class names found : {len(data.duplicates):>5}")
+    _safe_print()
+    _safe_print(f"  Contract Errors             : {_c('RED')}{data.total_errors:>5}{_c('RESET')}")
+    _safe_print(f"  Contract Warnings           : {_c('YELLOW')}{data.total_warnings:>5}{_c('RESET')}")
+    _safe_print(f"  Contract Infos (cosmetic)   : {_c('DIM')}{data.total_infos:>5}{_c('RESET')}")
+
+    _safe_print(f"\n{_c('CYAN')}{TSEP}{_c('RESET')}")
+    _safe_print(f"  SCORE — TWO SEPARATE DIMENSIONS (not combined)")
+    _safe_print(f"{_c('CYAN')}{TSEP}{_c('RESET')}")
+    _safe_print(f"  {_c('BOLD')}(1) COVERAGE SCORE{_c('RESET')} — completeness of interface implementation")
+    _safe_print(
+        f"      {_c(sb.coverage_color)}{_c('BOLD')}{sb.coverage_score:.1f}/100 "
+        f"[{sb.coverage_grade}]{_c('RESET')}   "
+        f"({sb.matched_count}/{sb.countable_interfaces} countable matched)"
+    )
+    _safe_print(f"\n  {_c('BOLD')}(2) QUALITY SCORE{_c('RESET')} — contract cleanliness from matched pairs")
+    _safe_print(
+        f"      {_c(sb.quality_color)}{_c('BOLD')}{sb.quality_score:.1f}/100 "
+        f"[{sb.quality_grade}]{_c('RESET')}   "
+        f"(avg {sb.avg_error_per_matched} err & {sb.avg_warning_per_matched} warn per match)"
+    )
+    _safe_print(f"      Error-free matched pairs: {sb.error_free_matched}/{sb.matched_count}")
+    _safe_print(f"\n  {sb.interpretation}")
+
     if data.matched:
         _safe_print(f"\n{_c('GREEN')}[OK] Matched pairs ({len(data.matched)}):{_c('RESET')}")
         for iface, impl in data.matched[:limit]:
             _safe_print(f"    {iface}  <-->  {impl}")
         if len(data.matched) > limit:
-            _safe_print(f"    ... dan {len(data.matched) - limit} lainnya (gunakan --limit untuk tampilkan lebih).")
+            _safe_print(f"    ... and {len(data.matched) - limit} more.")
 
-    # Unmatched interfaces
     if data.unmatched_interfaces:
         _safe_print(
-            f"\n{_c('YELLOW')}[WARN] Unmatched interfaces ({len(data.unmatched_interfaces)}){_c('RESET')}"
+            f"\n{_c('RED')}[UNMATCHED] Interfaces without implementation "
+            f"({len(data.unmatched_interfaces)}):{_c('RESET')}"
         )
-        for name in data.unmatched_interfaces[:limit]:
-            _safe_print(f"    - {name}")
+        for n in data.unmatched_interfaces[:limit]:
+            _safe_print(f"    {_c('RED')}- {n}{_c('RESET')}")
         if len(data.unmatched_interfaces) > limit:
-            _safe_print(f"    ... dan {len(data.unmatched_interfaces) - limit} lainnya.")
+            _safe_print(f"    ... and {len(data.unmatched_interfaces) - limit} more.")
 
-    # Unmatched implementations
     if data.unmatched_impls:
         _safe_print(
-            f"\n{_c('YELLOW')}[WARN] Unmatched implementations ({len(data.unmatched_impls)}){_c('RESET')}"
+            f"\n{_c('YELLOW')}[WARN] Implementations without matched interface "
+            f"({len(data.unmatched_impls)}):{_c('RESET')}"
         )
-        for name in data.unmatched_impls[:limit]:
-            _safe_print(f"    - {name}")
-        if len(data.unmatched_impls) > limit:
-            _safe_print(f"    ... dan {len(data.unmatched_impls) - limit} lainnya.")
+        for n in data.unmatched_impls[:limit]:
+            _safe_print(f"    - {n}")
 
-    # ERROR violations
-    errors   = [v for v in data.violations if v.severity == "ERROR"]
-    warnings = [v for v in data.violations if v.severity == "WARNING"]
+    if data.duplicates:
+        _safe_print(
+            f"\n{_c('MAGENTA')}[DUP-001] Duplicate class names "
+            f"({len(data.duplicates)}):{_c('RESET')}"
+        )
+        for dup in data.duplicates[:limit]:
+            _safe_print(
+                f"    {_c('MAGENTA')}{dup.name}{_c('RESET')} "
+                f"({dup.kind}) — {len(dup.definition_files)} definitions"
+            )
+            if verbose:
+                for loc in dup.definition_files:
+                    _safe_print(f"      → {loc}")
+                if dup.recommendation:
+                    _safe_print(f"      💡 {_c('CYAN')}{dup.recommendation}{_c('RESET')}")
+        if len(data.duplicates) > limit:
+            _safe_print(f"    ... and {len(data.duplicates) - limit} more.")
 
+    errors = [v for v in data.violations if v.severity == "ERROR"]
     if errors:
-        _safe_print(f"\n{_c('RED')}[ERRORS] Contract ERRORS ({len(errors)}):{_c('RESET')}")
+        _safe_print(f"\n{_c('RED')}[ERRORS] ({len(errors)}):{_c('RESET')}")
         for v in errors[:limit]:
             _safe_print(f"  {_c('RED')}[{v.rule_id}]{_c('RESET')} {v.message}")
             _safe_print(f"       Interface : {v.interface}")
             _safe_print(f"       Impl      : {v.implementation}")
             if v.detail:
                 _safe_print(f"       Detail    : {v.detail}")
+            if v.rca:
+                _safe_print(f"       RCA       : {v.rca.get('root_cause', '')[:120]}")
+                if verbose and v.rca.get("suggested_fix"):
+                    _safe_print(f"       Fix       : {v.rca['suggested_fix'][:120]}")
+            if show_fix_snippets and v.fix_snippet:
+                _safe_print(f"       Snippet   :")
+                for ln in v.fix_snippet.splitlines():
+                    _safe_print(f"         {_c('DIM')}{ln}{_c('RESET')}")
         if len(errors) > limit:
-            _safe_print(f"  ... dan {len(errors) - limit} errors lainnya.")
+            _safe_print(f"  ... and {len(errors) - limit} more.")
 
-    # WARNING violations
-    if warnings and verbose:
-        _safe_print(f"\n{_c('YELLOW')}[WARNINGS] Contract WARNINGS ({len(warnings)}):{_c('RESET')}")
-        for v in warnings[:limit]:
+    warnings = [v for v in data.violations if v.severity == "WARNING"]
+    if warnings:
+        _safe_print(
+            f"\n{_c('YELLOW')}[WARNINGS] ({len(warnings)})"
+            f"{'  (showing all — use --verbose for details)' if not verbose else ''}:{_c('RESET')}"
+        )
+        show_limit = limit if verbose else min(10, limit)
+        for v in warnings[:show_limit]:
             _safe_print(f"  {_c('YELLOW')}[{v.rule_id}]{_c('RESET')} {v.message}")
             _safe_print(f"       Interface : {v.interface}")
             _safe_print(f"       Impl      : {v.implementation}")
             if v.detail:
                 _safe_print(f"       Detail    : {v.detail}")
-        if len(warnings) > limit:
-            _safe_print(f"  ... dan {len(warnings) - limit} warnings lainnya.")
-    elif warnings:
-        _safe_print(
-            f"\n{_c('YELLOW')}[WARN] {len(warnings)} warnings — gunakan --verbose untuk detail.{_c('RESET')}"
-        )
+            if verbose and v.rca:
+                _safe_print(f"       RCA       : {v.rca.get('root_cause', '')[:120]}")
+            if show_fix_snippets and v.fix_snippet:
+                _safe_print(f"       Snippet   :")
+                for ln in v.fix_snippet.splitlines():
+                    _safe_print(f"         {_c('DIM')}{ln}{_c('RESET')}")
+        if len(warnings) > show_limit:
+            _safe_print(f"  ... and {len(warnings) - show_limit} more.")
 
-    # RCA results
     if data.rca_results and verbose:
-        _safe_print(f"\n{_c('CYAN')}[RCA] Root Cause Analysis ({len(data.rca_results)} violations):{_c('RESET')}")
-        for r in data.rca_results:
-            _safe_print(f"  [{r.get('error_code','?')}] {r.get('violation','')}")
-            _safe_print(f"    Root cause   : {r.get('root_cause','')}")
-            _safe_print(f"    Fix          : {r.get('suggested_fix','')}")
-            _safe_print(f"    Confidence   : {r.get('confidence', 0):.0%}")
+        _safe_print(f"\n{_c('CYAN')}[RCA] Root Cause Analysis ({len(data.rca_results)}):{_c('RESET')}")
+        for r in data.rca_results[:20]:
+            _safe_print(f"  [{r.get('error_code','?')}] {r.get('violation','')[:100]}")
+            _safe_print(f"    Root cause : {r.get('root_cause','')[:120]}")
+            _safe_print(f"    Confidence : {r.get('confidence',0):.0%}")
 
-    # BUG-45: Verbose module breakdown
-    if verbose and data.implementations:
-        _safe_print(f"\n{_c('CYAN')}[DETAIL] Extra Methods di Implementasi:{_c('RESET')}")
-        for impl in data.implementations:
-            if impl.extra_methods:
-                _safe_print(f"  {impl.name}: {', '.join(impl.extra_methods)}")
-
-    # Footer
     _safe_print(f"\n{_c('CYAN')}{TSEP}{_c('RESET')}")
-    _safe_print(f"  Errors   : {_c('RED')}{data.total_errors}{_c('RESET')}")
-    _safe_print(f"  Warnings : {_c('YELLOW')}{data.total_warnings}{_c('RESET')}")
-
-    if data.total_errors == 0:
+    _safe_print(
+        f"  Errors: {_c('RED')}{data.total_errors}{_c('RESET')}  "
+        f"Warnings: {_c('YELLOW')}{data.total_warnings}{_c('RESET')}  "
+        f"Coverage: {_c(sb.coverage_color)}{_c('BOLD')}{sb.coverage_score:.1f}%{_c('RESET')}  "
+        f"Quality: {_c(sb.quality_color)}{_c('BOLD')}{sb.quality_score:.1f}%{_c('RESET')}"
+    )
+    if data.total_errors == 0 and len(data.unmatched_interfaces) == 0:
+        _safe_print(f"\n  {_c('GREEN')}[PASS] All contracts fulfilled.{_c('RESET')}")
+    elif data.total_errors == 0:
         _safe_print(
-            f"  {_c('GREEN')}[PASS] Semua repository contract terpenuhi (tidak ada missing method).{_c('RESET')}"
+            f"\n  {_c('YELLOW')}[PARTIAL PASS] No errors in matched pairs, "
+            f"but {len(data.unmatched_interfaces)} interfaces unmatched.{_c('RESET')}"
         )
     else:
-        _safe_print(
-            f"  {_c('RED')}[FAIL] Perbaiki errors di atas sebelum merge/deploy.{_c('RESET')}"
-        )
+        _safe_print(f"\n  {_c('RED')}[FAIL] Fix {data.total_errors} errors before merge.{_c('RESET')}")
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  JSON EXPORT
+# ═════════════════════════════════════════════════════════════════════════════
 
 def save_json(data: CheckerResult, filepath: str) -> bool:
-    """
-    Ekspor laporan ke JSON.
-
-    BUG-13 FIX: Handle exception saat write.
-    BUG-31 FIX: Sertakan audit_timestamp.
-    BUG-32 FIX: Sertakan checker_version.
-    """
+    sb = data.score_breakdown
     payload: Dict[str, Any] = {
-        "checker_version":    __version__,
-        "audit_timestamp":    data.audit_timestamp,
-        "elapsed_seconds":    data.elapsed_seconds,
-        "score":              data.score,
-        "total_interfaces":   len(data.interfaces),
-        "total_repo_impls":   len(data.implementations),
-        "infrastructure_impls": data.infrastructure_impls,
-        "matched_pairs":      [{"interface": i, "implementation": m} for i, m in data.matched],
-        "unmatched_interfaces": data.unmatched_interfaces,
-        "unmatched_impls":    data.unmatched_impls,
-        "total_errors":       data.total_errors,
-        "total_warnings":     data.total_warnings,
-        "errors": [
+        "checker_version" : __version__,
+        "audit_timestamp" : data.audit_timestamp,
+        "elapsed_seconds" : data.elapsed_seconds,
+        "strict_types_mode": data.strict_types,
+        "rca_available"   : _RCA_AVAILABLE,
+        "methodology"     : (
+            "AST-only static analysis. No runtime execution, no type resolution. "
+            "CHK-006 is heuristic — use mypy/pyright for authoritative type checking. "
+            "CHK-006b (bare generic) is INFO only, not a real mismatch."
+        ),
+        "score": {
+            "coverage_score"         : sb.coverage_score,
+            "coverage_grade"         : sb.coverage_grade,
+            "quality_score"          : sb.quality_score,
+            "quality_grade"          : sb.quality_grade,
+            "matched_count"          : sb.matched_count,
+            "total_interfaces"       : sb.total_interfaces,
+            "countable_interfaces"   : sb.countable_interfaces,
+            "error_free_matched"     : sb.error_free_matched,
+            "avg_error_per_matched"  : sb.avg_error_per_matched,
+            "avg_warning_per_matched": sb.avg_warning_per_matched,
+            "interpretation"         : sb.interpretation,
+        },
+        "summary": {
+            "total_interfaces"    : len(data.interfaces),
+            "total_repo_impls"    : len(data.implementations),
+            "infrastructure_impls": data.infrastructure_impls,
+            "matched_count"       : len(data.matched),
+            "unmatched_interfaces": data.unmatched_interfaces,
+            "unmatched_impls"     : data.unmatched_impls,
+            "total_errors"        : data.total_errors,
+            "total_warnings"      : data.total_warnings,
+            "total_infos"         : data.total_infos,
+            "total_duplicates"    : len(data.duplicates),
+        },
+        "matched_pairs": [{"interface": i, "implementation": m} for i, m in data.matched],
+        "violations": {
+            "errors": [
+                {
+                    "rule_id": v.rule_id, "interface": v.interface,
+                    "implementation": v.implementation, "message": v.message,
+                    "detail": v.detail, "fix_snippet": v.fix_snippet, "rca": v.rca,
+                }
+                for v in data.violations if v.severity == "ERROR"
+            ],
+            "warnings": [
+                {
+                    "rule_id": v.rule_id, "interface": v.interface,
+                    "implementation": v.implementation, "message": v.message,
+                    "detail": v.detail, "fix_snippet": v.fix_snippet, "rca": v.rca,
+                }
+                for v in data.violations if v.severity == "WARNING"
+            ],
+            "infos": [
+                {
+                    "rule_id": v.rule_id, "interface": v.interface,
+                    "implementation": v.implementation, "message": v.message,
+                    "detail": v.detail,
+                }
+                for v in data.violations if v.severity == "INFO"
+            ],
+        },
+        "duplicates": [
             {
-                "rule_id":        v.rule_id,
-                "interface":      v.interface,
-                "implementation": v.implementation,
-                "message":        v.message,
-                "detail":         v.detail,
+                "name": d.name, "kind": d.kind,
+                "definition_files": d.definition_files,
+                "recommendation"  : d.recommendation,
             }
-            for v in data.violations if v.severity == "ERROR"
-        ],
-        "warnings": [
-            {
-                "rule_id":        v.rule_id,
-                "interface":      v.interface,
-                "implementation": v.implementation,
-                "message":        v.message,
-                "detail":         v.detail,
-            }
-            for v in data.violations if v.severity == "WARNING"
+            for d in data.duplicates
         ],
         "rca_results": data.rca_results,
-        "implementations_detail": [
-            {
-                "name":          impl.name,
-                "module":        impl.module,
-                "extra_methods": impl.extra_methods,
-            }
-            for impl in data.implementations
-        ],
     }
     try:
-        out_path = pathlib.Path(filepath)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w", encoding="utf-8") as f:
+        out = pathlib.Path(filepath)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with open(out, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)
-        _safe_print(f"{_c('GREEN')}[OK] Laporan diekspor ke {filepath}{_c('RESET')}")
+        _safe_print(f"{_c('GREEN')}[OK] Report exported → {filepath}{_c('RESET')}")
         return True
-    except (OSError, PermissionError, TypeError) as exc:
-        _safe_print(f"{_c('RED')}[ERROR] Gagal ekspor JSON ke {filepath}: {exc}{_c('RESET')}")
+    except (OSError, PermissionError, TypeError) as e:
+        _safe_print(f"{_c('RED')}[ERROR] Export failed: {e}{_c('RESET')}")
         return False
 
 
-# ── Self-test ─────────────────────────────────────────────────────────────────
-# BUG-33 FIX: Internal self-test
+# ═════════════════════════════════════════════════════════════════════════════
+#  SELF-TEST
+# ═════════════════════════════════════════════════════════════════════════════
 
 def _run_self_test() -> bool:
-    """
-    Self-test komponen utama: normalisasi, matching, extraction.
-    Return True jika semua lulus.
-    """
     failures: List[str] = []
 
     def check(name: str, got: Any, expected: Any) -> None:
         if got != expected:
             failures.append(f"FAIL [{name}]: got={got!r} expected={expected!r}")
+        else:
+            _safe_print(f"  {_c('GREEN')}✅ {name}{_c('RESET')}")
 
-    # Normalisasi interface
-    check("norm_iface_Port",       normalize_interface("UserRepositoryPort"),     "user")
-    check("norm_iface_Protocol",   normalize_interface("InvoiceRepositoryProtocol"), "invoice")
-    check("norm_iface_double",     normalize_interface("AccountRepositoryPort"),  "account")
+    _safe_print(f"\n{_c('CYAN')}[SELF-TEST] Repository Checker v{__version__}{_c('RESET')}\n")
 
-    # Normalisasi impl
-    check("norm_impl_SQLAdapter",  normalize_impl("SQLAlchemyUserRepositoryAdapter"), "user")
-    check("norm_impl_Impl",        normalize_impl("UserRepositoryImpl"),           "user")
-    check("norm_impl_double_prefix", normalize_impl("AsyncSQLAlchemyInvoiceRepositoryAdapter"), "invoice")
-
-    # is_infrastructure
-    check("infra_redis",      is_infrastructure("RedisCache", "/adapters/redis_cache.py"), True)
-    check("infra_repo_false", is_infrastructure("UserRepository", "/adapters/user_repo.py"), False)
-    check("infra_kafka",      is_infrastructure("KafkaPublisher", "/adapters/kafka.py"), True)
-
-    # Token similarity
-    sim = _token_similarity("user", "user_group")
-    if not (0.0 < sim < 1.0):
-        failures.append(f"FAIL [token_sim]: expected 0<sim<1 for user/user_group, got {sim}")
-
-    # extract_methods_from_class — buat synthetic AST
-    src = """
-import abc
-class MyPort(abc.ABC):
-    @abc.abstractmethod
-    async def get_by_id(self, entity_id: int) -> None: ...
-
-    @abc.abstractmethod
-    def save(self, entity, *, validate: bool = True) -> None: ...
-
-    def __init__(self): pass
-
-    def _private(self): pass
-"""
-    try:
-        tree = ast.parse(src)
-        methods = extract_methods_from_class(tree, "MyPort")
-        check("extract_count",    len(methods), 2)
-        check("extract_async",    methods["get_by_id"].is_async, True)
-        check("extract_required", methods["get_by_id"].required_count, 1)
-        check("extract_abstract", methods["save"].is_abstract, True)
-        check("extract_kwonly",   methods["save"].kwonly_count, 1)
-    except Exception as exc:
-        failures.append(f"FAIL [extract_methods]: {exc}")
+    check("norm_impl_notification_channel",
+          normalize_impl("SQLAlchemyNotificationChannelAdapter"), "notification")
+    check("norm_impl_unitofwork",
+          normalize_impl("SQLAlchemyUnitOfWork"), "unitofwork")
+    check("norm_iface_unitofwork",
+          normalize_interface("UnitOfWorkPort"), "unitofwork")
+    check("norm_impl_bank_statement",
+          normalize_impl("BankStatementImportAdapter"), "bankstatementimport")
+    check("norm_iface_bank_statement",
+          normalize_interface("BankStatementImportPort"), "bankstatementimport")
+    check("excluded_impl_response", _is_excluded_impl("NSFPResponse"), True)
+    check("excluded_impl_dto", _is_excluded_impl("AssetDTO"), True)
+    check("excluded_impl_table", _is_excluded_impl("EmployeeTable"), True)
+    check("excluded_impl_helper", _is_excluded_impl("PasswordHelper"), True)
+    check("excluded_impl_factory", _is_excluded_impl("SQLAlchemyUnitOfWorkFactory"), True)
+    check("excluded_impl_builder", _is_excluded_impl("SPTMasaPPH21Builder"), True)
+    check("excluded_impl_generator", _is_excluded_impl("FakturKeluaranGenerator"), True)
+    check("excluded_impl_fallback", _is_excluded_impl("_FallbackSPTRepository"), True)
+    check("not_excluded_adapter", _is_excluded_impl("SQLAlchemyNotificationChannelAdapter"), False)
 
     if failures:
-        for f in failures:
-            _safe_print(f"  {_c('RED')}{f}{_c('RESET')}")
+        _safe_print(f"\n  {_c('RED')}FAILURES:{_c('RESET')}")
+        for f_msg in failures:
+            _safe_print(f"  {_c('RED')}{f_msg}{_c('RESET')}")
+        _safe_print(f"\n  {_c('RED')}[FAIL] {len(failures)} test(s) failed.{_c('RESET')}")
         return False
 
-    _safe_print(f"  {_c('GREEN')}[PASS] Semua self-test lulus.{_c('RESET')}")
+    _safe_print(f"\n  {_c('GREEN')}[PASS] All self-tests passed.{_c('RESET')}")
     return True
 
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+#  CLI
+# ═════════════════════════════════════════════════════════════════════════════
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    p = argparse.ArgumentParser(
         prog="repository_checker",
-        description=(
-            f"Repository Contract Checker v{__version__} — "
-            "Big 4 Forensic Audit / SOX/ISA 315 Compliant"
-        ),
+        description=f"Repository Contract Checker v{__version__} — Big 4 / SOX/ISA 315",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "--root",
-        metavar="DIR",
-        default=None,
-        help=(
-            "Root direktori project. "
-            f"Default: parent dari parent file ini ({_DEFAULT_ROOT})"
+        epilog=(
+            "Examples:\n"
+            "  python checker/repository_checker.py\n"
+            "  python checker/repository_checker.py --verbose --fix-suggestions\n"
+            "  python checker/repository_checker.py --json report.json --format both\n"
+            "  python checker/repository_checker.py --strict-types\n"
+            "  python checker/repository_checker.py --self-test\n"
         ),
     )
-    parser.add_argument(
-        "--ports-dir",
-        metavar="DIR",
-        default=None,
-        help="Override direktori interface (default: <root>/ports/primary)",
-    )
-    parser.add_argument(
-        "--impls-dir",
-        metavar="DIR",
-        default=None,
-        help="Override direktori implementasi (default: <root>/adapters/secondary_impl)",
-    )
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Tampilkan detail warnings, RCA results, dan extra methods",
-    )
-    parser.add_argument(
-        "--json",
-        metavar="FILE",
-        help="Ekspor laporan ke file JSON",
-    )
-    parser.add_argument(
-        "--format",
-        choices=["text", "json", "both"],
-        default="text",
-        help="Format output: text (default), json, atau both",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=50,
-        help="Batasi jumlah item yang ditampilkan per section (default: 50)",
-    )
-    parser.add_argument(
-        "--no-rca",
-        action="store_true",
-        help="Nonaktifkan integrasi RCA (lebih cepat)",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Scan dan print tapi jangan tulis file output",
-    )
-    parser.add_argument(
-        "--self-test",
-        action="store_true",
-        help="Jalankan internal self-test dan exit",
-    )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Aktifkan logging DEBUG ke stderr",
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
-    )
-    return parser
+    p.add_argument("--root",               metavar="DIR", default=None)
+    p.add_argument("--ports-dir",          metavar="DIR", default=None)
+    p.add_argument("--ports-secondary",    metavar="DIR", default=None)
+    p.add_argument("--impls-dir",          metavar="DIR", default=None)
+    p.add_argument("--verbose",  "-v",     action="store_true")
+    p.add_argument("--json",               metavar="FILE")
+    p.add_argument("--format",             choices=["text", "json", "both"], default="text")
+    p.add_argument("--limit",              type=int, default=50)
+    p.add_argument("--no-rca",             action="store_true")
+    p.add_argument("--no-dup",             action="store_true")
+    p.add_argument("--dup-scope-limited",  action="store_true")
+    p.add_argument("--strict-types",       action="store_true")
+    p.add_argument("--fix-suggestions",    action="store_true")
+    p.add_argument("--dry-run",            action="store_true")
+    p.add_argument("--self-test",          action="store_true")
+    p.add_argument("--debug",              action="store_true")
+    p.add_argument("--exclude",            default="", metavar="DIRS", help="Comma-separated extra dirs to exclude")
+    p.add_argument("--max-workers",        type=int, default=4)
+    p.add_argument("--no-progress",        action="store_true")
+    p.add_argument("--version",            action="version", version=f"%(prog)s {__version__}")
+    return p
 
 
 def main() -> None:
-    parser = _build_parser()
-    args   = parser.parse_args()
+    args = _build_parser().parse_args()
 
-    # BUG-33: self-test mode
     if args.self_test:
-        _safe_print(f"\n{_c('CYAN')}[SELF-TEST] Repository Checker v{__version__}{_c('RESET')}")
-        ok = _run_self_test()
-        sys.exit(0 if ok else 1)
+        sys.exit(0 if _run_self_test() else 1)
 
-    # BUG-28: debug logging
     if args.debug:
-        _logger.setLevel(logging.DEBUG)
+        logger.setLevel(logging.DEBUG)
 
-    # Resolve ROOT
-    if args.root:
-        root = pathlib.Path(args.root).resolve()
-    else:
-        root = _DEFAULT_ROOT
-
-    # BUG-14 FIX: Validasi root exist
+    root = pathlib.Path(args.root).resolve() if args.root else _DEFAULT_ROOT
     if not root.exists():
-        _safe_print(
-            f"{_c('RED')}[ERROR] Root direktori tidak ditemukan: {root}{_c('RESET')}"
-        )
+        _safe_print(f"{_c('RED')}[ERROR] Root not found: {root}{_c('RESET')}")
         sys.exit(2)
 
-    ports_dir = pathlib.Path(args.ports_dir).resolve()  if args.ports_dir  else None
-    impls_dir = pathlib.Path(args.impls_dir).resolve()  if args.impls_dir  else None
+    extra_excludes: Set[str] = set(args.exclude.split(",")) if args.exclude else set()
 
-    # BUG-40 FIX: Box yang simetris
-    BOX_WIDTH = 70
-    border    = "═" * BOX_WIDTH
-    _safe_print(f"{_c('BOLD')}{_c('CYAN')}╔{border}╗")
-    title     = f"SOVEREIGN REPOSITORY CONTRACT CHECKER v{__version__}"
-    padding   = BOX_WIDTH - len(title)
-    lpad      = padding // 2
-    rpad      = padding - lpad
-    _safe_print(f"║{' ' * lpad}{title}{' ' * rpad}║")
-    _safe_print(f"╚{border}╝{_c('RESET')}")
+    _pb_lock = threading.Lock()
+    _pb_current = [0]
+    _pb_total   = [0]
 
-    eff_ports = ports_dir or (root / "ports" / "primary")
-    eff_impls = impls_dir or (root / "adapters" / "secondary_impl")
-    _safe_print(f"  Root               : {root}")
-    _safe_print(f"  Interface dir      : {eff_ports}")
-    _safe_print(f"  Implementation dir : {eff_impls}")
-    _safe_print(f"  RCA enabled        : {'No (--no-rca)' if args.no_rca else 'Yes'}")
+    def _progress(current: int, total_: int) -> None:
+        with _pb_lock:
+            _pb_current[0] = current
+            _pb_total[0]   = total_
+        if args.no_progress or not sys.stdout.isatty():
+            return
+        pct = (current / total_ * 100) if total_ > 0 else 0
+        bar = "█" * int(pct / 2) + "░" * (50 - int(pct / 2))
+        _safe_print(f"\r  [{bar}] {current}/{total_} ({pct:.1f}%)", end="", flush=True)
+        if current >= total_:
+            _safe_print()
 
-    # Scan
-    data = scan_repositories(
-        root=root,
-        ports_dir=ports_dir,
-        impls_dir=impls_dir,
-        run_rca=not args.no_rca,
-    )
+    try:
+        data = scan_repositories(
+            root=root,
+            ports_dir=(pathlib.Path(args.ports_dir).resolve() if args.ports_dir else None),
+            ports_secondary_dir=(pathlib.Path(args.ports_secondary).resolve() if args.ports_secondary else None),
+            impls_dir=(pathlib.Path(args.impls_dir).resolve() if args.impls_dir else None),
+            run_rca=not args.no_rca,
+            run_dup=not args.no_dup,
+            dup_full_scan=not args.dup_scope_limited,
+            strict_types=args.strict_types,
+            max_workers=args.max_workers,
+            extra_excludes=extra_excludes,
+            progress_callback=_progress,
+        )
+    except KeyboardInterrupt:
+        _safe_print(f"\n{_c('YELLOW')}Interrupted.{_c('RESET')}")
+        sys.exit(130)
 
-    # Output
     if args.format in ("text", "both"):
-        print_report(data, verbose=args.verbose, limit=args.limit)
+        print_report(
+            data,
+            verbose=args.verbose,
+            limit=args.limit,
+            show_fix_snippets=args.fix_suggestions,
+        )
 
     if not args.dry_run:
-        json_target = args.json
-        if args.format == "json" and not json_target:
-            json_target = "repository_checker_report.json"
-        if json_target or args.format in ("json", "both"):
-            target = json_target or "repository_checker_report.json"
+        target = args.json
+        if args.format in ("json", "both") and not target:
+            target = "repository_checker_report.json"
+        if target:
             save_json(data, target)
     else:
-        _safe_print(f"\n{_c('YELLOW')}[DRY-RUN] Tidak ada file yang ditulis.{_c('RESET')}")
+        _safe_print(f"\n{_c('YELLOW')}[DRY-RUN] No files written.{_c('RESET')}")
 
-    _safe_print(f"\n  Waktu Audit: {data.elapsed_seconds:.3f} detik")
+    _safe_print(f"\n  Audit time: {data.elapsed_seconds:.3f}s")
 
-    # BUG-28 FIX: exit codes
     if data.total_errors > 0:
         sys.exit(1)
-    elif data.total_warnings > 0:
+    elif data.total_warnings > 0 or len(data.unmatched_interfaces) > 0:
         sys.exit(2)
     else:
         sys.exit(0)

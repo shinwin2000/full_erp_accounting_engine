@@ -7,6 +7,8 @@ Sovereign ERP Accounting Engine — FastAPI Entry Point
 REAL MODE with graceful degradation: Kafka, MinIO, Jaeger are optional.
 PostgreSQL and Redis are mandatory (core infrastructure).
 All credentials from environment variables.
+
+Integrasi RCA Engine via kernel.error_analysis (tidak melanggar layer).
 """
 
 import logging
@@ -14,11 +16,19 @@ import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ─── FIX #1: Pastikan DATABASE_URL menggunakan async driver ──────────────
+import os
+_db_url = os.environ.get("DATABASE_URL", "")
+if _db_url and "postgresql://" in _db_url and "+asyncpg" not in _db_url:
+    _fixed_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    os.environ["DATABASE_URL"] = _fixed_url
+    # Juga update jika ada di settings nanti
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Request, status
@@ -55,13 +65,57 @@ from sqlalchemy.ext.asyncio import (
 from bootstrap.dependency_container.ioc_container import get_container
 
 # ============================================================
+# RCA ENGINE — via kernel.error_analysis (tidak langsung dari checker)
+# ============================================================
+try:
+    from kernel.error_analysis import analyze_error, log_rca_result, RCAResult
+    RCA_KERNEL_AVAILABLE = True
+except ImportError:
+    # Fallback: definisikan sendiri agar app tetap jalan
+    RCA_KERNEL_AVAILABLE = False
+    logger = logging.getLogger("erp_engine")
+    logger.warning("kernel.error_analysis not found; using fallback RCA.")
+    
+    def analyze_error(exc: Exception, context: Optional[Dict] = None) -> Any:
+        """Fallback: return dict sederhana."""
+        return {
+            "severity": "ERROR",
+            "root_cause": str(exc),
+            "evidence": [],
+            "impact": ["RCA kernel tidak tersedia"],
+            "suggested_fix": "Periksa kernel/error_analysis.py",
+            "confidence": 0.0,
+            "to_dict": lambda: {
+                "severity": "ERROR",
+                "root_cause": str(exc),
+                "evidence": [],
+                "impact": ["RCA kernel tidak tersedia"],
+                "suggested_fix": "Periksa kernel/error_analysis.py",
+                "confidence": 0.0,
+            }
+        }
+    
+    def log_rca_result(logger_obj, rca_result, prefix=""):
+        """Fallback logging."""
+        if rca_result is None:
+            return
+        sev = rca_result.get("severity", "UNKNOWN")
+        rc = rca_result.get("root_cause", "")
+        fix = rca_result.get("suggested_fix", "")
+        logger_obj.error(f"{prefix} RCA: [{sev}] {rc[:200]}")
+        if fix:
+            logger_obj.info(f"{prefix} Fix: {fix[:200]}")
+
+    class RCAResult:  # dummy
+        pass
+
+# ============================================================
 # PERHATIAN: Import dari kernel DILAKUKAN SECARA LAZY (di dalam fungsi)
 # untuk menghindari AST drift. Jangan import di level modul!
 # ============================================================
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
-
     from redis.asyncio import Redis
 
 
@@ -217,6 +271,13 @@ JOURNAL_POST_TOTAL = Counter(
     registry=CUSTOM_METRICS_REGISTRY,
 )
 
+RCA_ANALYSIS_TOTAL = Counter(
+    "erp_rca_analysis_total",
+    "Total RCA analyses performed",
+    ["severity"],
+    registry=CUSTOM_METRICS_REGISTRY,
+)
+
 
 # ============================================================
 # OPENTELEMETRY (Graceful)
@@ -236,15 +297,21 @@ def _setup_tracing() -> None:
         logger.info(f"OpenTelemetry → Jaeger OTLP @ {otlp_endpoint}")
     except Exception as e:
         logger.warning(f"Failed to setup OpenTelemetry (Jaeger): {e}. Tracing disabled.")
-        # Set dummy tracer provider to avoid errors
         trace.set_tracer_provider(TracerProvider(resource=Resource(attributes={})))
 
 
 # ============================================================
 # DATABASE
 # ============================================================
+# FIX: pastikan URL async
+_db_url_final = settings.database_url
+if "postgresql://" in _db_url_final and "+asyncpg" not in _db_url_final:
+    _db_url_final = _db_url_final.replace("postgresql://", "postgresql+asyncpg://", 1)
+    logger.info(f"Auto-corrected DATABASE_URL to asyncpg: {_db_url_final[:50]}...")
+    settings.database_url = _db_url_final  # update agar konsisten
+
 engine: AsyncEngine = create_async_engine(
-    settings.database_url,
+    _db_url_final,
     pool_size=settings.database_pool_size,
     max_overflow=settings.database_max_overflow,
     pool_recycle=settings.database_pool_recycle,
@@ -335,8 +402,7 @@ async def _init_kafka() -> None:
         _kafka_available = True
         logger.info("Kafka producer started ✓")
     except Exception as e:
-        logger.warning(f"Failed to start Kafka producer: {e}. Kafka will be disabled.")
-        # Tutup producer jika sudah terlanjur dibuat
+        logger.warning(f"Failed to start Kafka producer: {e}. Kafka disabled.")
         if _kafka_producer is not None:
             try:
                 await _kafka_producer.stop()
@@ -385,7 +451,7 @@ async def _init_minio() -> None:
     minio_access = settings.minio_access_key.get_secret_value()
     minio_secret = settings.minio_secret_key.get_secret_value()
     if not minio_access or not minio_secret:
-        logger.warning("MinIO credentials missing. MinIO will be disabled.")
+        logger.warning("MinIO credentials missing. MinIO disabled.")
         _minio_available = False
         return
 
@@ -405,7 +471,7 @@ async def _init_minio() -> None:
             logger.info(f"MinIO bucket '{bucket}' exists ✓")
         _minio_available = True
     except Exception as e:
-        logger.warning(f"Failed to initialize MinIO: {e}. MinIO will be disabled.")
+        logger.warning(f"Failed to initialize MinIO: {e}. MinIO disabled.")
         _minio_client = None
         _minio_available = False
 
@@ -453,7 +519,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info(f"PostgreSQL connected ✓  {str(pg_version)[:80]}")
         DB_POOL_CHECKEDOUT.set(engine.pool.checkedout())
     except Exception as e:
-        logger.error(f"PostgreSQL connection failed: {e}")
+        rca_result = analyze_error(e, {"component": "postgresql"})
+        log_rca_result(logger, rca_result, prefix="PostgreSQL")
+        if rca_result:
+            sev = getattr(rca_result, "severity", "UNKNOWN")
+            if hasattr(sev, "value"):
+                sev = sev.value
+            RCA_ANALYSIS_TOTAL.labels(severity=str(sev)).inc()
         raise RuntimeError("PostgreSQL is required but not available") from e
 
     # 3. Redis (mandatory)
@@ -470,7 +542,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await _redis_client.ping()
         logger.info("Redis connected ✓")
     except Exception as e:
-        logger.error(f"Redis connection failed: {e}")
+        rca_result = analyze_error(e, {"component": "redis"})
+        log_rca_result(logger, rca_result, prefix="Redis")
+        if rca_result:
+            sev = getattr(rca_result, "severity", "UNKNOWN")
+            if hasattr(sev, "value"):
+                sev = sev.value
+            RCA_ANALYSIS_TOTAL.labels(severity=str(sev)).inc()
         raise RuntimeError("Redis is required but not available") from e
 
     # 4. Kafka (graceful)
@@ -508,7 +586,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Shutdown AuditHookInjector gracefully (LAZY IMPORT)
     try:
-        # Lazy import untuk menghindari AST drift
         import importlib
         audit_mod = importlib.import_module("kernel.audit_hook_injector")
         get_audit_hook_injector = audit_mod.get_audit_hook_injector
@@ -706,7 +783,7 @@ async def versioned_journal(journal_id: str, accept: str = Header(None, alias="A
 
 
 # ============================================================
-# ADAPTER ROUTERS - DYNAMIC IMPORT (DIPERBAIKI)
+# ADAPTER ROUTERS - DYNAMIC IMPORT
 # ============================================================
 def _discover_and_register_adapter_routers(app: FastAPI) -> None:
     """
@@ -768,7 +845,6 @@ def _discover_and_register_adapter_routers(app: FastAPI) -> None:
         if file_path.name == "__init__.py":
             continue
         module_name = file_path.stem
-        # Skip jika module_name adalah "fastapi_router" atau "fastapi_common"
         if module_name in ("fastapi_router", "fastapi_common"):
             continue
 
@@ -779,23 +855,19 @@ def _discover_and_register_adapter_routers(app: FastAPI) -> None:
             prefix = known_prefixes[module_name]
             prefix_name = module_name.replace("fastapi_", "").replace("_router", "").replace("_", "-")
         else:
-            # Gunakan nama modul sebagai prefix, tanpa 'fastapi_' dan '_router'
             prefix_name = module_name.replace("fastapi_", "").replace("_router", "").replace("_", "-")
             prefix = f"/api/v1/{prefix_name}"
 
         try:
-            # Import module
             module = importlib.import_module(f"adapters.primary_api.v1.{module_name}")
             router = getattr(module, "router", None)
             if router is None or not isinstance(router, APIRouter):
                 logger.warning(f"Module {module_name} does not contain a valid APIRouter")
                 continue
 
-            # Daftarkan router
             app.include_router(router, prefix=prefix, tags=[prefix_name.capitalize()])
             logger.info(f"Registered router: {module_name} @ {prefix}")
         except Exception as e:
-            # prefix_name sudah terdefinisi, aman digunakan di log
             logger.warning(f"Failed to load router from {module_name} (prefix={prefix_name}): {e}")
 
 
@@ -845,17 +917,43 @@ def create_app() -> FastAPI:
 
     @_app.exception_handler(Exception)
     async def unhandled_handler(request: Request, exc: Exception):
-        logger.exception(f"Unhandled exception {request.method} {request.url}: {exc}")
-        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+        # === RCA via kernel.error_analysis ===
+        rca_result = analyze_error(exc, {"url": str(request.url), "method": request.method})
+        log_rca_result(logger, rca_result, prefix="Unhandled")
+
+        # Safe RCA dict
+        rca_dict = None
+        if rca_result:
+            if hasattr(rca_result, "to_dict"):
+                try:
+                    rca_dict = rca_result.to_dict()
+                except Exception:
+                    rca_dict = {"error": "RCA to_dict failed"}
+            elif isinstance(rca_result, dict):
+                rca_dict = rca_result
+            else:
+                rca_dict = {"root_cause": str(rca_result)}
+
+            # Metric increment
+            sev = rca_result.get("severity") if isinstance(rca_result, dict) else getattr(rca_result, "severity", "UNKNOWN")
+            if hasattr(sev, "value"):
+                sev = sev.value
+            RCA_ANALYSIS_TOTAL.labels(severity=str(sev)).inc()
+
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Internal server error",
+                "error_id": str(uuid.uuid4()),
+                "rca": rca_dict if not settings.is_production else None,
+            },
+        )
 
     _app.include_router(_build_internal_router())
     _app.include_router(_v1_router)
     _app.include_router(_v2_router)
     _app.include_router(_unversioned_router)
 
-    # ============================================================
-    # DAFTARKAN SEMUA ADAPTER ROUTER SECARA DINAMIS
-    # ============================================================
     _discover_and_register_adapter_routers(_app)
 
     try:
@@ -869,20 +967,17 @@ def create_app() -> FastAPI:
 # ============================================================
 # INSTANCE (langsung dieksekusi saat import)
 # ============================================================
-# Buat FastAPI instance asli
 _fastapi_app = create_app()
-
-# Bungkus dengan AppWrapper agar checker bisa memanggil tanpa argumen
 app = AppWrapper(_fastapi_app)
-
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(
-        _fastapi_app,
+        "app.main:app",   # gunakan string agar reloader bekerja
         host="0.0.0.0",
         port=settings.port,
         reload=(settings.app_env == "development"),
         log_level=settings.log_level.lower(),
+        # Jika ingin menghilangkan warning "ASGI app factory detected",
+        # jalankan dengan: uvicorn app.main:create_app --factory
     )

@@ -299,7 +299,7 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             logger.warning("Critical setting changed: %s = %s (was %s)", key, new_value, old_value)
 
     # ========================================================================
-    # EXISTING METHODS
+    # EXISTING METHODS (internal / extra)
     # ========================================================================
 
     async def add(self, setting: SystemSettingAggregate) -> None:
@@ -534,34 +534,105 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             logger.warning("Failed to reload cache: %s", e)
 
     # ========================================================================
-    # NEW METHODS FOR PORT CONTRACT
+    # PORT METHODS (sesuai kontrak)
     # ========================================================================
 
-    async def get_all(self, legal_entity_id: UUID | None = None, include_hidden: bool = False) -> dict[str, Any]:
-        """Get all settings as a flat dictionary."""
+    async def get_all(self, include_deleted: bool = False) -> list[SystemSettingAggregate]:
+        """Get all settings (global only, as per port contract)."""
         try:
-            conditions = [SystemSettingTable.deleted_at.is_(None)]
-            if legal_entity_id:
-                conditions.append(or_(SystemSettingTable.legal_entity_id == legal_entity_id, SystemSettingTable.scope == "global"))
-            else:
-                conditions.append(SystemSettingTable.scope == "global")
-            stmt = select(SystemSettingTable).where(and_(*conditions))
+            conditions = []
+            if not include_deleted:
+                conditions.append(SystemSettingTable.deleted_at.is_(None))
+            # Port tidak menerima legal_entity_id, jadi hanya global
+            conditions.append(SystemSettingTable.scope == "global")
+            stmt = select(SystemSettingTable).where(and_(*conditions)).order_by(SystemSettingTable.key)
             result = await self.session.execute(stmt)
             tables = result.scalars().all()
-            settings_dict = {}
-            for table in tables:
-                aggregate = self._to_domain(table)
-                if not include_hidden and aggregate.is_encrypted:
-                    settings_dict[aggregate.key] = "[ENCRYPTED]"
-                else:
-                    settings_dict[aggregate.key] = aggregate.value
-            return settings_dict
+            return [self._to_domain(t) for t in tables]
         except Exception as e:
             raise SystemSettingRepositoryError(f"Failed to get all settings: {e}") from e
 
-    async def get_by_category(self, category: str, legal_entity_id: UUID | None = None) -> dict[str, Any]:
-        """Alias for get_settings_by_category."""
-        return await self.get_settings_by_category(category, legal_entity_id)
+    async def get_by_category(self, category: str) -> list[SystemSettingAggregate]:
+        """Get settings by category (global only)."""
+        try:
+            conditions = [
+                SystemSettingTable.category == category,
+                SystemSettingTable.deleted_at.is_(None),
+                SystemSettingTable.scope == "global",
+            ]
+            stmt = select(SystemSettingTable).where(and_(*conditions)).order_by(SystemSettingTable.key)
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            return [self._to_domain(t) for t in tables]
+        except Exception as e:
+            raise SystemSettingRepositoryError(f"Failed to get settings by category: {e}") from e
+
+    async def import_from_json(self, json_str: str, user_id: UUID, overwrite: bool = False) -> int:
+        """Import settings from JSON string."""
+        try:
+            data = json.loads(json_str)
+            count = 0
+            for key, value in data.items():
+                # Check if setting exists
+                existing = await self.get_by_key(key)  # global only
+                if existing and not overwrite:
+                    continue  # skip existing
+                # Infer type
+                if isinstance(value, bool):
+                    data_type = SettingDataType.BOOLEAN
+                elif isinstance(value, int):
+                    data_type = SettingDataType.INTEGER
+                elif isinstance(value, float):
+                    data_type = SettingDataType.FLOAT
+                elif isinstance(value, Decimal):
+                    data_type = SettingDataType.DECIMAL
+                elif isinstance(value, (dict, list)):
+                    data_type = SettingDataType.JSON
+                else:
+                    data_type = SettingDataType.STRING
+
+                if existing:
+                    existing.value = value
+                    existing.updated_by = user_id
+                    await self.update(existing)
+                else:
+                    new_setting = SystemSettingAggregate(
+                        id=uuid4(),
+                        key=key,
+                        value=value,
+                        data_type=data_type,
+                        description=f"Imported setting: {key}",
+                        category=SettingCategory.GENERAL,
+                        scope=SettingScope.GLOBAL,
+                        legal_entity_id=None,
+                        is_readonly=False,
+                        is_encrypted=False,
+                        created_by=user_id,
+                        version=1,
+                    )
+                    await self.add(new_setting)
+                count += 1
+            logger.info("Imported %d settings from JSON", count)
+            return count
+        except json.JSONDecodeError as e:
+            raise SystemSettingRepositoryError(f"Invalid JSON data: {e}") from e
+        except Exception as e:
+            raise SystemSettingRepositoryError(f"Failed to import from JSON: {e}") from e
+
+    async def hot_reload(self) -> dict[str, Any]:
+        """Hot reload all settings from database (clear cache)."""
+        await self.reload_cache()
+        return {"status": "success", "message": "Cache cleared and reloaded"}
+
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Get audit log entries (pagination)."""
+        logs = self._audit_log
+        logs_sorted = sorted(logs, key=lambda x: x.get("timestamp", ""), reverse=True)
+        return logs_sorted[offset:offset + limit]
+
+    # ========================================================================
+    # EXTRA METHODS (tambahan)
+    # ========================================================================
 
     async def get_public_settings(self, legal_entity_id: UUID | None = None) -> dict[str, Any]:
         """Get only non-sensitive, public settings (not encrypted)."""
@@ -602,8 +673,6 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             settings_dict = {}
             for table in tables:
                 aggregate = self._to_domain(table)
-                # For security, we don't actually expose the real value in plain text
-                # but we return a masked version or placeholder
                 settings_dict[aggregate.key] = "[ENCRYPTED]"
             return settings_dict
         except Exception as e:
@@ -611,30 +680,27 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
 
     async def check_dependencies(self, key: str) -> list[str]:
         """Check which other settings depend on this key."""
-        # For now, return empty list (no dependency tracking yet)
-        # Could be extended to scan keys containing the prefix or having references
         return []
 
     async def export_to_json(self, legal_entity_id: UUID | None = None) -> str:
         """Export all settings to JSON format."""
-        settings = await self.get_all(legal_entity_id, include_hidden=True)
-        return json.dumps(settings, indent=2, default=str)
-
-    async def import_from_json(self, json_data: str, updated_by: UUID, legal_entity_id: UUID | None = None) -> int:
-        """Import settings from JSON data."""
+        settings = {}
+        # We'll get all global settings (or per legal entity if needed)
         try:
-            data = json.loads(json_data)
-            count = 0
-            for key, value in data.items():
-                # Try to infer type and create/update setting
-                await self.set_value(key, value, updated_by, legal_entity_id)
-                count += 1
-            logger.info("Imported %d settings from JSON", count)
-            return count
-        except json.JSONDecodeError as e:
-            raise SystemSettingRepositoryError(f"Invalid JSON data: {e}") from e
+            conditions = [SystemSettingTable.deleted_at.is_(None)]
+            if legal_entity_id:
+                conditions.append(or_(SystemSettingTable.legal_entity_id == legal_entity_id, SystemSettingTable.scope == "global"))
+            else:
+                conditions.append(SystemSettingTable.scope == "global")
+            stmt = select(SystemSettingTable).where(and_(*conditions))
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            for table in tables:
+                aggregate = self._to_domain(table)
+                settings[aggregate.key] = aggregate.value
+            return json.dumps(settings, indent=2, default=str)
         except Exception as e:
-            raise SystemSettingRepositoryError(f"Failed to import from JSON: {e}") from e
+            raise SystemSettingRepositoryError(f"Failed to export settings: {e}") from e
 
     async def get_statistics(self) -> dict[str, Any]:
         """Get statistics about settings."""
@@ -659,13 +725,6 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
         except Exception as e:
             raise SystemSettingRepositoryError(f"Failed to get statistics: {e}") from e
 
-    async def get_audit_log(self, setting_id: UUID | None = None, limit: int = 100) -> list[dict[str, Any]]:
-        """Get audit log for settings."""
-        logs = self._audit_log
-        if setting_id:
-            logs = [l for l in logs if l.get("setting_id") == str(setting_id)]
-        return logs[-limit:]
-
     async def health_check(self) -> dict[str, Any]:
         """Check health of the repository."""
         try:
@@ -673,11 +732,6 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             return {"status": "healthy", "repository": "SystemSettingRepository"}
         except Exception as e:
             return {"status": "unhealthy", "repository": "SystemSettingRepository", "error": str(e)}
-
-    async def hot_reload(self) -> None:
-        """Hot reload all settings from database (clear cache)."""
-        await self.reload_cache()
-        logger.info("Hot reload completed")
 
     # ===== FIX: register_validation_hook menjadi sync =====
     def register_validation_hook(self, key: str, hook: Callable[[Any], bool]) -> None:

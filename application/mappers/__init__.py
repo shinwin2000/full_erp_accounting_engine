@@ -14,6 +14,9 @@ This package contains pure mapping functions with no infrastructure dependencies
 All mappers are stateless and thread-safe.
 """
 
+# ✅ FIX: Import the module itself, not a missing symbol
+from . import domain_to_dto
+
 from application.mappers.domain_to_dto import (
     DomainToDTOMappingError,
     JournalDomainToDtoMapper,

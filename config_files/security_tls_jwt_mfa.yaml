@@ -3,106 +3,109 @@
 # Dibaca oleh: infrastructure/security/
 # ============================================================
 
-jwt:
-  algorithm: HS256
-  access_token_expire_minutes: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:60}
-  refresh_token_expire_days: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:30}
-  issuer: erp-accounting-engine
-  audience: erp-api
-  leeway_seconds: 30
+# Root key untuk JWTIssuer
+jwt_config:
+  jwt:
+    algorithm: HS256
+    secret_key: ${SECRET_KEY:dev-secret-key-12345}
+    access_token_expire_minutes: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:60}
+    refresh_token_expire_days: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:30}
+    issuer: erp-accounting-engine
+    audience: erp-api
+    leeway_seconds: 30
 
-encryption:
-  algorithm: AES-256-GCM
-  key_rotation_days: 90
-  key_derivation: PBKDF2
-  pbkdf2_iterations: 600000
-  field_encryption_enabled: true
-  encrypted_fields:
-    - npwp
-    - bank_account_number
-    - salary_amount
-    - tax_id
+  encryption:
+    algorithm: AES-256-GCM
+    key_rotation_days: 90
+    key_derivation: PBKDF2
+    pbkdf2_iterations: 600000
+    field_encryption_enabled: true
+    encrypted_fields:
+      - npwp
+      - bank_account_number
+      - salary_amount
+      - tax_id
 
-hashing:
-  algorithm: SHA3-256
-  audit_chain_algorithm: SHA3-256
-  password_algorithm: bcrypt
-  bcrypt_rounds: 12
+  hashing:
+    algorithm: SHA3-256
+    audit_chain_algorithm: SHA3-256
+    password_algorithm: bcrypt
+    bcrypt_rounds: 12
 
-digital_signature:
-  algorithm: RSA-PSS
-  key_size: 4096
-  hash: SHA-256
-  use_hsm: ${HSM_LIB_PATH:false}
+  digital_signature:
+    algorithm: RSA-PSS
+    key_size: 4096
+    hash: SHA-256
+    use_hsm: ${HSM_LIB_PATH:false}
 
-mtls:
-  enabled: false
-  ca_cert_path: ${MTLS_CA_CERT_PATH:}
-  client_cert_path: ${MTLS_CLIENT_CERT_PATH:}
-  client_key_path: ${MTLS_CLIENT_KEY_PATH:}
-  verify_client: true
+  mtls:
+    enabled: false
+    ca_cert_path: ${MTLS_CA_CERT_PATH:}
+    client_cert_path: ${MTLS_CLIENT_CERT_PATH:}
+    client_key_path: ${MTLS_CLIENT_KEY_PATH:}
+    verify_client: true
 
-password_policy:
-  min_length: ${PASSWORD_MIN_LENGTH:12}
-  require_uppercase: ${PASSWORD_REQUIRE_UPPERCASE:true}
-  require_lowercase: true
-  require_number: ${PASSWORD_REQUIRE_NUMBER:true}
-  require_special: ${PASSWORD_REQUIRE_SPECIAL:true}
-  max_age_days: 90
-  history_count: 12
-  disallow_common: true
+  password_policy:
+    min_length: ${PASSWORD_MIN_LENGTH:12}
+    require_uppercase: ${PASSWORD_REQUIRE_UPPERCASE:true}
+    require_lowercase: true
+    require_number: ${PASSWORD_REQUIRE_NUMBER:true}
+    require_special: ${PASSWORD_REQUIRE_SPECIAL:true}
+    max_age_days: 90
+    history_count: 12
+    disallow_common: true
 
-session:
-  timeout_minutes: ${SESSION_TIMEOUT_MINUTES:480}
-  idle_timeout_minutes: 30
-  max_concurrent_sessions: 5
-  secure_cookie: true
-  http_only: true
-  same_site: strict
+  session:
+    timeout_minutes: ${SESSION_TIMEOUT_MINUTES:480}
+    idle_timeout_minutes: 30
+    max_concurrent_sessions: 5
+    secure_cookie: true
+    http_only: true
+    same_site: strict
 
-lockout:
-  max_attempts: ${MAX_LOGIN_ATTEMPTS:5}
-  duration_minutes: ${LOCKOUT_DURATION_MINUTES:30}
-  progressive: true
+  lockout:
+    max_attempts: ${MAX_LOGIN_ATTEMPTS:5}
+    duration_minutes: ${LOCKOUT_DURATION_MINUTES:30}
+    progressive: true
 
-mfa:
-  required: ${MFA_REQUIRED:false}
-  methods:
-    - totp
-    - sms_otp
-  totp_issuer: "ERP Accounting Engine"
-  totp_digits: 6
-  totp_period: 30
-  sms_otp_expire_minutes: 5
+  mfa:
+    required: ${MFA_REQUIRED:false}
+    methods:
+      - totp
+      - sms_otp
+    totp_issuer: "ERP Accounting Engine"
+    totp_digits: 6
+    totp_period: 30
+    sms_otp_expire_minutes: 5
 
-rbac:
-  model: abac
-  sod_enabled: true
-  permission_cache_ttl_seconds: 300
-  roles:
-    - superadmin
-    - finance_director
-    - chief_accountant
-    - accountant
-    - ar_staff
-    - ap_staff
-    - tax_staff
-    - payroll_staff
-    - auditor
-    - readonly
-    - umkm_user
+  rbac:
+    model: abac
+    sod_enabled: true
+    permission_cache_ttl_seconds: 300
+    roles:
+      - superadmin
+      - finance_director
+      - chief_accountant
+      - accountant
+      - ar_staff
+      - ap_staff
+      - tax_staff
+      - payroll_staff
+      - auditor
+      - readonly
+      - umkm_user
 
-security_headers:
-  x_content_type_options: nosniff
-  x_frame_options: DENY
-  x_xss_protection: "1; mode=block"
-  strict_transport_security: "max-age=31536000; includeSubDomains; preload"
-  content_security_policy: "default-src 'self'"
-  referrer_policy: strict-origin-when-cross-origin
+  security_headers:
+    x_content_type_options: nosniff
+    x_frame_options: DENY
+    x_xss_protection: "1; mode=block"
+    strict_transport_security: "max-age=31536000; includeSubDomains; preload"
+    content_security_policy: "default-src 'self'"
+    referrer_policy: strict-origin-when-cross-origin
 
-rate_limiting:
-  per_minute: ${RATE_LIMIT_PER_MINUTE:100}
-  per_hour: ${RATE_LIMIT_PER_HOUR:2000}
-  per_day: 20000
-  burst: 20
-  storage: redis
+  rate_limiting:
+    per_minute: ${RATE_LIMIT_PER_MINUTE:100}
+    per_hour: ${RATE_LIMIT_PER_HOUR:2000}
+    per_day: 20000
+    burst: 20
+    storage: redis

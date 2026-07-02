@@ -21,6 +21,7 @@ from ports.primary.timestamp_notary_port import (
     TimestampNotaryPort,
     TimestampRequest,
     TimestampToken,
+    TimestampCertificate,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ class TimestampNotaryImpl(TimestampNotaryPort):
     def __init__(self):
         self._tokens: dict[str, TimestampToken] = {}          # key: serial_number
         self._requests: dict[UUID, TimestampRequest] = {}
-        self._certificates: dict[UUID, dict[str, Any]] = {}
+        self._certificates: dict[UUID, TimestampCertificate] = {}
         self._audit_log: list[dict[str, Any]] = []
         self._active_cert_id: UUID | None = None
         self._lock = asyncio.Lock()
@@ -50,17 +51,25 @@ class TimestampNotaryImpl(TimestampNotaryPort):
             if self._initialized:
                 return
             if not self._certificates:
+                now = datetime.now(UTC)
                 cert_id = uuid.uuid4()
-                self._certificates[cert_id] = {
-                    "id": cert_id,
-                    "name": "Default Timestamp Certificate",
-                    "details": {"type": "self-signed"},
-                    "created_at": datetime.now(UTC),
-                    "is_active": True,
-                    "revoked": False,
-                    "revoked_at": None,
-                    "revocation_reason": None,
-                }
+                cert = TimestampCertificate(
+                    id=cert_id,
+                    serial_number=f"TSA-{now.strftime('%Y%m%d')}-default",
+                    common_name="Default Timestamp Certificate",
+                    organization="ERP Corp",
+                    country="ID",
+                    valid_from=now,
+                    valid_to=now.replace(year=now.year + 3),
+                    is_ca=False,
+                    public_key_pem="-----BEGIN PUBLIC KEY-----\nMOCK\n-----END PUBLIC KEY-----",
+                    private_key_pem="-----BEGIN PRIVATE KEY-----\nMOCK\n-----END PRIVATE KEY-----",
+                    is_active=True,
+                    revoked_at=None,
+                    revocation_reason=None,
+                    created_at=now,
+                )
+                self._certificates[cert_id] = cert
                 self._active_cert_id = cert_id
                 await self._log_audit("certificate_created", f"Default certificate {cert_id} created", "system")
             self._initialized = True
@@ -139,8 +148,17 @@ class TimestampNotaryImpl(TimestampNotaryPort):
         tasks = [self.timestamp(h, metadata) for h in data_hashes]
         return await asyncio.gather(*tasks)
 
-    async def verify_timestamp(self, data_hash: str, timestamp_token: str) -> bool:
-        """Verify a timestamp token against data."""
+    async def verify_timestamp(self, timestamp_token: str, data_hash: str) -> bool:
+        """
+        Verify a timestamp token against data.
+
+        Args:
+            timestamp_token: Token serial number atau string token
+            data_hash: Hash data yang akan diverifikasi
+
+        Returns:
+            bool: True jika token valid dan sesuai dengan data_hash
+        """
         try:
             token = await self.get_token_by_serial(timestamp_token)
             if not token:
@@ -212,21 +230,37 @@ class TimestampNotaryImpl(TimestampNotaryPort):
                 )
             return count
 
-    async def create_certificate(self, name: str, details: dict[str, Any]) -> UUID:
-        """Create a new timestamp certificate."""
+    async def create_certificate(self, name: str, details: dict[str, Any], user_id: UUID) -> UUID:
+        """
+        Create a new timestamp certificate.
+        Port signature: create_certificate(name, details, user_id) -> UUID
+        """
+        now = datetime.now(UTC)
         cert_id = uuid.uuid4()
+        # Build TimestampCertificate from details
+        cert = TimestampCertificate(
+            id=cert_id,
+            serial_number=details.get("serial_number", f"TSA-{now.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"),
+            common_name=name,
+            organization=details.get("organization", "ERP Corp"),
+            country=details.get("country", "ID"),
+            valid_from=now,
+            valid_to=now.replace(year=now.year + 3),
+            is_ca=details.get("is_ca", False),
+            public_key_pem=details.get("public_key_pem", "-----BEGIN PUBLIC KEY-----\nMOCK\n-----END PUBLIC KEY-----"),
+            private_key_pem=details.get("private_key_pem", "-----BEGIN PRIVATE KEY-----\nMOCK\n-----END PRIVATE KEY-----"),
+            is_active=True,
+            revoked_at=None,
+            revocation_reason=None,
+            created_at=now,
+        )
         async with self._lock:
-            self._certificates[cert_id] = {
-                "id": cert_id,
-                "name": name,
-                "details": details,
-                "created_at": datetime.now(UTC),
-                "is_active": False,
-                "revoked": False,
-                "revoked_at": None,
-                "revocation_reason": None,
-            }
-            await self._log_audit("certificate_created", f"Certificate {name} ({cert_id}) created", "system")
+            self._certificates[cert_id] = cert
+            await self._log_audit(
+                "certificate_created",
+                f"Certificate {name} ({cert_id}) created by {user_id}",
+                str(user_id)
+            )
             return cert_id
 
     async def set_active_certificate(self, cert_id: UUID) -> bool:
@@ -235,11 +269,12 @@ class TimestampNotaryImpl(TimestampNotaryPort):
             if cert_id not in self._certificates:
                 return False
             cert = self._certificates[cert_id]
-            if cert["revoked"]:
+            if cert.revoked_at is not None:  # revoked
                 return False
+            # Deactivate all others
             for c in self._certificates.values():
-                c["is_active"] = False
-            cert["is_active"] = True
+                c.is_active = False
+            cert.is_active = True
             self._active_cert_id = cert_id
             await self._log_audit("certificate_activated", f"Certificate {cert_id} set as active", "system")
             return True
@@ -250,15 +285,15 @@ class TimestampNotaryImpl(TimestampNotaryPort):
             if cert_id not in self._certificates:
                 return False
             cert = self._certificates[cert_id]
-            cert["revoked"] = True
-            cert["revoked_at"] = datetime.now(UTC)
-            cert["revocation_reason"] = reason
+            cert.is_active = False
+            cert.revoked_at = datetime.now(UTC)
+            cert.revocation_reason = reason
             if self._active_cert_id == cert_id:
                 self._active_cert_id = None
             await self._log_audit("certificate_revoked", f"Certificate {cert_id} revoked: {reason}", "system")
             return True
 
-    async def get_active_certificate(self) -> dict | None:
+    async def get_active_certificate(self) -> TimestampCertificate | None:
         """Get the active certificate."""
         if self._active_cert_id and self._active_cert_id in self._certificates:
             return self._certificates[self._active_cert_id]

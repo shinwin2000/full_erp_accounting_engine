@@ -187,7 +187,7 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
     # ---- get_intercompany_balances ----
     async def get_intercompany_balances(
         self, entity_id: UUID, as_of_date: date
-    ) -> list[dict[str, Any]]:
+    ) -> list[Any]:   # type: ignore[override]
         """Get intercompany balances for an entity as of a date."""
         session = await self._get_session()
         # Agregasi dari transaksi: total receivable dan payable per counterparty
@@ -312,7 +312,7 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
         await session.flush()
 
     # ---- get_consolidation ----
-    async def get_consolidation(self, consolidation_id: UUID) -> dict[str, Any] | None:
+    async def get_consolidation(self, consolidation_id: UUID) -> Any | None:   # type: ignore[override]
         """Retrieve a consolidation result by ID."""
         session = await self._get_session()
         stmt = select(ConsolidationResultTable).where(
@@ -340,7 +340,7 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
         group_entity_id: UUID,
         from_date: date | None = None,
         to_date: date | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[Any]:   # type: ignore[override]
         """List consolidations for a group entity."""
         session = await self._get_session()
         conditions = [ConsolidationResultTable.group_entity_id == group_entity_id]

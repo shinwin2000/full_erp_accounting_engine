@@ -19,6 +19,22 @@ from decimal import Decimal
 from typing import Any
 
 # ============================================================================
+# ENUM: TAX STATUS
+# ============================================================================
+
+class TaxStatus(str, Enum):
+    """Status pajak untuk submission dan transaksi."""
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    PENDING = "PENDING"
+    SUBMITTED = "SUBMITTED"
+    FAILED = "FAILED"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    PAID = "PAID"
+
+
+# ============================================================================
 # NPWP VALUE OBJECT
 # ============================================================================
 

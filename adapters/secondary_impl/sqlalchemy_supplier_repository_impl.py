@@ -30,7 +30,8 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
 
-# === TAMBAHAN: import port ===
+# PERBAIKAN: import dari paket yang benar
+from domain.customer_supplier_employee.supplier_entity import SupplierEntity as Supplier
 from ports.primary.supplier_repository_port import SupplierRepositoryPort
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,6 @@ class SupplierTable(Base):
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=datetime.utcnow)
 
 
-# === PERUBAHAN: warisi SupplierRepositoryPort ===
 class SQLAlchemySupplierRepository(SupplierRepositoryPort):
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
@@ -86,16 +86,50 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
             self._session = await get_async_session()
         return self._session
 
+    # ==================== HELPER ====================
+    def _to_domain(self, row: SupplierTable) -> Supplier:
+        # Pemetaan atribut dari tabel ke domain entity
+        return Supplier(
+            supplier_id=row.id,                     # id → supplier_id
+            legal_entity_id=row.legal_entity_id,
+            supplier_code=row.supplier_code,
+            supplier_name=row.supplier_name,
+            tax_id=row.npwp,                        # npwp → tax_id
+            email=row.email,
+            phone=row.phone,
+            address=row.address,
+            city=row.city,
+            province=row.province,
+            postal_code=row.postal_code,
+            country=row.country,
+            contact_person=row.contact_person,
+            payment_terms_days=row.payment_term_days,  # payment_term_days → payment_terms_days
+            supplier_type=row.category,             # category → supplier_type
+            status=row.status,
+            is_active=row.is_active,
+            total_purchases=row.total_purchases,
+            last_purchase_date=row.last_purchase_date,
+            blacklisted_reason=row.blacklisted_reason,
+            blacklisted_at=row.blacklisted_at,
+            blacklisted_by=row.blacklisted_by,
+            created_by=row.created_by,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            # outstanding_balance dan version tidak ada di tabel, beri nilai default
+            outstanding_balance=0.0,                # atau hitung dari transaksi
+            version=1,
+        )
+
     # ==================== PORT METHODS ====================
 
-    async def get_by_id(self, supplier_id: UUID) -> Any | None:
+    async def get_by_id(self, supplier_id: UUID) -> Supplier | None:
         session = await self._get_session()
         stmt = select(SupplierTable).where(SupplierTable.id == supplier_id)
         result = await session.execute(stmt)
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
-    async def get_by_code(self, supplier_code: str, legal_entity_id: UUID) -> Any | None:
+    async def get_by_code(self, supplier_code: str, legal_entity_id: UUID) -> Supplier | None:
         session = await self._get_session()
         stmt = select(SupplierTable).where(
             SupplierTable.supplier_code == supplier_code,
@@ -107,18 +141,18 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
 
     async def is_active(self, supplier_id: UUID) -> bool:
         supplier = await self.get_by_id(supplier_id)
-        return supplier is not None and getattr(supplier, 'is_active', False)
+        return supplier is not None and supplier.is_active
 
-    async def save(self, supplier: Any) -> None:
+    async def save(self, supplier: Supplier) -> None:
         session = await self._get_session()
         async with session.begin():
-            stmt = select(SupplierTable).where(SupplierTable.id == supplier.id)
+            stmt = select(SupplierTable).where(SupplierTable.id == supplier.supplier_id)
             result = await session.execute(stmt)
             existing = result.scalar_one_or_none()
             if existing:
                 existing.supplier_code = supplier.supplier_code
                 existing.supplier_name = supplier.supplier_name
-                existing.npwp = supplier.npwp
+                existing.npwp = supplier.tax_id
                 existing.email = supplier.email
                 existing.phone = supplier.phone
                 existing.address = supplier.address
@@ -127,18 +161,18 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
                 existing.postal_code = supplier.postal_code
                 existing.country = supplier.country
                 existing.contact_person = supplier.contact_person
-                existing.payment_term_days = supplier.payment_term_days
-                existing.category = getattr(supplier, 'category', None)
-                existing.status = getattr(supplier, 'status', 'ACTIVE')
+                existing.payment_term_days = supplier.payment_terms_days
+                existing.category = supplier.supplier_type
+                existing.status = supplier.status
                 existing.is_active = supplier.is_active
                 existing.updated_at = datetime.utcnow()
             else:
                 new = SupplierTable(
-                    id=supplier.id or uuid4(),
+                    id=supplier.supplier_id or uuid4(),
                     legal_entity_id=supplier.legal_entity_id,
                     supplier_code=supplier.supplier_code,
                     supplier_name=supplier.supplier_name,
-                    npwp=supplier.npwp,
+                    npwp=supplier.tax_id,
                     email=supplier.email,
                     phone=supplier.phone,
                     address=supplier.address,
@@ -147,28 +181,15 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
                     postal_code=supplier.postal_code,
                     country=supplier.country,
                     contact_person=supplier.contact_person,
-                    payment_term_days=supplier.payment_term_days,
-                    category=getattr(supplier, 'category', None),
-                    status="ACTIVE",
-                    is_active=True,
+                    payment_term_days=supplier.payment_terms_days,
+                    category=supplier.supplier_type,
+                    status=supplier.status,
+                    is_active=supplier.is_active,
                     created_by=supplier.created_by,
                 )
                 session.add(new)
 
-    async def list_by_entity(
-        self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
-    ) -> list[Any]:
-        session = await self._get_session()
-        stmt = select(SupplierTable).where(
-            SupplierTable.legal_entity_id == legal_entity_id
-        ).order_by(SupplierTable.supplier_code).limit(limit).offset(offset)
-        result = await session.execute(stmt)
-        rows = result.scalars().all()
-        return [self._to_domain(row) for row in rows]
-
-    # ==================== EXTRA METHODS ====================
-
-    async def add(self, supplier: Any) -> Any:
+    async def add(self, supplier: Supplier) -> None:
         session = await self._get_session()
         async with session.begin():
             stmt = select(SupplierTable).where(
@@ -180,11 +201,11 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
                 raise ValueError(f"Supplier with code {supplier.supplier_code} already exists")
 
             new = SupplierTable(
-                id=supplier.id or uuid4(),
+                id=supplier.supplier_id or uuid4(),
                 legal_entity_id=supplier.legal_entity_id,
                 supplier_code=supplier.supplier_code,
                 supplier_name=supplier.supplier_name,
-                npwp=supplier.npwp,
+                npwp=supplier.tax_id,
                 email=supplier.email,
                 phone=supplier.phone,
                 address=supplier.address,
@@ -193,31 +214,29 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
                 postal_code=supplier.postal_code,
                 country=supplier.country,
                 contact_person=supplier.contact_person,
-                payment_term_days=supplier.payment_term_days,
-                category=getattr(supplier, 'category', None),
-                status="ACTIVE",
-                is_active=True,
+                payment_term_days=supplier.payment_terms_days,
+                category=supplier.supplier_type,
+                status=supplier.status,
+                is_active=supplier.is_active,
                 created_by=supplier.created_by,
             )
             session.add(new)
-            await session.flush()
-            return self._to_domain(new)
 
-    async def update(self, supplier: Any) -> Any:
+    async def update(self, supplier: Supplier) -> None:
         session = await self._get_session()
         async with session.begin():
             stmt = select(SupplierTable).where(
-                SupplierTable.id == supplier.id,
+                SupplierTable.id == supplier.supplier_id,
                 SupplierTable.legal_entity_id == supplier.legal_entity_id,
             )
             result = await session.execute(stmt)
             existing = result.scalar_one_or_none()
             if not existing:
-                raise ValueError(f"Supplier {supplier.id} not found")
+                raise ValueError(f"Supplier {supplier.supplier_id} not found")
 
             existing.supplier_code = supplier.supplier_code
             existing.supplier_name = supplier.supplier_name
-            existing.npwp = supplier.npwp
+            existing.npwp = supplier.tax_id
             existing.email = supplier.email
             existing.phone = supplier.phone
             existing.address = supplier.address
@@ -226,46 +245,63 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
             existing.postal_code = supplier.postal_code
             existing.country = supplier.country
             existing.contact_person = supplier.contact_person
-            existing.payment_term_days = supplier.payment_term_days
-            existing.category = getattr(supplier, 'category', None)
-            existing.is_active = getattr(supplier, 'is_active', True)
+            existing.payment_term_days = supplier.payment_terms_days
+            existing.category = supplier.supplier_type
+            existing.is_active = supplier.is_active
             existing.updated_at = datetime.utcnow()
 
-            await session.flush()
-            return self._to_domain(existing)
-
-    async def delete(self, supplier_id: UUID, legal_entity_id: UUID, deleted_by: UUID | None = None) -> None:
+    async def delete(self, supplier_id: UUID, user_id: UUID, permanent: bool = False) -> None:
+        """
+        Delete a supplier. If permanent is False, soft delete (mark inactive).
+        user_id is required for audit trail.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = (
-                update(SupplierTable)
-                .where(
-                    SupplierTable.id == supplier_id,
-                    SupplierTable.legal_entity_id == legal_entity_id,
+            if permanent:
+                stmt = select(SupplierTable).where(SupplierTable.id == supplier_id)
+                result = await session.execute(stmt)
+                row = result.scalar_one_or_none()
+                if row:
+                    await session.delete(row)
+            else:
+                stmt = (
+                    update(SupplierTable)
+                    .where(SupplierTable.id == supplier_id)
+                    .values(
+                        status="DELETED",
+                        is_active=False,
+                        updated_at=datetime.utcnow(),
+                        deleted_by=user_id,
+                    )
                 )
-                .values(
-                    status="DELETED",
-                    is_active=False,
-                    updated_at=datetime.utcnow(),
-                )
-            )
-            if deleted_by:
-                stmt = stmt.values(deleted_by=deleted_by)
-            await session.execute(stmt)
+                await session.execute(stmt)
 
-    async def get_by_npwp(self, npwp: str) -> Any | None:
+    async def list_by_entity(
+        self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
+    ) -> list[Supplier]:
+        session = await self._get_session()
+        stmt = select(SupplierTable).where(
+            SupplierTable.legal_entity_id == legal_entity_id
+        ).order_by(SupplierTable.supplier_code).limit(limit).offset(offset)
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        return [self._to_domain(row) for row in rows]
+
+    async def get_by_npwp(self, npwp: str) -> Supplier | None:
         session = await self._get_session()
         stmt = select(SupplierTable).where(SupplierTable.npwp == npwp)
         result = await session.execute(stmt)
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
-    async def find_by_name_contains(self, name: str, legal_entity_id: UUID, limit: int = 100) -> list[Any]:
+    async def find_by_name_contains(
+        self, name_fragment: str, legal_entity_id: UUID, limit: int = 20
+    ) -> list[Supplier]:
         session = await self._get_session()
         stmt = (
             select(SupplierTable)
             .where(
-                SupplierTable.supplier_name.ilike(f"%{name}%"),
+                SupplierTable.supplier_name.ilike(f"%{name_fragment}%"),
                 SupplierTable.legal_entity_id == legal_entity_id,
             )
             .limit(limit)
@@ -274,7 +310,7 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         rows = result.scalars().all()
         return [self._to_domain(row) for row in rows]
 
-    async def find_active_for_po(self, legal_entity_id: UUID) -> list[Any]:
+    async def find_active_for_po(self, legal_entity_id: UUID) -> list[Supplier]:
         session = await self._get_session()
         stmt = select(SupplierTable).where(
             SupplierTable.legal_entity_id == legal_entity_id,
@@ -285,7 +321,7 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         rows = result.scalars().all()
         return [self._to_domain(row) for row in rows]
 
-    async def find_by_category(self, category: str, legal_entity_id: UUID) -> list[Any]:
+    async def find_by_category(self, category: str, legal_entity_id: UUID) -> list[Supplier]:
         session = await self._get_session()
         stmt = select(SupplierTable).where(
             SupplierTable.category == category,
@@ -295,7 +331,7 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         rows = result.scalars().all()
         return [self._to_domain(row) for row in rows]
 
-    async def add_purchase(self, supplier_id: UUID, purchase_order: Any) -> None:
+    async def add_purchase(self, supplier_id: UUID, amount: float) -> None:
         session = await self._get_session()
         async with session.begin():
             stmt = (
@@ -309,7 +345,7 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
             )
             await session.execute(stmt)
 
-    async def blacklist(self, supplier_id: UUID, reason: str, blacklisted_by: str) -> None:
+    async def blacklist(self, supplier_id: UUID, reason: str, user_id: UUID) -> None:
         session = await self._get_session()
         async with session.begin():
             stmt = (
@@ -319,7 +355,7 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
                     status="BLACKLISTED",
                     is_active=False,
                     blacklisted_reason=reason,
-                    blacklisted_by=UUID(blacklisted_by) if blacklisted_by else None,
+                    blacklisted_by=user_id,
                     blacklisted_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
                 )
@@ -385,17 +421,8 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
             "statuses": statuses,
         }
 
-    async def get_audit_log(self, supplier_id: UUID | None = None, limit: int = 100) -> list[dict]:
-        if supplier_id:
-            supplier = await self.get_by_id(supplier_id)
-            if not supplier:
-                return []
-            return [{
-                "timestamp": getattr(supplier, 'created_at', datetime.utcnow()).isoformat(),
-                "action": "CREATE",
-                "details": f"Supplier {supplier.supplier_name} created",
-                "user": str(getattr(supplier, 'created_by', 'system'))
-            }]
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        # Placeholder – implement with a real audit log table if needed.
         return []
 
     async def health_check(self) -> dict[str, Any]:
@@ -414,36 +441,6 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
                 "error": str(e),
                 "timestamp": datetime.utcnow().isoformat()
             }
-
-    def _to_domain(self, row: SupplierTable) -> Any:
-        from types import SimpleNamespace
-        return SimpleNamespace(
-            id=row.id,
-            legal_entity_id=row.legal_entity_id,
-            supplier_code=row.supplier_code,
-            supplier_name=row.supplier_name,
-            npwp=row.npwp,
-            email=row.email,
-            phone=row.phone,
-            address=row.address,
-            city=row.city,
-            province=row.province,
-            postal_code=row.postal_code,
-            country=row.country,
-            contact_person=row.contact_person,
-            payment_term_days=row.payment_term_days,
-            category=row.category,
-            status=row.status,
-            is_active=row.is_active,
-            total_purchases=row.total_purchases,
-            last_purchase_date=row.last_purchase_date,
-            blacklisted_reason=row.blacklisted_reason,
-            blacklisted_at=row.blacklisted_at,
-            blacklisted_by=row.blacklisted_by,
-            created_by=row.created_by,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-        )
 
 
 __all__ = ["SQLAlchemySupplierRepository", "SupplierTable"]

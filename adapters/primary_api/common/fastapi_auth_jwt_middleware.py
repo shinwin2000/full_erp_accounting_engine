@@ -2,17 +2,15 @@
 """
 Module: fastapi_auth_jwt_middleware.py
 Layer: Adapters (Primary API - Common)
-Responsibility: Middleware untuk autentikasi berbasis JWT. Memverifikasi token,
-               mengelola blacklist, mengekstrak claims, dan mengisi request state
-               dengan informasi user. Juga mencatat percobaan login gagal.
+Responsibility: Middleware untuk autentikasi berbasis JWT.
 """
-
 from __future__ import annotations
 
 import importlib
 import logging
 import os
 from datetime import UTC, datetime, timedelta
+from enum import Enum  # <-- TAMBAHAN: mencegah NameError jika ada yang mengimpor tanpa Enum
 from uuid import UUID, uuid4
 
 from fastapi import Depends, HTTPException, Request
@@ -23,13 +21,40 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
-from application.service_layer.service_iam import IAMService
-from infrastructure.caching.redis_manager import get_redis_client
-from infrastructure.security.jwt_revocation_list import JWTRevocationList
-from infrastructure.security.rbac_enforcer_unified import RBACEnforcer
-from kernel.guards.authority_matrix import AuthorityMatrix
+# --- Import dengan penanganan error ---
+try:
+    from application.service_layer.service_iam import IAMService
+except ImportError as e:
+    logging.critical(f"Failed to import IAMService: {e}")
+    raise
+
+try:
+    from infrastructure.caching.redis_manager import get_redis_client
+except ImportError as e:
+    logging.critical(f"Failed to import redis_manager: {e}")
+    raise
+
+try:
+    from infrastructure.security.jwt_revocation_list import JWTRevocationList
+except ImportError as e:
+    logging.critical(f"Failed to import JWTRevocationList: {e}")
+    raise
+
+try:
+    from infrastructure.security.rbac_enforcer_unified import RBACEnforcer
+except ImportError as e:
+    logging.critical(f"Failed to import RBACEnforcer: {e}")
+    raise
+
+try:
+    from kernel.guards.authority_matrix import AuthorityMatrix
+except ImportError as e:
+    logging.critical(f"Failed to import AuthorityMatrix: {e}")
+    raise
 
 logger = logging.getLogger(__name__)
+
+
 
 # ============================================================================
 # CONSTANTS & ENUMS

@@ -101,23 +101,24 @@ class CostEntry:
 
 @dataclass
 class ProjectCostTracker:
-    tracker_id: UUID
-    project_id: UUID
-    project_code: str
-    project_name: str
-    total_cost: Decimal
-    material_cost: Decimal
-    labor_cost: Decimal
-    subcontractor_cost: Decimal
-    equipment_cost: Decimal
-    travel_cost: Decimal
-    overhead_cost: Decimal
-    other_cost: Decimal
+    tracker_id: UUID = field(default_factory=uuid4)
+    project_id: UUID = field(default_factory=lambda: UUID(int=0))
+    project_code: str = "UNKNOWN"
+    project_name: str = "UNKNOWN"
+    total_cost: Decimal = Decimal(0)
+    material_cost: Decimal = Decimal(0)
+    labor_cost: Decimal = Decimal(0)
+    subcontractor_cost: Decimal = Decimal(0)
+    equipment_cost: Decimal = Decimal(0)
+    travel_cost: Decimal = Decimal(0)
+    overhead_cost: Decimal = Decimal(0)
+    other_cost: Decimal = Decimal(0)
     entries: list[CostEntry] = field(default_factory=list)
     last_update: datetime = field(default_factory=lambda: datetime.now(UTC))
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     version: int = 1
+    created_by: str = "system"
     _audit_trail: list[dict] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
@@ -125,6 +126,8 @@ class ProjectCostTracker:
             raise ValueError(f"Version must be >= 1: {self.version}")
         if self.created_at.tzinfo is None or self.updated_at.tzinfo is None:
             raise ValueError("Timestamps must be timezone-aware")
+        # Pastikan total_cost konsisten dengan penjumlahan (opsional, bisa dilewat)
+        # Tidak memaksa karena bisa di-set manual
 
     def _record_audit(self, action: str, user_id: str, details: dict | None = None) -> None:
         self._audit_trail.append(
@@ -155,6 +158,7 @@ class ProjectCostTracker:
             travel_cost=Decimal(0),
             overhead_cost=Decimal(0),
             other_cost=Decimal(0),
+            created_by="system",
         )
 
     def add_cost(self, cost_entry: CostEntry, added_by: str) -> ProjectCostTracker:
@@ -271,6 +275,7 @@ class ProjectCostTracker:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "version": self.version,
+            "created_by": self.created_by,
         }
 
     @classmethod

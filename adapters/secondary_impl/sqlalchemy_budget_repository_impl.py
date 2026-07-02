@@ -4,6 +4,7 @@ Module: sqlalchemy_budget_repository_impl.py
 Layer: Infrastructure (Secondary Adapter)
 Responsibility: Implementasi repository Budget (anggaran) menggunakan SQLAlchemy.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -28,12 +29,11 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
             self._session = await get_async_session()
         return self._session
 
-    # ---------- Metode dari port ----------
-    async def save(self, budget: BudgetTable) -> BudgetTable:
+    # ---------- Metode dari port (wajib) ----------
+    async def save(self, budget: BudgetTable) -> None:                 # ← return None
         session = await self._get_session()
         session.add(budget)
         await session.flush()
-        return budget
 
     async def get_by_id(self, budget_id: uuid.UUID) -> BudgetTable | None:
         session = await self._get_session()
@@ -41,16 +41,29 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def list_by_legal_entity(self, legal_entity_id: uuid.UUID) -> list[BudgetTable]:
+    async def list_by_legal_entity(
+        self,
+        legal_entity_id: uuid.UUID,
+        fiscal_year: int | None = None           # ← parameter tambahan opsional
+    ) -> list[BudgetTable]:
         session = await self._get_session()
-        stmt = select(BudgetTable).where(BudgetTable.legal_entity_id == legal_entity_id)
+        stmt = select(BudgetTable).where(
+            BudgetTable.legal_entity_id == legal_entity_id
+        )
+        if fiscal_year is not None:
+            stmt = stmt.where(BudgetTable.fiscal_year == fiscal_year)
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_by_name_and_year(self, name: str, fiscal_year: int, legal_entity_id: uuid.UUID) -> BudgetTable | None:
+    async def get_by_name_and_year(
+        self,
+        legal_entity_id: uuid.UUID,              # ← urutan & nama disesuaikan
+        budget_name: str,
+        fiscal_year: int
+    ) -> BudgetTable | None:
         session = await self._get_session()
         stmt = select(BudgetTable).where(
-            BudgetTable.name == name,
+            BudgetTable.name == budget_name,     # kolom 'name' sesuai ORM
             BudgetTable.fiscal_year == fiscal_year,
             BudgetTable.legal_entity_id == legal_entity_id
         )
@@ -59,7 +72,6 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
 
     async def update(self, budget: BudgetTable) -> None:
         session = await self._get_session()
-        # Merge or update; assume budget already has id
         await session.merge(budget)
         await session.flush()
 
@@ -73,7 +85,8 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
 
     # ---------- Metode tambahan (dari kode asli) ----------
     async def save_budget(self, budget: BudgetTable) -> BudgetTable:
-        return await self.save(budget)
+        await self.save(budget)                  # ← panggil save (return None)
+        return budget                            # ← tetap kembalikan objek
 
     async def get_budget_by_id(self, budget_id: uuid.UUID) -> BudgetTable | None:
         return await self.get_by_id(budget_id)
@@ -123,5 +136,6 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
         stmt = select(func.sum(BudgetActualTable.amount)).where(BudgetActualTable.budget_id == budget_id)
         result = await session.execute(stmt)
         return result.scalar() or Decimal(0)
+
 
 __all__ = ["SQLAlchemyBudgetRepository"]

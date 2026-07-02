@@ -5,14 +5,16 @@ Layer: Adapters (Secondary Implementation)
 
 Adapter untuk manajemen kunci enkripsi menggunakan KeyManagementVault.
 """
+
 from __future__ import annotations
 
+import base64
 from datetime import datetime
 from typing import Any
 
 from infrastructure.security.securitykey_management_vault import KeyManagementVault
 from infrastructure.telemetry.structured_json_logging import get_logger
-from ports.primary.encryption_key_vault_port import EncryptionKeyVaultPort
+from ports.primary.encryption_key_vault_port import EncryptionKeyVaultPort, KeyAlgorithm
 
 logger = get_logger(__name__)
 
@@ -31,40 +33,45 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         self._audit_log: list[dict] = []
         self._rotation_tasks: dict[str, Any] = {}
 
-    # ========== Existing methods ==========
+    # ========== Existing methods (kept for compatibility) ==========
 
     async def create_key(
         self,
         key_id: str,
-        algorithm: str,
+        algorithm: KeyAlgorithm = KeyAlgorithm.AES_256_GCM,  # ← default sesuai port
         key_size: int = 256,
-        created_by=None,
-        rotation_days=None,
-        tags=None,
+        created_by: str | None = None,
+        rotation_days: int | None = None,
+        tags: dict | None = None,
     ):
+        """
+        Create a new key. Delegates to vault if available, else stub.
+        """
+        # Convert enum to string if needed (vault might expect string)
+        algo_str = algorithm.value if hasattr(algorithm, "value") else str(algorithm)
         return await self._vault.create_key(
-            key_id, algorithm, key_size, created_by, rotation_days, tags
+            key_id, algo_str, key_size, created_by, rotation_days, tags
         )
 
     async def get_key(self, key_id: str, version: str | None = None) -> bytes:
         return await self._vault.get_key(key_id, version)
 
-    async def rotate_key(self, key_id: str, created_by=None, new_algorithm=None) -> str:
+    async def rotate_key(self, key_id: str, created_by: str | None = None, new_algorithm: str | None = None) -> str:
         return await self._vault.rotate_key(key_id, created_by, new_algorithm)
 
     async def delete_key(self, key_id: str, version: str | None = None) -> bool:
         return await self._vault.delete_key(key_id, version)
 
-    async def encrypt(self, key_id: str, plaintext: bytes, context=None, version=None) -> bytes:
+    async def encrypt(self, key_id: str, plaintext: bytes, context: dict | None = None, version: str | None = None) -> bytes:
         return await self._vault.encrypt_with_vault(key_id, plaintext, context, version)
 
-    async def decrypt(self, key_id: str, ciphertext: bytes, context=None, version=None) -> bytes:
+    async def decrypt(self, key_id: str, ciphertext: bytes, context: dict | None = None, version: str | None = None) -> bytes:
         return await self._vault.decrypt_with_vault(key_id, ciphertext, context, version)
 
     async def health_check(self) -> dict:
         return await self._vault.health_check()
 
-    # ========== New methods required by EncryptionKeyVaultPort ==========
+    # ========== Methods required by EncryptionKeyVaultPort ==========
 
     async def encrypt_with_vault(
         self,
@@ -86,18 +93,80 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         """Alias for decrypt (delegates to vault)."""
         return await self.decrypt(key_id, ciphertext, context, version)
 
-    async def export_key(
+    # ---------- Port methods with corrected signatures ----------
+
+    async def export_key(self, key_id: str, version: str, passphrase: str) -> str:
+        """
+        Export a key (wrapped with passphrase).
+        Port signature: export_key(key_id, version, passphrase) -> str
+        """
+        if hasattr(self._vault, "export_key"):
+            result = await self._vault.export_key(key_id, version, passphrase)
+            if isinstance(result, bytes):
+                return base64.b64encode(result).decode("ascii")
+            return str(result)
+        # Stub: return a dummy base64 string
+        logger.warning("export_key not implemented in vault; returning stub.")
+        return base64.b64encode(b"stub_exported_key").decode("ascii")
+
+    async def import_key(
         self,
         key_id: str,
-        version: str | None = None,
-        wrapping_key_id: str | None = None,
-    ) -> bytes:
-        """Export a key (wrapped if wrapping_key_id provided)."""
-        # If vault supports export, delegate; else stub.
-        if hasattr(self._vault, "export_key"):
-            return await self._vault.export_key(key_id, version, wrapping_key_id)
-        logger.warning("export_key not implemented in vault; returning stub.")
-        return b"stub_exported_key"
+        version: str,
+        encrypted_key_b64: str,
+        passphrase: str,
+    ) -> bool:
+        """
+        Import a key from encrypted base64 material.
+        Port signature: import_key(key_id, version, encrypted_key_b64, passphrase) -> bool
+        """
+        if hasattr(self._vault, "import_key"):
+            # Assume vault expects (key_id, encrypted_key_b64, passphrase) or similar
+            # We pass version along if needed; adapt to vault's signature if possible.
+            # If vault's import_key expects different, we need to call appropriately.
+            # For safety, we call with the four parameters if vault supports it.
+            if hasattr(self._vault, "import_key") and callable(self._vault.import_key):
+                # Try to determine signature - but we can't easily inspect.
+                # We'll assume vault's import_key expects (key_id, encrypted_key_b64, passphrase)
+                # and we ignore version for now.
+                return await self._vault.import_key(key_id, encrypted_key_b64, passphrase)
+        # Stub: decrypt the material (simulate) and store
+        try:
+            # In a real implementation, decrypt using passphrase to get key material
+            # For stub, we just store the encrypted material as is
+            self._keys[key_id] = {"encrypted": encrypted_key_b64, "version": version}
+            self._metadata[key_id] = {
+                "imported_at": datetime.utcnow().isoformat(),
+                "version": version,
+            }
+            self._audit_log.append({
+                "timestamp": datetime.utcnow().isoformat(),
+                "action": "import_key",
+                "key_id": key_id,
+                "version": version,
+            })
+            logger.info(f"Key {key_id} version {version} imported (stub)")
+            return True
+        except Exception as e:
+            logger.error(f"Import key failed: {e}")
+            return False
+
+    async def rewrap_key(self, key_id: str, old_version: str, new_version: str) -> bytes:
+        """
+        Rewrap a key from old version to new version.
+        Port signature: rewrap_key(key_id, old_version, new_version) -> bytes
+        """
+        if hasattr(self._vault, "rewrap_key"):
+            return await self._vault.rewrap_key(key_id, old_version, new_version)
+        self._audit_log.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "action": "rewrap_key",
+            "key_id": key_id,
+            "old_version": old_version,
+            "new_version": new_version,
+        })
+        logger.info(f"Key {key_id} rewrapped from {old_version} to {new_version} (stub)")
+        return b"stub_rewrapped_key"
 
     async def get_audit_log(
         self,
@@ -106,10 +175,8 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         """Retrieve audit log entries for key operations."""
-        # Use in-memory log or delegate if vault has method.
         if hasattr(self._vault, "get_audit_log"):
             return await self._vault.get_audit_log(key_id, limit, offset)
-        # Stub: return from internal log
         logs = self._audit_log
         if key_id:
             logs = [l for l in logs if l.get("key_id") == key_id]
@@ -120,7 +187,6 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         """Get the latest version of a key."""
         if hasattr(self._vault, "get_current_key_version"):
             return await self._vault.get_current_key_version(key_id)
-        # Stub: use local metadata
         meta = self._metadata.get(key_id, {})
         return meta.get("current_version")
 
@@ -128,34 +194,10 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         """Get metadata for a key."""
         if hasattr(self._vault, "get_key_metadata"):
             return await self._vault.get_key_metadata(key_id, version)
-        # Stub: return local metadata
         meta = self._metadata.get(key_id, {})
         if version:
             return meta.get("versions", {}).get(version, {})
         return meta
-
-    async def import_key(
-        self,
-        key_id: str,
-        key_material: bytes,
-        algorithm: str,
-        key_size: int = 256,
-        metadata: dict | None = None,
-    ) -> bool:
-        """Import a key from raw material."""
-        if hasattr(self._vault, "import_key"):
-            return await self._vault.import_key(key_id, key_material, algorithm, key_size, metadata)
-        # Stub: store locally
-        self._keys[key_id] = {"material": key_material, "algorithm": algorithm, "size": key_size}
-        self._metadata[key_id] = metadata or {}
-        self._metadata[key_id]["imported_at"] = datetime.utcnow().isoformat()
-        self._audit_log.append({
-            "timestamp": datetime.utcnow().isoformat(),
-            "action": "import_key",
-            "key_id": key_id,
-        })
-        logger.info(f"Key {key_id} imported (stub)")
-        return True
 
     async def key_exists(self, key_id: str) -> bool:
         """Check if a key exists."""
@@ -172,7 +214,6 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         """List all keys with metadata."""
         if hasattr(self._vault, "list_keys"):
             return await self._vault.list_keys(prefix, limit, offset)
-        # Stub: list from local store
         keys = []
         for k, v in self._keys.items():
             if prefix and not k.startswith(prefix):
@@ -185,47 +226,31 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
             })
         return keys[offset:offset + limit]
 
-    async def rewrap_key(
-        self,
-        key_id: str,
-        new_wrapping_key_id: str,
-        version: str | None = None,
-    ) -> bool:
-        """Rewrap a key with a new wrapping key."""
-        if hasattr(self._vault, "rewrap_key"):
-            return await self._vault.rewrap_key(key_id, new_wrapping_key_id, version)
-        # Stub: log and return success
-        self._audit_log.append({
-            "timestamp": datetime.utcnow().isoformat(),
-            "action": "rewrap_key",
-            "key_id": key_id,
-            "new_wrapping_key": new_wrapping_key_id,
-        })
-        logger.info(f"Key {key_id} rewrapped with {new_wrapping_key_id} (stub)")
-        return True
-
     async def start_auto_rotation(
         self,
         key_id: str,
-        interval_days: int,
-        created_by: str | None = None,
+        rotation_days: int = 90,          # ← default sesuai port
+        check_interval_hours: int = 24,
     ) -> bool:
-        """Start automatic rotation of the key at the given interval."""
+        """
+        Start automatic rotation of the key.
+        Port signature: start_auto_rotation(key_id, rotation_days, check_interval_hours) -> bool
+        """
         if hasattr(self._vault, "start_auto_rotation"):
-            return await self._vault.start_auto_rotation(key_id, interval_days, created_by)
-        # Stub: simulate starting a rotation task
+            return await self._vault.start_auto_rotation(key_id, rotation_days, check_interval_hours)
         self._rotation_tasks[key_id] = {
-            "interval_days": interval_days,
+            "rotation_days": rotation_days,
+            "check_interval_hours": check_interval_hours,
             "started_at": datetime.utcnow().isoformat(),
-            "created_by": created_by,
         }
         self._audit_log.append({
             "timestamp": datetime.utcnow().isoformat(),
             "action": "start_auto_rotation",
             "key_id": key_id,
-            "interval_days": interval_days,
+            "rotation_days": rotation_days,
+            "check_interval_hours": check_interval_hours,
         })
-        logger.info(f"Auto-rotation started for key {key_id} every {interval_days} days (stub)")
+        logger.info(f"Auto-rotation started for key {key_id} every {rotation_days} days (stub)")
         return True
 
 

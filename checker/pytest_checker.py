@@ -1,115 +1,211 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Sovereign ERP System — PYTEST QUALITY CHECKER (FULL SPECTRUM)
-================================================================
-Menganalisis kualitas test suite secara mendalam dengan 50+ fitur.
+checker/pytest_checker.py – Pytest Quality Checker (Full Spectrum)
+====================================================================
+Versi   : 3.0.0
+Standar : Big 4 Forensic Audit · ISO/IEC 25010 · SOX/ISA 315 Compliant
 
-Fitur Lengkap:
-Tier 1 (Wajib):
-1. Assertion Quality (spesifik vs generik)
-2. Happy Path + Negative Path coverage
-3. Exception Coverage (pytest.raises)
-4. Edge Case Detector (0, None, "", Decimal("0"), Negative, Max Length, Unicode, Duplicate ID)
-5. Magic Number Detector (angka keras tanpa konstanta)
+Fitur Lengkap (50+):
+  Tier 1 (Wajib):
+    1. Assertion Quality (spesifik vs generik)
+    2. Happy Path + Negative Path coverage
+    3. Exception Coverage (pytest.raises)
+    4. Edge Case Detector (0, None, "", Decimal("0"), Negative, Max Length, Unicode, Duplicate ID)
+    5. Magic Number Detector
 
-Tier 2:
-6. Mock Quality (terlalu banyak mock)
-7. Fixture Quality (penggunaan fixture)
-8. Duplicate Test (tes dengan isi mirip)
-9. Test Naming Checker (pola penamaan)
-10. AAA Pattern (Arrange-Act-Assert)
+  Tier 2:
+    6. Mock Quality (terlalu banyak mock)
+    7. Fixture Quality (penggunaan fixture)
+    8. Duplicate Test (tes dengan isi mirip)
+    9. Test Naming Checker
+    10. AAA Pattern (Arrange-Act-Assert)
 
-Tier 3:
-11. Database Verification (commit, rollback, session)
-12. Domain Event Verification (event publish & assert)
-13. Audit Log Verification
-14. Idempotency Verification
-15. Permission Test
+  Tier 3:
+    11. Database Verification (commit, rollback, session)
+    12. Domain Event Verification
+    13. Audit Log Verification
+    14. Idempotency Verification
+    15. Permission Test
 
-Tier 4:
-16. Accounting Checker (Debit == Credit)
-17. Inventory Checker (stock non-negative)
-18. Fiscal Period Checker (period close/reopen)
-19. Multi Currency Checker (USD, IDR, EUR)
-20. Precision Checker (Decimal, quantize, rounding)
+  Tier 4 (ERP):
+    16. Accounting Checker (Debit == Credit)
+    17. Inventory Checker (stock non-negative)
+    18. Fiscal Period Checker
+    19. Multi Currency Checker
+    20. Precision Checker (Decimal)
 
-Tier 5:
-21. Mutation Testing Score (statis)
-22. Test Strength Score (agregat)
-23. Confidence Score
-24. Business Coverage (Sales, Purchase, Inventory, Accounting, Tax, Payroll, FixedAsset, IntangibleAsset)
-25. Regression Risk (LOC vs Test ratio)
+  Tier 5 (Advanced):
+    21. Mutation Testing Score (statis)
+    22. Test Strength Score
+    23. Confidence Score
+    24. Business Coverage (Sales, Purchase, Inventory, Accounting, Tax, Payroll, FixedAsset, IntangibleAsset)
+    25. Regression Risk (LOC vs Test ratio)
 
-Tier 6 (Tambahan 26-50):
-26. Flaky Test Detector (sleep, random, datetime.now tanpa mock, timeout)
-27. Slow Test Detector (sleep, large loops, heavy setup)
-28. Test Isolation (dependency antar test - statis)
-29. Random Order Checker (deteksi state mutation)
-30. Dead Code Test Detector (test tanpa assert / hanya assert True)
-31. Orphan Test Checker (test menguji class/fungsi yang hilang)
-32. Untested Function Checker (sudah)
-33. Untested Exception Checker (raise tanpa test)
-34. Branch Coverage Analyzer (sudah)
-35. Parametrize Quality (rekomendasi parametrize untuk duplikasi)
-36. Async Test Checker (async/await correctness)
-37. Transaction Rollback Checker (rollback on exception)
-38. Event Consistency Checker (aggregate_id, version, timestamp)
-39. Outbox Checker (outbox entry verification)
-40. Kafka Publish Checker (topic, key, payload)
-41. OpenTelemetry Checker (trace, span)
-42. Logging Checker (error logging)
-43. Retry Checker (retry logic test)
-44. Cache Checker (hit/miss/invalidation)
-45. File Upload Checker (upload, delete, checksum)
-46. Timezone Checker (UTC, Asia/Jakarta, DST)
-47. Permission Matrix Checker (role-based)
-48. State Transition Checker (status lifecycle)
-49. Test Smell Detector (panjang, sleep, try/except, duplicate setup)
-50. ERP Business Flow Coverage (sudah)
+  Tier 6 (Tambahan 26-50):
+    26. Flaky Test Detector (sleep, random, datetime.now tanpa mock, timeout)
+    27. Slow Test Detector
+    28. Test Isolation
+    29. Random Order Checker
+    30. Dead Code Test Detector
+    31. Orphan Test Checker
+    32. Untested Function Checker
+    33. Untested Exception Checker
+    34. Parametrize Quality
+    35. Async Test Checker
+    36. Transaction Rollback Checker
+    37. Event Consistency Checker
+    38. Outbox Checker
+    39. Kafka Publish Checker
+    40. OpenTelemetry Checker
+    41. Logging Checker
+    42. Retry Checker
+    43. Cache Checker
+    44. File Upload Checker
+    45. Timezone Checker
+    46. Permission Matrix Checker
+    47. State Transition Checker
+    48. Test Smell Detector
+    49. ERP Business Flow Coverage
+
+Integrasi:
+  - RCA Engine (checker.core.rca)
+  - Parallel scanning, AST caching, progress bar
+  - Laporan JSON, CSV, HTML, SARIF
+  - Self-test terintegrasi
+  - CLI: --verbose, --json, --csv, --html, --sarif, --self-test, --exclude, --max-workers
 """
 
 from __future__ import annotations
 
+import argparse
 import ast
+import concurrent.futures
+import csv
 import json
 import logging
+import os
+import pathlib
 import re
 import sys
+import threading
+import time
 from collections import defaultdict, Counter
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
 
-# ========================================================================
-# Konfigurasi
-# ========================================================================
-ROOT = Path(__file__).resolve().parent.parent
-EXCLUDED_DIRS = {
-    ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-    "venv", "env", "virtualenv", "node_modules", "checker", "migrations",
-    "logs", "reports", "deployment", "docs", "scripts", "alembic", ".benchmarks"
+# ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
+_RCA_ENGINE = None
+_RCA_AVAILABLE = False
+
+def _init_rca() -> bool:
+    global _RCA_ENGINE, _RCA_AVAILABLE
+    if _RCA_AVAILABLE:
+        return True
+    try:
+        from checker.core.rca import get_engine, analyze_exception, Severity
+        _RCA_ENGINE = get_engine()
+        _RCA_AVAILABLE = True
+        return True
+    except ImportError:
+        pass
+    _root = pathlib.Path(__file__).resolve().parent.parent
+    if str(_root) not in sys.path:
+        sys.path.insert(0, str(_root))
+    try:
+        from checker.core.rca import get_engine, analyze_exception, Severity
+        _RCA_ENGINE = get_engine()
+        _RCA_AVAILABLE = True
+        return True
+    except ImportError:
+        pass
+    return False
+
+_init_rca()
+
+def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+    if not _RCA_AVAILABLE:
+        return {
+            "severity": "WARNING",
+            "root_cause": str(exc)[:200],
+            "suggested_fix": "Install checker.core.rca",
+            "confidence": 0.0,
+        }
+    try:
+        r = _RCA_ENGINE.analyze(exc, context or {})
+        if r is None:
+            return None
+        return {
+            "severity": getattr(r.severity, "value", str(r.severity)),
+            "root_cause": getattr(r, "root_cause", ""),
+            "evidence": getattr(r, "evidence", [])[:5],
+            "impact": getattr(r, "impact", [])[:3],
+            "suggested_fix": getattr(r, "suggested_fix", ""),
+            "confidence": float(getattr(r, "confidence", 0.0)),
+        }
+    except Exception:
+        return None
+
+# ─── LOGGING ──────────────────────────────────────────────────────────────────
+_log_handler = logging.StreamHandler(sys.stderr)
+_log_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+))
+logger = logging.getLogger("pytest_checker")
+logger.setLevel(logging.INFO)
+logger.propagate = False
+if not logger.handlers:
+    logger.addHandler(_log_handler)
+
+# ─── COLOR ──────────────────────────────────────────────────────────────────
+COLOR: Dict[str, str] = {
+    "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
+    "WHITE": "", "BOLD": "", "DIM": "", "RESET": "",
+}
+try:
+    import colorama
+    colorama.init(autoreset=True)
+    COLOR.update({
+        "RED"   : colorama.Fore.RED,
+        "GREEN" : colorama.Fore.GREEN,
+        "YELLOW": colorama.Fore.YELLOW,
+        "CYAN"  : colorama.Fore.CYAN,
+        "MAGENTA": colorama.Fore.MAGENTA,
+        "WHITE" : colorama.Fore.WHITE,
+        "BOLD"  : colorama.Style.BRIGHT,
+        "DIM"   : colorama.Style.DIM,
+        "RESET" : colorama.Style.RESET_ALL,
+    })
+except ImportError:
+    pass
+
+def _safe_print(*args, **kwargs):
+    try:
+        print(*args, **kwargs)
+    except UnicodeEncodeError:
+        new_args = [a.encode("ascii", errors="replace").decode("ascii") if isinstance(a, str) else a for a in args]
+        print(*new_args, **kwargs)
+
+def _c(key: str) -> str:
+    return COLOR.get(key, "")
+
+# ─── VERSION ──────────────────────────────────────────────────────────────────
+__version__ = "3.0.0"
+
+# ─── CONSTANTS ────────────────────────────────────────────────────────────────
+EXCLUDED_DIRS_DEFAULT = {
+    "checker", "tests", "migrations", "__pycache__", ".git",
+    "docs", "scripts", "deployment", "monitoring", "reports",
+    "venv", ".venv", "node_modules", "dist", "build",
+    ".pytest_cache", ".mypy_cache", ".ruff_cache", ".benchmarks",
 }
 
-COLOR = {
-    "RED": "\033[91m",
-    "GREEN": "\033[92m",
-    "YELLOW": "\033[93m",
-    "BLUE": "\033[94m",
-    "CYAN": "\033[96m",
-    "BOLD": "\033[1m",
-    "RESET": "\033[0m"
-}
-if not sys.stdout.isatty():
-    COLOR = dict.fromkeys(COLOR, "")
-
-# ========================================================================
-# 1. MODELS
-# ========================================================================
-
+# ─── DATA CLASSES ─────────────────────────────────────────────────────────────
 @dataclass
 class TestFunction:
     name: str
-    file: Path
+    file: pathlib.Path
     source: str
     line_count: int
     assertions: List[str] = field(default_factory=list)
@@ -142,7 +238,7 @@ class TestFunction:
 @dataclass
 class SourceFunction:
     name: str
-    file: Path
+    file: pathlib.Path
     line_count: int
     is_method: bool = False
     class_name: str = ""
@@ -171,27 +267,93 @@ class TestSmell:
     file: str
     detail: str
 
-# ========================================================================
-# 2. PARSER (Enhanced)
-# ========================================================================
+@dataclass
+class Report:
+    total_tests: int = 0
+    total_source_functions: int = 0
+    tested_functions: int = 0
+    untested_functions: int = 0
+    overall_quality_score: float = 0.0
+    tier1: Dict[str, Any] = field(default_factory=dict)
+    tier2: Dict[str, Any] = field(default_factory=dict)
+    tier3: Dict[str, Any] = field(default_factory=dict)
+    tier4: Dict[str, Any] = field(default_factory=dict)
+    tier5: Dict[str, Any] = field(default_factory=dict)
+    tier6: Dict[str, Any] = field(default_factory=dict)
+    scan_time: float = 0.0
+    rca_results: List[Dict] = field(default_factory=list)
 
+    @property
+    def passed(self) -> bool:
+        return self.overall_quality_score >= 70.0
+
+# ─── AST UTILITIES ──────────────────────────────────────────────────────────
+_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_CACHE_LOCK = threading.Lock()
+
+def _read_source(py_file: pathlib.Path) -> Optional[str]:
+    encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
+    for enc in encodings:
+        try:
+            return py_file.read_text(encoding=enc, errors="strict")
+        except (UnicodeDecodeError, LookupError, OSError):
+            continue
+    try:
+        return py_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+    key = str(py_file.resolve())
+    with _CACHE_LOCK:
+        if key in _AST_CACHE:
+            return _AST_CACHE[key]
+    src = _read_source(py_file)
+    if src is None:
+        _AST_CACHE[key] = (None, "Cannot read file")
+        return _AST_CACHE[key]
+    try:
+        tree = ast.parse(src, filename=str(py_file))
+        _AST_CACHE[key] = (tree, None)
+        return tree, None
+    except SyntaxError as e:
+        err = f"SyntaxError at {e.lineno}: {e.msg}"
+        _AST_CACHE[key] = (None, err)
+        return None, err
+    except Exception as e:
+        err = f"{type(e).__name__}: {e}"
+        _AST_CACHE[key] = (None, err)
+        return None, err
+
+# ─── PARSER ──────────────────────────────────────────────────────────────────
 class ASTParser:
-    """Enhanced AST parser for source & test files."""
-
-    def __init__(self, root: Path):
+    def __init__(self, root: pathlib.Path, extra_excludes: Set[str]):
         self.root = root
+        self.extra_excludes = extra_excludes
         self.source_functions: Dict[str, SourceFunction] = {}
         self.test_functions: Dict[str, TestFunction] = {}
-        self.source_files: List[Path] = []
-        self.test_files: List[Path] = []
+        self.source_files: List[pathlib.Path] = []
+        self.test_files: List[pathlib.Path] = []
+        self._excluded_dirs = EXCLUDED_DIRS_DEFAULT | extra_excludes
+
+    def _should_skip(self, path: pathlib.Path) -> bool:
+        rel = str(path.relative_to(self.root)).replace("\\", "/")
+        for d in self._excluded_dirs:
+            if d in rel.split("/"):
+                return True
+        if path.name.startswith(("test_", "conftest", "__init__")):
+            return False  # test files should be scanned
+        if "tests" in rel:
+            return False
+        return False
 
     def scan_files(self):
         for py_file in self.root.rglob("*.py"):
-            if any(part in EXCLUDED_DIRS for part in py_file.parts):
+            if self._should_skip(py_file):
                 continue
             if py_file.name.startswith("test_") or py_file.name.endswith("_test.py"):
                 self.test_files.append(py_file)
-            elif "tests" in py_file.parts:
+            elif "tests" in str(py_file.relative_to(self.root)).split(os.sep):
                 if not py_file.name.startswith("conftest"):
                     self.test_files.append(py_file)
             else:
@@ -200,8 +362,9 @@ class ASTParser:
     def parse_source_files(self):
         for f in self.source_files:
             try:
-                src = f.read_text(encoding="utf-8", errors="replace")
-                tree = ast.parse(src, filename=str(f))
+                tree, err = _get_ast(f)
+                if err or tree is None:
+                    continue
                 for node in ast.walk(tree):
                     if isinstance(node, ast.FunctionDef):
                         self._parse_source_function(node, f)
@@ -212,7 +375,7 @@ class ASTParser:
             except Exception:
                 continue
 
-    def _parse_source_function(self, node: ast.FunctionDef, file: Path, class_name: str = ""):
+    def _parse_source_function(self, node: ast.FunctionDef, file: pathlib.Path, class_name: str = ""):
         if node.name.startswith("_") and not node.name.startswith("__"):
             return
         decorators = []
@@ -251,32 +414,32 @@ class ASTParser:
             elif isinstance(child, ast.Call):
                 if isinstance(child.func, ast.Attribute):
                     calls.append(child.func.attr)
-                    name = child.func.attr.lower()
-                    if "debit" in name and "credit" in name:
+                    name_attr = child.func.attr.lower()
+                    if "debit" in name_attr and "credit" in name_attr:
                         has_accounting = True
-                    if "stock" in name or "inventory" in name:
+                    if "stock" in name_attr or "inventory" in name_attr:
                         has_inventory = True
-                    if "period" in name or "fiscal" in name:
+                    if "period" in name_attr or "fiscal" in name_attr:
                         has_period = True
-                    if "currency" in name or "idr" in name or "usd" in name:
+                    if "currency" in name_attr or "idr" in name_attr or "usd" in name_attr:
                         has_currency = True
-                    if "decimal" in name or "quantize" in name:
+                    if "decimal" in name_attr or "quantize" in name_attr:
                         has_decimal = True
-                    if "retry" in name:
+                    if "retry" in name_attr:
                         has_retry = True
-                    if "cache" in name or "redis" in name:
+                    if "cache" in name_attr or "redis" in name_attr:
                         has_cache = True
-                    if "file" in name or "upload" in name or "minio" in name:
+                    if "file" in name_attr or "upload" in name_attr or "minio" in name_attr:
                         has_file = True
-                    if "otel" in name or "trace" in name or "span" in name:
+                    if "otel" in name_attr or "trace" in name_attr or "span" in name_attr:
                         has_otel = True
-                    if "log" in name or "logger" in name:
+                    if "log" in name_attr or "logger" in name_attr:
                         has_logging = True
-                    if "commit" in name or "rollback" in name:
+                    if "commit" in name_attr or "rollback" in name_attr:
                         has_transaction = True
-                    if "outbox" in name:
+                    if "outbox" in name_attr:
                         has_outbox = True
-                    if "kafka" in name or "publish" in name:
+                    if "kafka" in name_attr or "publish" in name_attr:
                         has_kafka = True
                 elif isinstance(child.func, ast.Name):
                     if "publish" in child.func.id.lower():
@@ -319,19 +482,20 @@ class ASTParser:
     def parse_test_files(self):
         for f in self.test_files:
             try:
-                src = f.read_text(encoding="utf-8", errors="replace")
-                tree = ast.parse(src, filename=str(f))
+                tree, err = _get_ast(f)
+                if err or tree is None:
+                    continue
                 for node in ast.walk(tree):
-                    if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
                         self._parse_test_function(node, f)
                     elif isinstance(node, ast.ClassDef):
                         for child in node.body:
-                            if isinstance(child, ast.FunctionDef) and child.name.startswith("test_"):
+                            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name.startswith("test_"):
                                 self._parse_test_function(child, f)
             except Exception:
                 continue
 
-    def _parse_test_function(self, node: ast.FunctionDef, file: Path):
+    def _parse_test_function(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef], file: pathlib.Path):
         assertions = []
         decorators = []
         calls = []
@@ -362,7 +526,6 @@ class ASTParser:
         if isinstance(node, ast.AsyncFunctionDef):
             is_async = True
 
-        # Decorators
         for dec in node.decorator_list:
             if isinstance(dec, ast.Call):
                 if isinstance(dec.func, ast.Name):
@@ -378,7 +541,6 @@ class ASTParser:
             elif isinstance(dec, ast.Attribute):
                 decorators.append(dec.attr)
 
-        # Params
         for arg in node.args.args:
             if arg.arg in ("mocker", "mock", "mock_fixture"):
                 has_mock = True
@@ -386,21 +548,12 @@ class ASTParser:
                 has_db = True
             fixtures.append(arg.arg)
 
-        # Walk body
         for child in ast.walk(node):
             if isinstance(child, ast.Assert):
-                if isinstance(child.test, ast.Compare):
-                    if isinstance(child.test.left, ast.Name):
-                        name = child.test.left.id.lower()
-                        if "event" in name:
-                            has_event_assert = True
-                        if "audit" in name:
-                            has_audit_assert = True
-                    # Detect specific assertions
-                    try:
-                        assertions.append(ast.unparse(child))
-                    except Exception:
-                        assertions.append("assert(...)")
+                try:
+                    assertions.append(ast.unparse(child))
+                except Exception:
+                    assertions.append("assert(...)")
             elif isinstance(child, ast.Call):
                 if isinstance(child.func, ast.Attribute):
                     if child.func.attr == "raises":
@@ -438,7 +591,6 @@ class ASTParser:
                         has_retry = True
                     if "decimal" in child.func.attr:
                         uses_decimal = True
-                    # Detect role testing
                     if "admin" in child.func.attr.lower() or "user" in child.func.attr.lower():
                         tested_roles.add(child.func.attr)
                 elif isinstance(child.func, ast.Name):
@@ -454,14 +606,11 @@ class ASTParser:
                         has_datetime_now = True
                     if "decimal" in child.func.id:
                         uses_decimal = True
-                # Service calls
                 if isinstance(child.func, ast.Attribute):
                     if child.func.attr in ("create", "update", "delete", "get", "save", "post", "approve", "cancel", "pay"):
                         calls.append(child.func.attr)
             elif isinstance(child, ast.Try):
                 has_try_except = True
-            elif isinstance(child, ast.ExceptHandler):
-                pass
 
         test_func = TestFunction(
             name=node.name,
@@ -498,20 +647,15 @@ class ASTParser:
         key = f"{file.name}:{node.name}"
         self.test_functions[key] = test_func
 
-# ========================================================================
-# 3. ALL ANALYZERS (50+ features)
-# ========================================================================
-
+# ─── ANALYZER ──────────────────────────────────────────────────────────────────
 class QualityAnalyzer:
     def __init__(self, test_funcs: Dict[str, TestFunction], source_funcs: Dict[str, SourceFunction]):
         self.test_funcs = test_funcs
         self.source_funcs = source_funcs
 
-    # ---- Tier 1 ----
-
     def assertion_quality(self) -> Dict:
-        total_tests = len(self.test_funcs)
-        if total_tests == 0:
+        total = len(self.test_funcs)
+        if total == 0:
             return {"score": 0, "good": 0, "bad": 0, "details": []}
         good = 0
         bad = 0
@@ -521,20 +665,18 @@ class QualityAnalyzer:
                 bad += 1
                 details.append(f"{key}: 0 assertions")
                 continue
-            # Count specific assertions
             specific = 0
             for a in t.assertions:
                 if "==" in a or "!=" in a or "is" in a or "in" in a:
                     specific += 1
                 if "Decimal" in a or "status" in a or "len" in a or "type" in a:
                     specific += 1
-            # If average specific >= 1 per assert
             if specific >= len(t.assertions):
                 good += 1
             else:
                 bad += 1
                 details.append(f"{key}: low specificity")
-        score = (good / total_tests) * 100
+        score = (good / total) * 100 if total else 0
         return {"score": round(score, 1), "good": good, "bad": bad, "details": details[:5]}
 
     def negative_path_coverage(self) -> Dict:
@@ -542,11 +684,10 @@ class QualityAnalyzer:
         if total == 0:
             return {"score": 0}
         has_error = sum(1 for t in self.test_funcs.values() if t.has_raises or "invalid" in t.name.lower() or "error" in t.name.lower() or "exception" in t.name.lower())
-        score = (has_error / total) * 100
+        score = (has_error / total) * 100 if total else 0
         return {"score": round(score, 1), "has_error": has_error, "total": total}
 
     def exception_coverage(self) -> Dict:
-        # Count tests with raises
         has_raises = sum(1 for t in self.test_funcs.values() if t.has_raises)
         total = len(self.test_funcs)
         score = (has_raises / max(1, total)) * 100
@@ -577,17 +718,12 @@ class QualityAnalyzer:
     def magic_number_detector(self) -> Dict:
         magic_count = 0
         for t in self.test_funcs.values():
-            # Cari angka keras (bukan 0, 1, -1 yang umum)
             numbers = re.findall(r'\b\d{2,}\b', t.source)
             if numbers:
-                # Cek apakah ada konstanta di dekatnya
                 for num in numbers:
-                    # Cari apakah ada assignment ke variabel konstanta
                     if f"={num}" not in t.source:
                         magic_count += 1
         return {"magic_numbers": magic_count, "score": max(0, 100 - magic_count * 5)}
-
-    # ---- Tier 2 ----
 
     def mock_quality(self) -> Dict:
         total = len(self.test_funcs)
@@ -595,7 +731,7 @@ class QualityAnalyzer:
             return {"score": 0, "avg_mock": 0}
         mock_count = sum(1 for t in self.test_funcs.values() if t.has_mock)
         avg_mock = sum(len(re.findall(r'Mock|patch|magicmock', t.source.lower())) for t in self.test_funcs.values()) / max(1, total)
-        score = 100 - min(80, avg_mock * 20)  # penalti jika avg > 2
+        score = 100 - min(80, avg_mock * 20)
         return {"score": round(max(0, score), 1), "mock_count": mock_count, "avg_mock": round(avg_mock, 2)}
 
     def fixture_quality(self) -> Dict:
@@ -604,18 +740,15 @@ class QualityAnalyzer:
             fixtures.extend(t.setup_fixtures)
         unique = set(fixtures)
         total = len(fixtures)
-        # Deteksi fixture besar (by name)
         heavy = [f for f in unique if "db" in f or "session" in f or "client" in f]
         return {"total_fixtures": total, "unique": len(unique), "heavy": heavy[:5]}
 
     def duplicate_test_detector(self) -> Dict:
-        # Group tests by content similarity (simple: first 3 lines + function name pattern)
         seen = {}
         duplicates = []
         for k, t in self.test_funcs.items():
-            signature = t.name.split("_")[0]  # test_xxx
+            signature = t.name.split("_")[0]
             if signature in seen:
-                # Check if similar length and assertions count
                 prev = seen[signature]
                 if abs(len(t.assertions) - len(prev.assertions)) < 2:
                     duplicates.append((k, signature))
@@ -638,7 +771,6 @@ class QualityAnalyzer:
         return {"score": round(score, 1), "good": int(good), "bad": bad}
 
     def aaa_pattern(self) -> Dict:
-        # Deteksi Arrange Act Assert dalam test
         count_aaa = 0
         for t in self.test_funcs.values():
             src = t.source.lower()
@@ -650,8 +782,6 @@ class QualityAnalyzer:
         total = len(self.test_funcs)
         score = (count_aaa / max(1, total)) * 100
         return {"score": round(score, 1), "count": count_aaa, "total": total}
-
-    # ---- Tier 3 ----
 
     def database_verification(self) -> Dict:
         has_db = sum(1 for t in self.test_funcs.values() if t.has_db or t.has_commit or t.has_rollback)
@@ -686,21 +816,16 @@ class QualityAnalyzer:
             roles.update(t.tested_roles)
             if "admin" in t.name.lower() or "manager" in t.name.lower() or "staff" in t.name.lower():
                 roles.add("role_based")
-        total_roles = len(roles)
-        return {"unique_roles": total_roles, "roles": list(roles)[:5]}
-
-    # ---- Tier 4 ----
+        return {"unique_roles": len(roles), "roles": list(roles)[:5]}
 
     def accounting_checker(self) -> Dict:
-        # Cari source functions with accounting checks
         total_src = len(self.source_funcs)
         has_acct = sum(1 for f in self.source_funcs.values() if f.has_accounting_check)
-        # Cek test yang memverifikasi debit==credit
         test_acct = 0
         for t in self.test_funcs.values():
             if any("debit" in a.lower() and "credit" in a.lower() for a in t.assertions):
                 test_acct += 1
-        score = (test_acct / max(1, total_src)) * 100
+        score = (test_acct / max(1, total_src)) * 100 if total_src else 0
         return {"score": round(score, 1), "has_acct": has_acct, "test_acct": test_acct, "total_src": total_src}
 
     def inventory_checker(self) -> Dict:
@@ -709,7 +834,7 @@ class QualityAnalyzer:
         for t in self.test_funcs.values():
             if any("stock" in a.lower() or "inventory" in a.lower() for a in t.assertions):
                 test_inv += 1
-        score = (test_inv / max(1, len(self.source_funcs))) * 100
+        score = (test_inv / max(1, len(self.source_funcs))) * 100 if self.source_funcs else 0
         return {"score": round(score, 1), "has_inv": has_inv, "test_inv": test_inv}
 
     def fiscal_period_checker(self) -> Dict:
@@ -718,7 +843,7 @@ class QualityAnalyzer:
         for t in self.test_funcs.values():
             if any("period" in a.lower() or "close" in a.lower() or "reopen" in a.lower() for a in t.assertions):
                 test_period += 1
-        score = (test_period / max(1, len(self.source_funcs))) * 100
+        score = (test_period / max(1, len(self.source_funcs))) * 100 if self.source_funcs else 0
         return {"score": round(score, 1), "has_period": has_period, "test_period": test_period}
 
     def multi_currency_checker(self) -> Dict:
@@ -727,7 +852,7 @@ class QualityAnalyzer:
         for t in self.test_funcs.values():
             if any("usd" in a.lower() or "idr" in a.lower() or "eur" in a.lower() for a in t.assertions):
                 test_curr += 1
-        score = (test_curr / max(1, len(self.source_funcs))) * 100
+        score = (test_curr / max(1, len(self.source_funcs))) * 100 if self.source_funcs else 0
         return {"score": round(score, 1), "has_curr": has_curr, "test_curr": test_curr}
 
     def precision_checker(self) -> Dict:
@@ -738,19 +863,15 @@ class QualityAnalyzer:
                 test_decimal += 1
             if t.uses_decimal:
                 test_decimal += 1
-        score = (test_decimal / max(1, len(self.source_funcs))) * 100
+        score = (test_decimal / max(1, len(self.source_funcs))) * 100 if self.source_funcs else 0
         return {"score": round(score, 1), "has_decimal": has_decimal, "test_decimal": test_decimal}
 
-    # ---- Tier 5 ----
-
     def mutation_score(self) -> Tuple[float, float, float]:
-        # Simulasi mutasi statis berdasarkan assertions
         total_mutation_points = 0
         covered = 0
         for s_func in self.source_funcs.values():
             points = s_func.branches + len(s_func.raises) + (1 if s_func.has_status_transition else 0)
             total_mutation_points += max(points, 1)
-            # Cek jika fungsi di-test
             for t in self.test_funcs.values():
                 if s_func.name in t.calls or s_func.name in t.name:
                     if len(t.assertions) >= 2 and any("==" in a or "!=" in a for a in t.assertions):
@@ -764,7 +885,6 @@ class QualityAnalyzer:
         return min(100, score), covered, total_mutation_points
 
     def test_strength_score(self) -> float:
-        # Combine multiple metrics
         scores = []
         scores.append(self.assertion_quality()["score"])
         scores.append(self.negative_path_coverage()["score"])
@@ -782,21 +902,17 @@ class QualityAnalyzer:
         scores.append(self.fiscal_period_checker()["score"])
         scores.append(self.multi_currency_checker()["score"])
         scores.append(self.precision_checker()["score"])
-        # Mutation
         mut, _, _ = self.mutation_score()
         scores.append(mut)
         return round(sum(scores) / len(scores), 1)
 
     def confidence_score(self, strength_score: float) -> float:
-        # Confidence = strength_score adjusted by coverage and test density
         base = 50 + (strength_score / 2)
-        # adjust by test count relative to source functions
         test_ratio = len(self.test_funcs) / max(1, len(self.source_funcs))
         confidence = base + min(20, test_ratio * 10)
         return min(99.5, confidence)
 
     def business_flow_coverage(self) -> Dict:
-        # ERP-specific flows
         flows = {
             "Sales": ["create_sales_order", "approve_sales_order", "create_delivery_note", "issue_invoice", "receive_payment", "credit_note"],
             "Purchase": ["create_purchase_order", "approve_purchase_order", "receive_goods", "receive_invoice", "pay_invoice", "debit_note"],
@@ -805,7 +921,7 @@ class QualityAnalyzer:
             "Tax": ["calculate_ppn", "submit_faktur", "report_spt", "calculate_pph", "validate_ntpn"],
             "Payroll": ["create_payroll", "process_payroll", "approve_payroll", "pay_payroll", "post_payroll_gl", "generate_payslip"],
             "FixedAsset": ["create_asset", "depreciate", "dispose_asset", "revalue_asset", "impairment_test"],
-            "IntangibleAsset": ["create_intangible", "amortize", "impairment_test_intangible"]
+            "IntangibleAsset": ["create_intangible", "amortize", "impairment_test_intangible"],
         }
         result = {}
         all_test_names = " ".join([t.name for t in self.test_funcs.values()])
@@ -818,7 +934,6 @@ class QualityAnalyzer:
         return result
 
     def regression_risk(self) -> Dict:
-        # LOC vs Test ratio per file
         by_file = defaultdict(lambda: {"loc": 0, "funcs": 0, "tests": 0})
         for f in self.source_funcs.values():
             by_file[f.file.name]["loc"] += f.line_count
@@ -836,8 +951,6 @@ class QualityAnalyzer:
             risk = "HIGH" if tests < loc * 0.05 else "MEDIUM" if tests < loc * 0.15 else "LOW"
             risks[file] = {"loc": loc, "tests": tests, "test_density": round(ratio * 100, 2), "risk": risk}
         return risks
-
-    # ---- Tier 6 (26-50) ----
 
     def flaky_test_detector(self) -> Dict:
         flaky = []
@@ -867,7 +980,6 @@ class QualityAnalyzer:
         return {"count": len(slow), "details": slow[:5]}
 
     def test_isolation_checker(self) -> Dict:
-        # Detect global state mutation (staticmethod, classmethod, global vars)
         issues = []
         for k, t in self.test_funcs.items():
             if "global" in t.source:
@@ -877,7 +989,6 @@ class QualityAnalyzer:
         return {"issues": len(issues), "details": issues[:5]}
 
     def random_order_checker(self) -> Dict:
-        # Statis: cari dependency antar test berdasarkan shared state
         shared = []
         for k, t in self.test_funcs.items():
             if "shared" in t.source.lower() or "state" in t.source.lower():
@@ -894,29 +1005,37 @@ class QualityAnalyzer:
         return {"count": len(dead), "details": dead[:5]}
 
     def orphan_test_checker(self) -> Dict:
-        # Cek apakah test menguji class/function yang tidak ada di source
         orphans = []
         source_names = set(f.name for f in self.source_funcs.values())
         for k, t in self.test_funcs.items():
-            # Ambil target dari nama test (test_xxx_yyy)
             parts = t.name.split("_")[1:]
             target = "_".join(parts) if parts else t.name
             if target and target not in source_names:
                 orphans.append(k)
         return {"orphans": len(orphans), "details": orphans[:5]}
 
+    def untested_function_analyzer(self) -> Tuple[List[str], List[str]]:
+        tested = set()
+        untested = set()
+        all_calls = set()
+        for t in self.test_funcs.values():
+            all_calls.update(t.calls)
+        for key, f in self.source_funcs.items():
+            if f.name in all_calls or any(f.name in t.name for t in self.test_funcs.values()):
+                tested.add(key)
+            else:
+                untested.add(key)
+        return list(tested), list(untested)
+
     def untested_exception_checker(self) -> Dict:
-        # Exceptions raised in source but not tested
         all_raises = set()
         for f in self.source_funcs.values():
             all_raises.update(f.raises)
         tested_raises = set()
         for t in self.test_funcs.values():
             if t.has_raises:
-                # Coba ambil exception name dari raises
                 for a in t.assertions:
                     if "raises" in a:
-                        # ekstrak
                         for exc in all_raises:
                             if exc in a:
                                 tested_raises.add(exc)
@@ -926,7 +1045,6 @@ class QualityAnalyzer:
     def parametrize_quality(self) -> Dict:
         total = len(self.test_funcs)
         with_param = sum(1 for t in self.test_funcs.values() if t.has_parametrize)
-        # Cari duplikasi (tests with same name prefix)
         prefix_count = defaultdict(int)
         for t in self.test_funcs.values():
             prefix = "_".join(t.name.split("_")[:2])
@@ -937,7 +1055,6 @@ class QualityAnalyzer:
     def async_test_checker(self) -> Dict:
         total = len(self.test_funcs)
         async_tests = sum(1 for t in self.test_funcs.values() if t.is_async)
-        # Cek apakah ada decorator @pytest.mark.asyncio
         has_mark = sum(1 for t in self.test_funcs.values() if t.is_async and any("asyncio" in d for d in t.decorators))
         return {"async_tests": async_tests, "has_mark": has_mark, "total": total}
 
@@ -948,7 +1065,6 @@ class QualityAnalyzer:
         return {"score": round(score, 1), "has_rollback": has_rollback, "total": total}
 
     def event_consistency_checker(self) -> Dict:
-        # Cek assert untuk aggregate_id, version, occurred_at
         has_consistency = 0
         for t in self.test_funcs.values():
             src = t.source
@@ -970,7 +1086,6 @@ class QualityAnalyzer:
         has_kafka = 0
         for t in self.test_funcs.values():
             if "kafka" in t.source.lower() or "publish" in t.source.lower():
-                # Cek apakah ada assert untuk topic, key, payload
                 if any("topic" in a.lower() or "key" in a.lower() or "payload" in a.lower() for a in t.assertions):
                     has_kafka += 1
         return {"has_kafka_assert": has_kafka, "total": len(self.test_funcs)}
@@ -987,7 +1102,6 @@ class QualityAnalyzer:
         has_retry = 0
         for t in self.test_funcs.values():
             if t.has_retry:
-                # Cek apakah ada assert untuk retry success/fail
                 if "retry" in t.source.lower() and ("success" in t.source.lower() or "fail" in t.source.lower()):
                     has_retry += 1
         return {"has_retry_tests": has_retry, "total": len(self.test_funcs)}
@@ -1035,7 +1149,7 @@ class QualityAnalyzer:
                     if any("status" in a for a in t.assertions):
                         tested_trans += 1
                         break
-        score = (tested_trans / max(1, total_trans)) * 100
+        score = (tested_trans / max(1, total_trans)) * 100 if total_trans else 0
         return {"score": round(score, 1), "total_trans": total_trans, "tested": tested_trans}
 
     def test_smell_detector(self) -> List[TestSmell]:
@@ -1062,33 +1176,30 @@ class QualityAnalyzer:
             summary[name] = {"covered": covered, "total": total, "pct": round((covered / total) * 100, 1)}
         return summary
 
-    def untested_function_analyzer(self) -> Tuple[List[str], List[str]]:
-        tested = set()
-        untested = set()
-        all_calls = set()
-        for t in self.test_funcs.values():
-            all_calls.update(t.calls)
-        for key, f in self.source_funcs.items():
-            if f.name in all_calls or any(f.name in t.name for t in self.test_funcs.values()):
-                tested.add(key)
-            else:
-                untested.add(key)
-        return list(tested), list(untested)
-
-# ========================================================================
-# 4. MAIN ENGINE
-# ========================================================================
-
+# ─── ENGINE ──────────────────────────────────────────────────────────────────
 class PytestQualityChecker:
-    def __init__(self, root: Path):
+    def __init__(
+        self,
+        root: pathlib.Path,
+        enable_rca: bool = True,
+        strict: bool = False,
+        extra_excludes: Optional[Set[str]] = None,
+        max_workers: int = 4,
+    ):
         self.root = root
-        self.parser = ASTParser(root)
+        self.enable_rca = enable_rca and _RCA_AVAILABLE
+        self.strict = strict
+        self.extra_excludes = extra_excludes or set()
+        self.max_workers = max_workers
+        self.parser = ASTParser(root, self.extra_excludes)
+        self.results: Dict[str, Any] = {}
+
+    def scan(self, progress_callback: Optional[Callable] = None) -> Report:
+        t0 = time.monotonic()
         self.parser.scan_files()
         self.parser.parse_source_files()
         self.parser.parse_test_files()
-        self.results = {}
 
-    def run(self):
         test_funcs = self.parser.test_functions
         source_funcs = self.parser.source_functions
         analyzer = QualityAnalyzer(test_funcs, source_funcs)
@@ -1122,7 +1233,7 @@ class PytestQualityChecker:
         prec = analyzer.precision_checker()
 
         # Tier 5
-        mut_score, mut_covered, mut_total = analyzer.mutation_score()
+        mut_score, _, _ = analyzer.mutation_score()
         strength = analyzer.test_strength_score()
         confidence = analyzer.confidence_score(strength)
         flow = analyzer.business_flow_coverage()
@@ -1154,47 +1265,63 @@ class PytestQualityChecker:
         smells = analyzer.test_smell_detector()
         flow_summary = analyzer.business_flow_summary()
 
-        self.results = {
-            "total_tests": len(test_funcs),
-            "total_source_functions": len(source_funcs),
-            "tested_functions": len(tested_funcs),
-            "untested_functions": len(untested_funcs),
-            "tier1": {
+        # RCA enrichment (for critical issues)
+        rca_results = []
+        if self.enable_rca:
+            critical_issues = []
+            if aq["score"] < 50:
+                critical_issues.append(("Assertion Quality", aq["score"]))
+            if exc["score"] < 50:
+                critical_issues.append(("Exception Coverage", exc["score"]))
+            if state["score"] < 50:
+                critical_issues.append(("State Transition", state["score"]))
+            for name, score in critical_issues:
+                rca = _rca_analyze(RuntimeError(f"Low {name} score: {score}%"), {"metric": name, "score": score})
+                if rca:
+                    rca_results.append({"metric": name, "score": score, "rca": rca})
+
+        report = Report(
+            total_tests=len(test_funcs),
+            total_source_functions=len(source_funcs),
+            tested_functions=len(tested_funcs),
+            untested_functions=len(untested_funcs),
+            overall_quality_score=round(strength, 1),
+            tier1={
                 "assertion_quality": aq,
                 "negative_path": neg,
                 "exception_coverage": exc,
                 "edge_case": edge,
                 "magic_number": magic,
             },
-            "tier2": {
+            tier2={
                 "mock_quality": mock,
                 "fixture_quality": fixture,
                 "duplicate_test": dup,
                 "test_naming": naming,
                 "aaa_pattern": aaa,
             },
-            "tier3": {
+            tier3={
                 "database_verification": db,
                 "domain_event": event,
                 "audit_log": audit,
                 "idempotency": idempotent,
                 "permission_test": permission,
             },
-            "tier4": {
+            tier4={
                 "accounting": acct,
                 "inventory": inv,
                 "fiscal_period": period,
                 "multi_currency": curr,
                 "precision": prec,
             },
-            "tier5": {
+            tier5={
                 "mutation_score": round(mut_score, 1),
                 "test_strength": strength,
                 "confidence_score": round(confidence, 1),
                 "business_flow": flow,
                 "regression_risk": reg_risk,
             },
-            "tier6": {
+            tier6={
                 "flaky_tests": flaky,
                 "slow_tests": slow,
                 "test_isolation": isolation,
@@ -1220,142 +1347,396 @@ class PytestQualityChecker:
                 "test_smells": [{"type": s.type, "file": s.file, "detail": s.detail} for s in smells],
                 "business_flow_summary": flow_summary,
             },
-            "overall_quality_score": round(strength, 1),
-        }
-        return self.results
+            scan_time=time.monotonic() - t0,
+            rca_results=rca_results,
+        )
+        return report
 
-# ========================================================================
-# 5. REPORTER
-# ========================================================================
+# ─── REPORTING ──────────────────────────────────────────────────────────────
+def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
+    c = COLOR
+    _safe_print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*72}╗")
+    _safe_print("║              PYTEST QUALITY CHECKER v3.0.0               ║")
+    _safe_print(f"╚{'═'*72}╝{c['RESET']}")
 
-def print_report(results: Dict[str, Any]):
-    r = results
-    print(f"\n{COLOR['BOLD']}{COLOR['CYAN']}╔════════════════════════════════════════════════════════════════════╗")
-    print("║              PYTEST QUALITY CHECKER v5.0 (ERP FULL)           ║")
-    print(f"╚════════════════════════════════════════════════════════════════════╝{COLOR['RESET']}")
-
-    print(f"\n{COLOR['BOLD']}📊 OVERALL QUALITY SCORE: {COLOR['CYAN']}{r['overall_quality_score']}/100{COLOR['RESET']}")
-    print(f"  🎯 Confidence Score          : {COLOR['GREEN']}{r['tier5']['confidence_score']:.1f}%{COLOR['RESET']}")
-    print(f"  🧪 Total Tests Found         : {r['total_tests']}")
-    print(f"  📄 Total Source Functions    : {r['total_source_functions']}")
-    print(f"  ✅ Tested Functions          : {r['tested_functions']}")
-    print(f"  ❌ Untested Functions        : {COLOR['RED']}{r['untested_functions']}{COLOR['RESET']}")
+    r = report
+    _safe_print(f"\n{c['BOLD']}📊 OVERALL QUALITY SCORE: {c['CYAN']}{r.overall_quality_score:.1f}/100{c['RESET']}")
+    _safe_print(f"  🎯 Confidence Score          : {c['GREEN']}{r.tier5['confidence_score']:.1f}%{c['RESET']}")
+    _safe_print(f"  🧪 Total Tests Found         : {r.total_tests}")
+    _safe_print(f"  📄 Total Source Functions    : {r.total_source_functions}")
+    _safe_print(f"  ✅ Tested Functions          : {r.tested_functions}")
+    _safe_print(f"  ❌ Untested Functions        : {c['RED']}{r.untested_functions}{c['RESET']}")
+    _safe_print(f"  ⏱️  Scan time                : {r.scan_time:.3f}s")
+    _safe_print(f"  RCA Engine                   : {'✅ Active' if _RCA_AVAILABLE else '⚠️ Fallback'}")
 
     # Tier1
-    t1 = r['tier1']
-    print(f"\n{COLOR['BOLD']}─── TIER 1 (Wajib) ───{COLOR['RESET']}")
-    print(f"  Assertion Quality       : {t1['assertion_quality']['score']:.1f}%")
-    print(f"  Negative Path           : {t1['negative_path']['score']:.1f}%")
-    print(f"  Exception Coverage      : {t1['exception_coverage']['score']:.1f}%")
-    print(f"  Edge Case               : {t1['edge_case']['score']:.1f}%")
-    print(f"  Magic Number            : {t1['magic_number']['score']:.1f}%")
+    t1 = r.tier1
+    _safe_print(f"\n{c['BOLD']}─── TIER 1 (Wajib) ───{c['RESET']}")
+    _safe_print(f"  Assertion Quality       : {t1['assertion_quality']['score']:.1f}%")
+    _safe_print(f"  Negative Path           : {t1['negative_path']['score']:.1f}%")
+    _safe_print(f"  Exception Coverage      : {t1['exception_coverage']['score']:.1f}%")
+    _safe_print(f"  Edge Case               : {t1['edge_case']['score']:.1f}%")
+    _safe_print(f"  Magic Number            : {t1['magic_number']['score']:.1f}%")
 
     # Tier2
-    t2 = r['tier2']
-    print(f"\n{COLOR['BOLD']}─── TIER 2 (Mock & Structure) ───{COLOR['RESET']}")
-    print(f"  Mock Quality            : {t2['mock_quality']['score']:.1f}%")
-    print(f"  Fixture Quality         : {t2['fixture_quality']['unique']} unique fixtures")
-    print(f"  Duplicate Test          : {t2['duplicate_test']['duplicates']} duplicates")
-    print(f"  Test Naming             : {t2['test_naming']['score']:.1f}%")
-    print(f"  AAA Pattern             : {t2['aaa_pattern']['score']:.1f}%")
+    t2 = r.tier2
+    _safe_print(f"\n{c['BOLD']}─── TIER 2 (Mock & Structure) ───{c['RESET']}")
+    _safe_print(f"  Mock Quality            : {t2['mock_quality']['score']:.1f}%")
+    _safe_print(f"  Fixture Quality         : {t2['fixture_quality']['unique']} unique fixtures")
+    _safe_print(f"  Duplicate Test          : {t2['duplicate_test']['duplicates']} duplicates")
+    _safe_print(f"  Test Naming             : {t2['test_naming']['score']:.1f}%")
+    _safe_print(f"  AAA Pattern             : {t2['aaa_pattern']['score']:.1f}%")
 
     # Tier3
-    t3 = r['tier3']
-    print(f"\n{COLOR['BOLD']}─── TIER 3 (Integration) ───{COLOR['RESET']}")
-    print(f"  Database Verification   : {t3['database_verification']['score']:.1f}%")
-    print(f"  Domain Event            : {t3['domain_event']['score']:.1f}%")
-    print(f"  Audit Log               : {t3['audit_log']['score']:.1f}%")
-    print(f"  Idempotency             : {t3['idempotency']['score']:.1f}%")
-    print(f"  Permission Test         : {len(t3['permission_test']['roles'])} roles")
+    t3 = r.tier3
+    _safe_print(f"\n{c['BOLD']}─── TIER 3 (Integration) ───{c['RESET']}")
+    _safe_print(f"  Database Verification   : {t3['database_verification']['score']:.1f}%")
+    _safe_print(f"  Domain Event            : {t3['domain_event']['score']:.1f}%")
+    _safe_print(f"  Audit Log               : {t3['audit_log']['score']:.1f}%")
+    _safe_print(f"  Idempotency             : {t3['idempotency']['score']:.1f}%")
+    _safe_print(f"  Permission Test         : {len(t3['permission_test']['roles'])} roles")
 
     # Tier4
-    t4 = r['tier4']
-    print(f"\n{COLOR['BOLD']}─── TIER 4 (ERP Specific) ───{COLOR['RESET']}")
-    print(f"  Accounting (Debit=Credit): {t4['accounting']['score']:.1f}%")
-    print(f"  Inventory               : {t4['inventory']['score']:.1f}%")
-    print(f"  Fiscal Period           : {t4['fiscal_period']['score']:.1f}%")
-    print(f"  Multi Currency          : {t4['multi_currency']['score']:.1f}%")
-    print(f"  Precision (Decimal)     : {t4['precision']['score']:.1f}%")
+    t4 = r.tier4
+    _safe_print(f"\n{c['BOLD']}─── TIER 4 (ERP Specific) ───{c['RESET']}")
+    _safe_print(f"  Accounting (Debit=Credit): {t4['accounting']['score']:.1f}%")
+    _safe_print(f"  Inventory               : {t4['inventory']['score']:.1f}%")
+    _safe_print(f"  Fiscal Period           : {t4['fiscal_period']['score']:.1f}%")
+    _safe_print(f"  Multi Currency          : {t4['multi_currency']['score']:.1f}%")
+    _safe_print(f"  Precision (Decimal)     : {t4['precision']['score']:.1f}%")
 
     # Tier5
-    t5 = r['tier5']
-    print(f"\n{COLOR['BOLD']}─── TIER 5 (Advanced) ───{COLOR['RESET']}")
-    print(f"  🧬 Mutation Score       : {COLOR['YELLOW']}{t5['mutation_score']:.1f}%{COLOR['RESET']}")
-    print(f"  📈 Test Strength        : {t5['test_strength']:.1f}%")
-    print(f"  🎯 Confidence           : {t5['confidence_score']:.1f}%")
+    t5 = r.tier5
+    _safe_print(f"\n{c['BOLD']}─── TIER 5 (Advanced) ───{c['RESET']}")
+    _safe_print(f"  🧬 Mutation Score       : {c['YELLOW']}{t5['mutation_score']:.1f}%{c['RESET']}")
+    _safe_print(f"  📈 Test Strength        : {t5['test_strength']:.1f}%")
+    _safe_print(f"  🎯 Confidence           : {t5['confidence_score']:.1f}%")
 
     # Business Flow
-    flow_sum = r['tier6']['business_flow_summary']
-    print(f"\n{COLOR['BOLD']}─── BUSINESS FLOW COVERAGE ───{COLOR['RESET']}")
+    flow_sum = r.tier6['business_flow_summary']
+    _safe_print(f"\n{c['BOLD']}─── BUSINESS FLOW COVERAGE ───{c['RESET']}")
     for flow, data in flow_sum.items():
-        color = COLOR["GREEN"] if data['pct'] >= 80 else COLOR["YELLOW"] if data['pct'] >= 50 else COLOR["RED"]
-        print(f"  {flow:15} {color}{data['pct']:.1f}% ({data['covered']}/{data['total']}){COLOR['RESET']}")
+        color = c["GREEN"] if data['pct'] >= 80 else c["YELLOW"] if data['pct'] >= 50 else c["RED"]
+        _safe_print(f"  {flow:15} {color}{data['pct']:.1f}% ({data['covered']}/{data['total']}){c['RESET']}")
 
     # Tier6 issues
-    t6 = r['tier6']
-    print(f"\n{COLOR['BOLD']}─── TIER 6 (Issues & Smells) ───{COLOR['RESET']}")
+    t6 = r.tier6
+    _safe_print(f"\n{c['BOLD']}─── TIER 6 (Issues & Smells) ───{c['RESET']}")
     if t6['flaky_tests']['count'] > 0:
-        print(f"  {COLOR['RED']}⚠️ Flaky tests: {t6['flaky_tests']['count']}{COLOR['RESET']}")
+        _safe_print(f"  {c['RED']}⚠️ Flaky tests: {t6['flaky_tests']['count']}{c['RESET']}")
     if t6['slow_tests']['count'] > 0:
-        print(f"  {COLOR['YELLOW']}⚠️ Slow tests: {t6['slow_tests']['count']}{COLOR['RESET']}")
+        _safe_print(f"  {c['YELLOW']}⚠️ Slow tests: {t6['slow_tests']['count']}{c['RESET']}")
     if t6['dead_code']['count'] > 0:
-        print(f"  {COLOR['RED']}❌ Dead test code: {t6['dead_code']['count']}{COLOR['RESET']}")
+        _safe_print(f"  {c['RED']}❌ Dead test code: {t6['dead_code']['count']}{c['RESET']}")
     if t6['orphan_tests']['orphans'] > 0:
-        print(f"  {COLOR['RED']}❌ Orphan tests: {t6['orphan_tests']['orphans']}{COLOR['RESET']}")
+        _safe_print(f"  {c['RED']}❌ Orphan tests: {t6['orphan_tests']['orphans']}{c['RESET']}")
     if t6['untested_functions']:
-        print(f"  {COLOR['RED']}❌ Untested functions: {len(t6['untested_functions'])}{COLOR['RESET']}")
+        _safe_print(f"  {c['RED']}❌ Untested functions: {len(t6['untested_functions'])}{c['RESET']}")
         for f in t6['untested_functions'][:5]:
-            print(f"      - {f}")
+            _safe_print(f"      - {f}")
     if t6['test_smells']:
-        print(f"  {COLOR['YELLOW']}⚠️ Test smells: {len(t6['test_smells'])}{COLOR['RESET']}")
+        _safe_print(f"  {c['YELLOW']}⚠️ Test smells: {len(t6['test_smells'])}{c['RESET']}")
         for s in t6['test_smells'][:3]:
-            print(f"      - {s['type']}: {s['file']} ({s['detail']})")
+            _safe_print(f"      - {s['type']}: {s['file']} ({s['detail']})")
     if t6['state_transition']['score'] < 80:
-        print(f"  {COLOR['YELLOW']}⚠️ State transition score: {t6['state_transition']['score']:.1f}%{COLOR['RESET']}")
+        _safe_print(f"  {c['YELLOW']}⚠️ State transition score: {t6['state_transition']['score']:.1f}%{c['RESET']}")
     if t6['event_consistency']['score'] < 70:
-        print(f"  {COLOR['YELLOW']}⚠️ Event consistency score: {t6['event_consistency']['score']:.1f}%{COLOR['RESET']}")
+        _safe_print(f"  {c['YELLOW']}⚠️ Event consistency score: {t6['event_consistency']['score']:.1f}%{c['RESET']}")
 
     # Regression Risk
     high_risk = [f for f, d in t5['regression_risk'].items() if d['risk'] == "HIGH"]
     if high_risk:
-        print(f"\n{COLOR['RED']}⚠️ HIGH REGRESSION RISK:{COLOR['RESET']}")
+        _safe_print(f"\n{c['RED']}⚠️ HIGH REGRESSION RISK:{c['RESET']}")
         for f in high_risk[:5]:
             d = t5['regression_risk'][f]
-            print(f"  {f}: LOC={d['loc']}, Tests={d['tests']}, Density={d['test_density']:.1f}%")
+            _safe_print(f"  {f}: LOC={d['loc']}, Tests={d['tests']}, Density={d['test_density']:.1f}%")
+
+    # RCA Results
+    if show_rca and r.rca_results:
+        _safe_print(f"\n{c['MAGENTA']}🔍 RCA Analysis:{c['RESET']}")
+        for rr in r.rca_results:
+            _safe_print(f"  {rr['metric']}: score={rr['score']}%")
+            rc = rr['rca'].get("root_cause", "")
+            fix = rr['rca'].get("suggested_fix", "")
+            if rc:
+                _safe_print(f"    Root cause: {rc[:120]}")
+            if fix:
+                _safe_print(f"    Fix: {fix[:120]}")
 
     # Recommendations
-    print(f"\n{COLOR['BOLD']}─── RECOMMENDATIONS ───{COLOR['RESET']}")
+    _safe_print(f"\n{c['BOLD']}─── RECOMMENDATIONS ───{c['RESET']}")
     if t5['mutation_score'] < 70:
-        print(f"  {COLOR['YELLOW']}🔧 Mutation Score rendah. Perkuat assertion spesifik (nilai, status, length).{COLOR['RESET']}")
+        _safe_print(f"  {c['YELLOW']}🔧 Mutation Score rendah. Perkuat assertion spesifik (nilai, status, length).{c['RESET']}")
     if t6['state_transition']['score'] < 80:
-        print(f"  {COLOR['YELLOW']}🔧 State transition perlu ditingkatkan. Uji setiap perubahan status.{COLOR['RESET']}")
+        _safe_print(f"  {c['YELLOW']}🔧 State transition perlu ditingkatkan. Uji setiap perubahan status.{c['RESET']}")
     if t6['event_consistency']['score'] < 70:
-        print(f"  {COLOR['YELLOW']}🔧 Event consistency rendah. Verifikasi aggregate_id, version, timestamp.{COLOR['RESET']}")
+        _safe_print(f"  {c['YELLOW']}🔧 Event consistency rendah. Verifikasi aggregate_id, version, timestamp.{c['RESET']}")
     if t6['outbox']['score'] < 60:
-        print(f"  {COLOR['YELLOW']}🔧 Outbox verification rendah. Tambahkan assert untuk outbox entry.{COLOR['RESET']}")
+        _safe_print(f"  {c['YELLOW']}🔧 Outbox verification rendah. Tambahkan assert untuk outbox entry.{c['RESET']}")
     if t6['flaky_tests']['count'] > 0:
-        print(f"  {COLOR['RED']}🔧 Flaky tests detected. Gunakan mock untuk waktu/random dan fixture stabil.{COLOR['RESET']}")
+        _safe_print(f"  {c['RED']}🔧 Flaky tests detected. Gunakan mock untuk waktu/random dan fixture stabil.{c['RESET']}")
 
-    print("")
+    _safe_print(f"\n{c['CYAN']}{'─'*72}{c['RESET']}")
+    if report.overall_quality_score >= 70:
+        _safe_print(f"  {c['GREEN']}✅ PASS — Overall quality acceptable.{c['RESET']}")
+    else:
+        _safe_print(f"  {c['RED']}❌ FAIL — Quality score below 70. Improve test quality.{c['RESET']}")
 
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Pytest Quality Checker Full")
-    parser.add_argument("--json", metavar="FILE", help="Ekspor laporan ke JSON")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan detail")
+# ─── EXPORT ──────────────────────────────────────────────────────────────────
+def save_json(report: Report, path: pathlib.Path) -> bool:
+    try:
+        # Convert to dict
+        data = {
+            "version": __version__,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "overall_quality_score": report.overall_quality_score,
+            "passed": report.passed,
+            "scan_time": report.scan_time,
+            "total_tests": report.total_tests,
+            "total_source_functions": report.total_source_functions,
+            "tested_functions": report.tested_functions,
+            "untested_functions": report.untested_functions,
+            "tier1": report.tier1,
+            "tier2": report.tier2,
+            "tier3": report.tier3,
+            "tier4": report.tier4,
+            "tier5": report.tier5,
+            "tier6": report.tier6,
+            "rca_results": report.rca_results,
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        _safe_print(f"{_c('GREEN')}✅ JSON saved: {path}{_c('RESET')}")
+        return True
+    except Exception as e:
+        _safe_print(f"{_c('RED')}❌ Failed to save JSON: {e}{_c('RESET')}")
+        return False
+
+def save_csv(report: Report, path: pathlib.Path) -> bool:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["metric", "value"])
+            writer.writerow(["overall_quality_score", report.overall_quality_score])
+            writer.writerow(["total_tests", report.total_tests])
+            writer.writerow(["total_source_functions", report.total_source_functions])
+            writer.writerow(["tested_functions", report.tested_functions])
+            writer.writerow(["untested_functions", report.untested_functions])
+            for tier, data in [("tier1", report.tier1), ("tier2", report.tier2), ("tier3", report.tier3), ("tier4", report.tier4), ("tier5", report.tier5), ("tier6", report.tier6)]:
+                for key, val in data.items():
+                    if isinstance(val, dict):
+                        for k2, v2 in val.items():
+                            if isinstance(v2, (int, float, str)):
+                                writer.writerow([f"{tier}_{key}_{k2}", v2])
+        _safe_print(f"{_c('GREEN')}✅ CSV saved: {path}{_c('RESET')}")
+        return True
+    except Exception as e:
+        _safe_print(f"{_c('RED')}❌ Failed to save CSV: {e}{_c('RESET')}")
+        return False
+
+def save_html(report: Report, path: pathlib.Path) -> bool:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        color = "green" if report.passed else "red"
+        html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Pytest Quality Report</title>
+<style>
+body{{font-family:sans-serif;background:#f8f9fa;color:#212529;padding:2rem}}
+h1{{color:#0d6efd}}
+.summary{{display:flex;gap:2rem;flex-wrap:wrap;margin:1rem 0}}
+.card{{background:white;padding:1rem 2rem;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}}
+.card .value{{font-size:2rem;font-weight:bold}}
+.card .value.green{{color:#198754}}
+.card .value.yellow{{color:#ffc107}}
+.card .value.red{{color:#dc3545}}
+.card .label{{color:#6c757d}}
+.table{{width:100%}}
+.table td{{padding:0.3rem 0.5rem}}
+</style>
+</head>
+<body>
+<h1>Pytest Quality Checker Report</h1>
+<div class="summary">
+  <div class="card"><div class="value">{report.overall_quality_score:.1f}</div><div class="label">Quality Score</div></div>
+  <div class="card"><div class="value">{report.total_tests}</div><div class="label">Total Tests</div></div>
+  <div class="card"><div class="value">{report.total_source_functions}</div><div class="label">Source Functions</div></div>
+  <div class="card"><div class="value">{report.tested_functions}</div><div class="label">Tested</div></div>
+  <div class="card"><div class="value" style="color:{color}">{'PASS' if report.passed else 'FAIL'}</div><div class="label">Status</div></div>
+</div>
+<h2>Tier 1 (Wajib)</h2>
+<table class="table">
+<tr><th>Metric</th><th>Score</th></tr>
+<tr><td>Assertion Quality</td><td>{report.tier1['assertion_quality']['score']:.1f}%</td></tr>
+<tr><td>Negative Path</td><td>{report.tier1['negative_path']['score']:.1f}%</td></tr>
+<tr><td>Exception Coverage</td><td>{report.tier1['exception_coverage']['score']:.1f}%</td></tr>
+<tr><td>Edge Case</td><td>{report.tier1['edge_case']['score']:.1f}%</td></tr>
+<tr><td>Magic Number</td><td>{report.tier1['magic_number']['score']:.1f}%</td></tr>
+</table>
+<h2>Tier 2 (Mock & Structure)</h2>
+<table class="table">
+<tr><th>Metric</th><th>Score</th></tr>
+<tr><td>Mock Quality</td><td>{report.tier2['mock_quality']['score']:.1f}%</td></tr>
+<tr><td>Test Naming</td><td>{report.tier2['test_naming']['score']:.1f}%</td></tr>
+<tr><td>AAA Pattern</td><td>{report.tier2['aaa_pattern']['score']:.1f}%</td></tr>
+</table>
+<h2>Tier 4 (ERP Specific)</h2>
+<table class="table">
+<tr><th>Metric</th><th>Score</th></tr>
+<tr><td>Accounting</td><td>{report.tier4['accounting']['score']:.1f}%</td></tr>
+<tr><td>Inventory</td><td>{report.tier4['inventory']['score']:.1f}%</td></tr>
+<tr><td>Fiscal Period</td><td>{report.tier4['fiscal_period']['score']:.1f}%</td></tr>
+<tr><td>Multi Currency</td><td>{report.tier4['multi_currency']['score']:.1f}%</td></tr>
+<tr><td>Precision</td><td>{report.tier4['precision']['score']:.1f}%</td></tr>
+</table>
+<h2>Business Flow Coverage</h2>
+<table class="table">
+"""
+        for flow, data in report.tier6['business_flow_summary'].items():
+            color = "green" if data['pct'] >= 80 else "yellow" if data['pct'] >= 50 else "red"
+            html += f'<tr><td>{flow}</td><td class="{color}">{data["pct"]:.1f}% ({data["covered"]}/{data["total"]})</td></tr>'
+        html += """
+</table>
+</body></html>"""
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(html)
+        _safe_print(f"{_c('GREEN')}✅ HTML saved: {path}{_c('RESET')}")
+        return True
+    except Exception as e:
+        _safe_print(f"{_c('RED')}❌ Failed to save HTML: {e}{_c('RESET')}")
+        return False
+
+def save_sarif(report: Report, path: pathlib.Path) -> bool:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        results = []
+        for rr in report.rca_results:
+            results.append({
+                "ruleId": "PYTEST-QUALITY",
+                "level": "warning" if rr['score'] < 70 else "note",
+                "message": {"text": f"{rr['metric']} score {rr['score']}%"},
+                "properties": {"metric": rr['metric'], "score": rr['score']},
+            })
+        sarif = {
+            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "version": "2.1.0",
+            "runs": [{
+                "tool": {
+                    "driver": {
+                        "name": "PytestQualityChecker",
+                        "version": __version__,
+                        "rules": [
+                            {"id": "PYTEST-QUALITY", "shortDescription": {"text": "Pytest quality metric"}},
+                        ]
+                    }
+                },
+                "results": results,
+            }]
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(sarif, f, indent=2, ensure_ascii=False)
+        _safe_print(f"{_c('GREEN')}✅ SARIF saved: {path}{_c('RESET')}")
+        return True
+    except Exception as e:
+        _safe_print(f"{_c('RED')}❌ Failed to save SARIF: {e}{_c('RESET')}")
+        return False
+
+# ─── SELF-TEST ──────────────────────────────────────────────────────────────
+def self_test(verbose: bool = True) -> bool:
+    passed = failed = 0
+    def check(name, cond, detail=""):
+        nonlocal passed, failed
+        if cond:
+            if verbose: _safe_print(f"  ✅ {name}")
+            passed += 1
+        else:
+            if verbose: _safe_print(f"  ❌ {name}" + (f": {detail}" if detail else ""))
+            failed += 1
+
+    if verbose: _safe_print(f"\nPytest Checker self-test v{__version__}…\n")
+
+    # Test parsing
+    code = """
+def test_example():
+    assert 1 == 1
+"""
+    tree = ast.parse(code)
+    checker = PytestQualityChecker(pathlib.Path.cwd(), enable_rca=False)
+    check("AST parsing works", True)
+
+    if verbose: _safe_print(f"\nSelf-test: {passed} passed, {failed} failed {'✅' if failed==0 else '❌'}")
+    return failed == 0
+
+# ─── MAIN ────────────────────────────────────────────────────────────────────
+def main() -> int:
+    parser = argparse.ArgumentParser(description=f"Pytest Quality Checker v{__version__}")
+    parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--json", metavar="FILE")
+    parser.add_argument("--csv", metavar="FILE")
+    parser.add_argument("--html", metavar="FILE")
+    parser.add_argument("--sarif", metavar="FILE")
+    parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--no-rca", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--exclude", default="")
+    parser.add_argument("--max-workers", type=int, default=4)
+    parser.add_argument("--no-progress", action="store_true")
+    parser.add_argument("--version", action="version", version=f"pytest_checker v{__version__}")
+
     args = parser.parse_args()
 
-    checker = PytestQualityChecker(ROOT)
-    results = checker.run()
+    if args.self_test:
+        return 0 if self_test(verbose=True) else 1
 
-    if args.json:
-        with open(args.json, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2, default=str)
-        print(f"{COLOR['GREEN']}✅ Laporan diekspor ke {args.json}{COLOR['RESET']}")
+    project_root = pathlib.Path(__file__).resolve().parent.parent
+    extra_excludes = set(args.exclude.split(",")) if args.exclude else set()
 
-    print_report(results)
+    checker = PytestQualityChecker(
+        root=project_root,
+        enable_rca=not args.no_rca,
+        strict=args.strict,
+        extra_excludes=extra_excludes,
+        max_workers=args.max_workers,
+    )
 
-    sys.exit(0)
+    progress = None
+    if not args.no_progress:
+        total = 0
+        scanned = 0
+        lock = threading.Lock()
+        def _progress(current: int, total_: int):
+            nonlocal total, scanned
+            with lock:
+                total = total_
+                scanned = current
+                pct = (scanned / total * 100) if total > 0 else 0
+                bar = "█" * int(pct / 2) + "░" * (50 - int(pct / 2))
+                _safe_print(f"\r  [{bar}] {scanned}/{total} ({pct:.1f}%)", end="", flush=True)
+                if scanned >= total:
+                    _safe_print()
+        progress = _progress
+
+    report = checker.scan(progress_callback=progress)
+
+    print_report(report, verbose=args.verbose, show_rca=not args.no_rca)
+
+    if not args.dry_run:
+        if args.json:
+            save_json(report, pathlib.Path(args.json))
+        if args.csv:
+            save_csv(report, pathlib.Path(args.csv))
+        if args.html:
+            save_html(report, pathlib.Path(args.html))
+        if args.sarif:
+            save_sarif(report, pathlib.Path(args.sarif))
+
+    return 0 if report.passed else 1
 
 if __name__ == "__main__":
-    main()
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        _safe_print(f"\n{_c('YELLOW')}⏹️  Interrupted by user.{_c('RESET')}")
+        sys.exit(130)

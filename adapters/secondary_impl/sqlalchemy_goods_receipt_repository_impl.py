@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -106,17 +107,15 @@ class SQLAlchemyGoodsReceiptRepository(GoodsReceiptRepositoryPort):
         for line in result.scalars():
             await session.delete(line)
 
-    # === Metode tambahan untuk memenuhi kontrak port ===
-    async def get_by_id(self, grn_id: uuid.UUID) -> GoodsReceiptNoteTable | None:
+    # === Metode port dengan tipe yang sesuai (Any) ===
+    async def get_by_id(self, grn_id: uuid.UUID) -> Any | None:
         """Alias untuk get_grn_by_id."""
         return await self.get_grn_by_id(grn_id)
 
-    # ===== PERBAIKAN: get_by_number dengan 1 parameter (sesuai port) =====
-    async def get_by_number(self, grn_number: str) -> GoodsReceiptNoteTable | None:
+    async def get_by_number(self, grn_number: str) -> Any | None:
         """
         Mendapatkan GRN berdasarkan nomor dokumen (tanpa filter legal_entity).
         Karena port hanya menerima satu parameter, kita asumsikan grn_number unik secara global.
-        Jika ada lebih dari satu, ambil yang terbaru.
         """
         session = await self._get_session()
         stmt = (
@@ -128,7 +127,7 @@ class SQLAlchemyGoodsReceiptRepository(GoodsReceiptRepositoryPort):
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_by_purchase_order_id(self, purchase_order_id: uuid.UUID) -> list[GoodsReceiptNoteTable]:
+    async def get_by_purchase_order_id(self, purchase_order_id: uuid.UUID) -> list[Any]:
         """Alias untuk get_grns_by_po."""
         return await self.get_grns_by_po(purchase_order_id)
 

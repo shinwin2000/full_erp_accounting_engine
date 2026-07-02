@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.persistence_orm.report_definition_table import ReportDefinitionTable
 from infrastructure.persistence_orm.report_output_table import ReportOutputTable
 from infrastructure.persistence_orm.report_schedule_table import ReportScheduleTable
-# Perbaikan: import AgingReportRepositoryPort dari report_repository_port (bukan dari file terpisah)
 from ports.primary.report_repository_port import (
     ReportRepositoryPort,
     AgingReportRepositoryPort,
@@ -146,8 +145,10 @@ class SQLAlchemyReportRepository(ReportRepositoryPort, AgingReportRepositoryPort
         return [dict(zip(columns, row)) for row in rows]
 
     # ========== Methods from ReportRepositoryPort ==========
-    async def generate_report(self, definition_id: uuid.UUID, parameters: dict[str, Any]) -> ReportOutputTable:
-        session = await self._get_session()
+    async def generate_report(self, definition_id: uuid.UUID, parameters: dict[str, Any]) -> Any:
+        """
+        Menghasilkan laporan dan mengembalikan data laporan dalam bentuk dict (Any).
+        """
         definition = await self.get_definition_by_id(definition_id)
         if not definition:
             raise ValueError(f"Report definition with id {definition_id} not found")
@@ -162,9 +163,21 @@ class SQLAlchemyReportRepository(ReportRepositoryPort, AgingReportRepositoryPort
             output_url=None,
         )
         await self.save_output(output)
-        return output
+
+        return {
+            "output_id": str(output.id),
+            "definition_id": str(output.definition_id),
+            "generated_at": output.generated_at.isoformat() if output.generated_at else None,
+            "status": output.status,
+            "notes": output.notes,
+            "file_path": output.file_path,
+            "output_url": output.output_url,
+        }
 
     async def get_report_data(self, output_id: uuid.UUID) -> dict[str, Any] | None:
+        """
+        Mengambil data laporan berdasarkan output_id (satu parameter sesuai port).
+        """
         output = await self.get_output_by_id(output_id)
         if not output:
             return None
@@ -181,12 +194,7 @@ class SQLAlchemyReportRepository(ReportRepositoryPort, AgingReportRepositoryPort
 
     # ========== Methods from AgingReportRepositoryPort ==========
     async def get_ar_aging(self, as_of_date: date, legal_entity_id: uuid.UUID) -> list[AgingBucket]:
-        """
-        Generate AR aging report as of given date.
-        """
-        # Sama seperti sebelumnya, gunakan data nyata jika ada
-        # Di sini kita gunakan query ke tabel ar_invoices (jika ada)
-        # Untuk contoh, kita gunakan mock data
+        # Implementasi mock
         mock_invoices = [
             {"due_date": date(2026, 5, 15), "outstanding": Decimal("1000")},
             {"due_date": date(2026, 4, 10), "outstanding": Decimal("500")},
@@ -217,11 +225,6 @@ class SQLAlchemyReportRepository(ReportRepositoryPort, AgingReportRepositoryPort
         ]
 
     async def get_ap_aging(self, as_of_date: date, legal_entity_id: uuid.UUID) -> list[AgingBucket]:
-        """
-        Generate AP aging report as of given date.
-        """
-        # Sama seperti AR, gunakan data dari tabel ap_invoices jika ada
-        # Contoh mock data
         mock_invoices = [
             {"due_date": date(2026, 5, 15), "outstanding": Decimal("2000")},
             {"due_date": date(2026, 4, 10), "outstanding": Decimal("1200")},

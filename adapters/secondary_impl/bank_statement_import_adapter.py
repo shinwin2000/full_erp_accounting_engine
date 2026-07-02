@@ -9,9 +9,11 @@ persistensi ke database serta audit logging.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
+
+from sqlalchemy import func, select
 
 from infrastructure.database.session_factory_sqlalchemy import get_async_session
 from infrastructure.persistence_orm.bank_reconciliation_table import BankReconciliationTable
@@ -22,6 +24,7 @@ from ports.primary.bank_statement_import_port import (
     BankStatementImportPort,
     ImportStatus,
     StatementFormat,
+    StatementTransaction,
 )
 
 logger = get_logger(__name__)
@@ -37,6 +40,7 @@ class BankStatementImportAdapter(BankStatementImportPort):
         super().__init__()
         self._session = None
         self._audit_log: list[dict[str, Any]] = []
+        self._current_bank_account_id: UUID | None = None  # untuk keperluan parsing
 
     async def _get_session(self):
         if self._session is None:
@@ -53,6 +57,14 @@ class BankStatementImportAdapter(BankStatementImportPort):
         if len(self._audit_log) > 10000:
             self._audit_log = self._audit_log[-5000:]
 
+    def _dict_to_transaction(self, data: dict) -> StatementTransaction:
+        """Convert dict to StatementTransaction object."""
+        try:
+            return StatementTransaction(**data)
+        except TypeError:
+            from types import SimpleNamespace
+            return SimpleNamespace(**data)
+
     async def parse_and_import(
         self,
         file_content: str,
@@ -62,6 +74,9 @@ class BankStatementImportAdapter(BankStatementImportPort):
         statement_date: date | None = None,
         override_format: StatementFormat | None = None,
     ) -> BankStatementImport:
+        # Simpan bank_account_id untuk digunakan di method parse_*
+        self._current_bank_account_id = bank_account_id
+
         # Panggil implementasi parent (in-memory) untuk parsing dan deduplikasi
         import_record = await super().parse_and_import(
             file_content, file_name, bank_account_id, user_id,
@@ -128,7 +143,7 @@ class BankStatementImportAdapter(BankStatementImportPort):
         return health
 
     # ========================================================================
-    # MISSING METHODS FOR BankStatementImportPort
+    # METODE PORT (sesuai kontrak)
     # ========================================================================
 
     async def get_all_imports(
@@ -137,9 +152,6 @@ class BankStatementImportAdapter(BankStatementImportPort):
         limit: int = 100,
         offset: int = 0,
     ) -> list[BankStatementImport]:
-        """
-        Retrieve all bank statement imports, optionally filtered by bank account.
-        """
         session = await self._get_session()
         query = select(BankReconciliationTable)
         if bank_account_id:
@@ -150,19 +162,16 @@ class BankStatementImportAdapter(BankStatementImportPort):
 
         imports = []
         for row in rows:
-            # Count transactions for this import
             tx_count_stmt = select(func.count()).where(BankTransactionTable.import_id == row.id)
             tx_count = (await session.execute(tx_count_stmt)).scalar() or 0
 
-            # Build a BankStatementImport object (or a dict representation)
-            # Since we don't have the full domain object from DB, we construct a simplified one.
             imp = BankStatementImport(
                 id=row.id,
                 bank_account_id=row.bank_account_id,
                 statement_date=row.statement_date,
                 statement_balance=row.ending_balance,
                 imported_transactions=tx_count,
-                duplicates_skipped=0,  # Not stored, default
+                duplicates_skipped=0,
                 errors=[],
                 status=ImportStatus(row.status),
                 created_at=row.created_at,
@@ -177,91 +186,107 @@ class BankStatementImportAdapter(BankStatementImportPort):
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """
-        Retrieve audit log entries for imports.
-        """
         logs = self._audit_log
         if import_id:
             logs = [l for l in logs if l.get("import_id") == str(import_id)]
         logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         return logs[offset:offset + limit]
 
-    async def get_import_status(self, import_id: UUID) -> ImportStatus:
-        """
-        Get the current status of a specific import.
-        """
+    async def get_import_status(self, import_id: UUID) -> BankStatementImport | None:
         session = await self._get_session()
-        stmt = select(BankReconciliationTable.status).where(BankReconciliationTable.id == import_id)
+        stmt = select(BankReconciliationTable).where(BankReconciliationTable.id == import_id)
         result = await session.execute(stmt)
-        status_str = result.scalar_one_or_none()
-        if status_str is None:
-            raise ValueError(f"Import {import_id} not found")
-        return ImportStatus(status_str)
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+
+        tx_count_stmt = select(func.count()).where(BankTransactionTable.import_id == row.id)
+        tx_count = (await session.execute(tx_count_stmt)).scalar() or 0
+
+        return BankStatementImport(
+            id=row.id,
+            bank_account_id=row.bank_account_id,
+            statement_date=row.statement_date,
+            statement_balance=row.ending_balance,
+            imported_transactions=tx_count,
+            duplicates_skipped=0,
+            errors=[],
+            status=ImportStatus(row.status),
+            created_at=row.created_at,
+            completed_at=row.completed_at,
+        )
 
     async def get_imported_transactions(
         self,
         import_id: UUID,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[dict[str, Any]]:
-        """
-        Retrieve all transactions associated with a specific import.
-        """
+    ) -> list[StatementTransaction]:
         session = await self._get_session()
         stmt = select(BankTransactionTable).where(
             BankTransactionTable.import_id == import_id
         ).order_by(BankTransactionTable.transaction_date).offset(offset).limit(limit)
         result = await session.execute(stmt)
         rows = result.scalars().all()
-        return [
-            {
+        transactions = []
+        for row in rows:
+            tx_data = {
                 "id": row.id,
                 "bank_account_id": row.bank_account_id,
-                "transaction_date": row.transaction_date.isoformat(),
-                "amount": float(row.amount),
+                "transaction_date": row.transaction_date,
+                "amount": row.amount,
                 "currency": row.currency,
                 "description": row.description,
                 "reference_number": row.reference_number,
                 "counterparty_name": row.counterparty_name,
                 "counterparty_account": row.counterparty_account,
                 "transaction_type": row.transaction_type,
-                "statement_balance": float(row.statement_balance) if row.statement_balance else None,
+                "statement_balance": row.statement_balance,
                 "unique_id": row.unique_id,
                 "import_id": row.import_id,
             }
-            for row in rows
-        ]
+            transactions.append(self._dict_to_transaction(tx_data))
+        return transactions
 
-    async def parse_camt(self, file_content: str) -> list[dict[str, Any]]:
+    # --------------------------------------------------------------------
+    # METODE PARSING (sesuai kontrak port)
+    # --------------------------------------------------------------------
+
+    async def parse_camt(self, file_content: str) -> list[StatementTransaction]:
         """
-        Parse CAMT (ISO 20022) format.
+        Parse CAMT (ISO 20022) format. Hanya menerima file_content.
         """
-        # For now, delegate to a generic parser or implement later.
-        # The parent might have a method; we can call super()._parse_generic.
-        # As a stub, we log and return an empty list.
-        logger.info("parse_camt called but not implemented in adapter; using parent's implementation.")
-        # If parent has a method, call it. We'll assume parent has a _parse_camt.
+        # Jika parent memiliki implementasi, gunakan.
         if hasattr(super(), "_parse_camt"):
-            return await super()._parse_camt(file_content)
-        # Fallback: return empty
+            raw = await super()._parse_camt(file_content)
+            if raw and isinstance(raw[0], dict):
+                return [self._dict_to_transaction(item) for item in raw]
+            return raw
+        logger.info("parse_camt called but not implemented; returning empty list.")
         return []
 
-    async def parse_csv(self, file_content: str) -> list[dict[str, Any]]:
+    async def parse_mt940(self, file_content: str) -> list[StatementTransaction]:
         """
-        Parse CSV format.
+        Parse MT940 (SWIFT) format. Hanya menerima file_content.
         """
-        logger.info("parse_csv called but not implemented in adapter; using parent's implementation.")
-        if hasattr(super(), "_parse_csv"):
-            return await super()._parse_csv(file_content)
-        return []
-
-    async def parse_mt940(self, file_content: str) -> list[dict[str, Any]]:
-        """
-        Parse MT940 (SWIFT) format.
-        """
-        logger.info("parse_mt940 called but not implemented in adapter; using parent's implementation.")
         if hasattr(super(), "_parse_mt940"):
-            return await super()._parse_mt940(file_content)
+            raw = await super()._parse_mt940(file_content)
+            if raw and isinstance(raw[0], dict):
+                return [self._dict_to_transaction(item) for item in raw]
+            return raw
+        logger.info("parse_mt940 called but not implemented; returning empty list.")
+        return []
+
+    async def parse_csv(self, file_content: str, bank_format: str) -> list[StatementTransaction]:
+        """
+        Parse CSV format dengan parameter bank_format (sesuai port).
+        """
+        if hasattr(super(), "_parse_csv"):
+            raw = await super()._parse_csv(file_content, bank_format)
+            if raw and isinstance(raw[0], dict):
+                return [self._dict_to_transaction(item) for item in raw]
+            return raw
+        logger.info("parse_csv called but not implemented; returning empty list.")
         return []
 
 

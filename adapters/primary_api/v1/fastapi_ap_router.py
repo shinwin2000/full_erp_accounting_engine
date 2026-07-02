@@ -24,6 +24,8 @@ Method Standards (ERP):
 from __future__ import annotations
 
 import logging
+import enum
+
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
@@ -39,6 +41,25 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     get_current_user,
     require_permission,
 )
+
+try:
+    from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
+        TokenPayload,
+        get_current_legal_entity,
+        get_current_user,
+        require_permission,
+    )
+except NameError as e:
+    if "Enum" in str(e):
+        logging.critical(
+            "❌ File 'fastapi_auth_jwt_middleware.py' menggunakan Enum tanpa import. "
+            "Tambahkan 'from enum import Enum' di file tersebut."
+        )
+    raise
+except ImportError as e:
+    logging.critical(f"❌ Gagal import modul auth middleware: {e}")
+    raise
+
 
 logger = logging.getLogger(__name__)
 

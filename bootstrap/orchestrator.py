@@ -2,31 +2,42 @@
 """
 Module: orchestrator.py
 Layer: 3 - Bootstrap & Config / Orchestrator
-Responsibility: Orkestrator startup: inisialisasi semua komponen secara berurutan
-               dengan dependency resolution, health check, dan rollback capability.
-               Menjamin bahwa sistem mulai dalam keadaan konsisten.
-
-IMPORTANT: Tidak mengimpor langsung dari axioms, constitution, atau kernel
-           sesuai arsitektur layer. Semua akses ke komponen fundamental dilakukan
-           menggunakan import dinamis (lazy import) untuk menghindari pelanggaran
-           AST drift.
+Responsibility: Orkestrator startup lengkap dengan:
+               - Inisialisasi semua komponen secara berurutan
+               - Dependency resolution
+               - Health check komprehensif (DB, Redis, Kafka, Encryption, Disk, Services)
+               - Rollback capability
+               - Validasi post-startup
+               - Menjamin sistem konsisten dan siap produksi
+               - Menggunakan ConfigManager singleton untuk semua konfigurasi
+               - Menyediakan endpoint health check di API (/health, /health/ready, /health/live)
 """
 
 from __future__ import annotations
 
 import asyncio
 import importlib
+import inspect
+import json
 import logging
+import os
+import shutil
 import signal
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable
 
-# Hanya import tipe yang diperlukan dari kernel – tidak untuk fungsi
-# Kita akan gunakan import dinamis di dalam fungsi
+# ============================================================
+# Tambahkan root proyek ke sys.path
+# ============================================================
+_root_path = Path(__file__).parent.parent
+if str(_root_path) not in sys.path:
+    sys.path.insert(0, str(_root_path))
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -89,7 +100,7 @@ class StartupStatus(Enum):
         return names.get(self, self.name)
 
 
-# === 2. StartupStep (dengan entity dasar) ===
+# === 2. StartupStep ===
 @dataclass(kw_only=True)
 class StartupStep:
     name: str
@@ -105,7 +116,6 @@ class StartupStep:
     started_at: datetime | None = None
     completed_at: datetime | None = None
 
-    # Fields untuk audit dan versioning
     _version: int = field(default=1, repr=False)
     _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
     _snapshots: list[dict[str, Any]] = field(default_factory=list, repr=False)
@@ -149,7 +159,6 @@ class StartupStep:
             }
         )
 
-    # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
         errors = []
         try:
@@ -233,7 +242,7 @@ class StartupStep:
         return self
 
 
-# === 3. StartupContext (dengan entity dasar) ===
+# === 3. StartupContext ===
 @dataclass(kw_only=True)
 class StartupContext:
     config: dict[str, Any] = field(default_factory=dict)
@@ -241,7 +250,6 @@ class StartupContext:
     errors: list[tuple[str, str]] = field(default_factory=list)
     start_time: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    # Fields untuk audit dan versioning
     _version: int = field(default=1, repr=False)
     _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
     _snapshots: list[dict[str, Any]] = field(default_factory=list, repr=False)
@@ -278,7 +286,6 @@ class StartupContext:
             }
         )
 
-    # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
         errors = []
         try:
@@ -288,7 +295,6 @@ class StartupContext:
         return {"is_valid": len(errors) == 0, "errors": errors}
 
     def to_dict(self) -> dict[str, Any]:
-        # Note: components may not be fully serializable, so we store only keys
         return {
             "config_keys": list(self.config.keys()),
             "components_keys": list(self.components.keys()),
@@ -303,7 +309,6 @@ class StartupContext:
             start_time=datetime.fromisoformat(data["start_time"]),
         )
         instance._version = data.get("version", 1)
-        # config and components cannot be restored from keys only
         return instance
 
     def clone(self) -> StartupContext:
@@ -338,7 +343,7 @@ class StartupContext:
         return self
 
 
-# === 4. StartupOrchestrator (dengan entity dasar) ===
+# === 4. StartupOrchestrator ===
 class StartupOrchestrator:
     _instance: StartupOrchestrator | None = None
 
@@ -409,7 +414,7 @@ class StartupOrchestrator:
                 action=self._load_config,
                 rollback=self._rollback_config,
                 required=True,
-                timeout_seconds=15,
+                timeout_seconds=90,
                 dependencies=["load_axioms"],
             ),
             StartupStep(
@@ -472,7 +477,7 @@ class StartupOrchestrator:
                 action=self._start_api,
                 rollback=self._stop_api,
                 required=True,
-                timeout_seconds=30,
+                timeout_seconds=120,
                 dependencies=["init_kernel"],
             ),
             StartupStep(
@@ -481,280 +486,713 @@ class StartupOrchestrator:
                 action=self._health_check,
                 rollback=None,
                 required=True,
-                timeout_seconds=10,
+                timeout_seconds=15,
                 dependencies=["start_api"],
             ),
         ]
 
-    # === STEP IMPLEMENTATIONS (dengan lazy import) ===
-    def _load_constitution(self) -> dict[str, Any]:
-        logger.info("Loading constitution via kernel...")
-        try:
-            # Lazy import untuk menghindari AST drift
-            context_module = importlib.import_module("kernel.context_holder")
-            get_context = context_module.get_context_holder
-            context = get_context()
-            constitution = context.get_component("supreme_law")
-            if constitution is None:
-                raise RuntimeError("Constitution not available in kernel context")
-            integrity = constitution.verify_integrity()
-            if not integrity.get("is_valid", False):
-                raise RuntimeError(f"Constitution integrity check failed: {integrity}")
+    # ============================================================
+    # STEP IMPLEMENTATIONS
+    # ============================================================
 
-            version_lock = context.get_component("version_lock")
-            if version_lock:
-                status = version_lock.get_status()
-                if status.get("current_state") == "CORRUPTED":
-                    raise RuntimeError("Version lock is CORRUPTED, cannot start")
-        except Exception as e:
-            logger.warning(f"Kernel context not ready, initializing minimal constitution: {e}")
-            # Lazy import constitution
+    def _load_constitution(self) -> dict[str, Any]:
+        logger.info("Loading constitution directly from constitution.supreme_law...")
+        try:
             supreme_law_mod = importlib.import_module("constitution.supreme_law")
-            get_supreme_law = supreme_law_mod.get_supreme_law
+            get_supreme_law = getattr(supreme_law_mod, "get_supreme_law")
             constitution = get_supreme_law()
+            if constitution is None:
+                raise RuntimeError("get_supreme_law() returned None")
             integrity = constitution.verify_integrity()
             if not integrity.get("is_valid", False):
                 raise RuntimeError(f"Constitution integrity check failed: {integrity}")
-        self._context.components["supreme_law"] = constitution
-        return {"status": "loaded"}
+            self._context.components["supreme_law"] = constitution
+            logger.info(f"Constitution loaded and verified successfully (version={integrity.get('version', 'unknown')})")
+            return {"status": "loaded", "version": integrity.get("version", "unknown")}
+        except Exception as e:
+            logger.error(f"Failed to load constitution: {e}")
+            raise
 
     def _rollback_constitution(self) -> None:
         logger.warning("Rolling back constitution loading...")
         self._context.components.pop("supreme_law", None)
 
     def _load_axioms(self) -> dict[str, Any]:
-        logger.info("Loading axioms via kernel...")
+        logger.info("Loading axioms directly from axioms.double_entry...")
         try:
-            context_module = importlib.import_module("kernel.context_holder")
-            get_context = context_module.get_context_holder
-            context = get_context()
-            axioms = context.get_component("axioms")
-            if axioms is None:
-                raise RuntimeError("Axioms not available in kernel context")
-        except Exception as e:
-            logger.warning(f"Kernel context not ready, initializing minimal axioms: {e}")
-            # Lazy import axioms
             double_entry_mod = importlib.import_module("axioms.double_entry")
-            get_double_entry = double_entry_mod.get_double_entry_axiom
-            axioms = {"double_entry": get_double_entry()}
-        self._context.components["axioms"] = axioms
-        return {"loaded_axioms": len(axioms)}
+            get_double_entry = getattr(double_entry_mod, "get_double_entry_axiom")
+            axiom = get_double_entry()
+            if axiom is None:
+                raise RuntimeError("get_double_entry_axiom() returned None")
+            self._context.components["axioms"] = {"double_entry": axiom}
+            logger.info("Double-entry axiom loaded successfully")
+            return {"loaded_axioms": 1}
+        except Exception as e:
+            logger.error(f"Failed to load axioms: {e}")
+            raise
 
     def _rollback_axioms(self) -> None:
         logger.warning("Rolling back axioms state...")
         self._context.components.pop("axioms", None)
 
     def _load_config(self) -> dict[str, Any]:
-        logger.info("Loading configuration...")
-        # Lazy import config loader
-        config_mod = importlib.import_module("config.loader_yaml")
-        get_loader = config_mod.get_config_loader
-        loader = get_loader()
-        config = loader.load_all()
-        self._context.config = config
-        self._context.components["config_loader"] = loader
-        return {"config_keys": list(config.keys())}
+        logger.info("Loading configuration using ConfigManager...")
+        try:
+            config_manager_mod = importlib.import_module("config.manager")
+            get_manager = getattr(config_manager_mod, "get_config_manager")
+            manager = get_manager()
+            config = manager.load_all()
+            if not config:
+                raise RuntimeError("Loaded config is empty")
+            self._context.components["config_manager"] = manager
+            self._context.config = config
+            metadata = manager.get_metadata()
+            env = os.environ.get("ENVIRONMENT")
+            if not env and "environment" in config:
+                env = config["environment"]
+            if not env and "app" in config and "environment" in config["app"]:
+                env = config["app"]["environment"]
+            if not env:
+                env = "development"
+            logger.info(
+                f"Config loaded with {len(config)} top-level keys from "
+                f"{metadata.get('file_count', 0)} files in {metadata.get('load_time_ms', 0):.2f}ms"
+            )
+            logger.info(f"Current environment: {env}")
+            required_sections = ["database"]
+            for section in required_sections:
+                if section not in config:
+                    raise RuntimeError(f"Missing required section '{section}' in configuration")
+            optional_sections = ["kafka", "redis", "cache", "logging"]
+            for section in optional_sections:
+                if section not in config:
+                    logger.info(f"Optional section '{section}' not found in configuration (ok)")
+            return {
+                "config_keys": list(config.keys()),
+                "environment": env,
+                "file_count": metadata.get("file_count", 0),
+                "load_time_ms": metadata.get("load_time_ms", 0),
+            }
+        except ImportError as e:
+            logger.error(f"ConfigManager module not found: {e}")
+            raise RuntimeError("config.manager is required for startup") from e
+        except Exception as e:
+            logger.error(f"Failed to load config: {e}")
+            raise
 
     def _rollback_config(self) -> None:
         logger.warning("Rolling back config...")
         self._context.config = {}
-        self._context.components.pop("config_loader", None)
+        self._context.components.pop("config_manager", None)
 
     async def _connect_database(self) -> dict[str, Any]:
         logger.info("Connecting to database...")
-        # Lazy import infrastructure
-        pool_mod = importlib.import_module("infrastructure.database.connection_pool_asyncpg")
-        get_pool = pool_mod.get_connection_pool
-        session_mod = importlib.import_module("infrastructure.database.session_factory_sqlalchemy")
-        get_session = session_mod.get_session_factory
-
-        pool = await get_pool()
-        session_factory = await get_session()
-        result = await pool.fetchval("SELECT 1")
-        if result != 1:
-            raise RuntimeError("Database connection test failed")
-        self._context.components["db_pool"] = pool
-        self._context.components["session_factory"] = session_factory
-        return {"connected": True}
+        try:
+            config_manager = self._context.components.get("config_manager")
+            if config_manager is None:
+                raise RuntimeError("ConfigManager not available in context")
+            db_config = config_manager.get_section("database")
+            if not db_config:
+                raise RuntimeError("Database configuration is empty or missing")
+            pool_mod = importlib.import_module("infrastructure.database.connection_pool_asyncpg")
+            session_mod = importlib.import_module("infrastructure.database.session_factory_sqlalchemy")
+            get_pool = getattr(pool_mod, "get_connection_pool")
+            get_session = getattr(session_mod, "get_session_factory")
+            sig_pool = inspect.signature(get_pool)
+            accepts_config_pool = "config" in sig_pool.parameters
+            sig_session = inspect.signature(get_session)
+            accepts_config_session = "config" in sig_session.parameters
+            if inspect.iscoroutinefunction(get_pool):
+                if accepts_config_pool:
+                    pool = await get_pool(db_config)
+                else:
+                    pool = await get_pool()
+            else:
+                if accepts_config_pool:
+                    pool = get_pool(db_config)
+                else:
+                    pool = get_pool()
+            if inspect.iscoroutinefunction(get_session):
+                if accepts_config_session:
+                    session_factory = await get_session(db_config)
+                else:
+                    session_factory = await get_session()
+            else:
+                if accepts_config_session:
+                    session_factory = get_session(db_config)
+                else:
+                    session_factory = get_session()
+            result = await pool.fetchval("SELECT 1")
+            if result != 1:
+                raise RuntimeError("Database connection test failed (SELECT 1 returned unexpected)")
+            self._context.components["db_pool"] = pool
+            self._context.components["session_factory"] = session_factory
+            dsn = db_config.get("url") or db_config.get("dsn") or "postgresql://... (hidden)"
+            logger.info(f"Database connected successfully: {dsn}")
+            return {"connected": True, "dsn": dsn}
+        except Exception as e:
+            logger.error(f"Database connection failed: {e}")
+            raise
 
     async def _disconnect_database(self) -> None:
         logger.warning("Disconnecting database...")
         pool = self._context.components.get("db_pool")
-        if pool:
-            await pool.close()
+        if pool and hasattr(pool, "close"):
+            try:
+                await pool.close()
+                logger.info("Database pool closed")
+            except Exception as e:
+                logger.warning(f"Error closing database pool: {e}")
         self._context.components.pop("db_pool", None)
         self._context.components.pop("session_factory", None)
 
     def _connect_message_broker(self) -> dict[str, Any]:
         logger.info("Connecting to message broker...")
         try:
+            config_manager = self._context.components.get("config_manager")
+            kafka_config = config_manager.get_section("kafka") if config_manager else {}
             kafka_mod = importlib.import_module(
                 "infrastructure.message_broker.kafka_producer_wrapper"
             )
-            get_producer = kafka_mod.get_kafka_producer
-            producer = get_producer()
-            if producer:
-                self._context.components["kafka_producer"] = producer
-                return {"connected": True}
+            get_producer = getattr(kafka_mod, "get_kafka_producer")
+            sig = inspect.signature(get_producer)
+            if "config" in sig.parameters:
+                producer = get_producer(kafka_config)
             else:
-                logger.warning("Kafka not available")
-                return {"connected": False, "degraded": True}
+                producer = get_producer()
+            if producer:
+                bootstrap = None
+                if hasattr(producer, "bootstrap_servers"):
+                    bootstrap = producer.bootstrap_servers
+                elif "bootstrap_servers" in kafka_config:
+                    bootstrap = kafka_config["bootstrap_servers"]
+                else:
+                    bootstrap = "unknown"
+                logger.info(f"Kafka producer connected to: {bootstrap}")
+                self._context.components["kafka_producer"] = producer
+                return {"connected": True, "broker": bootstrap}
+            else:
+                logger.warning("Kafka producer returned None — degraded mode")
+                return {"connected": False, "degraded": True, "reason": "producer_none"}
+        except ImportError as e:
+            logger.info(f"Kafka module not found: {e} — degraded mode")
+            return {"connected": False, "degraded": True, "reason": "module_missing"}
         except Exception as e:
-            logger.warning(f"Message broker connection failed: {e}")
-            return {"connected": False, "degraded": True}
+            logger.warning(f"Message broker connection failed: {e} — degraded mode")
+            return {"connected": False, "degraded": True, "reason": str(e)}
 
     def _disconnect_message_broker(self) -> None:
         producer = self._context.components.get("kafka_producer")
         if producer and hasattr(producer, "close"):
-            producer.close()
+            try:
+                producer.close()
+                logger.info("Kafka producer closed")
+            except Exception as e:
+                logger.warning(f"Error closing Kafka producer: {e}")
         self._context.components.pop("kafka_producer", None)
 
-    def _connect_cache(self) -> dict[str, Any]:
-        logger.info("Connecting to cache...")
+    async def _connect_cache(self) -> dict[str, Any]:
+        logger.info("Connecting to cache (Redis)...")
         try:
+            config_manager = self._context.components.get("config_manager")
+            redis_config = config_manager.get_section("redis") or config_manager.get_section("cache") or {}
             redis_mod = importlib.import_module("infrastructure.caching.redis_manager")
-            get_redis = redis_mod.get_redis_client
-            redis_client = get_redis()
-            redis_client.ping()
+            get_redis = getattr(redis_mod, "get_redis_client")
+            sig = inspect.signature(get_redis)
+            if "config" in sig.parameters:
+                if inspect.iscoroutinefunction(get_redis):
+                    redis_client = await get_redis(redis_config)
+                else:
+                    redis_client = get_redis(redis_config)
+            else:
+                if inspect.iscoroutinefunction(get_redis):
+                    redis_client = await get_redis()
+                else:
+                    redis_client = get_redis()
+            if hasattr(redis_client, "ping"):
+                await redis_client.ping()
+            host = redis_config.get("host", "localhost")
+            port = redis_config.get("port", 6379)
+            logger.info(f"Redis connected to {host}:{port}")
             self._context.components["redis_client"] = redis_client
-            return {"connected": True}
+            return {"connected": True, "host": host, "port": port}
         except Exception as e:
-            logger.warning(f"Cache connection failed: {e}")
-            return {"connected": False, "degraded": True}
+            logger.warning(f"Cache connection failed: {e} — degraded mode")
+            return {"connected": False, "degraded": True, "reason": str(e)}
 
-    def _disconnect_cache(self) -> None:
+    async def _disconnect_cache(self) -> None:
         redis_client = self._context.components.get("redis_client")
         if redis_client:
-            redis_client.close()
+            try:
+                if hasattr(redis_client, "aclose"):
+                    await redis_client.aclose()
+                elif hasattr(redis_client, "close"):
+                    if inspect.iscoroutinefunction(redis_client.close):
+                        await redis_client.close()
+                    else:
+                        redis_client.close()
+                logger.info("Redis client closed")
+            except Exception as e:
+                logger.warning(f"Error closing Redis client: {e}")
         self._context.components.pop("redis_client", None)
 
     def _init_repositories(self) -> dict[str, Any]:
         logger.info("Initializing repositories...")
-        # Lazy import adapters
-        account_mod = importlib.import_module(
-            "adapters.secondary_impl.sqlalchemy_account_repository_impl"
+        session_factory = self._context.components.get("session_factory")
+        if session_factory is None:
+            raise RuntimeError("Session factory not available, cannot initialize repositories")
+        repositories = {}
+        uow = None
+        try:
+            uow_mod = importlib.import_module("adapters.secondary_impl.sqlalchemy_unit_of_work_impl")
+            SQLAlchemyUnitOfWork = getattr(uow_mod, "SQLAlchemyUnitOfWork")
+            uow = SQLAlchemyUnitOfWork(session_factory)
+            self._context.components["unit_of_work"] = uow
+            logger.info("UnitOfWork initialized")
+        except Exception as e:
+            logger.error(f"UnitOfWork initialization failed: {e}")
+            raise
+        def init_repo(module_path: str, class_name: str, repo_name: str):
+            try:
+                mod = importlib.import_module(module_path)
+                cls = getattr(mod, class_name)
+                repo = cls(session_factory)
+                logger.debug(f"Repository {repo_name} initialized")
+                return repo
+            except Exception as e:
+                logger.error(f"Failed to init repository {repo_name} ({class_name}): {e}")
+                raise
+        repositories["journal"] = init_repo(
+            "adapters.secondary_impl.sqlalchemy_journal_repository_impl",
+            "SQLAlchemyJournalRepository",
+            "journal"
         )
-        ap_mod = importlib.import_module("adapters.secondary_impl.sqlalchemy_ap_repository_impl")
-        ar_mod = importlib.import_module("adapters.secondary_impl.sqlalchemy_ar_repository_impl")
-        journal_mod = importlib.import_module(
-            "adapters.secondary_impl.sqlalchemy_journal_repository_impl"
+        repositories["account"] = init_repo(
+            "adapters.secondary_impl.sqlalchemy_account_repository_impl",
+            "SQLAlchemyAccountRepository",
+            "account"
         )
-        uow_mod = importlib.import_module("adapters.secondary_impl.sqlalchemy_unit_of_work_impl")
-
-        SQLAlchemyAccountRepository = account_mod.SQLAlchemyAccountRepository
-        SQLAlchemyAPRepository = ap_mod.SQLAlchemyAPRepository
-        SQLAlchemyARRepository = ar_mod.SQLAlchemyARRepository
-        SQLAlchemyJournalRepository = journal_mod.SQLAlchemyJournalRepository
-        SQLAlchemyUnitOfWork = uow_mod.SQLAlchemyUnitOfWork
-
-        session_factory = self._context.components["session_factory"]
-        uow = SQLAlchemyUnitOfWork(session_factory)
-        self._context.components["unit_of_work"] = uow
-
-        repositories = {
-            "journal": SQLAlchemyJournalRepository(session_factory),
-            "account": SQLAlchemyAccountRepository(session_factory),
-            "ar": SQLAlchemyARRepository(session_factory),
-            "ap": SQLAlchemyAPRepository(session_factory),
-        }
+        repositories["ar"] = init_repo(
+            "adapters.secondary_impl.sqlalchemy_ar_repository_impl",
+            "SQLAlchemyARRepository",
+            "ar"
+        )
+        repositories["ap"] = init_repo(
+            "adapters.secondary_impl.sqlalchemy_ap_repository_impl",
+            "SQLAlchemyAPRepository",
+            "ap"
+        )
+        repositories["ledger"] = init_repo(
+            "adapters.secondary_impl.sqlalchemy_ledger_repository_impl",
+            "SQLAlchemyLedgerRepository",
+            "ledger"
+        )
         self._context.components["repositories"] = repositories
+        logger.info(f"All {len(repositories)} repositories initialized successfully")
         return {"repositories_initialized": len(repositories)}
 
     def _cleanup_repositories(self) -> None:
+        logger.warning("Cleaning up repositories...")
         self._context.components.pop("repositories", None)
         self._context.components.pop("unit_of_work", None)
 
     def _init_services(self) -> dict[str, Any]:
         logger.info("Initializing services...")
-        # Lazy import services
-        ap_mod = importlib.import_module("application.service_layer.service_ap")
-        ar_mod = importlib.import_module("application.service_layer.service_ar")
-        journal_mod = importlib.import_module("application.service_layer.service_journal")
-
-        APService = ap_mod.APService
-        ARService = ar_mod.ARService
-        JournalService = journal_mod.JournalService
-
-        repositories = self._context.components.get("repositories", {})
+        repositories = self._context.components.get("repositories")
         uow = self._context.components.get("unit_of_work")
-        journal_repo = repositories.get("journal")
-        account_repo = repositories.get("account")
-        ledger_repo = repositories.get("ledger")
-        ar_repo = repositories.get("ar")
-        ap_repo = repositories.get("ap")
-
-        services = {
-            "journal": JournalService(journal_repo, account_repo, ledger_repo, uow),
-            "ar": ARService(ar_repo, uow),
-            "ap": APService(ap_repo, uow),
-        }
-        self._context.components["services"] = services
-        return {"services_initialized": len(services)}
+        if repositories is None or uow is None:
+            raise RuntimeError("Repositories or UOW not available")
+        required_repos = ["journal", "account", "ledger", "ar", "ap"]
+        for repo_name in required_repos:
+            if repo_name not in repositories or repositories[repo_name] is None:
+                raise RuntimeError(f"Required repository '{repo_name}' is missing or None")
+        services = {}
+        try:
+            ap_mod = importlib.import_module("application.service_layer.service_ap")
+            ar_mod = importlib.import_module("application.service_layer.service_ar")
+            journal_mod = importlib.import_module("application.service_layer.service_journal")
+            APService = getattr(ap_mod, "APService")
+            ARService = getattr(ar_mod, "ARService")
+            JournalService = getattr(journal_mod, "JournalService")
+            services["journal"] = JournalService(
+                repositories["journal"],
+                repositories["account"],
+                repositories["ledger"],
+                uow
+            )
+            logger.info("JournalService initialized")
+            services["ar"] = ARService(repositories["ar"], uow)
+            logger.info("ARService initialized")
+            services["ap"] = APService(repositories["ap"], uow)
+            logger.info("APService initialized")
+            self._context.components["services"] = services
+            return {"services_initialized": len(services)}
+        except Exception as e:
+            logger.error(f"Service initialization failed: {e}")
+            raise
 
     def _cleanup_services(self) -> None:
+        logger.warning("Cleaning up services...")
         self._context.components.pop("services", None)
 
     def _init_kernel(self) -> dict[str, Any]:
         logger.info("Initializing kernel...")
-        # Lazy import kernel
-        gate_mod = importlib.import_module("kernel.sealed_gate")
-        get_gate = gate_mod.get_sealed_gate
-        gate = get_gate()
-        self._context.components["sealed_gate"] = gate
-        return {"kernel_ready": True}
+        try:
+            gate_mod = importlib.import_module("kernel.sealed_gate")
+            get_gate = getattr(gate_mod, "get_sealed_gate")
+            gate = get_gate()
+            if gate is None:
+                raise RuntimeError("Sealed gate returned None")
+            self._context.components["sealed_gate"] = gate
+            is_sealed = gate.is_sealed() if hasattr(gate, "is_sealed") else False
+            logger.info(f"Kernel sealed_gate initialized (sealed={is_sealed})")
+            return {"kernel_ready": True, "sealed": is_sealed}
+        except Exception as e:
+            logger.error(f"Kernel initialization failed: {e}")
+            raise
 
     def _shutdown_kernel(self) -> None:
+        logger.warning("Shutting down kernel...")
         self._context.components.pop("sealed_gate", None)
 
-    def _start_api(self) -> dict[str, Any]:
+    async def _start_api(self) -> dict[str, Any]:
         logger.info("Starting API server...")
         import threading
+        try:
+            import uvicorn
+            from fastapi import FastAPI, Response
 
-        import uvicorn
+            # Dapatkan config manager untuk mengambil config yang sudah dimuat
+            config_manager = self._context.components.get("config_manager")
+            if config_manager is None:
+                raise RuntimeError("ConfigManager not available in context")
 
-        # Lazy import fastapi app factory
-        app_mod = importlib.import_module("adapters.primary_api.common.fastapi_app_factory")
-        create_app = app_mod.create_app
+            # Persiapkan config untuk factory
+            factory_config = self._context.config.copy()
 
-        app = create_app(self._context.components)
+            # ===== 1. Pastikan database config memiliki 'dsn' dengan driver asyncpg =====
+            db_cfg = factory_config.get("database", {})
+            if "dsn" not in db_cfg:
+                if "url" in db_cfg:
+                    dsn = db_cfg["url"]
+                elif "connection_string" in db_cfg:
+                    dsn = db_cfg["connection_string"]
+                else:
+                    host = db_cfg.get("host", "localhost")
+                    port = db_cfg.get("port", 5432)
+                    dbname = db_cfg.get("db", "erp_db")
+                    user = db_cfg.get("user", "postgres")
+                    password = db_cfg.get("password", "")
+                    if password:
+                        dsn = f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
+                    else:
+                        dsn = f"postgresql://{user}@{host}:{port}/{dbname}"
+                db_cfg["dsn"] = dsn
 
-        def run_server():
-            uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+            # Pastikan menggunakan asyncpg
+            dsn = db_cfg["dsn"]
+            if dsn.startswith("postgresql://") and "+asyncpg" not in dsn:
+                dsn = dsn.replace("postgresql://", "postgresql+asyncpg://", 1)
+                db_cfg["dsn"] = dsn
+                logger.info(f"Converted DSN to asyncpg: {dsn.replace('://', '://...')}")
+            elif dsn.startswith("postgresql+asyncpg://"):
+                logger.info("DSN already using asyncpg driver")
+            else:
+                # Fallback: force asyncpg
+                if "postgresql" in dsn:
+                    dsn = dsn.replace("postgresql://", "postgresql+asyncpg://", 1)
+                    db_cfg["dsn"] = dsn
+                    logger.info(f"Forced DSN to asyncpg: {dsn.replace('://', '://...')}")
 
-        server_thread = threading.Thread(target=run_server, daemon=True)
-        server_thread.start()
-        self._context.components["api_app"] = app
-        self._context.components["api_thread"] = server_thread
-        return {"api_started": True, "port": 8000}
+            factory_config["database"] = db_cfg
+
+            # ===== 2. Pastikan security config ada =====
+            sec_cfg = factory_config.get("security", {})
+            if "jwt_secret" not in sec_cfg:
+                sec_cfg["jwt_secret"] = os.environ.get("JWT_SECRET", "dev_secret_change_me")
+                logger.info("Using default JWT secret (set env JWT_SECRET to override)")
+            if "encryption_key" not in sec_cfg:
+                sec_cfg["encryption_key"] = os.environ.get("ENCRYPTION_KEY", "default_encryption_key_32_bytes!!")
+                logger.info("Using default encryption key (set env ENCRYPTION_KEY to override)")
+            factory_config["security"] = sec_cfg
+
+            # ===== 3. Pastikan kafka config ada =====
+            kafka_cfg = factory_config.get("kafka", {})
+            if "bootstrap_servers" not in kafka_cfg:
+                kafka_cfg["bootstrap_servers"] = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+                logger.info("Using default Kafka bootstrap servers (set env KAFKA_BOOTSTRAP_SERVERS to override)")
+            factory_config["kafka"] = kafka_cfg
+
+            # ===== 4. Pastikan redis config ada =====
+            redis_cfg = factory_config.get("redis", {})
+            if "host" not in redis_cfg:
+                redis_cfg["host"] = os.environ.get("REDIS_HOST", "localhost")
+                redis_cfg["port"] = int(os.environ.get("REDIS_PORT", 6379))
+                logger.info("Using default Redis config (set env REDIS_HOST/REDIS_PORT to override)")
+            factory_config["redis"] = redis_cfg
+
+            # ===== 5. Coretax config opsional =====
+            coretax_cfg = factory_config.get("coretax", {})
+            if not coretax_cfg:
+                coretax_cfg = {
+                    "base_url": os.environ.get("CORETAX_BASE_URL", "https://api.coretax.djp.go.id"),
+                    "client_id": os.environ.get("CORETAX_CLIENT_ID", "dev_client"),
+                    "client_secret": os.environ.get("CORETAX_CLIENT_SECRET", "dev_secret"),
+                }
+                factory_config["coretax"] = coretax_cfg
+                logger.info("Using default Coretax config (set env CORETAX_* to override)")
+
+            # ===== 6. Panggil factory =====
+            app_mod = importlib.import_module("adapters.primary_api.common.fastapi_app_factory")
+            create_app = getattr(app_mod, "create_app")
+
+            if inspect.iscoroutinefunction(create_app):
+                container = await create_app(factory_config)
+            else:
+                container = create_app(factory_config)
+
+            # Buat FastAPI app
+            app = FastAPI(
+                title="ERP Accounting Engine",
+                description="Enterprise Resource Planning Accounting System",
+                version="1.0.0",
+            )
+
+            # Tambahkan endpoint health check
+            @app.get("/health", tags=["health"])
+            async def health_check():
+                health = self.get_health_status()
+                if health and health.get("overall") == "healthy":
+                    return {"status": "healthy", "checks": health.get("checks", {})}
+                elif health and health.get("overall") == "degraded":
+                    return Response(
+                        content=json.dumps({
+                            "status": "degraded",
+                            "checks": health.get("checks", {}),
+                            "warnings": health.get("warnings", [])
+                        }),
+                        status_code=200,
+                        media_type="application/json"
+                    )
+                else:
+                    return Response(
+                        content=json.dumps({
+                            "status": "unhealthy",
+                            "checks": health.get("checks", {}) if health else {},
+                            "errors": health.get("errors", []) if health else []
+                        }),
+                        status_code=503,
+                        media_type="application/json"
+                    )
+
+            @app.get("/health/ready", tags=["health"])
+            async def readiness_check():
+                health = self.get_health_status()
+                if health and health.get("overall") in ("healthy", "degraded"):
+                    return {"ready": True, "status": health.get("overall")}
+                else:
+                    return Response(
+                        content=json.dumps({"ready": False, "status": health.get("overall") if health else "unknown"}),
+                        status_code=503,
+                        media_type="application/json"
+                    )
+
+            @app.get("/health/live", tags=["health"])
+            async def liveness_check():
+                return {"alive": True, "uptime": str(datetime.now(UTC) - self._context.start_time)}
+
+            # Jika container memiliki router, tambahkan
+            if "router" in container:
+                app.include_router(container["router"])
+            else:
+                from fastapi import APIRouter
+                api_router = APIRouter(prefix="/api/v1")
+                @api_router.get("/ping")
+                async def ping():
+                    return {"message": "pong"}
+                app.include_router(api_router)
+
+            # Simpan container untuk shutdown
+            self._context.components["app_container"] = container
+
+            def run_server():
+                try:
+                    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+                except Exception as e:
+                    logger.error(f"Uvicorn server error: {e}")
+
+            server_thread = threading.Thread(target=run_server, daemon=True, name="APIServerThread")
+            server_thread.start()
+            self._context.components["api_app"] = app
+            self._context.components["api_thread"] = server_thread
+            logger.info("API server thread started on port 8000")
+            return {"api_started": True, "port": 8000}
+        except Exception as e:
+            logger.error(f"API startup failed: {e}")
+            raise RuntimeError(f"Unable to create API app: {e}") from e
 
     def _stop_api(self) -> None:
+        logger.warning("Stopping API server...")
+        container = self._context.components.get("app_container")
+        if container and hasattr(container, "shutdown"):
+            try:
+                if inspect.iscoroutinefunction(container.shutdown):
+                    asyncio.create_task(container.shutdown())
+                else:
+                    container.shutdown()
+                logger.info("Application container shutdown initiated")
+            except Exception as e:
+                logger.warning(f"Error during container shutdown: {e}")
         self._context.components.pop("api_app", None)
         self._context.components.pop("api_thread", None)
 
     async def _health_check(self) -> dict[str, Any]:
-        logger.info("Running health check...")
-        health_status = {}
+        logger.info("Running comprehensive health check...")
+        health_status = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "checks": {},
+            "overall": "healthy"
+        }
+        warnings = []
+        errors = []
+
+        # 1. Database
         pool = self._context.components.get("db_pool")
-
-        if pool:
-            try:
-                result = await asyncio.wait_for(pool.fetchval("SELECT 1"), timeout=2.0)
-                health_status["database"] = "healthy" if result == 1 else "unhealthy"
-            except (TimeoutError, Exception) as e:
-                logger.error("Database health check failed: %s", e)
-                health_status["database"] = "unhealthy"
+        if pool is None:
+            errors.append("Database pool is None")
+            health_status["checks"]["database"] = {"status": "critical", "detail": "not_connected"}
         else:
-            health_status["database"] = "not_connected"
+            try:
+                if hasattr(pool, "fetchval"):
+                    result = await asyncio.wait_for(pool.fetchval("SELECT 1"), timeout=2.0)
+                    status = "healthy" if result == 1 else "unhealthy"
+                    health_status["checks"]["database"] = {"status": status, "detail": "query_ok" if status == "healthy" else "query_failed"}
+                    if status != "healthy":
+                        errors.append("Database query returned unexpected result")
+                else:
+                    health_status["checks"]["database"] = {"status": "unknown", "detail": "mock_pool"}
+                    warnings.append("Database pool is mock, not fully tested")
+            except asyncio.TimeoutError:
+                errors.append("Database health check timeout")
+                health_status["checks"]["database"] = {"status": "critical", "detail": "timeout"}
+            except Exception as e:
+                errors.append(f"Database health check failed: {e}")
+                health_status["checks"]["database"] = {"status": "critical", "detail": str(e)}
 
+        # 2. Kernel
         gate = self._context.components.get("sealed_gate")
-        health_status["kernel"] = "healthy" if gate else "missing"
+        if gate is None:
+            errors.append("Kernel gate is None")
+            health_status["checks"]["kernel"] = {"status": "critical", "detail": "missing"}
+        else:
+            is_sealed = gate.is_sealed() if hasattr(gate, "is_sealed") else False
+            health_status["checks"]["kernel"] = {"status": "healthy", "detail": f"sealed={is_sealed}"}
+
+        # 3. Redis
+        redis_client = self._context.components.get("redis_client")
+        if redis_client:
+            try:
+                if hasattr(redis_client, "ping"):
+                    await redis_client.ping()
+                    health_status["checks"]["cache"] = {"status": "healthy", "detail": "ping_ok"}
+                else:
+                    health_status["checks"]["cache"] = {"status": "unknown", "detail": "no_ping_method"}
+                    warnings.append("Redis client has no ping method")
+            except Exception as e:
+                health_status["checks"]["cache"] = {"status": "degraded", "detail": str(e)}
+                warnings.append(f"Redis ping failed: {e}")
+        else:
+            health_status["checks"]["cache"] = {"status": "not_connected", "detail": "redis_not_configured"}
+
+        # 4. Kafka
+        kafka_producer = self._context.components.get("kafka_producer")
+        if kafka_producer:
+            try:
+                bootstrap = getattr(kafka_producer, "bootstrap_servers", "unknown")
+                health_status["checks"]["broker"] = {"status": "healthy", "detail": f"connected_to_{bootstrap}"}
+            except Exception as e:
+                health_status["checks"]["broker"] = {"status": "degraded", "detail": str(e)}
+                warnings.append(f"Kafka producer check failed: {e}")
+        else:
+            health_status["checks"]["broker"] = {"status": "not_connected", "detail": "kafka_not_configured"}
+
+        # 5. Encryption menggunakan KeyManager
+        try:
+            from infrastructure.security.key_management import get_key_manager
+            km = get_key_manager()
+            keys = km.list_keys()
+            if keys:
+                current = km.get_current_key_id()
+                detail = f"keys_available({len(keys)}), current={current}"
+                if len(keys) == 1 and keys[0]['key_id'] == 'default' and not keys[0].get('metadata', {}).get('source'):
+                    warnings.append("Using ephemeral encryption key — NOT SUITABLE FOR PRODUCTION!")
+                    detail += " (EPHEMERAL/WARNING)"
+                health_status["checks"]["encryption"] = {"status": "healthy", "detail": detail}
+            else:
+                health_status["checks"]["encryption"] = {"status": "degraded", "detail": "no_keys_found"}
+                warnings.append("No encryption keys found — data at risk!")
+        except ImportError:
+            health_status["checks"]["encryption"] = {"status": "not_available", "detail": "key_management_module_missing"}
+            warnings.append("KeyManager module not available")
+        except Exception as e:
+            health_status["checks"]["encryption"] = {"status": "degraded", "detail": str(e)}
+            warnings.append(f"Encryption check error: {e}")
+
+        # 6. Repositories
+        repos = self._context.components.get("repositories")
+        if repos:
+            health_status["checks"]["repositories"] = {
+                "status": "healthy",
+                "detail": f"{len(repos)} repos: {list(repos.keys())}"
+            }
+        else:
+            errors.append("Repositories not initialized")
+            health_status["checks"]["repositories"] = {"status": "critical", "detail": "missing"}
+
+        # 7. Services
+        services = self._context.components.get("services")
+        if services:
+            health_status["checks"]["services"] = {
+                "status": "healthy",
+                "detail": f"{len(services)} services: {list(services.keys())}"
+            }
+        else:
+            errors.append("Services not initialized")
+            health_status["checks"]["services"] = {"status": "critical", "detail": "missing"}
+
+        # 8. Disk
+        try:
+            usage = shutil.disk_usage(_root_path)
+            free_gb = usage.free / (1024 ** 3)
+            total_gb = usage.total / (1024 ** 3)
+            free_percent = (usage.free / usage.total) * 100
+            health_status["checks"]["disk"] = {
+                "status": "healthy" if free_percent > 10 else "degraded",
+                "detail": f"free={free_gb:.2f}GB ({free_percent:.1f}%) of {total_gb:.2f}GB"
+            }
+            if free_percent < 10:
+                warnings.append(f"Low disk space: {free_percent:.1f}% free")
+        except Exception as e:
+            health_status["checks"]["disk"] = {"status": "unknown", "detail": str(e)}
+            warnings.append(f"Disk space check failed: {e}")
+
+        # Kesimpulan
+        if errors:
+            health_status["overall"] = "unhealthy"
+            health_status["errors"] = errors
+            health_status["warnings"] = warnings
+            self._context.components["health_status"] = health_status
+            raise RuntimeError(f"Health check failed: {errors}")
+        elif warnings:
+            health_status["overall"] = "degraded"
+            health_status["warnings"] = warnings
+            logger.info(f"Health check degraded with warnings (non-critical): {warnings}")
+        else:
+            health_status["overall"] = "healthy"
+            logger.info("Health check passed successfully")
 
         self._context.components["health_status"] = health_status
-        all_healthy = all(v == "healthy" for v in health_status.values() if v != "not_connected")
-
-        if not all_healthy:
-            raise RuntimeError(f"Health check failed: {health_status}")
-
         return health_status
 
     # === ORCHESTRATION ===
@@ -762,11 +1200,9 @@ class StartupOrchestrator:
         if self._status != StartupStatus.NOT_STARTED:
             logger.warning(f"Startup already attempted with status {self._status}")
             return self._status
-
         self._status = StartupStatus.IN_PROGRESS
         self._context.start_time = datetime.now(UTC)
         step_map = {s.name: s for s in self._steps}
-
         for step in self._steps:
             deps_ok = all(
                 step_map[d].status == "success" for d in step.dependencies if d in step_map
@@ -774,20 +1210,17 @@ class StartupOrchestrator:
             if not deps_ok:
                 step.status = "skipped_deps"
                 step.error = "Dependencies failed"
+                logger.warning(f"Step {step.name} skipped due to dependency failure")
                 continue
-
             step.status = "running"
             step.started_at = datetime.now(UTC)
             start = time.time()
             try:
-                import inspect
-
                 if inspect.iscoroutinefunction(step.action):
                     execute_coro = step.action()
                 else:
                     loop = asyncio.get_running_loop()
                     execute_coro = loop.run_in_executor(None, step.action)
-
                 result = await asyncio.wait_for(execute_coro, timeout=step.timeout_seconds)
                 step.status = "success"
                 self._context.components[f"{step.name}_result"] = result
@@ -821,7 +1254,6 @@ class StartupOrchestrator:
             finally:
                 step.completed_at = datetime.now(UTC)
                 step.duration_ms = (time.time() - start) * 1000
-
         required_failed = [s for s in self._steps if s.required and s.status != "success"]
         if required_failed:
             self._status = StartupStatus.PARTIAL
@@ -832,7 +1264,17 @@ class StartupOrchestrator:
             self._status = StartupStatus.SUCCESS
             logger.info("Startup completed successfully")
             self._record_audit("STARTUP_SUCCESS", "system", {})
+            self._log_startup_summary()
         return self._status
+
+    def _log_startup_summary(self) -> None:
+        summary = {
+            "status": self._status.name,
+            "total_duration_ms": sum(s.duration_ms for s in self._steps),
+            "steps": {s.name: {"status": s.status, "duration_ms": s.duration_ms} for s in self._steps},
+            "components": list(self._context.components.keys()),
+        }
+        logger.info(f"Startup summary: {summary}")
 
     async def _rollback(self, failed_step: StartupStep) -> None:
         self._status = StartupStatus.ROLLBACK_IN_PROGRESS
@@ -888,7 +1330,10 @@ class StartupOrchestrator:
     def get_context(self) -> StartupContext:
         return self._context
 
-    # ==================== ENTITY DASAR METHODS ====================
+    def get_health_status(self) -> dict[str, Any] | None:
+        return self._context.components.get("health_status")
+
+    # === ENTITY DASAR METHODS ===
     def validate(self) -> dict[str, Any]:
         errors = []
         res = self._context.validate()
@@ -958,19 +1403,25 @@ def get_startup_orchestrator() -> StartupOrchestrator:
 
 # === CONVENIENCE FUNCTIONS ===
 def run_startup() -> bool:
-    """Convenience function dengan asyncio.Runner untuk isolasi loop."""
     orchestrator = get_startup_orchestrator()
     try:
         with asyncio.Runner() as runner:
             status = runner.run(orchestrator.startup())
-        return status == StartupStatus.SUCCESS
+        if status == StartupStatus.SUCCESS:
+            logger.info("Startup completed successfully.")
+            return True
+        else:
+            logger.error(f"Startup failed with status: {status}")
+            return False
     except KeyboardInterrupt:
         logger.info("Startup interrupted by user")
+        return False
+    except Exception as e:
+        logger.exception(f"Startup failed with unexpected error: {e}")
         return False
 
 
 def shutdown() -> None:
-    """Convenience function dengan asyncio.Runner untuk isolasi loop."""
     orchestrator = get_startup_orchestrator()
     try:
         with asyncio.Runner() as runner:
@@ -979,7 +1430,10 @@ def shutdown() -> None:
         logger.info("Shutdown interrupted by user")
 
 
-# === SIGNAL HANDLERS ===
+def get_health() -> dict[str, Any] | None:
+    return get_startup_orchestrator().get_health_status()
+
+
 def _signal_handler(signum: int, frame: Any) -> None:
     logger.info(f"Received signal {signum}, shutting down...")
     shutdown()
@@ -991,7 +1445,7 @@ def register_signal_handlers() -> None:
     signal.signal(signal.SIGTERM, _signal_handler)
 
 
-# === ALIAS UNTUK KOMPATIBILITAS ===
+# === ALIAS ===
 BootstrapOrchestrator = StartupOrchestrator
 
 __all__ = [
@@ -1002,6 +1456,7 @@ __all__ = [
     "StartupStatus",
     "StartupStep",
     "get_startup_orchestrator",
+    "get_health",
     "register_signal_handlers",
     "run_startup",
     "shutdown",
@@ -1009,7 +1464,6 @@ __all__ = [
 
 
 def main():
-    """Main sync execution path using proper loop abstraction layer."""
     register_signal_handlers()
     success = run_startup()
     sys.exit(0 if success else 1)
@@ -1017,6 +1471,8 @@ def main():
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
     main()

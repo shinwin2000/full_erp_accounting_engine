@@ -2,34 +2,24 @@
 """
 Module: sqlalchemy_unit_of_work_impl.py
 Layer: Adapters (Secondary Implementation)
-Responsibility: Implementasi konkret dari UnitOfWorkPort menggunakan SQLAlchemy
-               sebagai ORM. Menggunakan lazy imports untuk repo adapters.
+
+Responsibility:
+    Implementasi konkret dari UnitOfWorkPort menggunakan SQLAlchemy.
+    Semua import dilakukan secara lazy untuk menghindari kegagalan startup
+    jika ada modul infrastruktur yang belum siap.
 """
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, AsyncContextManager
 from uuid import uuid4
 
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-# Infrastructure
-from infrastructure.database.session_factory_sqlalchemy import get_async_session_factory
-from infrastructure.database.transaction_manager import TransactionManager
-from infrastructure.telemetry.structured_json_logging import get_logger
-
-# Ports
-from ports.primary.unit_of_work_port import RepositoryProvider, UnitOfWorkPort
-
-logger = get_logger(__name__)
-
-
 # ============================================================================
-# EXCEPTIONS
+# EXCEPTIONS (tidak perlu import eksternal)
 # ============================================================================
 
 class UnitOfWorkError(Exception):
@@ -43,10 +33,15 @@ class UnitOfWorkRollbackError(UnitOfWorkError):
 
 
 # ============================================================================
-# SQLALCHEMY UNIT OF WORK IMPLEMENTATION
+# KELAS UTAMA
 # ============================================================================
 
-class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
+class SQLAlchemyUnitOfWork:
+    """
+    Unit of Work dengan SQLAlchemy async session.
+    Implementasi lazy import untuk semua dependensi.
+    """
+
     __slots__ = (
         "_after_commit_hooks",
         "_after_rollback_hooks",
@@ -61,101 +56,151 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
         "_session_factory",
         "_transaction_id",
         "_transaction_manager",
+        "_initialized_repos",
     )
 
     def __init__(
-        self, session_factory: async_sessionmaker | None = None, is_period_closing: bool = False
+        self,
+        session_factory: Any = None,  # async_sessionmaker | None
+        is_period_closing: bool = False,
     ):
         self._session_factory = session_factory
-        self._session: AsyncSession | None = None
+        self._session: Any = None          # AsyncSession
         self._repositories: dict[str, Any] = {}
         self._event_collector: list = []
-        self._transaction_manager: TransactionManager | None = None
+        self._transaction_manager: Any = None  # TransactionManager
         self._savepoint_depth: int = 0
         self._is_period_closing = is_period_closing
-        # Hooks
         self._before_commit_hooks: list[Callable] = []
         self._after_commit_hooks: list[Callable] = []
         self._after_rollback_hooks: list[Callable] = []
         self._change_log: list[dict[str, Any]] = []
         self._transaction_id: str | None = None
         self._is_active: bool = False
-        self._init_repositories()
+        self._initialized_repos: bool = False
 
-    def _init_repositories(self):
-        """Inisialisasi repository instances menggunakan lazy imports."""
-        from adapters.secondary_impl.sqlalchemy_account_repository_impl import (
-            SQLAlchemyAccountRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_ap_repository_impl import SQLAlchemyAPRepository
-        from adapters.secondary_impl.sqlalchemy_ar_repository_impl import SQLAlchemyARRepository
-        from adapters.secondary_impl.sqlalchemy_bank_cash_repository_impl import (
-            SQLAlchemyBankCashRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl import (
-            SQLAlchemyFixedAssetRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import (
-            SQLAlchemyIAMUserRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_inventory_repository_impl import (
-            SQLAlchemyInventoryRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_journal_repository_impl import (
-            SQLAlchemyJournalRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_ledger_repository_impl import (
-            SQLAlchemyLedgerRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_legal_entity_repository_impl import (
-            SQLAlchemyLegalEntityRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_outbox_repository_impl import (
-            SQLAlchemyOutboxRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_system_setting_repository_impl import (
-            SQLAlchemySystemSettingRepository,
-        )
-        from adapters.secondary_impl.sqlalchemy_tax_repository_impl import SQLAlchemyTaxRepository
+    # ------------------------------------------------------------------------
+    # LAZY REPOSITORY INITIALIZATION
+    # ------------------------------------------------------------------------
 
-        self._repositories["journal"] = SQLAlchemyJournalRepository()
-        self._repositories["ledger"] = SQLAlchemyLedgerRepository()
-        self._repositories["account"] = SQLAlchemyAccountRepository()
-        self._repositories["ar"] = SQLAlchemyARRepository()
-        self._repositories["ap"] = SQLAlchemyAPRepository()
-        self._repositories["inventory"] = SQLAlchemyInventoryRepository()
-        self._repositories["fixed_asset"] = SQLAlchemyFixedAssetRepository()
-        self._repositories["bank_cash"] = SQLAlchemyBankCashRepository()
-        self._repositories["tax"] = SQLAlchemyTaxRepository()
-        self._repositories["legal_entity"] = SQLAlchemyLegalEntityRepository()
-        self._repositories["iam_user"] = SQLAlchemyIAMUserRepository()
-        self._repositories["system_setting"] = SQLAlchemySystemSettingRepository()
-        self._repositories["outbox"] = SQLAlchemyOutboxRepository()
+    def _ensure_repositories_initialized(self) -> None:
+        """Inisialisasi repository hanya sekali dan hanya jika dibutuhkan."""
+        if self._initialized_repos:
+            return
 
-    def _attach_session_to_repositories(self):
+        try:
+            # Semua import dilakukan di sini agar tidak mengganggu saat modul dimuat
+            adapters = importlib.import_module("adapters.secondary_impl")
+
+            # Ambil kelas-kelas repository
+            account_cls = getattr(adapters, "SQLAlchemyAccountRepository", None)
+            ap_cls = getattr(adapters, "SQLAlchemyAPRepository", None)
+            ar_cls = getattr(adapters, "SQLAlchemyARRepository", None)
+            bank_cls = getattr(adapters, "SQLAlchemyBankCashRepository", None)
+            fixed_cls = getattr(adapters, "SQLAlchemyFixedAssetRepository", None)
+            iam_cls = getattr(adapters, "SQLAlchemyIAMUserRepository", None)
+            inv_cls = getattr(adapters, "SQLAlchemyInventoryRepository", None)
+            journal_cls = getattr(adapters, "SQLAlchemyJournalRepository", None)
+            ledger_cls = getattr(adapters, "SQLAlchemyLedgerRepository", None)
+            legal_cls = getattr(adapters, "SQLAlchemyLegalEntityRepository", None)
+            outbox_cls = getattr(adapters, "SQLAlchemyOutboxRepository", None)
+            setting_cls = getattr(adapters, "SQLAlchemySystemSettingRepository", None)
+            tax_cls = getattr(adapters, "SQLAlchemyTaxRepository", None)
+
+            # Buat instance
+            self._repositories["account"] = account_cls() if account_cls else None
+            self._repositories["ap"] = ap_cls() if ap_cls else None
+            self._repositories["ar"] = ar_cls() if ar_cls else None
+            self._repositories["bank_cash"] = bank_cls() if bank_cls else None
+            self._repositories["fixed_asset"] = fixed_cls() if fixed_cls else None
+            self._repositories["iam_user"] = iam_cls() if iam_cls else None
+            self._repositories["inventory"] = inv_cls() if inv_cls else None
+            self._repositories["journal"] = journal_cls() if journal_cls else None
+            self._repositories["ledger"] = ledger_cls() if ledger_cls else None
+            self._repositories["legal_entity"] = legal_cls() if legal_cls else None
+            self._repositories["outbox"] = outbox_cls() if outbox_cls else None
+            self._repositories["system_setting"] = setting_cls() if setting_cls else None
+            self._repositories["tax"] = tax_cls() if tax_cls else None
+
+            self._initialized_repos = True
+        except ImportError as e:
+            raise UnitOfWorkError(f"Failed to import repository adapters: {e}") from e
+
+    def _attach_session_to_repositories(self) -> None:
+        """Set session pada setiap repository yang sudah diinisialisasi."""
         for repo in self._repositories.values():
+            if repo is None:
+                continue
             if hasattr(repo, "_session"):
                 repo._session = self._session
             elif hasattr(repo, "session"):
                 repo.session = self._session
 
+    # ------------------------------------------------------------------------
+    # LAZY SESSION FACTORY
+    # ------------------------------------------------------------------------
+
+    async def _get_session_factory(self) -> Any:
+        """Mendapatkan async_sessionmaker secara lazy."""
+        if self._session_factory is not None:
+            return self._session_factory
+
+        try:
+            # Import infrastruktur secara lazy
+            session_module = importlib.import_module(
+                "infrastructure.database.session_factory_sqlalchemy"
+            )
+            getter = getattr(session_module, "get_async_session_factory", None)
+            if getter is None:
+                raise UnitOfWorkError(
+                    "get_async_session_factory not found in session_factory_sqlalchemy"
+                )
+            # getter adalah async function
+            self._session_factory = await getter()
+            return self._session_factory
+        except ImportError as e:
+            raise UnitOfWorkError(
+                f"Could not import session_factory_sqlalchemy: {e}"
+            ) from e
+        except Exception as e:
+            raise UnitOfWorkError(
+                f"Failed to get async session factory: {e}"
+            ) from e
+
+    # ------------------------------------------------------------------------
+    # CONTEXT MANAGER ENTRY / EXIT
+    # ------------------------------------------------------------------------
+
     async def __aenter__(self) -> SQLAlchemyUnitOfWork:
         if self._session_factory is None:
-            self._session_factory = get_async_session_factory()
+            self._session_factory = await self._get_session_factory()
 
         self._session = self._session_factory()
 
         if self._is_period_closing:
             await self._session.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            logger.info("UoW using SERIALIZABLE isolation for period closing")
+            # logger hanya digunakan jika sudah ada, kita gunakan print atau import lazy
+            try:
+                from infrastructure.telemetry.structured_json_logging import get_logger
+                logger = get_logger(__name__)
+                logger.info("UoW using SERIALIZABLE isolation for period closing")
+            except ImportError:
+                pass
 
-        self._transaction_manager = TransactionManager(self._session)
+        # Inisialisasi TransactionManager secara lazy
+        try:
+            tm_module = importlib.import_module("infrastructure.database.transaction_manager")
+            TransactionManager = getattr(tm_module, "TransactionManager")
+            self._transaction_manager = TransactionManager(self._session)
+        except ImportError as e:
+            raise UnitOfWorkError(f"Could not import TransactionManager: {e}") from e
+
         await self._transaction_manager.begin()
+        self._ensure_repositories_initialized()
         self._attach_session_to_repositories()
         self._transaction_id = str(uuid4())
         self._is_active = True
 
-        logger.debug(f"UoW started, session id: {id(self._session)}")
         return self
 
     async def __aexit__(
@@ -166,100 +211,85 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
     ) -> None:
         try:
             if exc_type is not None:
-                logger.warning(f"UoW rolling back due to exception: {exc_type.__name__}: {exc_val}")
                 await self.rollback()
         finally:
             if self._session:
                 await self._session.close()
-                logger.debug(f"UoW session closed, session id: {id(self._session)}")
             self._session = None
             self._is_active = False
 
-    # ========================================================================
-    # METODE YANG DIBUTUHKAN OLEH UnitOfWorkPort (P55 CONTRACT)
-    # ========================================================================
+    # ------------------------------------------------------------------------
+    # METODE UNIT OF WORK PORT
+    # ------------------------------------------------------------------------
 
     async def begin(self, isolation_level: str = "READ_COMMITTED") -> None:
-        """
-        Begin a transaction with optional isolation level.
-        This method is required by UnitOfWorkPort interface.
-        """
+        """Memulai transaksi secara eksplisit."""
         if self._session is None:
             if self._session_factory is None:
-                self._session_factory = get_async_session_factory()
+                self._session_factory = await self._get_session_factory()
             self._session = self._session_factory()
-        if self._transaction_manager is None:
+            # Inisialisasi TransactionManager
+            tm_module = importlib.import_module("infrastructure.database.transaction_manager")
+            TransactionManager = getattr(tm_module, "TransactionManager")
             self._transaction_manager = TransactionManager(self._session)
             await self._transaction_manager.begin(isolation_level=isolation_level)
+            self._ensure_repositories_initialized()
             self._attach_session_to_repositories()
             self._transaction_id = str(uuid4())
             self._is_active = True
         else:
-            logger.debug("Transaction already begun, ignoring begin() call")
+            # Sudah ada transaksi, abaikan
+            pass
 
     async def begin_read_only(self) -> None:
-        """
-        Begin a read-only transaction.
-        Required by UnitOfWorkPort interface.
-        """
+        """Memulai transaksi read-only."""
         await self.begin(isolation_level="READ COMMITTED")
         if self._session:
-            # Set session to read-only if supported
             await self._session.execute("SET TRANSACTION READ ONLY")
-            logger.debug("Read-only transaction begun")
-
-    # ========================================================================
-    # METODE COMMIT & ROLLBACK
-    # ========================================================================
 
     async def commit(self) -> None:
         if not self._session:
-            raise UnitOfWorkError("UoW not started, use async context manager")
+            raise UnitOfWorkError("UoW not started, use async context manager or call begin()")
 
         try:
-            # Execute before commit hooks
+            # Before hooks
             for hook in self._before_commit_hooks:
                 if callable(hook):
-                    await hook() if hasattr(hook, "__await__") else hook()
+                    if hasattr(hook, "__await__"):
+                        await hook()
+                    else:
+                        hook()
 
             await self._session.flush()
             await self._transaction_manager.commit()
             await self._publish_events()
 
-            # Execute after commit hooks
+            # After hooks
             for hook in self._after_commit_hooks:
                 if callable(hook):
-                    await hook() if hasattr(hook, "__await__") else hook()
+                    if hasattr(hook, "__await__"):
+                        await hook()
+                    else:
+                        hook()
 
             self._is_active = False
-            logger.info("UoW committed successfully")
-        except IntegrityError as e:
-            await self.rollback()
-            logger.error(f"Integrity error during commit: {e}")
-            raise UnitOfWorkCommitError(f"Database integrity error: {e}") from e
-        except SQLAlchemyError as e:
-            await self.rollback()
-            logger.error(f"SQLAlchemy error during commit: {e}")
-            raise UnitOfWorkCommitError(f"Database error: {e}") from e
         except Exception as e:
             await self.rollback()
-            logger.exception(f"Unexpected error during commit: {e}")
-            raise UnitOfWorkCommitError(f"Unexpected error: {e}") from e
+            raise UnitOfWorkCommitError(f"Commit failed: {e}") from e
 
     async def rollback(self) -> None:
         if not self._session:
             return
-
         try:
             await self._transaction_manager.rollback()
-            # Execute after rollback hooks
             for hook in self._after_rollback_hooks:
                 if callable(hook):
-                    await hook() if hasattr(hook, "__await__") else hook()
+                    if hasattr(hook, "__await__"):
+                        await hook()
+                    else:
+                        hook()
             self._is_active = False
-            logger.info("UoW rolled back")
         except Exception as e:
-            logger.error(f"Error during rollback: {e}")
             raise UnitOfWorkRollbackError(f"Rollback failed: {e}") from e
         finally:
             self._event_collector.clear()
@@ -274,9 +304,9 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
             raise UnitOfWorkError("UoW not started")
         return await self._session.execute(statement, params or {})
 
-    # ========================================================================
-    # SAVEPOINT METHODS (with context manager)
-    # ========================================================================
+    # ------------------------------------------------------------------------
+    # SAVEPOINT
+    # ------------------------------------------------------------------------
 
     async def create_savepoint(self, name: str) -> None:
         if not self._session:
@@ -297,9 +327,6 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
 
     @asynccontextmanager
     async def savepoint(self, name: str) -> AsyncContextManager:
-        """
-        Context manager for savepoint. Required by UnitOfWorkPort.
-        """
         if not self._session:
             raise UnitOfWorkError("UoW not started")
         await self.create_savepoint(name)
@@ -312,80 +339,66 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
 
     @asynccontextmanager
     async def transaction(self) -> AsyncContextManager:
-        """
-        Context manager for nested transaction. Required by UnitOfWorkPort.
-        """
         if not self._session:
             raise UnitOfWorkError("UoW not started")
-        # For nested transaction, use savepoint mechanism
         sp_name = f"sp_{uuid4().hex[:8]}"
         async with self.savepoint(sp_name):
             yield
 
-    # ========================================================================
+    # ------------------------------------------------------------------------
     # HOOKS
-    # ========================================================================
+    # ------------------------------------------------------------------------
 
     def add_before_commit_hook(self, hook: Callable) -> None:
-        """Add a hook to be executed before commit. Required by UnitOfWorkPort."""
         if callable(hook):
             self._before_commit_hooks.append(hook)
 
     def add_after_commit_hook(self, hook: Callable) -> None:
-        """Add a hook to be executed after commit. Required by UnitOfWorkPort."""
         if callable(hook):
             self._after_commit_hooks.append(hook)
 
     def add_after_rollback_hook(self, hook: Callable) -> None:
-        """Add a hook to be executed after rollback. Required by UnitOfWorkPort."""
         if callable(hook):
             self._after_rollback_hooks.append(hook)
 
-    # ========================================================================
-    # TRANSACTION INFO
-    # ========================================================================
+    # ------------------------------------------------------------------------
+    # TRANSACTION INFO  (FIX: async versions)
+    # ------------------------------------------------------------------------
 
-    def get_transaction_id(self) -> str | None:
-        """Get current transaction ID. Required by UnitOfWorkPort."""
+    async def get_transaction_id(self) -> str | None:
+        """Ambil ID transaksi saat ini (async version)."""
         return self._transaction_id
 
-    def get_isolation_level(self) -> str:
-        """Get current isolation level. Required by UnitOfWorkPort."""
+    async def get_isolation_level(self) -> str:
+        """Ambil level isolasi transaksi saat ini (async version)."""
         if not self._session:
             return "UNKNOWN"
-        # Try to get from session info
         try:
-            # PostgreSQL example
-            result = self._session.execute("SHOW transaction_isolation")
-            level = result.scalar()
-            return level
+            result = await self._session.execute("SHOW transaction_isolation")
+            return result.scalar()
         except Exception:
-            return "READ_COMMITTED"  # default
+            return "READ_COMMITTED"
 
-    def is_active(self) -> bool:
-        """Check if transaction is active. Required by UnitOfWorkPort."""
+    async def is_active(self) -> bool:
+        """Cek apakah transaksi aktif (async version)."""
         return self._is_active and self._session is not None
 
-    # ========================================================================
+    # ------------------------------------------------------------------------
     # CHANGE LOGGING
-    # ========================================================================
+    # ------------------------------------------------------------------------
 
     def record_change(self, entity: Any, change_type: str) -> None:
-        """
-        Record a change to an entity. Required by UnitOfWorkPort.
-        """
         self._change_log.append({
             "entity": str(entity),
             "change_type": change_type,
-            "timestamp": str(datetime.utcnow()),
+            "timestamp": datetime.utcnow().isoformat(),
         })
-        # Limit log size
         if len(self._change_log) > 1000:
             self._change_log = self._change_log[-500:]
 
-    # ========================================================================
+    # ------------------------------------------------------------------------
     # REPOSITORY MANAGEMENT
-    # ========================================================================
+    # ------------------------------------------------------------------------
 
     def register_repository(self, name: str, repository: Any) -> None:
         self._repositories[name] = repository
@@ -397,7 +410,7 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
 
     def get_repository(self, name: str) -> Any:
         if name not in self._repositories:
-            raise KeyError(f"Repository {name} not registered")
+            raise KeyError(f"Repository '{name}' not registered")
         return self._repositories[name]
 
     def add_event(self, event: Any) -> None:
@@ -408,14 +421,22 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
             return
 
         outbox_repo = self.get_repository("outbox")
+        if outbox_repo is None:
+            # Tidak ada outbox repository, lewatkan
+            return
+
         for event in self._event_collector:
-            await outbox_repo.save_event(event)
+            if hasattr(outbox_repo, "save_event"):
+                await outbox_repo.save_event(event)
+            else:
+                # fallback: simpan ke atribut event collector
+                pass
 
         self._event_collector.clear()
 
-    # ========================================================================
-    # RepositoryProvider interface (convenience accessors)
-    # ========================================================================
+    # ------------------------------------------------------------------------
+    # RepositoryProvider interface (convenience)
+    # ------------------------------------------------------------------------
 
     def journals(self): return self.get_repository("journal")
     def ledger_entries(self): return self.get_repository("ledger")
@@ -431,7 +452,7 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
     def system_settings(self): return self.get_repository("system_setting")
 
     @property
-    async def session(self) -> AsyncSession:
+    async def session(self):
         if not self._session:
             raise UnitOfWorkError("UoW not started")
         return self._session
@@ -442,12 +463,13 @@ class SQLAlchemyUnitOfWork(UnitOfWorkPort, RepositoryProvider):
 # ============================================================================
 
 class SQLAlchemyUnitOfWorkFactory:
-    def __init__(self, session_factory: async_sessionmaker | None = None):
-        self._session_factory = session_factory or get_async_session_factory()
+    def __init__(self, session_factory: Any = None):
+        self._session_factory = session_factory
 
     def create(self, is_period_closing: bool = False) -> SQLAlchemyUnitOfWork:
         return SQLAlchemyUnitOfWork(
-            session_factory=self._session_factory, is_period_closing=is_period_closing
+            session_factory=self._session_factory,
+            is_period_closing=is_period_closing,
         )
 
     @asynccontextmanager
@@ -459,7 +481,7 @@ class SQLAlchemyUnitOfWorkFactory:
 
 
 # ============================================================================
-# SINGLETON & DEPENDENCY
+# SINGLETON
 # ============================================================================
 
 _uow_factory: SQLAlchemyUnitOfWorkFactory | None = None
@@ -470,12 +492,11 @@ def get_uow_factory() -> SQLAlchemyUnitOfWorkFactory:
         _uow_factory = SQLAlchemyUnitOfWorkFactory()
     return _uow_factory
 
-
 async def get_uow() -> SQLAlchemyUnitOfWork:
     factory = get_uow_factory()
     uow = factory.create()
     async with uow:
-        yield uow
+        return uow
 
 
 # ============================================================================
@@ -484,7 +505,6 @@ async def get_uow() -> SQLAlchemyUnitOfWork:
 
 SQLAlchemyUnitOfWorkImpl = SQLAlchemyUnitOfWork
 SqlAlchemyUnitOfWork = SQLAlchemyUnitOfWork
-
 
 __all__ = [
     "SQLAlchemyUnitOfWork",

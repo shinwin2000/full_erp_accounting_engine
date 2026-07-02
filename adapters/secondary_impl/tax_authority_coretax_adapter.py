@@ -42,8 +42,9 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
         self._access_token = None
         self._token_expiry = 0
         self._submission_history = []
-        self._nsfp_cache = []
+        self._nsfp_cache = {}  # key: year, list of nsfp
         self._lock = asyncio.Lock()
+        self._default_legal_entity_id = os.getenv("CORETAX_DEFAULT_LEGAL_ENTITY_ID", "")
 
         if not self._enabled:
             logger.warning("Coretax credentials not configured. Running in simulation mode.")
@@ -54,17 +55,20 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
         return self._client
 
     # ================================================================
-    # AUTHENTICATION
+    # AUTHENTICATION (sesuai port: return bool)
     # ================================================================
 
-    async def authenticate(self) -> str:
+    async def authenticate(self) -> bool:
         """
         Mendapatkan access token untuk Coretax API.
+        Return True jika sukses, False jika gagal.
         """
         if not self._enabled:
-            return "mock-token"
+            self._access_token = "mock-token"
+            self._token_expiry = time.time() + 3600
+            return True
         if self._access_token and time.time() < self._token_expiry:
-            return self._access_token
+            return True
         client = await self._get_client()
         try:
             resp = await client.post(
@@ -82,16 +86,24 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
             expires_in = data.get("expires_in", 3600)
             self._token_expiry = time.time() + expires_in - 60
             logger.info("Coretax authentication successful")
-            return self._access_token
+            return True
         except Exception as e:
             logger.error(f"Coretax auth failed: {e}")
-            raise RuntimeError(f"Coretax auth failed: {e}")
+            return False
+
+    async def _ensure_authenticated(self) -> str:
+        """Internal: memastikan token valid, return token string."""
+        if not self._enabled:
+            return "mock-token"
+        if not await self.authenticate():
+            raise RuntimeError("Coretax authentication failed")
+        return self._access_token
 
     async def _request(self, method: str, path: str, data: dict | None = None, params: dict | None = None) -> dict:
         if not self._enabled:
             logger.info(f"[SIM] {method} {path}")
             return {"status": "success", "submission_id": str(uuid4()), "message": "simulated"}
-        token = await self.authenticate()
+        token = await self._ensure_authenticated()
         client = await self._get_client()
         headers = {
             "Authorization": f"Bearer {token}",
@@ -114,9 +126,6 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
     # ================================================================
 
     async def check_health(self) -> dict[str, Any]:
-        """
-        Memeriksa kesehatan koneksi ke Coretax API.
-        """
         if not self._enabled:
             return {
                 "status": "healthy",
@@ -124,12 +133,12 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
                 "message": "Coretax credentials not configured, running in simulation mode",
             }
         try:
-            await self.authenticate()
+            auth_ok = await self.authenticate()
             return {
-                "status": "healthy",
+                "status": "healthy" if auth_ok else "unhealthy",
                 "mode": "real",
                 "base_url": self._base_url,
-                "authenticated": True,
+                "authenticated": auth_ok,
             }
         except Exception as e:
             return {
@@ -246,56 +255,56 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
             return len(tax_id) == 15 and tax_id.isdigit()
 
     # ================================================================
-    # NSF (Nomor Seri Faktur Pajak) MANAGEMENT
+    # NSF (Nomor Seri Faktur Pajak) MANAGEMENT - sesuai port
     # ================================================================
 
-    async def request_nsfp(self, quantity: int, legal_entity_id: str) -> list[str]:
+    async def request_nsfp(self, year: int, quantity: int) -> list[str]:
         """
-        Meminta NSF (Nomor Seri Faktur Pajak) dari Coretax.
+        Meminta NSF untuk tahun tertentu dengan jumlah tertentu.
         """
         if quantity <= 0 or quantity > 1000:
             raise ValueError("Quantity must be between 1 and 1000")
         try:
             data = {
-                "legal_entity_id": legal_entity_id,
+                "year": year,
                 "quantity": quantity,
                 "request_date": datetime.now(UTC).isoformat(),
             }
+            if self._default_legal_entity_id:
+                data["legal_entity_id"] = self._default_legal_entity_id
             response = await self._request("POST", "/nsfp/request", data=data)
             nsfp_list = response.get("nsfp_list", [])
             if nsfp_list:
                 async with self._lock:
-                    self._nsfp_cache.extend(nsfp_list)
-                logger.info(f"Requested {len(nsfp_list)} NSF numbers")
+                    if year not in self._nsfp_cache:
+                        self._nsfp_cache[year] = []
+                    self._nsfp_cache[year].extend(nsfp_list)
+                logger.info(f"Requested {len(nsfp_list)} NSF numbers for year {year}")
             return nsfp_list
         except Exception as e:
             logger.error(f"Failed to request NSF: {e}")
-            # Simulation mode: generate mock NSF
             if not self._enabled:
-                result = [f"NSFP-{datetime.now(UTC).year}-{i:06d}" for i in range(1, quantity + 1)]
+                result = [f"NSFP-{year}-{i:06d}" for i in range(1, quantity + 1)]
                 return result
             raise
 
-    async def get_available_nsfp(self, legal_entity_id: str) -> list[str]:
+    async def get_available_nsfp(self, year: int) -> list[str]:
         """
-        Mendapatkan daftar NSF yang tersedia.
+        Mendapatkan daftar NSF yang tersedia untuk tahun tertentu.
         """
         try:
-            response = await self._request("GET", "/nsfp/available", params={"legal_entity_id": legal_entity_id})
+            response = await self._request("GET", "/nsfp/available", params={"year": str(year)})
             return response.get("nsfp_list", [])
         except Exception as e:
             logger.warning(f"Failed to get available NSF: {e}")
             async with self._lock:
-                return self._nsfp_cache.copy()
+                return self._nsfp_cache.get(year, [])
 
     # ================================================================
     # FAKTUR KELUARAN (Output Tax Invoice)
     # ================================================================
 
     async def submit_faktur_keluaran(self, faktur_data: dict[str, Any]) -> dict[str, Any]:
-        """
-        Submit faktur keluaran ke Coretax.
-        """
         try:
             response = await self._request("POST", "/faktur/keluaran", data=faktur_data)
             return {
@@ -314,9 +323,6 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
             }
 
     async def get_faktur_keluaran_status(self, faktur_id: str) -> dict[str, Any]:
-        """
-        Mendapatkan status faktur keluaran.
-        """
         try:
             response = await self._request("GET", f"/faktur/keluaran/{faktur_id}")
             return {
@@ -335,9 +341,6 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
     # ================================================================
 
     async def submit_faktur_masukan(self, faktur_data: dict[str, Any]) -> dict[str, Any]:
-        """
-        Submit faktur masukan ke Coretax.
-        """
         try:
             response = await self._request("POST", "/faktur/masukan", data=faktur_data)
             return {
@@ -356,9 +359,6 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
             }
 
     async def get_faktur_masukan_status(self, faktur_id: str) -> dict[str, Any]:
-        """
-        Mendapatkan status faktur masukan.
-        """
         try:
             response = await self._request("GET", f"/faktur/masukan/{faktur_id}")
             return {
@@ -372,15 +372,12 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
             return {"faktur_id": faktur_id, "status": "unknown", "error": str(e)}
 
     # ================================================================
-    # BUPOT (Withholding Tax Certificate)
+    # BUPOT (Withholding Tax Certificate) - sesuai port
     # ================================================================
 
-    async def generate_bupot(self, bupot_data: dict[str, Any]) -> dict[str, Any]:
-        """
-        Generate Bupot (Withholding Tax Certificate).
-        """
+    async def generate_bupot(self, transaction_data: dict[str, Any]) -> dict[str, Any]:
         try:
-            response = await self._request("POST", "/bupot/generate", data=bupot_data)
+            response = await self._request("POST", "/bupot/generate", data=transaction_data)
             return {
                 "bupot_id": response.get("bupot_id"),
                 "bupot_number": response.get("bupot_number"),
@@ -397,9 +394,6 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
             }
 
     async def submit_bupot_batch(self, bupot_list: list[dict[str, Any]]) -> dict[str, Any]:
-        """
-        Submit batch bupot ke Coretax.
-        """
         try:
             data = {
                 "batch_id": str(uuid4()),
@@ -425,14 +419,28 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
             }
 
     # ================================================================
-    # SPT MASA (Monthly Tax Returns)
+    # SPT MASA - dengan signature yang benar (period_year, period_month, data)
     # ================================================================
 
-    async def submit_spt_masa_ppn(self, spt_data: dict[str, Any]) -> dict[str, Any]:
+    async def submit_spt_masa_ppn(self, period_year: int, period_month: int, data: dict[str, Any]) -> dict[str, Any]:
         """
         Submit SPT Masa PPN.
+        parameter: period_year, period_month, data (berisi npwp dll)
         """
         try:
+            spt_data = {
+                "npwp": data.get("npwp", ""),
+                "masa": period_month,
+                "tahun": period_year,
+                "submission_date": datetime.now(UTC).isoformat(),
+                "ppn_keluaran": data.get("ppn_keluaran", 0),
+                "ppn_masukan": data.get("ppn_masukan", 0),
+                "ppn_kurang_bayar": data.get("ppn_kurang_bayar", 0),
+                "status": data.get("status", "draft"),
+                # tambahan data lain jika ada
+            }
+            # merge dengan data tambahan
+            spt_data.update(data)
             response = await self._request("POST", "/spt/ppn/masa", data=spt_data)
             return {
                 "spt_id": response.get("spt_id"),
@@ -449,11 +457,18 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
                 "error": str(e),
             }
 
-    async def submit_spt_masa_pph21(self, spt_data: dict[str, Any]) -> dict[str, Any]:
-        """
-        Submit SPT Masa PPh21.
-        """
+    async def submit_spt_masa_pph21(self, period_year: int, period_month: int, data: dict[str, Any]) -> dict[str, Any]:
         try:
+            spt_data = {
+                "npwp": data.get("npwp", ""),
+                "masa": period_month,
+                "tahun": period_year,
+                "submission_date": datetime.now(UTC).isoformat(),
+                "pph21_terutang": data.get("pph21_terutang", 0),
+                "pph21_dipotong": data.get("pph21_dipotong", 0),
+                "status": data.get("status", "draft"),
+            }
+            spt_data.update(data)
             response = await self._request("POST", "/spt/pph21/masa", data=spt_data)
             return {
                 "spt_id": response.get("spt_id"),
@@ -470,11 +485,18 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
                 "error": str(e),
             }
 
-    async def submit_spt_masa_pph23(self, spt_data: dict[str, Any]) -> dict[str, Any]:
-        """
-        Submit SPT Masa PPh23.
-        """
+    async def submit_spt_masa_pph23(self, period_year: int, period_month: int, data: dict[str, Any]) -> dict[str, Any]:
         try:
+            spt_data = {
+                "npwp": data.get("npwp", ""),
+                "masa": period_month,
+                "tahun": period_year,
+                "submission_date": datetime.now(UTC).isoformat(),
+                "pph23_terutang": data.get("pph23_terutang", 0),
+                "pph23_dipotong": data.get("pph23_dipotong", 0),
+                "status": data.get("status", "draft"),
+            }
+            spt_data.update(data)
             response = await self._request("POST", "/spt/pph23/masa", data=spt_data)
             return {
                 "spt_id": response.get("spt_id"),
@@ -492,18 +514,12 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
             }
 
     # ================================================================
-    # NTPN VALIDATION (Payment Confirmation)
+    # NTPN VALIDATION - sesuai port (return bool)
     # ================================================================
 
-    async def validate_ntpn(self, ntpn: str, amount: Decimal, payment_date: str) -> dict[str, Any]:
-        """
-        Validasi NTPN (Nomor Transaksi Penerimaan Negara).
-        """
+    async def validate_ntpn(self, ntpn: str, amount: Decimal, payment_date: str) -> bool:
         if not ntpn or len(ntpn) != 16:
-            return {
-                "valid": False,
-                "message": "NTPN must be 16 characters",
-            }
+            return False
         try:
             data = {
                 "ntpn": ntpn,
@@ -512,41 +528,28 @@ class TaxAuthorityCoretaxAdapter(TaxAuthorityCoretaxPort):
                 "validation_date": datetime.now(UTC).isoformat(),
             }
             response = await self._request("POST", "/ntpn/validate", data=data)
-            return {
-                "valid": response.get("valid", False),
-                "ntpn": ntpn,
-                "amount": Decimal(response.get("amount", "0")),
-                "payment_date": response.get("payment_date"),
-                "status": response.get("status"),
-                "message": response.get("message", "NTPN validated"),
-            }
+            return response.get("valid", False)
         except Exception as e:
             logger.error(f"NTPN validation failed: {e}")
-            return {
-                "valid": False,
-                "ntpn": ntpn,
-                "error": str(e),
-                "message": "NTPN validation failed",
-            }
+            return False
 
     # ================================================================
     # LEGACY METHODS (kompatibilitas)
     # ================================================================
 
     async def submit_faktur(self, faktur_data: dict[str, Any]) -> dict[str, Any]:
-        """Legacy method - use submit_faktur_keluaran instead."""
         return await self.submit_faktur_keluaran(faktur_data)
 
     async def get_faktur_status(self, faktur_id: str) -> dict[str, Any]:
-        """Legacy method - use get_faktur_keluaran_status instead."""
         return await self.get_faktur_keluaran_status(faktur_id)
 
     async def submit_spt(self, spt_data: dict[str, Any]) -> dict[str, Any]:
-        """Legacy method - use submit_spt_masa_ppn instead."""
-        return await self.submit_spt_masa_ppn(spt_data)
+        # legacy, redirect ke submit_spt_masa_ppn dengan data
+        period_year = spt_data.get("tahun", 0)
+        period_month = spt_data.get("masa", 0)
+        return await self.submit_spt_masa_ppn(period_year, period_month, spt_data)
 
     async def get_spt_status(self, spt_id: str) -> dict[str, Any]:
-        """Legacy method - get SPT status."""
         try:
             response = await self._request("GET", f"/spt/{spt_id}")
             return {

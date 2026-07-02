@@ -2,7 +2,8 @@
 """
 Module: coretax_authority_adapter.py
 Layer: Adapters (Secondary)
-Responsibility: Implementasi TaxAuthorityCoretaxPort dan CoreTaxPort untuk Coretax DJP.
+Responsibility: Implementasi TaxAuthorityCoretaxPort untuk Coretax DJP.
+               Juga menyediakan adapter terpisah untuk CoreTaxPort.
 """
 
 import asyncio
@@ -15,7 +16,6 @@ from uuid import uuid4
 
 import httpx
 
-# === TAMBAHAN: import CoreTaxPort ===
 from ports.primary.core_tax_port import CoreTaxPort
 from ports.primary.tax_authority_coretax_port import (
     SubmissionResponse,
@@ -39,8 +39,12 @@ class CoretaxConfig:
             logger.warning("Coretax credentials not configured. Running in simulation mode.")
 
 
-# === PERUBAHAN: tambahkan CoreTaxPort sebagai base class ===
-class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort, CoreTaxPort):
+class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort):
+    """
+    Adapter untuk TaxAuthorityCoretaxPort (SPT, Faktur, dll).
+    Tidak mengimplementasikan CoreTaxPort secara langsung.
+    """
+
     def __init__(self):
         self.config = CoretaxConfig()
         self._client = None
@@ -103,6 +107,7 @@ class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort, CoreTaxPort):
             logger.error(f"Coretax request failed: {e}")
             raise
 
+    # ---------- Metode TaxAuthorityCoretaxPort ----------
     async def submit_tax(self, submission_type: TaxSubmissionType, data: dict[str, Any]) -> SubmissionResponse:
         submission_id = str(uuid4())
         timestamp = datetime.now(UTC)
@@ -244,17 +249,59 @@ class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort, CoreTaxPort):
         except Exception as e:
             return {"status": "unhealthy", "mode": "real", "error": str(e)}
 
-    # ================================================================
-    # METHOD UNTUK CoreTaxPort (calculate_tax)
-    # ================================================================
-    async def calculate_tax(self, tax_data: dict[str, Any]) -> dict[str, Any]:
+
+# =============================================================================
+# ADAPTER TERPISAH UNTUK CoreTaxPort
+# =============================================================================
+class CoretaxCoreTaxAdapter(CoreTaxPort):
+    """
+    Implementasi CoreTaxPort yang menggunakan CoretaxAuthorityAdapter di belakang layar.
+    Memenuhi kontrak CoreTaxPort secara eksplisit.
+    """
+
+    def __init__(self, authority_adapter: CoretaxAuthorityAdapter | None = None):
+        self._authority = authority_adapter or CoretaxAuthorityAdapter()
+
+    async def submit_tax(self, data: dict[str, Any]) -> dict[str, Any]:
         """
-        Calculate tax using Coretax API or local logic.
-        Memenuhi kontrak CoreTaxPort.
+        Submit data pajak ke otoritas pajak.
+        Menggunakan submission_type default 'SPT_MASA_PPN' jika tidak diberikan.
         """
-        tax_code = tax_data.get("tax_code", "PPN")
-        amount = tax_data.get("amount", 0)
-        rate = await self.get_tax_rate(tax_code)
+        submission_type_str = data.pop("submission_type", "SPT_MASA_PPN")
+        try:
+            submission_type = TaxSubmissionType(submission_type_str)
+        except ValueError:
+            submission_type = TaxSubmissionType.SPT_MASA_PPN
+        response = await self._authority.submit_tax(submission_type, data)
+        return {
+            "submission_id": response.submission_id,
+            "status": response.status.value,
+            "reference_number": response.reference_number,
+            "message": response.message,
+            "timestamp": response.timestamp.isoformat(),
+            "additional_data": response.additional_data,
+        }
+
+    async def get_status(self, submission_id: str) -> dict[str, Any]:
+        response = await self._authority.get_status(submission_id)
+        return {
+            "submission_id": response.submission_id,
+            "status": response.status.value,
+            "reference_number": response.reference_number,
+            "message": response.message,
+            "timestamp": response.timestamp.isoformat(),
+            "additional_data": response.additional_data,
+        }
+
+    async def calculate_tax(self, data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Menghitung pajak berdasarkan data transaksi.
+        """
+        tax_code = data.get("tax_code", "PPN")
+        amount = data.get("amount", 0)
+        # Gunakan get_tax_rate dengan parameter 'date' sesuai port
+        effective_date = data.get("date", datetime.now(UTC).strftime("%Y-%m-%d"))
+        rate = await self.get_tax_rate(tax_code, effective_date)
         tax_amount = amount * rate
         return {
             "tax_code": tax_code,
@@ -264,6 +311,22 @@ class CoretaxAuthorityAdapter(TaxAuthorityCoretaxPort, CoreTaxPort):
             "calculated_at": datetime.now(UTC).isoformat(),
         }
 
-    async def register_webhook(self, event_type: str, url: str) -> dict[str, Any]:
-        """Stub: register webhook for Coretax events (not used in this adapter)."""
-        return {"status": "stub", "message": f"Webhook for {event_type} registered (stub)"}
+    async def validate_tax_id(self, tax_id: str) -> bool:
+        return await self._authority.validate_tax_id(tax_id)
+
+    async def get_tax_rate(self, tax_code: str, date: str) -> float:
+        """
+        Mendapatkan tarif pajak untuk kode pajak dan tanggal tertentu.
+        Sesuai dengan signature CoreTaxPort (parameter 'date').
+        """
+        return await self._authority.get_tax_rate(tax_code, date)
+
+
+# =============================================================================
+# EKSPOR
+# =============================================================================
+__all__ = [
+    "CoretaxConfig",
+    "CoretaxAuthorityAdapter",
+    "CoretaxCoreTaxAdapter",
+]

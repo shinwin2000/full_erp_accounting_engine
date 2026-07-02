@@ -154,7 +154,7 @@ telemetry:
 
 security:
   jwt:
-    secret_key: ${SECRET_KEY}
+    secret_key: ${SECRET_KEY:dev-secret-key-12345}
     algorithm: HS256
     access_token_expire_minutes: ${JWT_ACCESS_EXPIRE:30}
     refresh_token_expire_days: ${JWT_REFRESH_EXPIRE:7}

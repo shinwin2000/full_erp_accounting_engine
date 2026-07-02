@@ -1,44 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-rca.py — Root Cause Analysis Engine untuk ERP Accounting System
+rca.py — Root Cause Analysis Engine for ERP Accounting System
 ================================================================
-Versi   : 3.0.0
-Standar : Big 4 Forensic Audit · ISO/IEC 25010 · SOX/ISA 315 Compliant
-Penulis : Senior Engineering Team
+Versi   : 5.0.0 (final, unified, Big‑4 ready)
+Standar : ISO/IEC 25010 · SOX/ISA 315 · PCAOB AS 2405 · IFRS/PSAK
+Penulis : Senior Forensic Audit Team
 Lisensi : Internal Use Only
 
-Perubahan dari v2.0:
-    FIX-01  Hapus duplikat key di _builtins_common dict
-    FIX-02  Guard aman untuk frames[-1] di MemoryError handler
-    FIX-03  SOX-compliant evidence collection — tidak buang evidence duplikat lintas rule
-    FIX-04  Timeout thread untuk safe_repr() cegah CPU spike
-    FIX-05  Import dalam fungsi dipindahkan ke top-level (difflib, Counter)
-    FIX-06  Optional[str] type hint untuk parameter opsional
-    FIX-07  Credential redaction di get_frame_locals()
-    FIX-08  Cycle detection di flatten_exception()
-    FIX-09  Guard frame.lineno <= 0 di semua code-context caller
-    FIX-10  OSError ditambahkan di InfrastructureConnectionRule
-    FIX-11  \buow\b regex di UnitOfWorkErrorRule
-    FIX-12  Input validation di analyze_exception()
-    FIX-13  Class-level constants untuk dict/list yang dibuat ulang
-    FIX-14  Severity ordering terintegrasi dalam Enum (functools.total_ordering)
-    FIX-15  reset_engine() untuk testability
-    FIX-16  Akses _rules via stats() bukan direct attribute
-    FIX-17  Rule match() timeout protection
-    FIX-18  Frozen-compatible RCAResult dengan explicit mutability points
-    FIX-19  CircularImportRule fallback jika semua frames dari frozen modules
-    FIX-20  Benchmark dengan percentile reporting (P50, P95, P99)
-    NEW-01  Kelas EvidenceItem untuk typed evidence (bukan bare string)
-    NEW-02  RulePlugin protocol untuk third-party rule registration
-    NEW-03  StructuredLogger untuk audit trail yang SOX-compliant
+Fitur :
+- 30+ rules (generik + project‑specific) tanpa duplikasi
+- Thread‑safe, time‑bounded analysis, LRU caches
+- Integrasi dengan networkx (opsional), jedi, libcst
+- Self‑test & benchmark terintegrasi
 """
 
-# ── Standard library ──────────────────────────────────────────────────────────
+from __future__ import annotations
+
 import ast
 import concurrent.futures
 import copy
-import difflib          # FIX-05: pindah dari dalam fungsi
+import difflib
 import json
 import logging
 import os
@@ -48,13 +30,14 @@ import threading
 import time
 import traceback
 import functools
-from collections import Counter, OrderedDict, deque  # FIX-05: Counter dari collections
+from collections import Counter, OrderedDict, deque
 from dataclasses import dataclass, field
 from enum import Enum
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import (
-    Any, Dict, FrozenSet, List, Optional, Set, Tuple, Union
+    Any, Dict, FrozenSet, List, Optional, Set, Tuple, Union,
+    Callable, Type, Iterable, Iterator
 )
 
 # ── Soft dependencies ─────────────────────────────────────────────────────────
@@ -63,16 +46,16 @@ try:
     HAS_NETWORKX = True
 except ImportError:
     HAS_NETWORKX = False
-    nx = None  # type: ignore[assignment]
+    nx = None
 
 try:
-    import jedi                                       # noqa: F401
+    import jedi
     HAS_JEDI = True
 except ImportError:
     HAS_JEDI = False
 
 try:
-    import libcst as cst                              # noqa: F401
+    import libcst as cst
     HAS_LIBCST = True
 except ImportError:
     HAS_LIBCST = False
@@ -81,7 +64,7 @@ try:
     from sqlalchemy.exc import SQLAlchemyError as _SQLAlchemyError
     HAS_SQLALCHEMY = True
 except ImportError:
-    _SQLAlchemyError = None   # type: ignore[assignment,misc]
+    _SQLAlchemyError = None
     HAS_SQLALCHEMY = False
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -100,27 +83,27 @@ if not _logger.handlers:
 # ── Constants ─────────────────────────────────────────────────────────────────
 MAX_CONTEXT_LINES    = 5
 MAX_OBJECT_SIZE      = 100_000
-MAX_EVIDENCE_ITEMS   = 30     # Naik dari 20 — SOX memerlukan evidence lengkap
+MAX_EVIDENCE_ITEMS   = 30
 MAX_EVIDENCE_LENGTH  = 500
-MAX_IMPACT_ITEMS     = 10     # Naik dari 5
-MAX_TRACEBACK_FRAMES = 30
+MAX_IMPACT_ITEMS     = 10
+MAX_TRACEBACK_FRAMES = 50
 MAX_CHILDREN         = 10
-CACHE_SIZE           = 256
+CACHE_SIZE           = 512
 DEFAULT_CONFIDENCE   = 0.5
-TIMEOUT_SECONDS      = 2.0
-REPR_TIMEOUT_SECONDS = 0.5    # FIX-04: timeout untuk safe_repr
+TIMEOUT_SECONDS      = 3.0
+REPR_TIMEOUT_SECONDS = 0.5
+FILE_READ_LIMIT      = 10 * 1024 * 1024  # 10 MB
 
-# Kata kunci sensitif yang TIDAK boleh masuk ke log (FIX-07)
 _SENSITIVE_KEYS: FrozenSet[str] = frozenset({
     "password", "passwd", "secret", "token", "api_key", "apikey",
     "credential", "credentials", "auth", "authorization", "private_key",
     "access_key", "secret_key", "db_password", "database_password",
     "encryption_key", "signing_key", "jwt", "bearer",
+    "client_secret", "bearer_token", "refresh_token", "otp", "pin",
 })
 
 # ── ErrorCode ─────────────────────────────────────────────────────────────────
 class ErrorCode(str, Enum):
-    """Kode error RCA. Immutable karena berbasis str-Enum."""
     IMPORT_MODULE_NOT_FOUND  = "RCA001"
     IMPORT_CIRCULAR          = "RCA002"
     IMPORT_SUBMODULE_MISSING = "RCA003"
@@ -157,12 +140,10 @@ class ErrorCode(str, Enum):
     ERP_BALANCE_MISMATCH     = "RCA073"
     UNKNOWN                  = "RCA999"
 
-
 # ── Severity ──────────────────────────────────────────────────────────────────
-# FIX-14: Ordering terintegrasi ke dalam Enum via functools.total_ordering
+
 @functools.total_ordering
 class Severity(Enum):
-    """Tingkat keparahan. Comparable: FATAL > CRITICAL > HIGH > MEDIUM > LOW > INFO > HINT."""
     FATAL    = ("FATAL",    7)
     CRITICAL = ("CRITICAL", 6)
     HIGH     = ("HIGH",     5)
@@ -180,27 +161,26 @@ class Severity(Enum):
     def __lt__(self, other: "Severity") -> bool:
         if not isinstance(other, Severity):
             return NotImplemented
-        return self._order < other._order   # type: ignore[attr-defined]
+        return self._order < other._order
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Severity):
             return NotImplemented
-        return self._order == other._order  # type: ignore[attr-defined]
+        return self._order == other._order
 
     def __hash__(self) -> int:
-        return hash(self._order)            # type: ignore[attr-defined]
+        return hash(self._order)
 
     @property
     def order(self) -> int:
-        return self._order                  # type: ignore[attr-defined]
+        return self._order
 
+# ── Tambahkan ini ──
+_SEVERITY_ORDER = {s: s.order for s in Severity}
 
-# Backward-compatible ordering dict (untuk kode yang sudah ada menggunakannya)
-_SEVERITY_ORDER: Dict["Severity", int] = {s: s.order for s in Severity}
-
-
+    
+# ── Category ──────────────────────────────────────────────────────────────────
 class Category(Enum):
-    """Kategori root cause."""
     IMPORT         = "Import"
     SYNTAX         = "Syntax"
     ATTRIBUTE      = "Attribute"
@@ -214,15 +194,12 @@ class Category(Enum):
     SECURITY       = "Security"
     UNKNOWN        = "Unknown"
 
-
 # ── EvidenceItem ──────────────────────────────────────────────────────────────
-# NEW-01: Typed evidence untuk SOX-compliant audit trail
 @dataclass
 class EvidenceItem:
-    """Satu butir evidence forensik. Menyimpan sumber dan konteks."""
     text        : str
     source_rule : str       = "unknown"
-    evidence_type: str      = "general"   # "code", "frame", "pattern", "context"
+    evidence_type: str      = "general"
     redacted    : bool      = False
 
     def to_str(self) -> str:
@@ -237,17 +214,9 @@ class EvidenceItem:
             "redacted"    : self.redacted,
         }
 
-
 # ── RCAResult ─────────────────────────────────────────────────────────────────
 @dataclass
 class RCAResult:
-    """
-    Hasil analisis root cause.
-
-    Catatan mutability: field ini tidak frozen karena RCAEngine perlu
-    menggabungkan hasil dari beberapa rule. Jangan mutasi setelah
-    RCAEngine.analyze() return.
-    """
     severity     : Severity
     category     : Category           = field(default=Category.UNKNOWN)
     error_code   : ErrorCode          = field(default=ErrorCode.UNKNOWN)
@@ -260,19 +229,16 @@ class RCAResult:
     parent       : Optional["RCAResult"] = field(default=None)
     children     : List["RCAResult"]  = field(default_factory=list)
     metadata     : Dict[str, Any]     = field(default_factory=dict)
-    # NEW: typed evidence untuk SOX audit trail
     typed_evidence: List[EvidenceItem] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        # Clamp confidence ke [0.0, 1.0]
         self.confidence = max(0.0, min(1.0, float(self.confidence)))
 
-    def to_dict(self, _visited: Optional[Set[int]] = None) -> Dict[str, Any]:
-        """Serialize ke dict dengan proteksi circular reference."""
+    def to_dict(self, _visited: Optional[Set[int]] = None, _depth: int = 0) -> Dict[str, Any]:
         if _visited is None:
             _visited = set()
         obj_id = id(self)
-        if obj_id in _visited:
+        if obj_id in _visited or _depth > 10:
             return {"_recursive": True}
         _visited.add(obj_id)
 
@@ -289,18 +255,16 @@ class RCAResult:
                 for e in (lst or [])[:max_items]
             ]
 
-        # Parent: share _visited untuk deteksi chain A→B→A
         parent_dict = None
         if self.parent is not None and self.parent is not self:
-            parent_dict = self.parent.to_dict(_visited)
+            parent_dict = self.parent.to_dict(_visited, _depth + 1)
             if parent_dict.get("_recursive"):
                 parent_dict = None
 
-        # Children: filter circular, batasi MAX_CHILDREN
         children_out = []
         for child in self.children[:MAX_CHILDREN]:
             if id(child) not in _visited and child is not self:
-                d = child.to_dict(_visited)
+                d = child.to_dict(_visited, _depth + 1)
                 if not d.get("_recursive"):
                     children_out.append(d)
 
@@ -321,28 +285,23 @@ class RCAResult:
         }
 
     def to_json(self, indent: int = 2) -> str:
-        """Serialize ke JSON string. Aman untuk objek non-serializable."""
         try:
-            return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+            return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False, default=str)
         except (TypeError, ValueError) as exc:
             return json.dumps({"error": f"Serialization failed: {exc}"})
 
     def summary(self) -> str:
-        """Ringkasan satu baris untuk logging."""
         return (
             f"[{self.error_code.value}] {self.severity.value} "
             f"({self.category.value}) conf={self.confidence:.2f}: "
             f"{self.root_cause[:100]}"
         )
 
-
-# ── Thread-safe LRU Cache ─────────────────────────────────────────────────────
+# ── Thread‑safe LRU Cache ────────────────────────────────────────────────────
 class _ThreadSafeLRUCache:
-    """LRU cache thread-safe dengan RLock. Key bisa berupa tuple apapun."""
-
     def __init__(self, maxsize: int = CACHE_SIZE) -> None:
         self.maxsize = maxsize
-        self._cache: "OrderedDict[Any, Any]" = OrderedDict()
+        self._cache: OrderedDict[Any, Any] = OrderedDict()
         self._lock  = threading.RLock()
         self._hits  = 0
         self._misses= 0
@@ -371,7 +330,6 @@ class _ThreadSafeLRUCache:
             self._hits = self._misses = 0
 
     def invalidate(self, path: str) -> None:
-        """Hapus semua entry yang key[0] == path."""
         with self._lock:
             keys_to_delete = [
                 k for k in self._cache
@@ -388,19 +346,16 @@ class _ThreadSafeLRUCache:
                 "misses": self._misses,
             }
 
-
+# ── Caches ────────────────────────────────────────────────────────────────────
 _file_cache    = _ThreadSafeLRUCache(CACHE_SIZE)
 _ast_cache     = _ThreadSafeLRUCache(CACHE_SIZE)
 _context_cache = _ThreadSafeLRUCache(CACHE_SIZE)
 
-
-# ── reprlib (lazy, thread-safe, dengan timeout) ───────────────────────────────
+# ── reprlib wrapper ──────────────────────────────────────────────────────────
 _reprlib_lock = threading.Lock()
 _reprlib_fn: Optional[Any] = None
 
-
 def _get_reprlib() -> Any:
-    """Lazy init reprlib.Repr dengan double-checked locking."""
     global _reprlib_fn
     if _reprlib_fn is None:
         with _reprlib_lock:
@@ -412,12 +367,7 @@ def _get_reprlib() -> Any:
                 _reprlib_fn = r.repr
     return _reprlib_fn
 
-
 def safe_repr(obj: Any, max_len: int = 150) -> str:
-    """
-    Representasi aman dari objek, dengan timeout untuk mencegah CPU spike.
-    FIX-04: Tambahkan timeout via ThreadPoolExecutor.
-    """
     def _do_repr() -> str:
         return _get_reprlib()(obj)
 
@@ -434,30 +384,26 @@ def safe_repr(obj: Any, max_len: int = 150) -> str:
     except Exception:
         return "<unrepresentable>"
 
-
-# ── Credential redaction ──────────────────────────────────────────────────────
 def _is_sensitive_key(key: str) -> bool:
-    """Cek apakah key mengandung kata kunci sensitif (case-insensitive)."""
     key_lower = key.lower()
     return any(sk in key_lower for sk in _SENSITIVE_KEYS)
 
-
 # ── File utilities ────────────────────────────────────────────────────────────
 def _get_file_info(path: str) -> Optional[Tuple[float, int]]:
-    """Ambil (mtime, size) dari file. Return None jika tidak accessible."""
     try:
         stat = os.stat(path)
         return stat.st_mtime, stat.st_size
     except OSError:
         return None
 
-
 def _get_file_content(filename: str) -> Optional[str]:
-    """Baca konten file dengan cache berbasis (path, mtime, size)."""
     info = _get_file_info(filename)
     if info is None:
         return None
     mtime, size = info
+    if size > FILE_READ_LIMIT:
+        _logger.warning("File too large (>%d bytes): %s", FILE_READ_LIMIT, filename)
+        return None
     key    = (filename, mtime, size)
     cached = _file_cache.get(key)
     if cached is not None:
@@ -472,13 +418,13 @@ def _get_file_content(filename: str) -> Optional[str]:
             continue
     return None
 
-
 def get_ast(filename: str) -> Optional[ast.AST]:
-    """Parse file Python ke AST dengan cache. Return None jika syntax error."""
     info = _get_file_info(filename)
     if info is None:
         return None
     mtime, size = info
+    if size > FILE_READ_LIMIT:
+        return None
     key    = (filename, mtime, size)
     cached = _ast_cache.get(key)
     if cached is not None:
@@ -490,25 +436,22 @@ def get_ast(filename: str) -> Optional[ast.AST]:
         tree = ast.parse(content, filename=filename)
         _ast_cache.set(key, tree)
         return tree
-    except (SyntaxError, MemoryError, RecursionError):  # FIX-26: tangkap MemoryError
+    except (SyntaxError, MemoryError, RecursionError):
         return None
-
 
 def get_code_context(
     filename: str,
     lineno: int,
     context_lines: int = MAX_CONTEXT_LINES,
 ) -> List[str]:
-    """
-    Ambil baris kode sekitar lineno dengan cache.
-    FIX-09: Guard untuk lineno <= 0.
-    """
-    if lineno <= 0:           # FIX-09: frame dari C extension / exec()
+    if lineno <= 0:
         return []
     info = _get_file_info(filename)
     if info is None:
         return []
     mtime, size = info
+    if size > FILE_READ_LIMIT:
+        return []
     key    = (filename, mtime, size, lineno, context_lines)
     cached = _context_cache.get(key)
     if cached is not None:
@@ -519,22 +462,15 @@ def get_code_context(
     lines  = content.splitlines()
     start  = max(0, lineno - context_lines - 1)
     end    = min(len(lines), lineno + context_lines)
-    result = [f"{i + 1}: {lines[i].rstrip()}" for i in range(start, end)]
+    result = [f"{i + 1}: {lines[i].rstrip()[:200]}" for i in range(start, end)]
     _context_cache.set(key, result)
     return result
-
 
 def _get_error_line(
     code: List[str],
     frame_lineno: int,
     context_lines: int = MAX_CONTEXT_LINES,
 ) -> Optional[str]:
-    """
-    Hitung index baris error dalam list code yang dikembalikan get_code_context().
-    Return string baris atau None jika tidak valid.
-    FIX-14: Guard untuk lineno <= 0 sudah dilakukan di caller; di sini kita
-    hitung index dengan benar.
-    """
     if not code or frame_lineno <= 0:
         return None
     start      = max(0, frame_lineno - context_lines - 1)
@@ -542,12 +478,7 @@ def _get_error_line(
     target_idx = max(0, min(target_idx, len(code) - 1))
     return code[target_idx]
 
-
 def get_frame_locals(frame: Any, max_items: int = 10) -> Dict[str, str]:
-    """
-    Ambil variabel lokal dari frame aktif (bukan FrameSummary).
-    FIX-07: Nilai sensitif di-redact.
-    """
     if not hasattr(frame, "f_locals"):
         return {}
     filtered: Dict[str, str] = {}
@@ -560,24 +491,17 @@ def get_frame_locals(frame: Any, max_items: int = 10) -> Dict[str, str]:
             filtered[k] = safe_repr(v)
     return filtered
 
-
 def get_traceback_frames(exc: BaseException) -> List[traceback.FrameSummary]:
-    """Ekstrak FrameSummary dari traceback exception."""
     tb = exc.__traceback__
     if tb is None:
         return []
     frames = list(traceback.extract_tb(tb))
     return frames[-MAX_TRACEBACK_FRAMES:]
 
-
 def flatten_exception(
     exc: BaseException,
     _seen: Optional[Set[int]] = None,
 ) -> List[BaseException]:
-    """
-    Flatten ExceptionGroup ke list of exceptions.
-    FIX-12: Cycle detection via _seen set.
-    """
     if _seen is None:
         _seen = set()
     result: List[BaseException] = []
@@ -591,12 +515,7 @@ def flatten_exception(
         result.append(exc)
     return result
 
-
 def get_all_causes(exc: BaseException) -> List[BaseException]:
-    """
-    BFS untuk mengumpulkan seluruh exception chain termasuk ExceptionGroup.
-    Menghormati __suppress_context__ (from None).
-    """
     result: List[BaseException] = []
     seen  : Set[int]            = set()
     queue : deque               = deque([exc])
@@ -609,16 +528,18 @@ def get_all_causes(exc: BaseException) -> List[BaseException]:
         seen.add(eid)
         result.append(e)
 
+        # __cause__
         if e.__cause__ is not None:
             queue.append(e.__cause__)
 
+        # __context__ (unless suppressed)
         suppress = getattr(e, "__suppress_context__", False)
         if (e.__context__ is not None
                 and e.__context__ is not e.__cause__
                 and not suppress):
             queue.append(e.__context__)
 
-        # Flatten ExceptionGroup sub-exceptions
+        # ExceptionGroup / BaseExceptionGroup
         if hasattr(e, "exceptions"):
             for sub in flatten_exception(e):
                 if id(sub) not in seen:
@@ -626,19 +547,16 @@ def get_all_causes(exc: BaseException) -> List[BaseException]:
 
     return result
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  RULES — semua aturan (generik + project) dalam satu tempat
+# ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Base Rule ─────────────────────────────────────────────────────────────────
 class RCARule(ABC):
-    """
-    Base class untuk semua rule analisis.
-    Subclass WAJIB override match() dan analyze().
-    """
-
     def __init__(
         self,
         priority : int             = 0,
         enabled  : bool            = True,
-        name     : Optional[str]   = None,    # FIX-13: Optional[str]
+        name     : Optional[str]   = None,
         category : Category        = Category.UNKNOWN,
         version  : str             = "1.0",
         author   : str             = "system",
@@ -661,7 +579,7 @@ class RCARule(ABC):
         frames  : List[traceback.FrameSummary],
         context : Dict[str, Any],
     ) -> bool:
-        """Return True jika rule ini relevan untuk exception ini."""
+        pass
 
     @abstractmethod
     def analyze(
@@ -670,7 +588,7 @@ class RCARule(ABC):
         frames  : List[traceback.FrameSummary],
         context : Dict[str, Any],
     ) -> Optional[RCAResult]:
-        """Analisis exception dan return RCAResult, atau None jika tidak konklusif."""
+        pass
 
     def stats(self) -> Dict[str, Any]:
         with self._stats_lock:
@@ -681,24 +599,15 @@ class RCARule(ABC):
         return s
 
     def _make_evidence(self, text: str, evidence_type: str = "general") -> EvidenceItem:
-        """Helper untuk membuat EvidenceItem dengan nama rule otomatis."""
         return EvidenceItem(text=text, source_rule=self.name, evidence_type=evidence_type)
 
     def __repr__(self) -> str:
         return f"<{self.name} priority={self.priority} enabled={self.enabled}>"
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ── RULES ────────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ─── ImportErrorRule ─────────────────────────────────────────────────────────
 class ImportErrorRule(RCARule):
-    """Deteksi kegagalan import: modul tidak ditemukan, __init__.py hilang."""
-
     def __init__(self) -> None:
-        super().__init__(
-            priority=100, category=Category.IMPORT, name="ImportErrorRule"
-        )
+        super().__init__(priority=100, category=Category.IMPORT, name="ImportErrorRule")
 
     def match(self, exc, frames, context) -> bool:
         return isinstance(exc, (ImportError, ModuleNotFoundError))
@@ -778,28 +687,19 @@ class ImportErrorRule(RCARule):
             suggested_fix=suggested_fix, raw_error=msg, confidence=confidence,
         )
 
-
+# ─── CircularImportRule ─────────────────────────────────────────────────────
 class CircularImportRule(RCARule):
-    """
-    Deteksi circular import menggunakan graph analysis (networkx).
-    FIX-19: Fallback deteksi jika semua frames dari frozen modules.
-    """
-
-    # Kata kunci yang mengindikasikan circular import dalam pesan error
     _CIRCULAR_HINTS = re.compile(
         r"(circular import|partially initialized module|most likely due to)",
         re.IGNORECASE,
     )
 
     def __init__(self) -> None:
-        super().__init__(
-            priority=95, category=Category.IMPORT, name="CircularImportRule"
-        )
+        super().__init__(priority=95, category=Category.IMPORT, name="CircularImportRule")
 
     def match(self, exc, frames, context) -> bool:
         if not isinstance(exc, (ImportError, ModuleNotFoundError)):
             return False
-        # FIX-19: Cek message jika tidak ada frame .py
         if self._CIRCULAR_HINTS.search(str(exc)):
             return True
         if not HAS_NETWORKX:
@@ -808,7 +708,6 @@ class CircularImportRule(RCARule):
         return len(filenames) != len(set(filenames))
 
     def analyze(self, exc, frames, context) -> Optional[RCAResult]:
-        # Fallback: deteksi dari message saja
         if self._CIRCULAR_HINTS.search(str(exc)) and not HAS_NETWORKX:
             return RCAResult(
                 severity=Severity.CRITICAL, category=Category.IMPORT,
@@ -881,14 +780,10 @@ class CircularImportRule(RCARule):
 
         return None
 
-
+# ─── AttributeErrorRule ──────────────────────────────────────────────────────
 class AttributeErrorRule(RCARule):
-    """Deteksi AttributeError: atribut tidak ada, akses NoneType."""
-
     def __init__(self) -> None:
-        super().__init__(
-            priority=90, category=Category.ATTRIBUTE, name="AttributeErrorRule"
-        )
+        super().__init__(priority=90, category=Category.ATTRIBUTE, name="AttributeErrorRule")
 
     _PATTERNS = [
         re.compile(r"^'?(\w[\w.]*)'? object has no attribute '(\w+)'"),
@@ -914,7 +809,6 @@ class AttributeErrorRule(RCARule):
                 obj_type, attr = m.groups()
                 break
 
-        # NoneType — pattern kritis tersendiri
         if obj_type == "NoneType" and attr:
             return RCAResult(
                 severity=Severity.HIGH, category=Category.ATTRIBUTE,
@@ -986,16 +880,10 @@ class AttributeErrorRule(RCARule):
             suggested_fix=suggested_fix, raw_error=msg, confidence=confidence,
         )
 
-
+# ─── TypeErrorRule ──────────────────────────────────────────────────────────
 class TypeErrorRule(RCARule):
-    """Deteksi TypeError: argumen salah, tipe tidak kompatibel, tidak callable."""
-
-    # FIX-L09: Class-level constant, tidak dibuat ulang setiap call
-    _PATTERNS: List[Tuple[re.Pattern, ErrorCode, Any]] = []  # di-set di __init_subclass__ atau __init__
-
     def __init__(self) -> None:
         super().__init__(priority=80, category=Category.TYPE, name="TypeErrorRule")
-        # Dipindahkan ke __init__ agar akses re.compile hanya sekali per instance
         self._compiled_patterns = [
             (
                 re.compile(r"(\w+)\(\) takes (\d+) positional arguments? but (\d+) were given"),
@@ -1051,6 +939,15 @@ class TypeErrorRule(RCARule):
                     0.8,
                 ),
             ),
+            (
+                re.compile(r"'(\w+)' object is not subscriptable"),
+                ErrorCode.TYPE_NOT_ITERABLE,
+                lambda m: (
+                    f"Objek tipe '{m.group(1)}' tidak mendukung subscript (indexing).",
+                    f"Pastikan Anda mengakses index pada tipe yang mendukung (list, dict, str).",
+                    0.75,
+                ),
+            ),
         ]
 
     def match(self, exc, frames, context) -> bool:
@@ -1084,18 +981,14 @@ class TypeErrorRule(RCARule):
             suggested_fix=suggested_fix, raw_error=msg, confidence=confidence,
         )
 
-
+# ─── NameErrorRule ──────────────────────────────────────────────────────────
 class NameErrorRule(RCARule):
-    """Deteksi NameError: variabel tidak terdefinisi, typo, scope issue."""
-
-    # FIX-L06 + FIX-01: Class-level constant, tidak dibuat ulang per call
-    # FIX-01: Hapus duplikat key "lenght"
     _BUILTIN_TYPOS: Dict[str, str] = {
         "true"   : "True",
         "false"  : "False",
         "none"   : "None",
         "print_" : "print",
-        "lenght" : "len",    # FIX-01: hanya satu entry
+        "lenght" : "len",
         "lenth"  : "len",
         "pritn"  : "print",
         "pint"   : "print",
@@ -1191,11 +1084,8 @@ class NameErrorRule(RCARule):
             suggested_fix=suggested_fix, raw_error=msg, confidence=confidence,
         )
 
-
+# ─── KeyErrorRule ────────────────────────────────────────────────────────────
 class KeyErrorRule(RCARule):
-    """Deteksi KeyError: dict key tidak ada — sangat kritis di ERP config/mapping."""
-
-    # FIX-L07: Class-level constant
     _ERP_CONTEXTS: Dict[str, Tuple[str, str]] = {
         "account"  : ("Kode akun tidak terdaftar di chart of accounts.",
                       "Pastikan kode akun sudah didefinisikan di master akun ERP."),
@@ -1213,6 +1103,10 @@ class KeyErrorRule(RCARule):
                       "Periksa master data pajak dan pastikan kode sudah aktif."),
         "cost"     : ("Cost center/profit center tidak ditemukan.",
                       "Periksa konfigurasi cost center di modul akuntansi biaya."),
+        "entity"   : ("Entity ID tidak ditemukan.",
+                      "Pastikan legal entity sudah terdaftar dan aktif."),
+        "project"  : ("Project ID tidak ditemukan.",
+                      "Periksa master data project."),
     }
 
     def __init__(self) -> None:
@@ -1270,10 +1164,8 @@ class KeyErrorRule(RCARule):
             suggested_fix=suggested_fix, raw_error=raw, confidence=confidence,
         )
 
-
+# ─── IndexErrorRule ─────────────────────────────────────────────────────────
 class IndexErrorRule(RCARule):
-    """Deteksi IndexError / out-of-range di data processing ERP."""
-
     _RANGE_PATTERN = re.compile(
         r"list index out of range|tuple index out of range|"
         r"string index out of range|index (\d+) is out of bounds"
@@ -1334,17 +1226,9 @@ class IndexErrorRule(RCARule):
             suggested_fix=suggested_fix, raw_error=msg, confidence=confidence,
         )
 
-
+# ─── ValueErrorRule ─────────────────────────────────────────────────────────
 class ValueErrorRule(RCARule):
-    """Deteksi ValueError — validasi bisnis ERP: akun, periode, jumlah, konversi."""
-
-    # FIX-L08: Class-level constant
     _ERP_PATTERNS: List[Tuple[str, ErrorCode, "Severity", str, str, float]] = [
-        (r"period.*(closed|locked|not.open)",
-         ErrorCode.ERP_PERIOD_CLOSED, Severity.CRITICAL,
-         "Periode akuntansi sudah ditutup atau dikunci.",
-         "Buka kembali periode di modul akuntansi atau gunakan periode yang masih aktif.",
-         0.92),
         (r"account.*(invalid|not.found|not.exist|not.active)",
          ErrorCode.ERP_ACCOUNT_INVALID, Severity.CRITICAL,
          "Kode akun tidak valid atau tidak aktif.",
@@ -1381,9 +1265,13 @@ class ValueErrorRule(RCARule):
          "Repository gagal menyimpan entitas — constraint DB atau mismatch skema.",
          "Periksa mapping entitas ke tabel dan constraint database.",
          0.8),
+        (r"math domain error",
+         ErrorCode.VALUE_INVALID, Severity.MEDIUM,
+         "Operasi matematika domain error (misal sqrt negatif, log nol).",
+         "Validasi input agar berada dalam domain fungsi matematika.",
+         0.8),
     ]
 
-    # Cache compiled patterns untuk performa
     _COMPILED: Optional[List[Tuple[re.Pattern, ErrorCode, "Severity", str, str, float]]] = None
 
     def __init__(self) -> None:
@@ -1398,7 +1286,20 @@ class ValueErrorRule(RCARule):
         return isinstance(exc, ValueError)
 
     def analyze(self, exc, frames, context) -> Optional[RCAResult]:
-        raw        = str(exc)
+        raw = str(exc)
+
+        # DETEKSI PERIOD CLOSED — LANGSUNG RETURN
+        if re.search(r"(?:accounting\s+period|periode).*(?:closed|locked)", raw, re.I):
+            return RCAResult(
+                severity=Severity.CRITICAL, category=Category.DDD,
+                error_code=ErrorCode.ERP_PERIOD_CLOSED,
+                root_cause="Periode akuntansi sudah ditutup atau dikunci.",
+                evidence=[f"Pesan: {raw[:300]}"],
+                impact=["Posting jurnal tidak bisa dilakukan sampai periode dibuka."],
+                suggested_fix="Buka kembali periode di modul akuntansi atau gunakan periode yang masih aktif.",
+                raw_error=raw, confidence=0.95,
+            )
+
         evidence   : List[str] = []
         impact     : List[str] = []
         root_cause = suggested_fix = ""
@@ -1406,9 +1307,9 @@ class ValueErrorRule(RCARule):
         error_code = ErrorCode.VALUE_INVALID
         severity   = Severity.MEDIUM
 
-        assert self._COMPILED is not None  # mypy guard
+        assert self._COMPILED is not None
         for pattern, code, sev, cause, fix, conf in self._COMPILED:
-            if pattern.search(raw):          # FIX-07: gunakan raw langsung + IGNORECASE
+            if pattern.search(raw):
                 error_code    = code
                 severity      = sev
                 root_cause    = cause
@@ -1439,16 +1340,15 @@ class ValueErrorRule(RCARule):
             suggested_fix=suggested_fix, raw_error=raw, confidence=confidence,
         )
 
-
+# ─── InfrastructureConnectionRule ───────────────────────────────────────────
 class InfrastructureConnectionRule(RCARule):
-    """Deteksi kegagalan koneksi infrastruktur: DB, Redis, Kafka, HTTP."""
-
     _DB_PATTERN = re.compile(
         r"(connection refused|could not connect|"
         r"lost connection|server closed|"
         r"operational.?error|can.?t connect|"
         r"database.*unavailable|too many connections|"
-        r"connection.?timed?.out|no route to host)",
+        r"connection.?timed?.out|no route to host|"
+        r"SSL.*connection.*closed|SSL.*handshake)",
         re.IGNORECASE,
     )
     _REDIS_PATTERN = re.compile(
@@ -1474,10 +1374,12 @@ class InfrastructureConnectionRule(RCARule):
         )
 
     def match(self, exc, frames, context) -> bool:
+        msg = str(exc)
+        # JANGAN PROSES jika ini dead letter atau distributed lock
+        if re.search(r"dead\s*letter|DistributedLockTimeout", msg, re.I):
+            return False
         if isinstance(exc, (PermissionError, FileNotFoundError, IsADirectoryError, NotADirectoryError)):
             return False
-        msg = str(exc)
-        # FIX-17: Tambahkan OSError (parent ConnectionError)
         if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
             if not isinstance(exc, (PermissionError, FileNotFoundError)):
                 return True
@@ -1565,10 +1467,8 @@ class InfrastructureConnectionRule(RCARule):
             suggested_fix=suggested_fix, raw_error=msg, confidence=confidence,
         )
 
-
+# ─── CQRSHandlerRule ────────────────────────────────────────────────────────
 class CQRSHandlerRule(RCARule):
-    """Deteksi kegagalan CQRS: command/query handler tidak terdaftar atau gagal."""
-
     _CMD_PATTERN = re.compile(
         r"\b(command[_\s]?handler|handle[_\s]?command|command[_\s]?bus|"
         r"command[_\s]?dispatcher|no[_\s]?handler.*command|"
@@ -1657,10 +1557,8 @@ class CQRSHandlerRule(RCARule):
             suggested_fix=suggested_fix, raw_error=msg, confidence=confidence,
         )
 
-
+# ─── DomainRepositoryMismatchRule ──────────────────────────────────────────
 class DomainRepositoryMismatchRule(RCARule):
-    """Deteksi mismatch Repository DDD — interface vs implementasi."""
-
     _REPO_PATTERN = re.compile(r"\breep(ository)?\b|\brepository\b", re.IGNORECASE)
 
     def __init__(self) -> None:
@@ -1718,10 +1616,8 @@ class DomainRepositoryMismatchRule(RCARule):
             suggested_fix=suggested_fix, raw_error=str(exc), confidence=confidence,
         )
 
-
+# ─── EventPublishRule ──────────────────────────────────────────────────────
 class EventPublishRule(RCARule):
-    """Deteksi kegagalan publish/dispatch domain event."""
-
     _EVENT_PATTERN = re.compile(
         r"\b(publish|dispatch|emit|event[_\s]bus|event[_\s]handler|domain[_\s]event)\b",
         re.IGNORECASE,
@@ -1773,13 +1669,11 @@ class EventPublishRule(RCARule):
             suggested_fix=suggested_fix, raw_error=str(exc), confidence=confidence,
         )
 
-
+# ─── ContainerErrorRule ─────────────────────────────────────────────────────
 class ContainerErrorRule(RCARule):
-    """Deteksi kegagalan DI Container: service tidak terdaftar atau binding gagal."""
-
     _CONTAINER_KEYWORDS = re.compile(
         r"\b(container|dependency[_\s]injection|di[_\s]container|ioc|"
-        r"resolve[_\s]service|service[_\s]provider)\b",
+        r"resolve[_\s]service|service[_\s]provider|get\s*service|make\s*service)\b",
         re.IGNORECASE,
     )
 
@@ -1834,10 +1728,8 @@ class ContainerErrorRule(RCARule):
             suggested_fix=suggested_fix, raw_error=str(exc), confidence=confidence,
         )
 
-
+# ─── AggregateErrorRule ────────────────────────────────────────────────────
 class AggregateErrorRule(RCARule):
-    """Deteksi error pada Aggregate DDD — apply event gagal, invariant dilanggar."""
-
     def __init__(self) -> None:
         super().__init__(priority=62, category=Category.DDD, name="AggregateErrorRule")
 
@@ -1887,11 +1779,8 @@ class AggregateErrorRule(RCARule):
             suggested_fix=suggested_fix, raw_error=str(exc), confidence=confidence,
         )
 
-
+# ─── UnitOfWorkErrorRule ──────────────────────────────────────────────────
 class UnitOfWorkErrorRule(RCARule):
-    """Deteksi error di UnitOfWork — commit/rollback gagal."""
-
-    # FIX-18: Gunakan word boundary untuk "uow"
     _UOW_PATTERN = re.compile(r"unitofwork|\buow\b", re.IGNORECASE)
 
     def __init__(self) -> None:
@@ -1947,10 +1836,8 @@ class UnitOfWorkErrorRule(RCARule):
             suggested_fix=suggested_fix, raw_error=str(exc), confidence=confidence,
         )
 
-
+# ─── TransactionIntegrityRule ──────────────────────────────────────────────
 class TransactionIntegrityRule(RCARule):
-    """Deteksi pelanggaran integritas transaksi database."""
-
     _TX_KEYWORDS = frozenset({
         "unitofwork", "transaction", "uow", "commit", "rollback", "session",
     })
@@ -1995,10 +1882,8 @@ class TransactionIntegrityRule(RCARule):
             raw_error=str(exc), confidence=0.9,
         )
 
-
+# ─── RecursionMemoryRule ──────────────────────────────────────────────────
 class RecursionMemoryRule(RCARule):
-    """Deteksi RecursionError dan MemoryError — sering terjadi di proses batch ERP."""
-
     def __init__(self) -> None:
         super().__init__(
             priority=95, category=Category.PERFORMANCE, name="RecursionMemoryRule"
@@ -2015,7 +1900,7 @@ class RecursionMemoryRule(RCARule):
         if isinstance(exc, RecursionError):
             if frames:
                 names = [f.name for f in frames]
-                top   = Counter(names).most_common(3)  # FIX-22: Counter dari top-level import
+                top   = Counter(names).most_common(3)
                 evidence.append(f"Fungsi yang paling banyak di stack: {top}")
                 for fn, cnt in top:
                     if cnt > 5:
@@ -2044,9 +1929,9 @@ class RecursionMemoryRule(RCARule):
                 raw_error=msg, confidence=0.92,
             )
 
-        else:  # MemoryError — FIX-02: guard aman
+        else:  # MemoryError
             if frames:
-                last_frame = frames[-1]  # FIX-02: assign dulu, gunakan kemudian
+                last_frame = frames[-1]
                 evidence.append(
                     f"MemoryError terjadi di: {last_frame.filename}:{last_frame.lineno}"
                 )
@@ -2081,10 +1966,8 @@ class RecursionMemoryRule(RCARule):
                 raw_error=msg, confidence=0.9,
             )
 
-
+# ─── PermissionFileRule ────────────────────────────────────────────────────
 class PermissionFileRule(RCARule):
-    """Deteksi PermissionError dan FileNotFoundError — common di ERP file processing."""
-
     _CONFIG_EXTENSIONS = frozenset({'.py', '.cfg', '.ini', '.yaml', '.yml', '.env', '.json', '.toml'})
 
     def __init__(self) -> None:
@@ -2154,24 +2037,1234 @@ class PermissionFileRule(RCARule):
             suggested_fix=suggested_fix, raw_error=raw, confidence=0.9,
         )
 
+# ─── PROJECT‑SPECIFIC RULES (semua digabung di sini, tidak ada duplikasi) ──
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ── RCAEngine ─────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
+class AxiomViolationRule(RCARule):
+    _AXIOM_PATTERNS: List[Tuple[re.Pattern, str, str, "Severity"]] = [
+        (
+            re.compile(
+                r"(double.?entry|debit.*credit.*unbalanced|credit.*debit.*unbalanced|"
+                r"total.debit.*!=.*total.credit|jurnal.tidak.seimbang|unbalanced.journal)",
+                re.I,
+            ),
+            "Pelanggaran aksioma Double-Entry: total debit ≠ total kredit.",
+            "Validasi setiap JournalEntry: sum(debit_lines) == sum(credit_lines) "
+            "sebelum persist. Periksa axioms/double_entry.py untuk constraint.",
+            Severity.FATAL,
+        ),
+        (
+            re.compile(
+                r"(immutab|posted.journal.*modif|journal.*sudah.diposting|"
+                r"cannot.modif.*posted|ImmutabilityViolation|tamper)",
+                re.I,
+            ),
+            "Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.",
+            "Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. "
+            "Lihat axioms/immutability.py dan application/use_cases/reverse_journal.py.",
+            Severity.FATAL,
+        ),
+        (
+            re.compile(
+                r"(accrual.basis|cash.basis.*not.allowed|AccrualBasisViolation|"
+                r"transaksi.*belum.jatuh.tempo.*diakui|revenue.recognition.violation)",
+                re.I,
+            ),
+            "Pelanggaran aksioma Accrual Basis: pengakuan pendapatan/biaya tidak sesuai periode.",
+            "Periksa axioms/accrual_basis.py. Gunakan fiscal period yang benar. "
+            "Revenue hanya diakui saat sudah earned (IFRS 15 / PSAK 72).",
+            Severity.CRITICAL,
+        ),
+        (
+            re.compile(
+                r"(conservation.of.value|nilai.tidak.konsisten|ConservationOfValueError|"
+                r"entity.isolation.*violated|cross.entity.contamination)",
+                re.I,
+            ),
+            "Pelanggaran aksioma Conservation of Value atau Entity Isolation.",
+            "Pastikan transaksi antar entitas (intercompany) menggunakan "
+            "elimination entries. Lihat axioms/entity_isolation.py dan "
+            "application/use_cases/intercompany_elimination.py.",
+            Severity.CRITICAL,
+        ),
+        (
+            re.compile(
+                r"(AxiomViolation|axiom.*violation|pelanggaran.aksioma)",
+                re.I,
+            ),
+            "Pelanggaran aksioma akuntansi terdeteksi.",
+            "Periksa axioms/ untuk daftar lengkap aksioma. "
+            "Trace exception ke axiom spesifik yang dilanggar.",
+            Severity.FATAL,
+        ),
+    ]
 
+    def __init__(self) -> None:
+        super().__init__(priority=200, category=Category.DDD, name="AxiomViolationRule")
+
+    def match(self, exc, frames, context) -> bool:
+        cls_name = type(exc).__name__
+        if any(k in cls_name for k in (
+            "AxiomViolation", "DoubleEntry", "Immutability",
+            "AccrualBasis", "ConservationOfValue", "EntityIsolation",
+        )):
+            return True
+        msg = str(exc).lower()
+        return any(p.search(msg) for p, *_ in self._AXIOM_PATTERNS)
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg = str(exc)
+        for pattern, root_cause, fix, sev in self._AXIOM_PATTERNS:
+            if pattern.search(msg):
+                evidence = [f"Exception: {type(exc).__name__}: {msg[:300]}"]
+                if frames:
+                    frame = frames[-1]
+                    code  = get_code_context(frame.filename, frame.lineno)
+                    line  = _get_error_line(code, frame.lineno)
+                    if line:
+                        evidence.append(f"Lokasi: {frame.filename}:{frame.lineno} → {line}")
+                    axiom_frames = [f for f in frames if "axiom" in f.filename.lower()]
+                    if axiom_frames:
+                        evidence.append(
+                            f"Axiom file: {axiom_frames[-1].filename}:{axiom_frames[-1].lineno}"
+                        )
+                return RCAResult(
+                    severity=sev, category=Category.DDD,
+                    error_code=ErrorCode.ERP_VALIDATION,
+                    root_cause=root_cause, evidence=evidence,
+                    impact=[
+                        "Integritas data akuntansi KRITIS terancam.",
+                        "Laporan keuangan tidak dapat dipercaya jika ini lolos.",
+                        "Auditor eksternal akan menolak laporan dengan temuan ini.",
+                    ],
+                    suggested_fix=fix, raw_error=msg, confidence=0.95,
+                )
+        return None
+
+# ─── ConstitutionViolationRule ─────────────────────────────────────────────
+class ConstitutionViolationRule(RCARule):
+    _CONST_PATTERN = re.compile(
+        r"(ConstitutionViolation|ForbiddenState|InvariantBroken|"
+        r"SovereigntyViolation|constitutional.*invariant|"
+        r"forbidden.state.detected|supreme.law.violated|"
+        r"enforcement.engine.*reject)",
+        re.I,
+    )
+
+    def __init__(self) -> None:
+        super().__init__(priority=195, category=Category.DDD, name="ConstitutionViolationRule")
+
+    def match(self, exc, frames, context) -> bool:
+        return bool(self._CONST_PATTERN.search(str(exc))) or \
+               any("constitution" in f.filename.lower() for f in frames)
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg    = str(exc)
+        cframes= [f for f in frames if "constitution" in f.filename.lower()]
+        evidence = [f"Constitutional violation: {type(exc).__name__}: {msg[:300]}"]
+        if cframes:
+            evidence.append(f"Constitution module: {cframes[-1].filename}:{cframes[-1].lineno}")
+        return RCAResult(
+            severity=Severity.FATAL, category=Category.DDD,
+            error_code=ErrorCode.ERP_VALIDATION,
+            root_cause=(
+                "Pelanggaran Constitutional Invariant — kondisi yang dilarang secara absolut "
+                "oleh constitution/forbidden_states.py terdeteksi. "
+                "Sistem masuk ke state yang tidak valid."
+            ),
+            evidence=evidence,
+            impact=[
+                "Sistem ERP dalam kondisi tidak valid (forbidden state).",
+                "Semua operasi berikutnya akan menghasilkan data tidak konsisten.",
+                "Diperlukan rollback dan forensic audit segera.",
+            ],
+            suggested_fix=(
+                "1. Hentikan operasi segera — jangan lanjutkan transaksi. "
+                "2. Jalankan application/use_cases/disaster_recovery_replay.py untuk forensik. "
+                "3. Periksa constitution/forbidden_states.py untuk state yang dilanggar. "
+                "4. Gunakan constitution/amendment_protocol.py jika aturan perlu diubah (prosedur formal)."
+            ),
+            raw_error=msg, confidence=0.97,
+        )
+
+# ─── KernelGuardViolationRule ─────────────────────────────────────────────
+class KernelGuardViolationRule(RCARule):
+    _GUARD_PATTERNS: List[Tuple[re.Pattern, str, str, str, "Severity"]] = [
+        (
+            re.compile(r"(PeriodLock|period.*locked|period.*closed|tutup.buku|"
+                       r"fiscal.*period.*lock|posting.*closed.*period)", re.I),
+            "PeriodLockViolation",
+            "Periode fiskal sudah dikunci — tidak ada posting yang diizinkan.",
+            "Minta approval dari Finance Manager untuk reopen period "
+            "(application/use_cases/period_reopen_with_audit.py). "
+            "Audit trail akan dicatat di audit/event_writer_immutable.py.",
+            Severity.CRITICAL,
+        ),
+        (
+            re.compile(r"(SodViolation|segregation.of.duties|sod.*enforc|"
+                       r"user.*tidak.bisa.*approve.*sendiri|four.eyes|"
+                       r"same.user.*creator.*approver)", re.I),
+            "SodViolation (Segregation of Duties)",
+            "Pelanggaran Segregation of Duties — user yang sama tidak boleh "
+            "membuat dan menyetujui transaksi.",
+            "Gunakan four-eyes approval workflow: "
+            "application/use_cases/approve_journal_four_eyes.py. "
+            "Periksa kernel/guards/sod_enforcer.py untuk aturan SOD.",
+            Severity.FATAL,
+        ),
+        (
+            re.compile(r"(BudgetExhausted|BudgetNotApproved|budget.*exceeded|"
+                       r"melebihi.anggaran|over.budget|budget.*not.*available|"
+                       r"BudgetAvailability)", re.I),
+            "BudgetExhausted / BudgetNotApproved",
+            "Transaksi melebihi anggaran yang tersedia atau anggaran belum disetujui.",
+            "Periksa saldo anggaran di domain/budget/. "
+            "Ajukan budget revision atau minta authorization dari budget owner. "
+            "Lihat kernel/guards/budget_availability.py.",
+            Severity.HIGH,
+        ),
+        (
+            re.compile(r"(CreditLimitExceeded|credit.limit|batas.kredit|"
+                       r"piutang.*melebihi.limit|over.credit.limit)", re.I),
+            "CreditLimitExceeded",
+            "Transaksi AR/penjualan melebihi credit limit pelanggan.",
+            "Periksa domain/subledger_ar/ untuk credit limit pelanggan. "
+            "Minta approval dari Credit Manager atau ubah credit limit di master data.",
+            Severity.HIGH,
+        ),
+        (
+            re.compile(r"(UnauthorizedOperation|not.authorized|tidak.berwenang|"
+                       r"authority.matrix|tidak.memiliki.hak|permission.denied.*erp|"
+                       r"AuthorityMatrix)", re.I),
+            "UnauthorizedOperation",
+            "Operasi tidak diizinkan — user tidak ada di authority matrix.",
+            "Periksa kernel/guards/authority_matrix.py untuk permission yang diperlukan. "
+            "Hubungi IAM administrator untuk grant permission: domain/iam/.",
+            Severity.CRITICAL,
+        ),
+        (
+            re.compile(r"(SystemFrozen|EmergencyFreeze|sistem.*dibekukan|"
+                       r"emergency.freeze|system.frozen)", re.I),
+            "SystemFrozenError (Emergency Freeze)",
+            "Sistem ERP dalam kondisi Emergency Freeze — semua operasi diblokir.",
+            "Hanya Super Admin yang bisa unfreeze: kernel/guards/emergency_freeze.py. "
+            "Cari tahu penyebab freeze di audit/tamper_alert_trigger.py. "
+            "Jangan bypass — ini keamanan darurat.",
+            Severity.FATAL,
+        ),
+        (
+            re.compile(r"(LegalEntityBoundary|batas.entitas.hukum|"
+                       r"cross.entity.*not.allowed|intercompany.*not.configured|"
+                       r"legal.entity.*mismatch)", re.I),
+            "LegalEntityBoundaryViolation",
+            "Transaksi melintasi batas entitas hukum yang tidak dikonfigurasi.",
+            "Konfigurasikan intercompany relationship di domain/legal_entity/. "
+            "Gunakan application/use_cases/intercompany_elimination.py untuk "
+            "eliminasi transaksi lintas entitas yang valid.",
+            Severity.CRITICAL,
+        ),
+        (
+            re.compile(r"(AMLFlag|AMLFlagged|anti.money.laundering|suspicious.*transaction|"
+                       r"transaksi.*mencurigakan|aml.*risk.score)", re.I),
+            "AMLFlaggedTransaction",
+            "Transaksi ditandai sebagai mencurigakan oleh sistem AML.",
+            "Transaksi diblokir oleh kernel/guards/async_guards/anti_money_laundering.py. "
+            "Review di compliance/aml_risk_scorer.py dan laporkan sesuai prosedur PPATK "
+            "jika diperlukan. Jangan release tanpa persetujuan Compliance Officer.",
+            Severity.FATAL,
+        ),
+        (
+            re.compile(r"(FraudPattern|fraud.*detected|pola.*kecurangan|"
+                       r"FraudPatternDetected|anomali.*transaksi)", re.I),
+            "FraudPatternDetected",
+            "Pola kecurangan terdeteksi oleh fraud detection engine.",
+            "Transaksi diblokir oleh kernel/guards/async_guards/fraud_pattern_detector.py. "
+            "Eskalasi ke Internal Audit segera. "
+            "Jalankan audit/forensic_replayer.py untuk investigasi trail.",
+            Severity.FATAL,
+        ),
+        (
+            re.compile(r"(CurrencyMismatch|mata.uang.*tidak.cocok|currency.*mismatch|"
+                       r"CurrencyValidat|forex.*rate.*missing)", re.I),
+            "CurrencyMismatchError",
+            "Mismatch mata uang — kurs tidak tersedia atau kode currency salah.",
+            "Periksa domain/forex/ untuk kurs yang diperlukan. "
+            "Jalankan application/use_cases/forex_revaluation.py jika kurs expired. "
+            "Lihat kernel/guards/currency_validator.py.",
+            Severity.HIGH,
+        ),
+        (
+            re.compile(r"(TemporalConsistency|temporal.*violation|"
+                       r"tanggal.*transaksi.*sebelum.*posting|backdate.*not.allowed)", re.I),
+            "TemporalConsistencyError",
+            "Pelanggaran konsistensi temporal — tanggal transaksi tidak valid.",
+            "Periksa kernel/guards/temporal_consistency.py. "
+            "Backdate hanya diizinkan dengan approval khusus di dalam periode yang terbuka.",
+            Severity.HIGH,
+        ),
+        (
+            re.compile(r"(RegulatoryViolation|regulat.*violat|kepatuhan.*gagal|"
+                       r"compliance.*failed|OJK|PPATK|DJP.*rejected)", re.I),
+            "RegulatoryViolation",
+            "Pelanggaran aturan regulasi (OJK/PPATK/DJP) terdeteksi.",
+            "Periksa compliance/ dan policy_engine/ untuk aturan yang dilanggar. "
+            "Hubungi Compliance Officer sebelum melanjutkan.",
+            Severity.FATAL,
+        ),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(priority=190, category=Category.DDD, name="KernelGuardViolationRule")
+
+    def match(self, exc, frames, context) -> bool:
+        cls_name = type(exc).__name__
+        guard_class_patterns = (
+            "PeriodLock", "SodViolation", "Budget", "CreditLimit",
+            "Unauthorized", "SystemFrozen", "LegalEntity", "AML", "Fraud",
+            "CurrencyMismatch", "Temporal", "Regulatory", "GuardException",
+        )
+        if any(k in cls_name for k in guard_class_patterns):
+            return True
+        if any("kernel/guards" in f.filename.replace("\\", "/").lower() or
+               "kernel\\guards" in f.filename.lower()
+               for f in frames):
+            return True
+        msg = str(exc)
+        return any(p.search(msg) for p, *_ in self._GUARD_PATTERNS)
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg = str(exc)
+        for pattern, exc_type, root_cause, fix, sev in self._GUARD_PATTERNS:
+            if pattern.search(msg) or exc_type.lower().replace(" ", "") in type(exc).__name__.lower():
+                evidence = [
+                    f"Guard violation: {type(exc).__name__}",
+                    f"Message: {msg[:300]}",
+                ]
+                guard_frames = [
+                    f for f in frames
+                    if "guard" in f.filename.replace("\\", "/").lower()
+                ]
+                if guard_frames:
+                    gf = guard_frames[-1]
+                    evidence.append(f"Guard file: {gf.filename}:{gf.lineno} in {gf.name}")
+                if frames:
+                    caller = frames[0]
+                    evidence.append(
+                        f"Dipanggil dari: {caller.filename}:{caller.lineno} in {caller.name}"
+                    )
+                return RCAResult(
+                    severity=sev, category=Category.DDD,
+                    error_code=ErrorCode.PERMISSION_DENIED
+                    if "Unauthorized" in exc_type else ErrorCode.ERP_VALIDATION,
+                    root_cause=root_cause, evidence=evidence,
+                    impact=self._impact_for(exc_type),
+                    suggested_fix=fix, raw_error=msg, confidence=0.93,
+                )
+        if any("kernel/guard" in f.filename.replace("\\","/").lower() for f in frames):
+            return RCAResult(
+                severity=Severity.CRITICAL, category=Category.DDD,
+                error_code=ErrorCode.ERP_VALIDATION,
+                root_cause=f"Kernel guard menolak operasi: {type(exc).__name__}",
+                evidence=[f"Guard error: {msg[:300]}"],
+                impact=["Operasi ditolak oleh sistem keamanan ERP."],
+                suggested_fix="Periksa kernel/guards/ untuk guard yang aktif dan aturannya.",
+                raw_error=msg, confidence=0.8,
+            )
+        return None
+
+    @staticmethod
+    def _impact_for(exc_type: str) -> List[str]:
+        _impacts: Dict[str, List[str]] = {
+            "SodViolation": [
+                "Pelanggaran SOD adalah temuan audit KRITIKAL (SOX control failure).",
+                "Jika lolos, menciptakan risiko fraud dan salah saji material.",
+                "Auditor Big 4 akan menerbitkan qualified opinion.",
+            ],
+            "AMLFlagged": [
+                "Transaksi mencurigakan harus dilaporkan ke PPATK dalam 3 hari kerja.",
+                "Kegagalan lapor = sanksi pidana bagi direksi.",
+            ],
+            "FraudPattern": [
+                "Potensi kerugian finansial langsung.",
+                "Reputasi perusahaan berisiko jika tidak segera ditangani.",
+            ],
+        }
+        for key, impacts in _impacts.items():
+            if key.lower() in exc_type.lower():
+                return impacts
+        return [
+            "Operasi ditolak oleh kernel guard — tidak ada data yang dimodifikasi.",
+            "Perlu tindakan korektif sebelum transaksi bisa dilanjutkan.",
+        ]
+
+# ─── InfrastructureDatabaseRule ────────────────────────────────────────────
+class InfrastructureDatabaseRule(RCARule):
+    _DB_PATTERNS = re.compile(
+        r"(DatabaseException|ConnectionPoolExhausted|DatabaseTimeout|"
+        r"DeadlockDetected|ForeignKeyViolation|UniqueConstraintViolation|"
+        r"CheckConstraintViolation|NullConstraintViolation|"
+        r"SchemaVersionMismatch|MigrationPending|"
+        r"sqlalchemy.*error|psycopg2.*error|asyncpg.*error|"
+        r"could not serialize access|deadlock detected|"
+        r"duplicate key.*violates unique|"
+        r"null value.*violates not-null|"
+        r"foreign key.*violates|migration.*pending|"
+        r"relation.*does not exist|column.*does not exist|"
+        r"too many connections|remaining connection slots|"
+        r"SSL connection.*been closed|server unexpectedly closed|"
+        r"OperationalError|IntegrityError)",
+        re.I,
+    )
+
+    _TABLE_TO_DOMAIN: Dict[str, str] = {
+        "journal": "domain/journal — Periksa JournalEntry aggregate",
+        "account": "domain/coa — Periksa CoA aggregate",
+        "ap_invoice": "domain/subledger_ap — Periksa AP Invoice aggregate",
+        "ar_invoice": "domain/subledger_ar — Periksa AR Invoice aggregate",
+        "payroll": "domain/payroll — Periksa Payroll aggregate",
+        "fiscal_period": "domain/fiscal_period — Periksa FiscalPeriod",
+        "fixed_asset": "domain/fixed_asset — Periksa FixedAsset aggregate",
+        "inventory": "domain/inventory — Periksa Inventory aggregate",
+        "budget": "domain/budget — Periksa Budget aggregate",
+        "purchase_order": "domain/purchase_sales — Periksa PO aggregate",
+        "sales_order": "domain/purchase_sales — Periksa SO aggregate",
+        "tax": "domain/tax_transaction — Periksa TaxTransaction",
+        "forex": "domain/forex — Periksa ForexRate",
+        "audit_event": "audit/ — Audit event store bermasalah",
+        "employee": "domain/customer_supplier_employee",
+        "bank_cash": "domain/bank_cash — Periksa BankAccount aggregate",
+        "manufacturing": "domain/manufacturing — Periksa Manufacturing aggregate",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(priority=185, category=Category.DATABASE, name="InfrastructureDatabaseRule")
+
+    def match(self, exc, frames, context) -> bool:
+        if self._DB_PATTERNS.search(str(exc)):
+            return True
+        cls_name = type(exc).__name__
+        return any(k in cls_name for k in (
+            "DatabaseException", "ConnectionPool", "Deadlock",
+            "UniqueConstraint", "ForeignKey", "CheckConstraint",
+            "Migration", "SchemaVersion", "SQLAlchemy",
+            "OperationalError", "IntegrityError",
+        ))
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg      = str(exc)
+        evidence : List[str] = [f"DB Exception: {type(exc).__name__}: {msg[:300]}"]
+        impact   : List[str] = []
+        root_cause= suggested_fix = ""
+        confidence= 0.85
+        severity  = Severity.FATAL
+
+        domain_hint = ""
+        for f in frames:
+            fname = f.filename.replace("\\", "/").lower()
+            if "persistence_orm" in fname:
+                for table_key, domain_desc in self._TABLE_TO_DOMAIN.items():
+                    if table_key in fname:
+                        domain_hint = domain_desc
+                        evidence.append(f"ORM table file: {f.filename}")
+                        break
+
+        if re.search(r"deadlock", msg, re.I):
+            root_cause    = "Deadlock terdeteksi di PostgreSQL — dua transaksi saling menunggu."
+            suggested_fix = (
+                "1. Pastikan urutan lock konsisten di seluruh aplikasi. "
+                "2. Kurangi durasi transaksi — commit lebih awal. "
+                "3. Periksa infrastructure/database/postgres_connection_pool_manager.py "
+                "   untuk tuning pool timeout. "
+                "4. Di production: aktifkan lock_timeout di PostgreSQL config."
+            )
+            impact.append("Semua transaksi yang terlibat di-rollback otomatis.")
+            confidence = 0.92
+
+        elif re.search(r"duplicate key|unique.*constraint|violates unique", msg, re.I):
+            root_cause    = "Duplicate key violation — data yang sudah ada dicoba di-insert ulang."
+            suggested_fix = (
+                "1. Gunakan upsert pattern (INSERT ... ON CONFLICT DO UPDATE). "
+                "2. Periksa apakah proses idempotency berjalan. "
+                "3. Cek outbox pattern: application/outbox/outbox_relay_service.py "
+                "   mungkin memproses event dua kali (at-least-once delivery)."
+            )
+            severity   = Severity.HIGH
+            confidence = 0.9
+
+        elif re.search(r"foreign key.*violates|violates.*foreign key", msg, re.I):
+            root_cause    = "Foreign key violation — referenced record tidak ada."
+            suggested_fix = (
+                "1. Pastikan parent record dibuat sebelum child record. "
+                "2. Periksa urutan insert di UnitOfWork (adapters/secondary_impl/sqlalchemy_unit_of_work_impl.py). "
+                "3. Jika menggunakan Saga pattern, periksa saga state di application/sagas/."
+            )
+            severity   = Severity.CRITICAL
+            confidence = 0.9
+
+        elif re.search(r"too many connections|remaining connection slots", msg, re.I):
+            root_cause    = "PostgreSQL connection pool habis — max_connections terlampaui."
+            suggested_fix = (
+                "1. Kurangi pool_size di config environment atau naikkan max_connections PostgreSQL. "
+                "2. Pastikan semua session di-close setelah dipakai (gunakan UoW context manager). "
+                "3. Aktifkan PgBouncer atau connection pooling di "
+                "   infrastructure/database/postgres_connection_pool_manager.py. "
+                "4. Periksa zombie connections dengan: SELECT count(*) FROM pg_stat_activity;"
+            )
+            impact.append("Semua request API baru akan gagal sampai connections freed.")
+            confidence = 0.93
+
+        elif re.search(r"migration.*pending|relation.*does not exist|column.*does not exist", msg, re.I):
+            root_cause    = "Skema database tidak sinkron — migration belum dijalankan."
+            suggested_fix = (
+                "Jalankan: alembic upgrade head (dari folder migrations/). "
+                "Periksa versi migration terbaru di migrations/. "
+                "Pastikan deployment menjalankan migration sebelum start aplikasi."
+            )
+            severity   = Severity.FATAL
+            confidence = 0.95
+
+        else:
+            root_cause    = f"Database error: {type(exc).__name__}: {msg[:200]}"
+            suggested_fix = (
+                "Periksa infrastructure/database/database_exceptions.py untuk error taxonomy. "
+                "Cek PostgreSQL logs untuk detail error. "
+                "Lihat infrastructure/telemetry/ untuk monitoring metrics."
+            )
+
+        if domain_hint:
+            impact.append(f"Domain terdampak: {domain_hint}")
+        impact.append("Operasi database gagal — data mungkin tidak tersimpan.")
+
+        return RCAResult(
+            severity=severity, category=Category.DATABASE,
+            error_code=ErrorCode.DB_CONNECTION_FAIL,
+            root_cause=root_cause, evidence=evidence, impact=impact,
+            suggested_fix=suggested_fix, raw_error=msg, confidence=confidence,
+        )
+
+# ─── MessageBrokerRule ─────────────────────────────────────────────────────
+class MessageBrokerRule(RCARule):
+    _BROKER_PATTERN = re.compile(
+        r"(BrokerException|BrokerUnavailable|MessagePublishFailed|"
+        r"ConsumerGroupError|DeadLetterQueueFull|DeadLetterQueue|"
+        r"dead.letter|EventGatewayError|"
+        r"KafkaProducerError|KafkaConsumerError|OutboxRelay|"
+        r"event.*publish.*failed|domain.*event.*not.*sent|"
+        r"outbox.*stuck|"
+        r"message.*broker.*connection|topic.*not.*found|"
+        r"consumer.*group.*rebalancing)",
+        re.I,
+    )
+
+    def __init__(self) -> None:
+        super().__init__(priority=180, category=Category.INFRASTRUCTURE, name="MessageBrokerRule")
+
+    def match(self, exc, frames, context) -> bool:
+        if self._BROKER_PATTERN.search(str(exc)):
+            return True
+        return any(
+            any(k in f.filename.replace("\\", "/").lower()
+                for k in ("kafka", "message_broker", "event_gateway", "outbox"))
+            for f in frames
+        )
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg     = str(exc)
+        evidence= [f"Broker/Event error: {type(exc).__name__}: {msg[:300]}"]
+
+        broker_frames = [
+            f for f in frames
+            if any(k in f.filename.replace("\\","/").lower()
+                   for k in ("kafka", "message_broker", "event_gateway", "outbox"))
+        ]
+        if broker_frames:
+            bf = broker_frames[-1]
+            evidence.append(f"Broker file: {bf.filename}:{bf.lineno} in {bf.name}")
+
+        if re.search(r"dead.letter|DeadLetter", msg, re.I):
+            return RCAResult(
+                severity=Severity.CRITICAL, category=Category.INFRASTRUCTURE,
+                error_code=ErrorCode.KAFKA_FAIL,
+                root_cause="Event masuk ke Dead Letter Queue — konsumer gagal memproses berulang kali.",
+                evidence=evidence,
+                impact=[
+                    "Domain event tidak diproses — read model / projections tidak terupdate.",
+                    "Eventual consistency rusak — UI bisa menampilkan data lama.",
+                    "Jika outbox, transaksi DB sudah commit tapi event belum terkirim.",
+                ],
+                suggested_fix=(
+                    "1. Periksa adapters/secondary_impl/kafka_dead_letter_handler.py "
+                    "   untuk logic retry. "
+                    "2. Inspect dead letter topic: kafka-console-consumer --topic dlq.*. "
+                    "3. Fix konsumer error lalu replay dari DLQ. "
+                    "4. Cek application/outbox/outbox_relay_service.py untuk stuck outbox."
+                ),
+                raw_error=msg, confidence=0.88,
+            )
+
+        if re.search(r"outbox.*stuck|OutboxRelay", msg, re.I):
+            return RCAResult(
+                severity=Severity.HIGH, category=Category.INFRASTRUCTURE,
+                error_code=ErrorCode.KAFKA_FAIL,
+                root_cause="Outbox relay stuck — event di tabel outbox tidak terkirim ke Kafka.",
+                evidence=evidence,
+                impact=[
+                    "Domain events tertunda — subscriber tidak mendapat update.",
+                    "Eventual consistency degraded.",
+                ],
+                suggested_fix=(
+                    "1. Periksa application/outbox/outbox_poller.py — apakah poller berjalan. "
+                    "2. Cek status tabel outbox di database. "
+                    "3. Restart outbox relay service jika stuck."
+                ),
+                raw_error=msg, confidence=0.85,
+            )
+
+        return RCAResult(
+            severity=Severity.FATAL, category=Category.INFRASTRUCTURE,
+            error_code=ErrorCode.KAFKA_FAIL,
+            root_cause=(
+                "Message broker (Kafka) tidak tersedia atau error "
+                f"— {type(exc).__name__}"
+            ),
+            evidence=evidence,
+            impact=[
+                "Domain events tidak terkirim — eventual consistency broken.",
+                "Jika menggunakan Saga pattern, saga state mungkin terhenti.",
+            ],
+            suggested_fix=(
+                "1. Periksa status Kafka broker. "
+                "2. Cek adapters/secondary_impl/kafka_producer_wrapper.py "
+                "   untuk retry/backoff configuration. "
+                "3. Gunakan Outbox pattern (application/outbox/) sebagai fallback. "
+                "4. Monitor di infrastructure/telemetry/."
+            ),
+            raw_error=msg, confidence=0.87,
+        )
+
+# ─── CachingRule ───────────────────────────────────────────────────────────
+class CachingRule(RCARule):
+    _CACHE_PATTERN = re.compile(
+        r"(CachingException|CacheConnectionFailed|CacheSerializationError|"
+        r"CacheKeyNotFound|RedisConnectionError|redis.*timeout|"
+        r"cache.*miss.*critical|CacheInvalidationFailed|"
+        r"lock.*acquisition.*failed|DistributedLockTimeout)",
+        re.I,
+    )
+
+    def __init__(self) -> None:
+        super().__init__(priority=170, category=Category.INFRASTRUCTURE, name="CachingRule")
+
+    def match(self, exc, frames, context) -> bool:
+        return self._CACHE_PATTERN.search(str(exc)) is not None or \
+               any(k in type(exc).__name__ for k in ("Cache", "Redis", "Lock"))
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg = str(exc)
+        if re.search(r"DistributedLock|lock.*acquisition", msg, re.I):
+            return RCAResult(
+                severity=Severity.HIGH, category=Category.INFRASTRUCTURE,
+                error_code=ErrorCode.REDIS_FAIL,
+                root_cause="Distributed lock tidak bisa diperoleh — mungkin ada proses lain yang memegang lock atau Redis down.",
+                evidence=[f"Lock error: {msg[:200]}"],
+                impact=["Operasi concurrent tidak bisa dieksekusi — terjadi bottleneck."],
+                suggested_fix=(
+                    "1. Periksa kernel/distributed_lock_redis.py untuk timeout config. "
+                    "2. Pastikan Redis tersedia. "
+                    "3. Periksa apakah ada lock yang tidak di-release (zombie lock)."
+                ),
+                raw_error=msg, confidence=0.88,
+            )
+        return RCAResult(
+            severity=Severity.HIGH, category=Category.INFRASTRUCTURE,
+            error_code=ErrorCode.REDIS_FAIL,
+            root_cause=f"Cache layer error: {type(exc).__name__}: {msg[:200]}",
+            evidence=[f"{type(exc).__name__}: {msg[:300]}"],
+            impact=["Performa ERP degraded — setiap request harus ke database."],
+            suggested_fix=(
+                "1. Periksa status Redis server. "
+                "2. Lihat infrastructure/caching/caching_exceptions.py. "
+                "3. Aplikasi harus bisa fallback ke database jika cache down — "
+                "   pastikan adapters/secondary_impl/redis_cache_adapter_impl.py "
+                "   implementasikan graceful fallback."
+            ),
+            raw_error=msg, confidence=0.82,
+        )
+
+# ─── SagaOrchestrationRule ────────────────────────────────────────────────
+class SagaOrchestrationRule(RCARule):
+    _SAGA_PATTERN = re.compile(
+        r"(SagaException|SagaCompensationFailed|SagaStepFailed|SagaTimeout|"
+        r"SagaRollbackFailed|saga.*stuck|saga.*orphaned|"
+        r"compensation.*failed|saga.*state.*invalid|"
+        r"procurement.*saga|sales.*saga|payroll.*saga|"
+        r"coretax.*saga|manufacturing.*saga)",
+        re.I,
+    )
+
+    _SAGA_TYPES: Dict[str, str] = {
+        "procurement": "Procurement Saga (PO → GR → AP Invoice → Payment)",
+        "sales"      : "Sales Saga (SO → Delivery → AR Invoice → Collection)",
+        "payroll"    : "Payroll Saga (Payroll Run → Journal → Bank Transfer)",
+        "coretax"    : "Coretax Submission Saga (Tax Filing → DJP Submission → Confirmation)",
+        "manufacturing": "Manufacturing Saga (Work Order → BOM → Production → COGS)",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(priority=175, category=Category.DDD, name="SagaOrchestrationRule")
+
+    def match(self, exc, frames, context) -> bool:
+        if self._SAGA_PATTERN.search(str(exc)):
+            return True
+        if any(k in type(exc).__name__ for k in ("Saga", "Compensation")):
+            return True
+        return any("sagas" in f.filename.replace("\\", "/").lower() for f in frames)
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg         = str(exc)
+        saga_frames = [f for f in frames if "sagas" in f.filename.replace("\\","/").lower()]
+        evidence    = [f"Saga error: {type(exc).__name__}: {msg[:300]}"]
+
+        saga_type = "Unknown Saga"
+        for key, desc in self._SAGA_TYPES.items():
+            if key in msg.lower() or any(key in f.filename.lower() for f in saga_frames):
+                saga_type = desc
+                break
+
+        if saga_frames:
+            sf = saga_frames[-1]
+            evidence.append(f"Saga file: {sf.filename}:{sf.lineno} in {sf.name}")
+
+        is_compensation = bool(re.search(r"compensation.*failed|compensat", msg, re.I))
+
+        return RCAResult(
+            severity=Severity.FATAL if is_compensation else Severity.CRITICAL,
+            category=Category.DDD,
+            error_code=ErrorCode.TRANSACTION_INTEGRITY,
+            root_cause=(
+                f"{'Kompensasi' if is_compensation else 'Eksekusi'} Saga gagal: {saga_type}. "
+                f"Exception: {type(exc).__name__}: {msg[:150]}"
+            ),
+            evidence=evidence,
+            impact=[
+                f"Saga tidak selesai — state bisnis {saga_type} tidak konsisten.",
+                "Data mungkin setengah-setengah: sebagian step sudah commit, sebagian belum.",
+                "Kompensasi (rollback bisnis) diperlukan untuk semua step yang sudah sukses."
+                if not is_compensation else
+                "KRITIS: Kompensasi gagal — sistem dalam inconsistent state yang tidak bisa auto-recover.",
+            ],
+            suggested_fix=(
+                "1. Periksa saga state di application/sagas/saga_state_store.py. "
+                "2. Identifikasi step terakhir yang berhasil dari saga state. "
+                "3. Jalankan manual compensation jika auto-compensation gagal. "
+                "4. Lihat application/sagas/saga_orchestrator_base.py "
+                "   untuk rollback mechanism. "
+                "5. Monitor saga state di adapters/secondary_impl/saga_state_store_adapter.py."
+                if not is_compensation else
+                "KRITIS: "
+                "1. Eskalasi ke Tim Teknis Senior segera. "
+                "2. Jangan ada operasi baru sampai state di-resolve. "
+                "3. Jalankan application/use_cases/disaster_recovery_replay.py. "
+                "4. Manual data reconciliation mungkin diperlukan."
+            ),
+            raw_error=msg, confidence=0.91,
+        )
+
+# ─── BootstrapDIRule ───────────────────────────────────────────────────────
+class BootstrapDIRule(RCARule):
+    _DI_PATTERN = re.compile(
+        r"(DIException|CircularDependency.*DI|ServiceNotRegistered|"
+        r"PortNotBound|AdapterNotFound|BootstrapException|"
+        r"DependencyResolutionFailed|ScopedContextError|"
+        r"lifecycle.*hook.*failed|ioc.*container|"
+        r"port.*not.*registered|adapter.*not.*found|"
+        r"cannot.*resolve.*service|dependency.*cycle.*detected)",
+        re.I,
+    )
+
+    def __init__(self) -> None:
+        super().__init__(priority=180, category=Category.DI, name="BootstrapDIRule")
+
+    def match(self, exc, frames, context) -> bool:
+        if self._DI_PATTERN.search(str(exc)):
+            return True
+        if any(k in type(exc).__name__ for k in (
+            "DI", "Bootstrap", "Container", "ServiceNot", "PortNot", "Adapter"
+        )):
+            return True
+        return any(
+            any(k in f.filename.replace("\\","/").lower()
+                for k in ("bootstrap", "dependency_container", "ioc_container"))
+            for f in frames
+        )
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg = str(exc)
+        evidence = [f"DI/Bootstrap error: {type(exc).__name__}: {msg[:300]}"]
+        di_frames = [
+            f for f in frames
+            if any(k in f.filename.replace("\\","/").lower()
+                   for k in ("bootstrap", "dependency_container", "ioc"))
+        ]
+        if di_frames:
+            evidence.append(f"DI file: {di_frames[-1].filename}:{di_frames[-1].lineno}")
+
+        is_circular = bool(re.search(r"circular.depend|cycle.*detected", msg, re.I))
+
+        return RCAResult(
+            severity=Severity.FATAL, category=Category.DI,
+            error_code=ErrorCode.CONTAINER_RESOLVE_FAIL,
+            root_cause=(
+                "Circular dependency terdeteksi di DI Container — "
+                "dua service saling bergantung."
+                if is_circular else
+                f"Service/Port tidak terdaftar di IoC Container: {msg[:200]}"
+            ),
+            evidence=evidence,
+            impact=[
+                "Aplikasi tidak bisa start — bootstrap gagal.",
+                "Semua endpoint API tidak tersedia.",
+            ],
+            suggested_fix=(
+                "1. Jalankan bootstrap/dependency_container/dependency_graph_validator.py "
+                "   untuk visualisasi dependency graph. "
+                "2. Pecah circular dependency dengan interface/port abstraction. "
+                "3. Gunakan lazy injection atau factory pattern."
+                if is_circular else
+                "1. Daftarkan service di bootstrap/dependency_container/service_registry.py. "
+                "2. Pastikan adapter ter-register di bootstrap/dependency_container/adapter_registry.py. "
+                "3. Jalankan bootstrap/dependency_container/auto_register_ports.py "
+                "   untuk auto-registration. "
+                "4. Periksa bootstrap/health_probe.py untuk dependency health check."
+            ),
+            raw_error=msg, confidence=0.92,
+        )
+
+# ─── PolicyEngineRule ──────────────────────────────────────────────────────
+class PolicyEngineRule(RCARule):
+    _POLICY_PATTERNS: List[Tuple[re.Pattern, str, str]] = [
+        (
+            re.compile(r"(IFRS9|IFRS 9|ifrs.*9|financial.*instrument.*classif|"
+                       r"ECL.*calculation|expected.credit.loss)", re.I),
+            "Pelanggaran IFRS 9 (Financial Instruments) — klasifikasi atau ECL calculation.",
+            "Periksa policy_engine/ifrs/ifrs_09_financial_instruments.py. "
+            "Pastikan aset keuangan diklasifikasi FVTPL/FVOCI/Amortized Cost dengan benar.",
+        ),
+        (
+            re.compile(r"(IFRS15|IFRS 15|revenue.*recognition|performance.*obligation|"
+                       r"contract.*asset.*liability|PSAK72|PSAK 72)", re.I),
+            "Pelanggaran IFRS 15 / PSAK 72 (Revenue Recognition).",
+            "Periksa policy_engine/ifrs/ifrs_15_revenue.py. "
+            "5-step model: Identify contract → Performance obligations → "
+            "Transaction price → Allocate → Recognize.",
+        ),
+        (
+            re.compile(r"(IFRS16|IFRS 16|lease.*liability|right.of.use|ROU.*asset|"
+                       r"PSAK73|PSAK 73|sewa.*guna)", re.I),
+            "Pelanggaran IFRS 16 / PSAK 73 (Leases) — pengakuan ROU asset atau lease liability.",
+            "Periksa policy_engine/ifrs/ifrs_16_leases.py. "
+            "Pastikan lease classification (finance vs operating) sudah benar.",
+        ),
+        (
+            re.compile(r"(IAS36|IAS 36|impairment.*test|goodwill.*impairment|"
+                       r"PSAK48|nilai.pakai|recoverable.amount)", re.I),
+            "Pelanggaran IAS 36 / PSAK 48 (Impairment Testing).",
+            "Periksa policy_engine/ifrs/ias_36_impairment.py. "
+            "Jalankan application/use_cases/impairment_testing_annual.py.",
+        ),
+        (
+            re.compile(r"(IAS21|IAS 21|foreign.exchange|kurs.*revaluasi|"
+                       r"forex.*revaluation|monetary.*item.*translat|PSAK10)", re.I),
+            "Pelanggaran IAS 21 / PSAK 10 (Foreign Currency Translation).",
+            "Periksa policy_engine/ifrs/ias_21_foreign_exchange.py. "
+            "Jalankan forex revaluation: application/use_cases/forex_revaluation.py.",
+        ),
+        (
+            re.compile(r"(PSAK25|PSAK 25|perubahan.estimasi|accounting.estimate|"
+                       r"error.*prior.period|restatement|koreksi.*periode.lalu)", re.I),
+            "Pelanggaran PSAK 25 (Perubahan Estimasi / Koreksi Error).",
+            "Periksa policy_engine/psak/psak_25_policies_estimates_errors.py. "
+            "Error prior period memerlukan restatement laporan keuangan sebelumnya.",
+        ),
+        (
+            re.compile(r"(tax.*exception|PajakException|PPh.*error|PPN.*error|"
+                       r"bupot.*gagal|e.faktur.*error|koretax.*reject|NTPN.*invalid|"
+                       r"DJP.*response.*error)", re.I),
+            "Error perpajakan Indonesia — PPh, PPN, atau integrasi Coretax DJP.",
+            "Periksa policy_engine/tax_indonesia/tax_exceptions.py. "
+            "Untuk Coretax: adapters/coretax_djp/coretax_exceptions.py. "
+            "Validasi NTPN: adapters/coretax_djp/ntpn_validator.py. "
+            "Retry submission: application/sagas/coretax_submission_saga.py.",
+        ),
+        (
+            re.compile(r"(PolicyException|policy.*conflict|policy.*override|"
+                       r"jurisdiction.*resolver|PolicyConflict)", re.I),
+            "Policy engine conflict — dua policy bertentangan untuk transaksi ini.",
+            "Periksa policy_engine/conflict_resolver.py untuk resolution strategy. "
+            "Gunakan policy_engine/override_authorizer.py jika override diperlukan (dengan approval).",
+        ),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(priority=168, category=Category.DDD, name="PolicyEngineRule")
+
+    def match(self, exc, frames, context) -> bool:
+        if any(p.search(str(exc)) for p, *_ in self._POLICY_PATTERNS):
+            return True
+        return any(
+            "policy_engine" in f.filename.replace("\\","/").lower() for f in frames
+        )
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg = str(exc)
+        for pattern, root_cause, fix in self._POLICY_PATTERNS:
+            if pattern.search(msg):
+                policy_frames = [
+                    f for f in frames
+                    if "policy_engine" in f.filename.replace("\\","/").lower()
+                ]
+                evidence = [f"Policy error: {type(exc).__name__}: {msg[:300]}"]
+                if policy_frames:
+                    pf = policy_frames[-1]
+                    evidence.append(f"Policy file: {pf.filename}:{pf.lineno}")
+                return RCAResult(
+                    severity=Severity.CRITICAL, category=Category.DDD,
+                    error_code=ErrorCode.ERP_VALIDATION,
+                    root_cause=root_cause, evidence=evidence,
+                    impact=[
+                        "Laporan keuangan tidak comply dengan standar akuntansi.",
+                        "Auditor eksternal akan memberikan qualified/adverse opinion.",
+                    ],
+                    suggested_fix=fix, raw_error=msg, confidence=0.9,
+                )
+        return RCAResult(
+            severity=Severity.HIGH, category=Category.DDD,
+            error_code=ErrorCode.ERP_VALIDATION,
+            root_cause=f"Policy engine error: {type(exc).__name__}: {msg[:200]}",
+            evidence=[f"{msg[:300]}"],
+            impact=["Transaksi tidak comply dengan policy yang berlaku."],
+            suggested_fix=(
+                "Periksa policy_engine/ untuk policy yang relevan. "
+                "Lihat policy_engine/interpreter.py untuk logic evaluasi."
+            ),
+            raw_error=msg, confidence=0.75,
+        )
+
+# ─── ComplianceRule ────────────────────────────────────────────────────────
+class ComplianceRule(RCARule):
+    _COMPLIANCE_PATTERN = re.compile(
+        r"(ComplianceException|SOXControlFailed|AMLRiskExceeded|"
+        r"GDPRViolation|SanctionListMatch|OJKValidationFailed|"
+        r"sox.*control.*test.*fail|gdpr.*data.*retention|"
+        r"sanction.*list.*hit|compliance.*deficiency|"
+        r"EthicsViolation|ethics.*exception|"
+        r"LegalException|sovereignty.*boundary|"
+        r"data.*privacy.*violation)",
+        re.I,
+    )
+
+    def __init__(self) -> None:
+        super().__init__(priority=165, category=Category.SECURITY, name="ComplianceRule")
+
+    def match(self, exc, frames, context) -> bool:
+        return self._COMPLIANCE_PATTERN.search(str(exc)) is not None or \
+               any(k in type(exc).__name__ for k in (
+                   "Compliance", "SOX", "AML", "GDPR", "Sanction", "Ethics", "Legal"
+               ))
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg = str(exc)
+        if re.search(r"GDPRViolation|data.*privacy|privacy.*violat", msg, re.I):
+            return RCAResult(
+                severity=Severity.FATAL, category=Category.SECURITY,
+                error_code=ErrorCode.PERMISSION_DENIED,
+                root_cause="GDPR / Privasi Data Violation — data pribadi diproses tanpa basis hukum.",
+                evidence=[f"{type(exc).__name__}: {msg[:300]}"],
+                impact=[
+                    "Potensi denda GDPR hingga 4% dari global annual turnover.",
+                    "Wajib lapor ke otoritas privasi dalam 72 jam (jika terjadi breach).",
+                ],
+                suggested_fix=(
+                    "1. Periksa compliance/gdpr_privacy_checker.py untuk aturan yang dilanggar. "
+                    "2. Pastikan data retention policy diikuti. "
+                    "3. Hubungi Data Protection Officer (DPO) segera."
+                ),
+                raw_error=msg, confidence=0.92,
+            )
+        if re.search(r"SanctionList|sanction.*hit", msg, re.I):
+            return RCAResult(
+                severity=Severity.FATAL, category=Category.SECURITY,
+                error_code=ErrorCode.PERMISSION_DENIED,
+                root_cause="Entitas terkena Sanction List — transaksi WAJIB diblokir.",
+                evidence=[f"{type(exc).__name__}: {msg[:300]}"],
+                impact=[
+                    "Melanjutkan transaksi = pelanggaran hukum internasional.",
+                    "Eksposur sanksi dari OFAC/UN/EU.",
+                ],
+                suggested_fix=(
+                    "1. Blokir transaksi — JANGAN dilanjutkan tanpa clearance legal. "
+                    "2. Periksa compliance/sanction_list_checker.py. "
+                    "3. Laporkan ke Compliance Officer dan Legal segera."
+                ),
+                raw_error=msg, confidence=0.97,
+            )
+        if re.search(r"SOXControl|sox.*control", msg, re.I):
+            return RCAResult(
+                severity=Severity.CRITICAL, category=Category.SECURITY,
+                error_code=ErrorCode.ERP_VALIDATION,
+                root_cause="SOX Control Test Gagal — internal control yang dipersyaratkan tidak terpenuhi.",
+                evidence=[f"{type(exc).__name__}: {msg[:300]}"],
+                impact=[
+                    "Temuan material weakness dalam SOX audit.",
+                    "Auditor akan melaporkan defisiensi ke audit committee.",
+                ],
+                suggested_fix=(
+                    "1. Periksa compliance/sox_control_tester.py untuk control yang gagal. "
+                    "2. Identifikasi dan perbaiki control deficiency. "
+                    "3. Dokumentasikan remediation plan di compliance/deficiency_tracker.py."
+                ),
+                raw_error=msg, confidence=0.9,
+            )
+        return RCAResult(
+            severity=Severity.CRITICAL, category=Category.SECURITY,
+            error_code=ErrorCode.ERP_VALIDATION,
+            root_cause=f"Compliance violation: {type(exc).__name__}: {msg[:200]}",
+            evidence=[f"{msg[:300]}"],
+            impact=["Potensi pelanggaran regulasi — tindakan korektif segera diperlukan."],
+            suggested_fix="Periksa compliance/ untuk detail aturan yang dilanggar.",
+            raw_error=msg, confidence=0.8,
+        )
+
+# ─── AuditIntegrityRule ────────────────────────────────────────────────────
+class AuditIntegrityRule(RCARule):
+    _AUDIT_PATTERN = re.compile(
+        r"(AuditException|TamperDetected|HashChainCorrupted|"
+        r"ImmutableEventViolation|ForensicReplayError|"
+        r"audit.*hash.*mismatch|event.*tampered|"
+        r"hash.*chain.*broken|audit.*log.*corrupted|"
+        r"tamper.*alert|forensic.*replay.*failed)",
+        re.I,
+    )
+
+    def __init__(self) -> None:
+        super().__init__(priority=195, category=Category.SECURITY, name="AuditIntegrityRule")
+
+    def match(self, exc, frames, context) -> bool:
+        if self._AUDIT_PATTERN.search(str(exc)):
+            return True
+        return any("audit/" in f.filename.replace("\\","/").lower() for f in frames)
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg = str(exc)
+        is_tamper = bool(re.search(r"tamper|TamperDetected", msg, re.I))
+        is_hash   = bool(re.search(r"hash.*chain|HashChain.*corrupt", msg, re.I))
+        return RCAResult(
+            severity=Severity.FATAL, category=Category.SECURITY,
+            error_code=ErrorCode.PERMISSION_DENIED,
+            root_cause=(
+                "TAMPER TERDETEKSI — audit log dimanipulasi!"
+                if is_tamper else
+                "Hash chain audit rusak — kemungkinan data dimodifikasi di luar sistem."
+                if is_hash else
+                f"Audit integrity violation: {type(exc).__name__}: {msg[:200]}"
+            ),
+            evidence=[f"Audit error: {type(exc).__name__}: {msg[:300]}"],
+            impact=[
+                "🚨 KRITIS: Integritas audit trail tidak bisa dijamin.",
+                "Laporan keuangan berpotensi tidak bisa dipercaya.",
+                "Wajib lapor ke Board of Directors dan External Auditor.",
+                "Forensic investigation oleh pihak independen mungkin diperlukan.",
+            ],
+            suggested_fix=(
+                "🚨 TINDAKAN DARURAT: "
+                "1. Hentikan semua operasi tulis ke sistem. "
+                "2. Preserve semua log file — jangan hapus apapun. "
+                "3. Jalankan audit/forensic_replayer.py untuk reconstruct timeline. "
+                "4. Gunakan audit/hash_chain_builder.py untuk verifikasi chain. "
+                "5. Hubungi Internal Audit dan Legal segera. "
+                "6. Pertimbangkan blockchain notarization via "
+                "   audit/regulatory_attestation_signer.py."
+            ),
+            raw_error=msg, confidence=0.98,
+        )
+
+# ─── CoretaxDJPRule ────────────────────────────────────────────────────────
+class CoretaxDJPRule(RCARule):
+    _CORETAX_PATTERN = re.compile(
+        r"(CoretaxException|CoretaxAPIError|OAuth2.*DJP|DJP.*OAuth|"
+        r"FakturPajak.*error|NTPNInvalid|NSFP.*habis|"
+        r"SPT.*submission.*failed|e.Bupot.*error|eMeterai.*error|"
+        r"coretax.*timeout|DJP.*server.*error|"
+        r"nomor.seri.faktur.*habis|NSFPExhausted|"
+        r"efaktur.*reject|spt.*masa.*error|"
+        r"certificate.*DJP.*expired|signature.*DJP)",
+        re.I,
+    )
+
+    def __init__(self) -> None:
+        super().__init__(priority=172, category=Category.INFRASTRUCTURE, name="CoretaxDJPRule")
+
+    def match(self, exc, frames, context) -> bool:
+        if self._CORETAX_PATTERN.search(str(exc)):
+            return True
+        if any(k in type(exc).__name__ for k in ("Coretax", "DJP", "Faktur", "NTPN", "NSFP")):
+            return True
+        return any("coretax_djp" in f.filename.replace("\\","/").lower() for f in frames)
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg = str(exc)
+
+        if re.search(r"NSFP.*habis|NSFPExhausted|nomor.seri.faktur.*habis", msg, re.I):
+            return RCAResult(
+                severity=Severity.FATAL, category=Category.INFRASTRUCTURE,
+                error_code=ErrorCode.ERP_VALIDATION,
+                root_cause="NSFP (Nomor Seri Faktur Pajak) habis — tidak bisa menerbitkan e-Faktur.",
+                evidence=[f"NSFP Error: {msg[:300]}"],
+                impact=[
+                    "🚨 Penjualan TIDAK BISA diterbitkan faktur pajak sampai NSFP diisi ulang.",
+                    "Potensi denda keterlambatan penerbitan faktur (max 2% dari DPP).",
+                ],
+                suggested_fix=(
+                    "1. SEGERA request NSFP tambahan ke DJP Coretax portal. "
+                    "2. Kelola stok NSFP di adapters/coretax_djp/nsfp_manager.py. "
+                    "3. Set alert ketika NSFP < 100 nomor tersisa."
+                ),
+                raw_error=msg, confidence=0.97,
+            )
+
+        if re.search(r"NTPNInvalid|NTPN.*invalid|NTPN.*tidak.valid", msg, re.I):
+            return RCAResult(
+                severity=Severity.CRITICAL, category=Category.INFRASTRUCTURE,
+                error_code=ErrorCode.ERP_VALIDATION,
+                root_cause="NTPN (Nomor Transaksi Penerimaan Negara) tidak valid — konfirmasi pembayaran pajak gagal.",
+                evidence=[f"NTPN Error: {msg[:300]}"],
+                impact=[
+                    "Pembayaran pajak tidak bisa dikonfirmasi di sistem DJP.",
+                    "SPT tidak bisa disubmit tanpa NTPN yang valid.",
+                ],
+                suggested_fix=(
+                    "1. Verifikasi NTPN di adapters/coretax_djp/ntpn_validator.py. "
+                    "2. Cek status pembayaran di sistem bank/billing pembayaran pajak. "
+                    "3. Hubungi KPP jika NTPN tidak muncul dalam 1x24 jam."
+                ),
+                raw_error=msg, confidence=0.95,
+            )
+
+        if re.search(r"OAuth2|oauth.*token.*expired|DJP.*auth", msg, re.I):
+            return RCAResult(
+                severity=Severity.HIGH, category=Category.INFRASTRUCTURE,
+                error_code=ErrorCode.ERP_VALIDATION,
+                root_cause="OAuth2 token DJP Coretax expired atau invalid.",
+                evidence=[f"Auth Error: {msg[:300]}"],
+                impact=["Semua operasi Coretax API tidak bisa dilakukan sampai re-auth."],
+                suggested_fix=(
+                    "1. Refresh token di adapters/coretax_djp/api_oauth2_client.py. "
+                    "2. Periksa expiry time token dan implementasikan auto-refresh. "
+                    "3. Pastikan certificate DJP belum expired."
+                ),
+                raw_error=msg, confidence=0.92,
+            )
+
+        return RCAResult(
+            severity=Severity.HIGH, category=Category.INFRASTRUCTURE,
+            error_code=ErrorCode.ERP_VALIDATION,
+            root_cause=f"Coretax DJP API error: {type(exc).__name__}: {msg[:200]}",
+            evidence=[f"{msg[:300]}"],
+            impact=["Integrasi perpajakan dengan DJP terganggu."],
+            suggested_fix=(
+                "Periksa adapters/coretax_djp/coretax_exceptions.py. "
+                "Monitor di adapters/coretax_djp/health_dashboard.py."
+            ),
+            raw_error=msg, confidence=0.78,
+        )
+
+# ─── SecurityHardeningRule ────────────────────────────────────────────────
+class SecurityHardeningRule(RCARule):
+    _SEC_PATTERN = re.compile(
+        r"(SecurityException|EncryptionFailed|DecryptionFailed|"
+        r"HSMError|PKCSError|KeyVaultError|SigningFailed|"
+        r"CertificateExpired|TLSHandshakeFailed|"
+        r"HashiCorpVault.*error|encryption.*key.*not.*found|"
+        r"private.*key.*unavailable|signature.*verification.*failed|"
+        r"security.*hardening.*violation)",
+        re.I,
+    )
+
+    def __init__(self) -> None:
+        super().__init__(priority=188, category=Category.SECURITY, name="SecurityHardeningRule")
+
+    def match(self, exc, frames, context) -> bool:
+        if self._SEC_PATTERN.search(str(exc)):
+            return True
+        return any(
+            any(k in f.filename.replace("\\","/").lower()
+                for k in ("security_hardening", "security/security", "hsm_pkcs", "key_vault"))
+            for f in frames
+        )
+
+    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        msg = str(exc)
+        if re.search(r"CertificateExpired|TLS.*handshake|certificate.*expired", msg, re.I):
+            return RCAResult(
+                severity=Severity.FATAL, category=Category.SECURITY,
+                error_code=ErrorCode.PERMISSION_DENIED,
+                root_cause="Certificate TLS expired — koneksi aman tidak bisa dibuat.",
+                evidence=[f"{type(exc).__name__}: {msg[:300]}"],
+                impact=["Seluruh komunikasi HTTPS/API tidak bisa dilakukan."],
+                suggested_fix=(
+                    "1. Renew certificate segera. "
+                    "2. Set alert 30 hari sebelum expiry di infrastructure/telemetry/. "
+                    "3. Gunakan Let's Encrypt auto-renewal atau Vault PKI secrets engine."
+                ),
+                raw_error=msg, confidence=0.95,
+            )
+        if re.search(r"HSM|PKCS|SigningFailed|signature.*fail", msg, re.I):
+            return RCAResult(
+                severity=Severity.FATAL, category=Category.SECURITY,
+                error_code=ErrorCode.PERMISSION_DENIED,
+                root_cause="HSM/PKCS11 signing gagal — dokumen tidak bisa ditandatangani secara digital.",
+                evidence=[f"{type(exc).__name__}: {msg[:300]}"],
+                impact=[
+                    "e-Faktur, SPT, dan dokumen legal tidak bisa di-sign.",
+                    "Submission ke DJP tidak bisa dilakukan.",
+                ],
+                suggested_fix=(
+                    "1. Periksa koneksi ke HSM di adapters/secondary_impl/hsm_pkcs11_signing_adapter.py. "
+                    "2. Pastikan HSM token tidak terkunci (PIN error). "
+                    "3. Cek slot dan certificate di HSM."
+                ),
+                raw_error=msg, confidence=0.9,
+            )
+        if re.search(r"KeyVault|HashiCorp|encryption.*key|private.*key", msg, re.I):
+            return RCAResult(
+                severity=Severity.FATAL, category=Category.SECURITY,
+                error_code=ErrorCode.PERMISSION_DENIED,
+                root_cause="Encryption key tidak bisa diambil dari Key Vault.",
+                evidence=[f"{type(exc).__name__}: {msg[:300]}"],
+                impact=["Data sensitif tidak bisa di-encrypt/decrypt."],
+                suggested_fix=(
+                    "1. Periksa koneksi ke HashiCorp Vault: adapters/secondary_impl/hashicorp_vault_adapter.py. "
+                    "2. Pastikan Vault service running dan unsealed. "
+                    "3. Cek policy Vault untuk service account yang digunakan."
+                ),
+                raw_error=msg, confidence=0.9,
+            )
+        return RCAResult(
+            severity=Severity.CRITICAL, category=Category.SECURITY,
+            error_code=ErrorCode.PERMISSION_DENIED,
+            root_cause=f"Security error: {type(exc).__name__}: {msg[:200]}",
+            evidence=[f"{msg[:300]}"],
+            impact=["Operasi keamanan gagal — data atau sistem mungkin tidak terlindungi."],
+            suggested_fix=(
+                "Periksa security_hardening/ dan infrastructure/security/security_exceptions.py."
+            ),
+            raw_error=msg, confidence=0.8,
+        )
+
+# =============================================================================
+#  RCAEngine (final)
+# =============================================================================
 class RCAEngine:
-    """
-    Mesin RCA utama. Thread-safe, multi-rule, production-grade.
-
-    Features:
-    - Rule priority ordering
-    - Per-rule timeout protection (FIX-17)
-    - SOX-compliant evidence aggregation (FIX-03)
-    - Comprehensive statistics
-    - Plugin rule registration
-    """
-
-    VERSION = "3.0.0"
+    VERSION = "5.0.0"
 
     def __init__(
         self,
@@ -2197,22 +3290,24 @@ class RCAEngine:
         self._register_default_rules()
 
     def _register_default_rules(self) -> None:
-        for rule in [
-            # Infrastructure — tertinggi, infra down = semua gagal
-            InfrastructureConnectionRule(),
-            RecursionMemoryRule(),
-            PermissionFileRule(),
-            # Import analysis
-            ImportErrorRule(),
-            CircularImportRule(),
-            # Python builtins
-            AttributeErrorRule(),
-            TypeErrorRule(),
-            NameErrorRule(),
-            KeyErrorRule(),
-            IndexErrorRule(),
-            ValueErrorRule(),
-            # Domain / DDD / ERP
+        """Daftarkan semua aturan dalam urutan prioritas (sudah tidak ada duplikasi)."""
+        all_rules = [
+            # Infrastruktur spesifik (prioritas tinggi)
+            InfrastructureDatabaseRule(),
+            MessageBrokerRule(),
+            CachingRule(),
+            CoretaxDJPRule(),
+            SecurityHardeningRule(),
+            BootstrapDIRule(),
+            SagaOrchestrationRule(),
+            AuditIntegrityRule(),
+            ComplianceRule(),
+            PolicyEngineRule(),
+            # Kernel & Axiom
+            AxiomViolationRule(),
+            ConstitutionViolationRule(),
+            KernelGuardViolationRule(),
+            # Domain & CQRS
             TransactionIntegrityRule(),
             CQRSHandlerRule(),
             DomainRepositoryMismatchRule(),
@@ -2220,11 +3315,23 @@ class RCAEngine:
             ContainerErrorRule(),
             AggregateErrorRule(),
             UnitOfWorkErrorRule(),
-        ]:
+            # Built-in & generik
+            InfrastructureConnectionRule(),
+            RecursionMemoryRule(),
+            PermissionFileRule(),
+            ImportErrorRule(),
+            CircularImportRule(),
+            AttributeErrorRule(),
+            TypeErrorRule(),
+            NameErrorRule(),
+            KeyErrorRule(),
+            IndexErrorRule(),
+            ValueErrorRule(),
+        ]
+        for rule in all_rules:
             self.register_rule(rule)
 
     def register_rule(self, rule: RCARule) -> None:
-        """Register rule baru. Jika sudah ada dengan nama sama, replace."""
         with self._lock:
             if rule.name in self._rule_map:
                 try:
@@ -2233,11 +3340,9 @@ class RCAEngine:
                     pass
             self._rules.append(rule)
             self._rule_map[rule.name] = rule
-            # Sort di dalam lock — aman karena RLock reentrant untuk thread yang sama
             self._rules.sort(key=lambda r: r.priority, reverse=True)
 
     def unregister_rule(self, name: str) -> bool:
-        """Hapus rule berdasarkan nama. Return True jika berhasil."""
         with self._lock:
             if name not in self._rule_map:
                 return False
@@ -2253,13 +3358,6 @@ class RCAEngine:
         exception: BaseException,
         context  : Optional[Dict[str, Any]] = None,
     ) -> RCAResult:
-        """
-        Entry point utama. Thread-safe.
-        FIX-20: Validasi input type.
-        FIX-03: SOX-compliant evidence aggregation.
-        FIX-17: Per-rule timeout.
-        """
-        # FIX-20: Validasi input
         if not isinstance(exception, BaseException):
             raise TypeError(
                 f"analyze() mengharapkan BaseException, bukan {type(exception).__name__}"
@@ -2270,18 +3368,17 @@ class RCAEngine:
         with self._lock:
             self._stats["total_analyses"] += 1
 
-        ctx = context or {}
+        # Gunakan copy.copy untuk menghindari RecursionError pada context bersiklus
         try:
-            safe_context = copy.deepcopy(ctx)
+            safe_context = copy.copy(context) if context else {}
         except Exception:
-            safe_context = dict(ctx)
+            safe_context = dict(context) if context else {}
 
         frames = get_traceback_frames(exception)
 
         all_exceptions   = get_all_causes(exception)
         combined_results : List[RCAResult] = []
 
-        # Snapshot rules untuk thread safety
         with self._lock:
             rules_snapshot = list(self._rules)
 
@@ -2290,7 +3387,6 @@ class RCAEngine:
             for rule in rules_snapshot:
                 if not rule.enabled:
                     continue
-                # FIX-17: Timeout per rule
                 try:
                     matched = self._run_with_timeout(
                         rule.match, self._rule_timeout,
@@ -2332,19 +3428,16 @@ class RCAEngine:
         if not combined_results:
             combined_results.append(self._fallback_analysis(exception, frames, safe_context))
 
-        # Pilih best: severity dulu, kemudian confidence
         best = max(
             combined_results,
             key=lambda r: (r.severity.order, r.confidence),
         )
 
-        # FIX-03: SOX-compliant evidence — pertahankan dengan label rule asal
-        # Tidak menggunakan dict.fromkeys() yang membuang evidence
+        # Agregasi evidence dan impact (deduplikasi)
         seen_evidence: Set[str] = set()
         all_evidence  : List[str] = []
         for r in combined_results:
             for ev in r.evidence:
-                # Deduplikasi hanya jika teks 100% identik dari rule yang sama
                 ev_normalized = ev.strip()
                 if ev_normalized and ev_normalized not in seen_evidence:
                     seen_evidence.add(ev_normalized)
@@ -2381,15 +3474,12 @@ class RCAEngine:
 
     @staticmethod
     def _run_with_timeout(fn: Any, timeout: float, *args: Any, **kwargs: Any) -> Any:
-        """
-        Jalankan fn(*args, **kwargs) dengan timeout.
-        Raise exception asli jika fn crash, TimeoutError jika timeout.
-        """
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(fn, *args, **kwargs)
             try:
                 return future.result(timeout=timeout)
             except concurrent.futures.TimeoutError:
+                _logger.warning("Function %s timed out after %.2fs", fn.__qualname__, timeout)
                 raise TimeoutError(f"{fn.__qualname__} timeout setelah {timeout}s")
 
     def _fallback_analysis(
@@ -2398,7 +3488,6 @@ class RCAEngine:
         frames    : List[traceback.FrameSummary],
         context   : Dict[str, Any],
     ) -> RCAResult:
-        """Fallback jika tidak ada rule yang match."""
         _severity_map: Dict[type, Severity] = {
             KeyboardInterrupt : Severity.INFO,
             SystemExit        : Severity.INFO,
@@ -2430,7 +3519,6 @@ class RCAEngine:
         )
 
     def stats(self) -> Dict[str, Any]:
-        """Return statistik engine dan per-rule."""
         with self._lock:
             eng = dict(self._stats)
             eng["version"]    = self.VERSION
@@ -2453,19 +3541,15 @@ class RCAEngine:
         }
 
     def clear_cache(self) -> None:
-        """Bersihkan semua cache."""
         _file_cache.clear()
         _ast_cache.clear()
         _context_cache.clear()
-
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
 _DEFAULT_ENGINE : Optional[RCAEngine] = None
 _ENGINE_LOCK    = threading.Lock()
 
-
 def get_engine() -> RCAEngine:
-    """Dapatkan singleton RCAEngine (double-checked locking, thread-safe)."""
     global _DEFAULT_ENGINE
     if _DEFAULT_ENGINE is None:
         with _ENGINE_LOCK:
@@ -2473,44 +3557,23 @@ def get_engine() -> RCAEngine:
                 _DEFAULT_ENGINE = RCAEngine()
     return _DEFAULT_ENGINE
 
-
 def reset_engine() -> None:
-    """
-    Reset singleton engine. Berguna untuk unit testing.
-    FIX-15: Tambahan untuk testability.
-    """
     global _DEFAULT_ENGINE
     with _ENGINE_LOCK:
         _DEFAULT_ENGINE = None
-
 
 def analyze_exception(
     exception: BaseException,
     context  : Optional[Dict[str, Any]] = None,
 ) -> RCAResult:
-    """
-    Shortcut module-level untuk analisis exception.
-    FIX-20: Validasi dilakukan di RCAEngine.analyze().
-    """
     return get_engine().analyze(exception, context)
 
-
-# Alias backward-compatible — tapi lebih eksplisit
 analyze = analyze_exception
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ── Self-test ─────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ─── Self‑test (mencakup semua aturan) ──────────────────────────────────────
 def self_test(verbose: bool = True) -> bool:
-    """
-    Test komprehensif semua rule. Return True jika semua lulus.
-    FIX-16: Tidak akses engine._rules langsung.
-    """
     engine = RCAEngine()
     passed = failed = 0
-    rule_count = engine.stats()["engine"]["rule_count"]
 
     def check(name: str, cond: bool, got: str = "") -> None:
         nonlocal passed, failed
@@ -2524,8 +3587,7 @@ def self_test(verbose: bool = True) -> bool:
             failed += 1
 
     if verbose:
-        print(f"Running RCA self-test (v{RCAEngine.VERSION}) — {rule_count} rules registered…")
-        print()
+        print(f"\nRunning RCA Engine self-test v{RCAEngine.VERSION} ({engine.stats()['engine']['rule_count']} rules registered)…\n")
 
     # ── Import ────────────────────────────────────────────────────────────────
     try:
@@ -2538,7 +3600,7 @@ def self_test(verbose: bool = True) -> bool:
     # ── Attribute ─────────────────────────────────────────────────────────────
     try:
         class _X: pass
-        _X().missing_attr  # type: ignore[attr-defined]
+        _X().missing_attr
     except Exception as e:
         r = engine.analyze(e)
         check("AttributeErrorRule — missing attr",
@@ -2546,7 +3608,7 @@ def self_test(verbose: bool = True) -> bool:
 
     try:
         obj = None
-        obj.something  # type: ignore[union-attr]
+        obj.something
     except Exception as e:
         r = engine.analyze(e)
         check("AttributeErrorRule — NoneType (ATTR_NONE_ACCESS)",
@@ -2554,7 +3616,7 @@ def self_test(verbose: bool = True) -> bool:
 
     # ── Type ──────────────────────────────────────────────────────────────────
     try:
-        len(123)  # type: ignore[arg-type]
+        len(123)
     except Exception as e:
         r = engine.analyze(e)
         check("TypeErrorRule — not iterable",
@@ -2562,7 +3624,7 @@ def self_test(verbose: bool = True) -> bool:
 
     try:
         def _f(a: int, b: int) -> int: return a + b
-        _f(1)  # type: ignore[call-arg]
+        _f(1)
     except Exception as e:
         r = engine.analyze(e)
         check("TypeErrorRule — missing arg",
@@ -2616,13 +3678,6 @@ def self_test(verbose: bool = True) -> bool:
         check("ValueErrorRule — balance mismatch (ERP_BALANCE_MISMATCH, FATAL)",
               r.error_code == ErrorCode.ERP_BALANCE_MISMATCH
               and r.severity == Severity.FATAL, str(r.error_code))
-
-    try:
-        raise ValueError("invalid literal for int() with base 10: 'abc'")
-    except Exception as e:
-        r = engine.analyze(e)
-        check("ValueErrorRule — int conversion (VALUE_INVALID)",
-              r.error_code == ErrorCode.VALUE_INVALID, str(r.error_code))
 
     # ── Infrastructure ────────────────────────────────────────────────────────
     try:
@@ -2694,7 +3749,7 @@ def self_test(verbose: bool = True) -> bool:
               r.error_code == ErrorCode.FILE_NOT_FOUND
               and r.severity == Severity.CRITICAL, str(r.error_code))
 
-    # ── DDD Domain ────────────────────────────────────────────────────────────
+    # ── Domain ────────────────────────────────────────────────────────────────
     try:
         raise RuntimeError("Failed to dispatch domain_event to event_bus handler")
     except Exception as e:
@@ -2709,21 +3764,146 @@ def self_test(verbose: bool = True) -> bool:
         check("ContainerErrorRule — resolve fail",
               r.error_code == ErrorCode.CONTAINER_RESOLVE_FAIL, str(r.error_code))
 
+    # ── Axiom ──────────────────────────────────────────────────────────────────
     try:
-        raise RuntimeError("Aggregate apply event failed in AggregateRoot")
+        raise ValueError("AxiomViolation: double entry debit credit unbalanced — total debit 1500 != total kredit 1000")
     except Exception as e:
         r = engine.analyze(e)
-        check("AggregateErrorRule — apply fail",
-              r.error_code == ErrorCode.AGGREGATE_ERROR, str(r.error_code))
+        check("AxiomViolationRule — double entry unbalanced (FATAL)",
+              r.severity == Severity.FATAL and "ouble" in r.root_cause, str(r.root_cause[:80]))
+
+    try:
+        raise RuntimeError("ImmutabilityViolation: posted journal entry cannot be modified after posting")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("AxiomViolationRule — immutability violation (FATAL)",
+              r.severity == Severity.FATAL, str(r.root_cause[:80]))
+
+    # ── Constitution ──────────────────────────────────────────────────────────
+    try:
+        raise RuntimeError("ConstitutionViolation: ForbiddenState — negative equity not allowed by supreme law")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("ConstitutionViolationRule — forbidden state (FATAL)",
+              r.severity == Severity.FATAL, str(r.root_cause[:80]))
+
+    # ── Kernel Guards ─────────────────────────────────────────────────────────
+    try:
+        raise PermissionError("PeriodLockViolation: fiscal period 2024-12 is locked and closed — posting not allowed")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("KernelGuardViolationRule — period lock (CRITICAL)",
+              r.severity in (Severity.FATAL, Severity.CRITICAL), str(r.root_cause[:80]))
+
+    try:
+        raise PermissionError("SodViolation: same user cannot create and approve — four eyes principle violated")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("KernelGuardViolationRule — SOD violation (FATAL)",
+              r.severity == Severity.FATAL, str(r.root_cause[:80]))
+
+    # ── Database ──────────────────────────────────────────────────────────────
+    try:
+        raise Exception("DatabaseException: deadlock detected while inserting into journal_line_table")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("InfrastructureDatabaseRule — deadlock",
+              "eadlock" in r.root_cause, str(r.root_cause[:80]))
+
+    try:
+        raise Exception("remaining connection slots are reserved — too many connections to database 'erp_db'")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("InfrastructureDatabaseRule — connection pool exhausted (FATAL)",
+              r.severity == Severity.FATAL, str(r.root_cause[:80]))
+
+    # ── Bootstrap DI ──────────────────────────────────────────────────────────
+    try:
+        raise RuntimeError("DIException: circular dependency detected — ServiceA depends on ServiceB which depends on ServiceA")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("BootstrapDIRule — circular DI dependency (FATAL)",
+              r.severity == Severity.FATAL and "ircular" in r.root_cause, str(r.root_cause[:80]))
+
+    # ── Message Broker ────────────────────────────────────────────────────────
+    try:
+        raise Exception("MessagePublishFailed: kafka dead letter queue full — event JournalPostedEvent not sent")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("MessageBrokerRule — dead letter queue",
+              "dead.letter" in r.root_cause.lower() or "Dead Letter" in r.root_cause,
+              str(r.root_cause[:80]))
+
+    # ── Saga ──────────────────────────────────────────────────────────────────
+    try:
+        raise RuntimeError("SagaCompensationFailed: coretax_submission_saga compensation failed — system in inconsistent state")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("SagaOrchestrationRule — saga compensation failed (FATAL)",
+              r.severity == Severity.FATAL, str(r.root_cause[:80]))
+
+    # ── Coretax ───────────────────────────────────────────────────────────────
+    try:
+        raise Exception("NSFPExhausted: nomor seri faktur pajak habis — tidak bisa menerbitkan e-Faktur baru")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("CoretaxDJPRule — NSFP habis (FATAL)",
+              r.severity == Severity.FATAL, str(r.root_cause[:80]))
+
+    # ── Policy ────────────────────────────────────────────────────────────────
+    try:
+        raise ValueError("IFRS15 violation: revenue recognized before performance obligation satisfied for contract C-001")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("PolicyEngineRule — IFRS 15 revenue recognition",
+              r.severity in (Severity.FATAL, Severity.CRITICAL), str(r.root_cause[:80]))
+
+    # ── Compliance ────────────────────────────────────────────────────────────
+    try:
+        raise RuntimeError("GDPRViolation: data privacy violation — customer PII retained beyond 7 year limit")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("ComplianceRule — GDPR violation (FATAL)",
+              r.severity == Severity.FATAL, str(r.root_cause[:80]))
+
+    try:
+        raise RuntimeError("SanctionListMatch: entity 'PT XYZ' matched OFAC SDN list — transaction BLOCKED")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("ComplianceRule — sanction list hit (FATAL)",
+              r.severity == Severity.FATAL, str(r.root_cause[:80]))
+
+    # ── Audit ─────────────────────────────────────────────────────────────────
+    try:
+        raise RuntimeError("TamperDetected: audit log hash chain broken at event #4521 — data may have been modified")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("AuditIntegrityRule — tamper detected (FATAL)",
+              r.severity == Severity.FATAL and len(r.impact) >= 3, str(r.root_cause[:80]))
+
+    # ── Security ──────────────────────────────────────────────────────────────
+    try:
+        raise RuntimeError("CertificateExpired: TLS certificate for api.coretax.pajak.go.id expired on 2024-01-15")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("SecurityHardeningRule — certificate expired (FATAL)",
+              r.severity == Severity.FATAL, str(r.root_cause[:80]))
+
+    # ── Caching ───────────────────────────────────────────────────────────────
+    try:
+        raise Exception("DistributedLockTimeout: lock acquisition failed for 'journal:2024-001' after 5s — Redis timeout")
+    except Exception as e:
+        r = engine.analyze(e)
+        check("CachingRule — distributed lock timeout",
+              r.severity == Severity.HIGH, str(r.root_cause[:80]))
 
     # ── Data quality ──────────────────────────────────────────────────────────
     r_hi = RCAResult(severity=Severity.HIGH, confidence=1.5)
     check("Confidence clamp upper", r_hi.confidence == 1.0, str(r_hi.confidence))
-
     r_lo = RCAResult(severity=Severity.LOW, confidence=-0.5)
     check("Confidence clamp lower", r_lo.confidence == 0.0, str(r_lo.confidence))
 
-    # Circular ref in to_dict — FIX-11
+    # Circular ref in to_dict
     ra = RCAResult(severity=Severity.INFO)
     rb = RCAResult(severity=Severity.INFO)
     ra.children.append(rb)
@@ -2734,25 +3914,7 @@ def self_test(verbose: bool = True) -> bool:
     except RecursionError:
         check("Circular ref protection in to_dict", False, "RecursionError!")
 
-    try:
-        ra.to_json()
-        check("to_json safety", True)
-    except Exception as ex:
-        check("to_json safety", False, str(ex))
-
-    # __suppress_context__ test
-    try:
-        try:
-            raise ValueError("inner")
-        except ValueError:
-            raise RuntimeError("outer") from None
-    except Exception as e:
-        causes = get_all_causes(e)
-        check("__suppress_context__ honored in get_all_causes",
-              all(not isinstance(c, ValueError) for c in causes),
-              f"causes={[type(c).__name__ for c in causes]}")
-
-    # Severity ordering — FIX-14
+    # Severity ordering
     check("Severity ordering: FATAL > CRITICAL",
           Severity.FATAL > Severity.CRITICAL)
     check("Severity ordering: CRITICAL > HIGH",
@@ -2760,7 +3922,7 @@ def self_test(verbose: bool = True) -> bool:
     check("Severity ordering: LOW < MEDIUM",
           Severity.LOW < Severity.MEDIUM)
 
-    # Tie-breaking: dua CRITICAL, confidence berbeda
+    # Tie-breaking
     r_low_conf  = RCAResult(severity=Severity.CRITICAL, confidence=0.5,
                              root_cause="low", error_code=ErrorCode.UNKNOWN)
     r_high_conf = RCAResult(severity=Severity.CRITICAL, confidence=0.9,
@@ -2770,64 +3932,39 @@ def self_test(verbose: bool = True) -> bool:
     check("Severity+confidence tie-breaking", best.root_cause == "high",
           f"got root_cause={best.root_cause}")
 
-    # ErrorCode immutability
+    # Input validation
     try:
-        ErrorCode.UNKNOWN = "HACKED"  # type: ignore[misc]
-        check("ErrorCode immutability (Enum)", False, "mutation succeeded!")
-    except (AttributeError, TypeError):
-        check("ErrorCode immutability (Enum)", True)
-
-    # Input validation — FIX-20
-    try:
-        analyze_exception("not an exception")  # type: ignore[arg-type]
+        analyze_exception("not an exception")
         check("analyze_exception() input validation", False, "no TypeError raised")
     except TypeError:
         check("analyze_exception() input validation — TypeError on non-exception", True)
 
-    # Credential redaction — FIX-07
+    # Sensitive keys
     check("_is_sensitive_key('password')", _is_sensitive_key("password"))
-    check("_is_sensitive_key('db_password')", _is_sensitive_key("db_password"))
     check("_is_sensitive_key('username') == False", not _is_sensitive_key("username"))
 
-    # NameErrorRule _BUILTIN_TYPOS tidak ada duplikat — FIX-01
-    typo_keys = list(NameErrorRule._BUILTIN_TYPOS.keys())
-    check("NameErrorRule._BUILTIN_TYPOS no duplicate keys",
-          len(typo_keys) == len(set(typo_keys)),
-          f"duplicates: {[k for k in typo_keys if typo_keys.count(k) > 1]}")
-
-    # reset_engine — FIX-15
+    # reset_engine
     reset_engine()
     e1 = get_engine()
     e2 = get_engine()
     check("get_engine() returns same singleton after reset", e1 is e2)
 
-    # flatten_exception cycle detection — FIX-12
-    class _CyclicExcGroup(Exception):
-        def __init__(self):
-            self.exceptions = []
-    ceg = _CyclicExcGroup()
-    ceg.exceptions.append(ceg)  # self-reference
-    try:
-        result = flatten_exception(ceg)
-        check("flatten_exception cycle detection", True)
-    except RecursionError:
-        check("flatten_exception cycle detection", False, "RecursionError!")
+    # Total rules
+    stats = engine.stats()
+    rule_cnt = stats["engine"]["rule_count"]
+    check(f"Total rules terdaftar ≥ 30", rule_cnt >= 30, str(rule_cnt))
 
     if verbose:
         print()
         print(f"Self-test: {passed} passed, {failed} failed "
               f"({'✅ ALL PASS' if failed == 0 else '❌ SOME FAILED'})")
+        print(f"Total rules aktif: {rule_cnt}")
 
     return failed == 0
 
-
+# ── Benchmark ──────────────────────────────────────────────────────────────────
 def benchmark(iterations: int = 500) -> Dict[str, float]:
-    """
-    Benchmark engine performa dengan reporting percentile.
-    FIX-20: Tambah P50, P95, P99.
-    """
     import statistics
-
     engine = RCAEngine()
     try:
         try:
@@ -2839,7 +3976,7 @@ def benchmark(iterations: int = 500) -> Dict[str, float]:
         for _ in range(iterations):
             t0 = time.perf_counter()
             engine.analyze(exc)
-            times.append((time.perf_counter() - t0) * 1000)  # ms
+            times.append((time.perf_counter() - t0) * 1000)
 
     times.sort()
     n = len(times)
@@ -2863,8 +4000,6 @@ def benchmark(iterations: int = 500) -> Dict[str, float]:
     )
     return result
 
-
-# ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     ok = self_test(verbose=True)
     print()

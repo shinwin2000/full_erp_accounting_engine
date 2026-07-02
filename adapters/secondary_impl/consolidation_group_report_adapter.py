@@ -5,6 +5,7 @@ Layer: Adapters (Secondary Implementation)
 
 Adapter untuk menghasilkan laporan konsolidasi grup perusahaan.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -44,55 +45,7 @@ class ConsolidationGroupReportAdapter(ConsolidationGroupReportPort):
             )
         return self._service
 
-    async def get_nci_breakdown(self, group_id: UUID) -> dict[str, Any]:
-        service = await self._get_service()
-        if hasattr(service, "get_nci_breakdown"):
-            return await service.get_nci_breakdown(group_id)
-        return {"group_id": str(group_id), "nci": []}
-
-    async def get_elimination_entries(self, group_id: UUID) -> list[dict[str, Any]]:
-        service = await self._get_service()
-        if hasattr(service, "get_elimination_entries"):
-            return await service.get_elimination_entries(group_id)
-        return []
-
-    async def get_consolidated_balance_sheet(self, group_id: UUID) -> dict[str, Any]:
-        service = await self._get_service()
-        if hasattr(service, "get_consolidated_balance_sheet"):
-            return await service.get_consolidated_balance_sheet(group_id)
-        return {"group_id": str(group_id), "balance_sheet": {}}
-
-    async def get_entity_contribution(self, group_id: UUID) -> dict[str, Any]:
-        service = await self._get_service()
-        if hasattr(service, "get_entity_contribution"):
-            return await service.get_entity_contribution(group_id)
-        return {"group_id": str(group_id), "contributions": []}
-
-    async def get_consolidated_income_statement(self, group_id: UUID) -> dict[str, Any]:
-        service = await self._get_service()
-        if hasattr(service, "get_consolidated_income_statement"):
-            return await service.get_consolidated_income_statement(group_id)
-        return {"group_id": str(group_id), "income_statement": {}}
-
-    async def get_consolidation_summary(self, group_id: UUID) -> dict[str, Any]:
-        service = await self._get_service()
-        if hasattr(service, "get_consolidation_summary"):
-            return await service.get_consolidation_summary(group_id)
-        return {"group_id": str(group_id), "summary": {}}
-
-    async def get_consolidated_cash_flow(self, group_id: UUID) -> dict[str, Any]:
-        service = await self._get_service()
-        if hasattr(service, "get_consolidated_cash_flow"):
-            return await service.get_consolidated_cash_flow(group_id)
-        return {"group_id": str(group_id), "cash_flow": {}}
-
-    async def validate_consolidation(self, group_id: UUID) -> dict[str, Any]:
-        service = await self._get_service()
-        if hasattr(service, "validate_consolidation"):
-            return await service.validate_consolidation(group_id)
-        return {"valid": True, "errors": []}
-
-    # Method tambahan
+    # ---------- Implementasi semua metode dari port ----------
     async def generate_report(
         self,
         group_id: UUID,
@@ -102,21 +55,174 @@ class ConsolidationGroupReportAdapter(ConsolidationGroupReportPort):
         include_nci: bool = True,
     ) -> dict[str, Any]:
         service = await self._get_service()
-        if hasattr(service, "get_consolidated_report"):
-            return await service.get_consolidated_report(
+        if hasattr(service, "generate_report"):
+            return await service.generate_report(
                 group_id=group_id,
-                start_date=period_start,
-                end_date=period_end,
+                period_start=period_start,
+                period_end=period_end,
                 include_intercompany=include_intercompany,
                 include_nci=include_nci,
             )
-        return {"group_id": str(group_id), "report": {}}
+        return {
+            "group_id": str(group_id),
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            "report": {},
+        }
 
     async def get_intercompany_balances(self, group_id: UUID, as_of_date: date) -> list[dict]:
         service = await self._get_service()
         if hasattr(service, "get_intercompany_balances"):
             return await service.get_intercompany_balances(group_id, as_of_date)
         return []
+
+    async def get_consolidated_balance_sheet(
+        self,
+        group_id: UUID,
+        as_of_date: date,
+        include_nci: bool = True,
+    ) -> dict[str, Any]:
+        service = await self._get_service()
+        if hasattr(service, "get_consolidated_balance_sheet"):
+            return await service.get_consolidated_balance_sheet(
+                group_id=group_id,
+                as_of_date=as_of_date,
+                include_nci=include_nci,
+            )
+        return {
+            "group_id": str(group_id),
+            "as_of_date": as_of_date.isoformat(),
+            "balance_sheet": {},
+        }
+
+    async def get_consolidated_income_statement(
+        self,
+        group_id: UUID,
+        period_start: date,
+        period_end: date,
+        include_nci: bool = True,
+    ) -> dict[str, Any]:
+        service = await self._get_service()
+        if hasattr(service, "get_consolidated_income_statement"):
+            return await service.get_consolidated_income_statement(
+                group_id=group_id,
+                period_start=period_start,
+                period_end=period_end,
+                include_nci=include_nci,
+            )
+        return {
+            "group_id": str(group_id),
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            "income_statement": {},
+        }
+
+    async def get_consolidated_cash_flow(
+        self,
+        group_id: UUID,
+        period_start: date,
+        period_end: date,
+    ) -> dict[str, Any]:
+        service = await self._get_service()
+        if hasattr(service, "get_consolidated_cash_flow"):
+            return await service.get_consolidated_cash_flow(
+                group_id=group_id,
+                period_start=period_start,
+                period_end=period_end,
+            )
+        return {
+            "group_id": str(group_id),
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            "cash_flow": {},
+        }
+
+    async def get_elimination_entries(
+        self,
+        group_id: UUID,
+        period_start: date,
+        period_end: date,
+    ) -> list[dict[str, Any]]:
+        service = await self._get_service()
+        if hasattr(service, "get_elimination_entries"):
+            return await service.get_elimination_entries(
+                group_id=group_id,
+                period_start=period_start,
+                period_end=period_end,
+            )
+        return []
+
+    async def get_nci_breakdown(
+        self,
+        group_id: UUID,
+        as_of_date: date,
+    ) -> dict[str, Any]:
+        service = await self._get_service()
+        if hasattr(service, "get_nci_breakdown"):
+            return await service.get_nci_breakdown(group_id, as_of_date)
+        return {
+            "group_id": str(group_id),
+            "as_of_date": as_of_date.isoformat(),
+            "nci": [],
+        }
+
+    async def get_consolidation_summary(
+        self,
+        group_id: UUID,
+        period_start: date,
+        period_end: date,
+    ) -> dict[str, Any]:
+        service = await self._get_service()
+        if hasattr(service, "get_consolidation_summary"):
+            return await service.get_consolidation_summary(
+                group_id=group_id,
+                period_start=period_start,
+                period_end=period_end,
+            )
+        return {
+            "group_id": str(group_id),
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            "summary": {},
+        }
+
+    async def validate_consolidation(
+        self,
+        group_id: UUID,
+        period_start: date,
+        period_end: date,
+    ) -> dict[str, Any]:
+        service = await self._get_service()
+        if hasattr(service, "validate_consolidation"):
+            return await service.validate_consolidation(
+                group_id=group_id,
+                period_start=period_start,
+                period_end=period_end,
+            )
+        return {"valid": True, "errors": []}
+
+    async def get_entity_contribution(
+        self,
+        group_id: UUID,
+        entity_id: UUID,
+        period_start: date,
+        period_end: date,
+    ) -> dict[str, Any]:
+        service = await self._get_service()
+        if hasattr(service, "get_entity_contribution"):
+            return await service.get_entity_contribution(
+                group_id=group_id,
+                entity_id=entity_id,
+                period_start=period_start,
+                period_end=period_end,
+            )
+        return {
+            "group_id": str(group_id),
+            "entity_id": str(entity_id),
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+            "contributions": [],
+        }
 
 
 __all__ = ["ConsolidationGroupReportAdapter"]
