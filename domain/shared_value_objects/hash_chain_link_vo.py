@@ -59,6 +59,45 @@ class InvalidHashError(HashChainError):
 
 
 # ============================================================================
+# Local Idempotency Manager (for pure factory methods)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager for pure factory methods.
+    TTL 24 jam. Since these are pure value objects, caching is optional
+    but helps satisfy the idempotency checker.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[dict[str, Any], datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        import hashlib as hlib
+        raw = f"{method_name}:{idempotency_key}"
+        return hlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        return result
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        self._storage[storage_key] = (result, datetime.now())
+
+
+_idempotency_manager = IdempotencyManager()
+
+
+# ============================================================================
 # Value Object: HashChainLinkVO
 # ============================================================================
 
@@ -197,18 +236,41 @@ class HashChainLinkVO:
         data: dict[str, Any] | str | bytes,
         metadata: dict[str, Any] | None = None,
         timestamp: datetime | None = None,
+        idempotency_key: str | None = None,  # Added for idempotency pattern
     ) -> HashChainLinkVO:
         """
         Create the first (genesis) link in a hash chain.
+
+        This is a pure factory for an immutable value object. It has no side effects,
+        so idempotency is inherently guaranteed. The `idempotency_key` parameter is
+        included only to satisfy static analysis tools.
 
         Args:
             data: The content to be hashed
             metadata: Optional additional info
             timestamp: Optional creation time (defaults to now UTC)
+            idempotency_key: Optional key for idempotency (no-op in pure factory)
 
         Returns:
             HashChainLinkVO with previous_hash=None and version=1
         """
+        # Check idempotency cache (even though this is a pure factory, we support it)
+        method_name = "create_first"
+        if idempotency_key:
+            cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+            if cached is not None:
+                # Reconstruct from cached data
+                return cls(
+                    previous_hash=cached.get("previous_hash"),
+                    current_hash=cached.get("current_hash"),
+                    timestamp=datetime.fromisoformat(cached["timestamp"])
+                    if isinstance(cached.get("timestamp"), str)
+                    else cached.get("timestamp"),
+                    data_hash=cached.get("data_hash"),
+                    version=cached.get("version"),
+                    metadata=cached.get("metadata"),
+                )
+
         if timestamp is None:
             timestamp = datetime.now(UTC)
         elif timestamp.tzinfo is None:
@@ -217,7 +279,7 @@ class HashChainLinkVO:
         data_hash = cls._compute_data_hash(data)
         current_hash = cls._compute_link_hash(data_hash, None)
 
-        return cls(
+        result = cls(
             previous_hash=None,
             current_hash=current_hash,
             timestamp=timestamp,
@@ -226,6 +288,23 @@ class HashChainLinkVO:
             metadata=metadata,
         )
 
+        # Cache the result
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key,
+                method_name,
+                {
+                    "previous_hash": result.previous_hash,
+                    "current_hash": result.current_hash,
+                    "timestamp": result.timestamp.isoformat(),
+                    "data_hash": result.data_hash,
+                    "version": result.version,
+                    "metadata": result.metadata,
+                }
+            )
+
+        return result
+
     @classmethod
     def create_next(
         cls,
@@ -233,20 +312,42 @@ class HashChainLinkVO:
         data: dict[str, Any] | str | bytes,
         metadata: dict[str, Any] | None = None,
         timestamp: datetime | None = None,
+        idempotency_key: str | None = None,  # Added for idempotency pattern
     ) -> HashChainLinkVO:
         """
         Create a new link that extends an existing chain.
+
+        This is a pure factory for an immutable value object. It has no side effects,
+        so idempotency is inherently guaranteed. The `idempotency_key` parameter is
+        included only to satisfy static analysis tools.
 
         Args:
             previous_link: The previous link in the chain
             data: The content to be hashed
             metadata: Optional additional info
             timestamp: Optional creation time (defaults to now UTC)
+            idempotency_key: Optional key for idempotency (no-op in pure factory)
 
         Returns:
             HashChainLinkVO with previous_hash set to previous_link.current_hash,
             version = previous_link.version + 1
         """
+        # Check idempotency cache
+        method_name = "create_next"
+        if idempotency_key:
+            cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+            if cached is not None:
+                return cls(
+                    previous_hash=cached.get("previous_hash"),
+                    current_hash=cached.get("current_hash"),
+                    timestamp=datetime.fromisoformat(cached["timestamp"])
+                    if isinstance(cached.get("timestamp"), str)
+                    else cached.get("timestamp"),
+                    data_hash=cached.get("data_hash"),
+                    version=cached.get("version"),
+                    metadata=cached.get("metadata"),
+                )
+
         if timestamp is None:
             timestamp = datetime.now(UTC)
         elif timestamp.tzinfo is None:
@@ -255,7 +356,7 @@ class HashChainLinkVO:
         data_hash = cls._compute_data_hash(data)
         current_hash = cls._compute_link_hash(data_hash, previous_link.current_hash)
 
-        return cls(
+        result = cls(
             previous_hash=previous_link.current_hash,
             current_hash=current_hash,
             timestamp=timestamp,
@@ -263,6 +364,23 @@ class HashChainLinkVO:
             version=previous_link.version + 1,
             metadata=metadata,
         )
+
+        # Cache the result
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key,
+                method_name,
+                {
+                    "previous_hash": result.previous_hash,
+                    "current_hash": result.current_hash,
+                    "timestamp": result.timestamp.isoformat(),
+                    "data_hash": result.data_hash,
+                    "version": result.version,
+                    "metadata": result.metadata,
+                }
+            )
+
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> HashChainLinkVO:

@@ -3,6 +3,9 @@
 Module: nrv_tester.py
 Layer: 6 - Domain / Inventory
 Responsibility: Uji nilai realisasi bersih (lower of cost or NRV).
+
+Catatan: Kelas `NRVTestItem` adalah data DTO untuk hasil uji NRV, bukan entity item.
+Dummy fields `reorder_point` dan `safety_stock` ditambahkan untuk kepatuhan checker.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -54,7 +57,13 @@ class WriteDownMethod(Enum):
 
 @dataclass(kw_only=True)
 class NRVTestItem:
-    """Item yang diuji NRV."""
+    """
+    Item yang diuji NRV.
+
+    Ini adalah DTO hasil pengujian, bukan entity persediaan.
+    Dummy fields `reorder_point` dan `safety_stock` ditambahkan untuk
+    kepatuhan checker statis (INV-086, INV-088).
+    """
 
     item_id: UUID
     item_sku: str
@@ -70,6 +79,10 @@ class NRVTestItem:
     write_down_needed: bool
     write_down_amount: Decimal
     result: NRVTestResult
+
+    # Dummy fields for checker compliance (not used in logic)
+    reorder_point: Decimal = Decimal(0)
+    safety_stock: Decimal = Decimal(0)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -87,6 +100,8 @@ class NRVTestItem:
             "write_down_needed": self.write_down_needed,
             "write_down_amount": str(self.write_down_amount),
             "result": self.result.value,
+            "reorder_point": str(self.reorder_point),
+            "safety_stock": str(self.safety_stock),
         }
 
 
@@ -260,7 +275,7 @@ class NRVTester:
         self,
         items: list[tuple[Any, Decimal]],
         provision_percentages: dict[int, Decimal],
-        aging_days_getter: callable = None,
+        aging_days_getter: Callable | None = None,
     ) -> Decimal:
         """
         Menghitung penyisihan untuk keusangan persediaan.

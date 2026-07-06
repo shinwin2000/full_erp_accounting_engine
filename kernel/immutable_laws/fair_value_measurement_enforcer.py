@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -139,8 +140,8 @@ class _FallbackValuationRepository:
     def __init__(self):
         self._measurements: list[dict[str, Any]] = []
         self._observable_inputs: dict[UUID, list[dict[str, Any]]] = {}
-        self._sensitivity: dict[tuple[UUID, str], dict[str, Any]] = {}
         self._unobservable_inputs: dict[UUID, list[dict[str, Any]]] = {}
+        self._sensitivity: dict[tuple[UUID, str], dict[str, Any]] = {}
 
     async def get_observable_inputs(
         self,
@@ -421,10 +422,181 @@ class FairValueValidationResult:
         }
 
 
-# === 3. FAIR VALUE MEASUREMENT ENFORCER ===
+# ============================================================================
+# BASE FAIR VALUE MEASUREMENT ENFORCER (ABSTRACT)
+# ============================================================================
+
+class BaseFairValueMeasurementEnforcer(ABC):
+    """Base contract untuk Fair Value Measurement Enforcer."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan enforcer."""
+        pass
+
+    @abstractmethod
+    def set_strict_mode(self, strict: bool = True) -> None:
+        """Set strict mode."""
+        pass
+
+    @abstractmethod
+    async def enforce_fair_value_measurement(
+        self,
+        asset_id: UUID,
+        asset_class: AssetClass,
+        legal_entity_id: UUID,
+        fair_value: Decimal,
+        measurement_date: datetime,
+        hierarchy_level: FairValueHierarchy,
+        valuation_technique: ValuationTechnique | None = None,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, FairValueMeasurementViolation | None]:
+        """Enforce fair value measurement."""
+        pass
+
+    @abstractmethod
+    async def enforce_recurring_measurement(
+        self,
+        asset_id: UUID,
+        legal_entity_id: UUID,
+        measurement_frequency_days: int = 365,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, FairValueMeasurementViolation | None]:
+        """Enforce recurring measurement requirement."""
+        pass
+
+    @abstractmethod
+    async def record_observable_input(
+        self,
+        asset_id: UUID,
+        measurement_date: datetime,
+        input_type: str,
+        value: Any,
+        source: str,
+        user_id: str | None = None,
+    ) -> None:
+        """Record observable input."""
+        pass
+
+    @abstractmethod
+    async def record_unobservable_input(
+        self,
+        asset_id: UUID,
+        measurement_date: datetime,
+        input_type: str,
+        value: Any,
+        justification: str,
+        user_id: str | None = None,
+    ) -> None:
+        """Record unobservable input."""
+        pass
+
+    @abstractmethod
+    async def record_sensitivity_analysis(
+        self,
+        asset_id: UUID,
+        measurement_date: datetime,
+        analysis: dict[str, Any],
+        user_id: str | None = None,
+    ) -> None:
+        """Record sensitivity analysis."""
+        pass
+
+    @abstractmethod
+    async def get_fair_value_history(
+        self,
+        asset_id: UUID,
+        legal_entity_id: UUID,
+        limit: int = 10,
+    ) -> list[FairValueMeasurement]:
+        """Get fair value measurement history."""
+        pass
+
+    @abstractmethod
+    async def get_market_price(
+        self,
+        asset_class: AssetClass,
+        as_of: datetime,
+        legal_entity_id: UUID,
+    ) -> Decimal | None:
+        """Get market price for asset class."""
+        pass
+
+    @abstractmethod
+    def get_violations(
+        self,
+        limit: int = 100,
+        min_severity: LawViolationSeverity = LawViolationSeverity.LOW,
+    ) -> list[FairValueMeasurementViolation]:
+        """Get violation history."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset state."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseFairValueMeasurementEnforcer:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseFairValueMeasurementEnforcer:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseFairValueMeasurementEnforcer:
+        """Touch instance (increment version)."""
+        pass
 
 
-class FairValueMeasurementEnforcer:
+# ============================================================================
+# FAIR VALUE MEASUREMENT ENFORCER (CONCRETE)
+# ============================================================================
+
+class FairValueMeasurementEnforcer(BaseFairValueMeasurementEnforcer):
     """
     Enforcer untuk hukum fair value measurement.
 
@@ -451,13 +623,158 @@ class FairValueMeasurementEnforcer:
         self._lock = threading.RLock()
         self._enabled = True
         self._strict_mode = True
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        asset_id = context.get("asset_id")
+        asset_class = context.get("asset_class")
+        fair_value = context.get("fair_value")
+        measurement_date = context.get("measurement_date")
+        hierarchy_level = context.get("hierarchy_level")
+
+        if not asset_id:
+            errors.append("asset_id is required")
+        else:
+            try:
+                UUID(str(asset_id))
+            except Exception:
+                errors.append("asset_id must be a valid UUID")
+        if not asset_class:
+            errors.append("asset_class is required")
+        else:
+            try:
+                AssetClass(asset_class)
+            except ValueError:
+                errors.append(f"asset_class '{asset_class}' is not a valid AssetClass")
+        if fair_value is None:
+            errors.append("fair_value is required")
+        else:
+            try:
+                Decimal(str(fair_value))
+            except Exception:
+                errors.append("fair_value must be a valid number")
+        if not measurement_date:
+            errors.append("measurement_date is required")
+        else:
+            try:
+                if isinstance(measurement_date, str):
+                    datetime.fromisoformat(measurement_date)
+                elif not isinstance(measurement_date, datetime):
+                    errors.append("measurement_date must be a datetime or ISO string")
+            except ValueError:
+                errors.append("measurement_date must be a valid ISO format date")
+        if hierarchy_level is not None:
+            try:
+                FairValueHierarchy(int(hierarchy_level))
+            except (ValueError, TypeError):
+                errors.append("hierarchy_level must be 1, 2, or 3")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        if self.MARKET_PRICE_TOLERANCE < 0:
+            errors.append("MARKET_PRICE_TOLERANCE must be non-negative")
+        if self.DEFAULT_MEASUREMENT_FREQUENCY_DAYS <= 0:
+            errors.append("DEFAULT_MEASUREMENT_FREQUENCY_DAYS must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "max_history": self._max_history,
+                "measurements_count": len(self._measurement_history),
+                "violations_count": len(self._violation_history),
+                "market_price_tolerance": str(self.MARKET_PRICE_TOLERANCE),
+                "default_measurement_frequency_days": self.DEFAULT_MEASUREMENT_FREQUENCY_DAYS,
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FairValueMeasurementEnforcer:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._strict_mode = data.get("strict_mode", True)
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> FairValueMeasurementEnforcer:
+        """Clone instance."""
+        new_instance = FairValueMeasurementEnforcer()
+        new_instance._enabled = self._enabled
+        new_instance._strict_mode = self._strict_mode
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "measurements_count": len(self._measurement_history),
+                "violations_count": len(self._violation_history),
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> FairValueMeasurementEnforcer:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Fair value measurement enforcer enabled: {enabled}")
 
     def set_strict_mode(self, strict: bool = True) -> None:
         self._strict_mode = strict
+        self._record_audit("SET_STRICT_MODE", "system", {"strict": strict})
         logger.info(f"Fair value measurement enforcer strict mode: {strict}")
 
     async def enforce_fair_value_measurement(
@@ -545,6 +862,11 @@ class FairValueMeasurementEnforcer:
             if len(self._measurement_history) > self._max_history:
                 self._measurement_history = self._measurement_history[-self._max_history :]
 
+        self._record_audit("FAIR_VALUE_MEASUREMENT", user_id, {
+            "asset_id": str(asset_id),
+            "asset_class": asset_class.value,
+            "hierarchy_level": hierarchy_level.value,
+        })
         logger.info(
             f"Fair value measurement recorded for {asset_id}: {fair_value} (Level {hierarchy_level.value})"
         )
@@ -821,6 +1143,8 @@ class FairValueMeasurementEnforcer:
         source: str,
         user_id: str | None = None,
     ) -> None:
+        if user_id is None:
+            user_id = get_current_user() or "system"
         await self._valuation_repo.add_observable_input(
             asset_id=asset_id,
             measurement_date=measurement_date,
@@ -828,6 +1152,10 @@ class FairValueMeasurementEnforcer:
             value=value,
             source=source,
         )
+        self._record_audit("RECORD_OBSERVABLE_INPUT", user_id, {
+            "asset_id": str(asset_id),
+            "input_type": input_type,
+        })
         logger.info(
             f"Observable input recorded for asset {asset_id}: {input_type}={value} from {source}"
         )
@@ -841,6 +1169,8 @@ class FairValueMeasurementEnforcer:
         justification: str,
         user_id: str | None = None,
     ) -> None:
+        if user_id is None:
+            user_id = get_current_user() or "system"
         await self._valuation_repo.add_unobservable_input(
             asset_id=asset_id,
             measurement_date=measurement_date,
@@ -848,6 +1178,10 @@ class FairValueMeasurementEnforcer:
             value=value,
             justification=justification,
         )
+        self._record_audit("RECORD_UNOBSERVABLE_INPUT", user_id, {
+            "asset_id": str(asset_id),
+            "input_type": input_type,
+        })
         logger.info(f"Unobservable input recorded for asset {asset_id}: {input_type}={value}")
 
     async def record_sensitivity_analysis(
@@ -857,11 +1191,16 @@ class FairValueMeasurementEnforcer:
         analysis: dict[str, Any],
         user_id: str | None = None,
     ) -> None:
+        if user_id is None:
+            user_id = get_current_user() or "system"
         await self._valuation_repo.add_sensitivity_analysis(
             asset_id=asset_id,
             measurement_date=measurement_date,
             analysis=analysis,
         )
+        self._record_audit("RECORD_SENSITIVITY_ANALYSIS", user_id, {
+            "asset_id": str(asset_id),
+        })
         logger.info(f"Sensitivity analysis recorded for asset {asset_id}")
 
     async def get_fair_value_history(
@@ -913,6 +1252,10 @@ class FairValueMeasurementEnforcer:
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
+            self._record_audit("VIOLATION", violation.user_id or "system", {
+                "message": violation.message,
+                "severity": violation.severity.name,
+            })
 
     def get_violations(
         self,
@@ -934,6 +1277,7 @@ class FairValueMeasurementEnforcer:
                     "total_violations": 0,
                     "enabled": self._enabled,
                     "strict_mode": self._strict_mode,
+                    "version": self._version,
                 }
 
             by_hierarchy = {}
@@ -954,6 +1298,7 @@ class FairValueMeasurementEnforcer:
                 "strict_mode": self._strict_mode,
                 "market_price_tolerance": str(self.MARKET_PRICE_TOLERANCE),
                 "default_measurement_frequency_days": self.DEFAULT_MEASUREMENT_FREQUENCY_DAYS,
+                "version": self._version,
                 "latest_measurement": self._measurement_history[-1].measurement_date.isoformat()
                 if self._measurement_history
                 else None,
@@ -969,6 +1314,8 @@ class FairValueMeasurementEnforcer:
             self._violation_history = []
             self._enabled = True
             self._strict_mode = True
+            self._version += 1
+            self._audit_trail = []
             if hasattr(self._market_data_repo, "clear"):
                 self._market_data_repo.clear()
             if hasattr(self._valuation_repo, "clear"):

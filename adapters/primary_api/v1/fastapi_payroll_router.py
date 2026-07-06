@@ -4,6 +4,7 @@ Module: fastapi_payroll_router.py
 Layer: Adapters (Primary API - v1)
 Responsibility: Menyediakan REST API endpoint untuk mengelola Payroll:
                payroll run, payslip, salary structure, komponen gaji.
+Revisi: Menambahkan idempotensi pada fungsi write (POST, PUT, DELETE).
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
@@ -84,6 +85,7 @@ class CreatePayrollRunRequest(BaseModel):
     frequency: PayrollFrequency = PayrollFrequency.MONTHLY
     employee_ids: list[UUID] | None = None
     auto_post_to_gl: bool = True
+    idempotency_key: str | None = Field(None, description="Idempotency key untuk mencegah duplikasi")
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -99,6 +101,7 @@ class PayrollRunResponseModel(BaseModel):
     total_tax_withheld: Decimal
     status: str
     generated_at: datetime
+    idempotency_key: str | None = None
 
 
 class SetSalaryStructureRequest(BaseModel):
@@ -114,6 +117,7 @@ class SetSalaryStructureRequest(BaseModel):
     bpjs_ketenagakerjaan_employer: Decimal | None = None
     other_deductions: dict[str, Decimal] = Field(default_factory=dict)
     effective_date: date | None = None
+    idempotency_key: str | None = Field(None, description="Idempotency key untuk mencegah duplikasi")
 
 
 class SalaryStructureResponse(BaseModel):
@@ -136,6 +140,7 @@ class AddSalaryComponentRequest(BaseModel):
     amount: Decimal = Field(..., ge=0)
     description: str
     effective_date: date | None = None
+    idempotency_key: str | None = Field(None, description="Idempotency key untuk mencegah duplikasi")
 
 
 class PayslipResponseModel(BaseModel):
@@ -154,6 +159,7 @@ class PayslipResponseModel(BaseModel):
 
 class PostPayrollToGLRequest(BaseModel):
     payroll_run_id: UUID
+    idempotency_key: str | None = Field(None, description="Idempotency key untuk mencegah duplikasi")
 
 
 class PostPayrollToGLResponse(BaseModel):
@@ -161,23 +167,34 @@ class PostPayrollToGLResponse(BaseModel):
     posted_to_gl: bool
     journal_id: UUID | None = None
     posting_errors: list[str] = Field(default_factory=list)
+    idempotency_key: str | None = None
 
 
 class CancelPayrollRunRequest(BaseModel):
     reason: str
+    idempotency_key: str | None = Field(None, description="Idempotency key untuk mencegah duplikasi")
 
 
 # ============================================================================
-# HELPER: Get Correlation ID
+# HELPER: Get Correlation ID & Idempotency Key
 # ============================================================================
 
 def get_correlation_id(request: Request) -> str:
     """Extract correlation ID from header or generate new."""
     corr_id = request.headers.get("X-Correlation-ID")
     if not corr_id:
-        from uuid import uuid4
         corr_id = str(uuid4())
     return corr_id
+
+
+def get_idempotency_key(request: Request) -> str:
+    """Extract idempotency key from header or generate new."""
+    idem_key = request.headers.get("Idempotency-Key")
+    if not idem_key:
+        # Jika tidak ada header, generate dari request body (partial)
+        # Untuk keperluan sederhana, kita generate UUID
+        idem_key = str(uuid4())
+    return idem_key
 
 
 # ============================================================================
@@ -202,6 +219,25 @@ async def create_payroll_run(
     """
     try:
         correlation_id = get_correlation_id(request)
+        idempotency_key = payload.idempotency_key or get_idempotency_key(request)
+
+        # Cek apakah request sudah diproses (idempotensi)
+        existing = await service.get_payroll_run_by_idempotency_key(idempotency_key)
+        if existing:
+            return PayrollRunResponseModel(
+                payroll_run_id=existing.payroll_run_id,
+                period=existing.period,
+                frequency=existing.frequency,
+                employee_count=existing.employee_count,
+                total_gross_pay=existing.total_gross_pay,
+                total_deductions=existing.total_deductions,
+                total_net_pay=existing.total_net_pay,
+                total_tax_withheld=existing.total_tax_withheld,
+                status=existing.status,
+                generated_at=existing.generated_at,
+                idempotency_key=idempotency_key,
+            )
+
         run_request = PayrollRunRequest(
             legal_entity_id=payload.legal_entity_id,
             period_month=payload.period_month,
@@ -214,6 +250,7 @@ async def create_payroll_run(
             request=run_request,
             user_id=user.user_id,
             correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
         )
         return PayrollRunResponseModel(
             payroll_run_id=result.payroll_run_id,
@@ -226,6 +263,7 @@ async def create_payroll_run(
             total_tax_withheld=result.total_tax_withheld,
             status=result.status,
             generated_at=result.generated_at,
+            idempotency_key=idempotency_key,
         )
     except Exception as e:
         logger.error(f"Error creating payroll run: {e}", exc_info=True)
@@ -252,10 +290,30 @@ async def process_payroll_run(
     """
     try:
         correlation_id = get_correlation_id(request)
+        idempotency_key = get_idempotency_key(request)
+
+        # Cek apakah sudah diproses
+        existing = await service.get_payroll_run_by_idempotency_key(idempotency_key)
+        if existing and existing.payroll_run_id == run_id:
+            return PayrollRunResponseModel(
+                payroll_run_id=existing.payroll_run_id,
+                period=existing.period,
+                frequency=existing.frequency,
+                employee_count=existing.employee_count,
+                total_gross_pay=existing.total_gross_pay,
+                total_deductions=existing.total_deductions,
+                total_net_pay=existing.total_net_pay,
+                total_tax_withheld=existing.total_tax_withheld,
+                status=existing.status,
+                generated_at=existing.generated_at,
+                idempotency_key=idempotency_key,
+            )
+
         result = await service.process_payroll_run(
             payroll_run_id=run_id,
             user_id=user.user_id,
             correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
         )
         return PayrollRunResponseModel(
             payroll_run_id=result.payroll_run_id,
@@ -268,6 +326,7 @@ async def process_payroll_run(
             total_tax_withheld=result.total_tax_withheld,
             status=result.status,
             generated_at=result.generated_at,
+            idempotency_key=idempotency_key,
         )
     except Exception as e:
         logger.error(f"Error processing payroll run {run_id}: {e}", exc_info=True)
@@ -293,10 +352,29 @@ async def approve_payroll_run(
     """
     try:
         correlation_id = get_correlation_id(request)
+        idempotency_key = get_idempotency_key(request)
+
+        existing = await service.get_payroll_run_by_idempotency_key(idempotency_key)
+        if existing and existing.payroll_run_id == run_id:
+            return PayrollRunResponseModel(
+                payroll_run_id=existing.payroll_run_id,
+                period=existing.period,
+                frequency=existing.frequency,
+                employee_count=existing.employee_count,
+                total_gross_pay=existing.total_gross_pay,
+                total_deductions=existing.total_deductions,
+                total_net_pay=existing.total_net_pay,
+                total_tax_withheld=existing.total_tax_withheld,
+                status=existing.status,
+                generated_at=existing.generated_at,
+                idempotency_key=idempotency_key,
+            )
+
         result = await service.approve_payroll_run(
             payroll_run_id=run_id,
             user_id=user.user_id,
             correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
         )
         return PayrollRunResponseModel(
             payroll_run_id=result.payroll_run_id,
@@ -309,6 +387,7 @@ async def approve_payroll_run(
             total_tax_withheld=result.total_tax_withheld,
             status=result.status,
             generated_at=result.generated_at,
+            idempotency_key=idempotency_key,
         )
     except Exception as e:
         logger.error(f"Error approving payroll run {run_id}: {e}", exc_info=True)
@@ -334,10 +413,29 @@ async def pay_payroll_run(
     """
     try:
         correlation_id = get_correlation_id(request)
+        idempotency_key = get_idempotency_key(request)
+
+        existing = await service.get_payroll_run_by_idempotency_key(idempotency_key)
+        if existing and existing.payroll_run_id == run_id:
+            return PayrollRunResponseModel(
+                payroll_run_id=existing.payroll_run_id,
+                period=existing.period,
+                frequency=existing.frequency,
+                employee_count=existing.employee_count,
+                total_gross_pay=existing.total_gross_pay,
+                total_deductions=existing.total_deductions,
+                total_net_pay=existing.total_net_pay,
+                total_tax_withheld=existing.total_tax_withheld,
+                status=existing.status,
+                generated_at=existing.generated_at,
+                idempotency_key=idempotency_key,
+            )
+
         result = await service.pay_payroll_run(
             payroll_run_id=run_id,
             user_id=user.user_id,
             correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
         )
         return PayrollRunResponseModel(
             payroll_run_id=result.payroll_run_id,
@@ -350,6 +448,7 @@ async def pay_payroll_run(
             total_tax_withheld=result.total_tax_withheld,
             status=result.status,
             generated_at=result.generated_at,
+            idempotency_key=idempotency_key,
         )
     except Exception as e:
         logger.error(f"Error paying payroll run {run_id}: {e}", exc_info=True)
@@ -367,24 +466,42 @@ async def pay_payroll_run(
 async def post_payroll_to_gl(
     request: Request,
     run_id: UUID,
+    payload: PostPayrollToGLRequest = Body(...),
     user: TokenPayload = Depends(get_current_user),
     service: PayrollService = Depends(get_service(PayrollService)),
 ) -> PostPayrollToGLResponse:
     """
     Post payroll journal entries to General Ledger.
+    Idempotent: Menggunakan idempotency key untuk mencegah duplikasi posting.
     """
     try:
         correlation_id = get_correlation_id(request)
+        idempotency_key = payload.idempotency_key or get_idempotency_key(request)
+
+        # Cek apakah sudah pernah diposting dengan idempotency key ini
+        existing = await service.get_payroll_post_result_by_idempotency_key(idempotency_key)
+        if existing:
+            return PostPayrollToGLResponse(
+                payroll_run_id=existing.payroll_run_id,
+                posted_to_gl=existing.posted_to_gl,
+                journal_id=existing.journal_id,
+                posting_errors=existing.posting_errors,
+                idempotency_key=idempotency_key,
+            )
+
+        # Proses posting
         result = await service.post_payroll_to_gl(
             payroll_run_id=run_id,
             user_id=user.user_id,
             correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
         )
         return PostPayrollToGLResponse(
             payroll_run_id=result.payroll_run_id,
             posted_to_gl=result.posted_to_gl,
             journal_id=result.journal_id,
             posting_errors=result.posting_errors,
+            idempotency_key=idempotency_key,
         )
     except Exception as e:
         logger.error(f"Error posting payroll run {run_id} to GL: {e}", exc_info=True)
@@ -411,16 +528,34 @@ async def cancel_payroll_run(
     """
     try:
         correlation_id = get_correlation_id(request)
+        idempotency_key = payload.idempotency_key or get_idempotency_key(request)
+
+        # Cek apakah sudah dibatalkan
+        existing = await service.get_payroll_run_by_idempotency_key(idempotency_key)
+        if existing and existing.payroll_run_id == run_id:
+            return PayrollRunResponseModel(
+                payroll_run_id=existing.payroll_run_id,
+                period=existing.period,
+                frequency=existing.frequency,
+                employee_count=existing.employee_count,
+                total_gross_pay=existing.total_gross_pay,
+                total_deductions=existing.total_deductions,
+                total_net_pay=existing.total_net_pay,
+                total_tax_withheld=existing.total_tax_withheld,
+                status=existing.status,
+                generated_at=existing.generated_at,
+                idempotency_key=idempotency_key,
+            )
+
         await service.cancel_payroll_run(
             payroll_run_id=run_id,
             reason=payload.reason,
             user_id=user.user_id,
             correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
         )
-        # After cancel, we need to fetch the updated run.
-        # Since cancel_payroll_run returns None, we need to implement get_payroll_run.
-        # For now, we return a dummy response until get_payroll_run is implemented.
-        # TODO: Implement get_payroll_run in PayrollService and use it here.
+        # Get updated run after cancellation
+        # TODO: Implement get_payroll_run in PayrollService
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Cancel endpoint returns no data yet. Please implement get_payroll_run in service.",
@@ -560,10 +695,18 @@ async def send_payslip_to_employee(
     """
     try:
         correlation_id = get_correlation_id(request)
+        idempotency_key = get_idempotency_key(request)
+
+        # Cek apakah sudah pernah dikirim
+        existing = await service.get_payslip_send_status_by_idempotency_key(idempotency_key)
+        if existing and existing.payslip_id == payslip_id:
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
         await service.send_payslip_to_employee(
             payslip_id=payslip_id,
             user_id=user.user_id,
             correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
         )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as e:
@@ -594,6 +737,16 @@ async def set_salary_structure(
     """
     try:
         correlation_id = get_correlation_id(request)
+        idempotency_key = payload.idempotency_key or get_idempotency_key(request)
+
+        # Cek apakah sudah pernah diset
+        existing = await service.get_salary_structure_by_idempotency_key(
+            employee_id=payload.employee_id,
+            idempotency_key=idempotency_key
+        )
+        if existing:
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
         dto = EmployeeSalaryStructureDTO(
             employee_id=payload.employee_id,
             basic_salary=payload.basic_salary,
@@ -613,6 +766,7 @@ async def set_salary_structure(
             user_id=user.user_id,
             effective_date=payload.effective_date,
             correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
         )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as e:
@@ -687,6 +841,16 @@ async def add_salary_component(
     """
     try:
         correlation_id = get_correlation_id(request)
+        idempotency_key = payload.idempotency_key or get_idempotency_key(request)
+
+        # Cek apakah sudah pernah ditambahkan
+        existing = await service.get_salary_component_by_idempotency_key(
+            employee_id=payload.employee_id,
+            idempotency_key=idempotency_key
+        )
+        if existing:
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
         from application.service_layer.service_payroll import SalaryComponentRequest
         comp_request = SalaryComponentRequest(
             employee_id=payload.employee_id,
@@ -699,6 +863,7 @@ async def add_salary_component(
             request=comp_request,
             user_id=user.user_id,
             correlation_id=correlation_id,
+            idempotency_key=idempotency_key,
         )
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as e:

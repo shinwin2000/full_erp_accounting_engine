@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -104,7 +105,6 @@ class _FallbackEvidenceRepository:
         attached_by: str,
         attached_at: datetime,
     ) -> bool:
-        # Verify evidence belongs to legal entity
         ev = self._evidences.get(evidence_id)
         if not ev or ev.get("legal_entity_id") != legal_entity_id:
             return False
@@ -501,10 +501,202 @@ DEFAULT_EVIDENCE_REQUIREMENTS: dict[str, EvidenceRequirement] = {
 }
 
 
-# === 4. EVIDENCE MANDATE ENFORCER ===
+# ============================================================================
+# BASE EVIDENCE MANDATE ENFORCER (ABSTRACT)
+# ============================================================================
+
+class BaseEvidenceMandateEnforcer(ABC):
+    """Base contract untuk Evidence Mandate Enforcer."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan enforcer."""
+        pass
+
+    @abstractmethod
+    def set_strict_mode(self, strict: bool = True) -> None:
+        """Set strict mode."""
+        pass
+
+    @abstractmethod
+    def register_requirement(self, requirement: EvidenceRequirement) -> None:
+        """Register evidence requirement for a journal type."""
+        pass
+
+    @abstractmethod
+    def get_requirement(self, journal_type: str) -> EvidenceRequirement | None:
+        """Get requirement for a journal type."""
+        pass
+
+    @abstractmethod
+    def get_all_requirements(self) -> dict[str, EvidenceRequirement]:
+        """Get all registered requirements."""
+        pass
+
+    @abstractmethod
+    async def enforce_evidence_mandate(
+        self,
+        journal_id: UUID,
+        legal_entity_id: UUID,
+        journal_type: str,
+        amount: Decimal | None = None,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, EvidenceMandateViolation | None]:
+        """Enforce evidence mandate for a journal."""
+        pass
+
+    @abstractmethod
+    async def validate_evidence_quality(
+        self,
+        evidence_id: UUID,
+        legal_entity_id: UUID,
+    ) -> tuple[EvidenceQuality, list[str]]:
+        """Validate evidence quality."""
+        pass
+
+    @abstractmethod
+    async def create_evidence(
+        self,
+        filename: str,
+        file_content: bytes,
+        mime_type: str,
+        evidence_type: EvidenceType,
+        legal_entity_id: UUID,
+        description: str | None = None,
+        uploaded_by: str | None = None,
+        quality: EvidenceQuality | None = None,
+        expiry_days: int | None = None,
+    ) -> Evidence:
+        """Create new evidence."""
+        pass
+
+    @abstractmethod
+    async def attach_evidence_to_journal(
+        self,
+        journal_id: UUID,
+        evidence_id: UUID,
+        legal_entity_id: UUID,
+        attached_by: str | None = None,
+    ) -> bool:
+        """Attach evidence to a journal."""
+        pass
+
+    @abstractmethod
+    async def detach_evidence_from_journal(
+        self,
+        journal_id: UUID,
+        evidence_id: UUID,
+        legal_entity_id: UUID,
+        detached_by: str | None = None,
+    ) -> bool:
+        """Detach evidence from a journal."""
+        pass
+
+    @abstractmethod
+    async def verify_evidence(
+        self,
+        evidence_id: UUID,
+        legal_entity_id: UUID,
+        verified_by: str,
+        status: EvidenceVerificationStatus = EvidenceVerificationStatus.VERIFIED,
+        notes: str | None = None,
+    ) -> bool:
+        """Verify evidence."""
+        pass
+
+    @abstractmethod
+    async def get_evidence_summary(
+        self,
+        journal_id: UUID,
+        legal_entity_id: UUID,
+    ) -> dict[str, Any]:
+        """Get evidence summary for a journal."""
+        pass
+
+    @abstractmethod
+    async def get_evidence_by_id(
+        self,
+        evidence_id: UUID,
+        legal_entity_id: UUID,
+    ) -> Evidence | None:
+        """Get evidence by ID."""
+        pass
+
+    @abstractmethod
+    def get_violations(
+        self,
+        limit: int = 100,
+        journal_type: str | None = None,
+        unresolved_only: bool = False,
+    ) -> list[EvidenceMandateViolation]:
+        """Get violation history."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset state."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseEvidenceMandateEnforcer:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseEvidenceMandateEnforcer:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseEvidenceMandateEnforcer:
+        """Touch instance (increment version)."""
+        pass
 
 
-class EvidenceMandateEnforcer:
+# ============================================================================
+# EVIDENCE MANDATE ENFORCER (CONCRETE)
+# ============================================================================
+
+class EvidenceMandateEnforcer(BaseEvidenceMandateEnforcer):
     """
     Enforcer untuk hukum evidence mandate.
 
@@ -525,18 +717,142 @@ class EvidenceMandateEnforcer:
         self._lock = threading.RLock()
         self._enabled = True
         self._strict_mode = True
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        journal_id = context.get("journal_id")
+        legal_entity_id = context.get("legal_entity_id")
+        journal_type = context.get("journal_type")
+        amount = context.get("amount")
+
+        if not journal_id:
+            errors.append("journal_id is required")
+        else:
+            try:
+                UUID(str(journal_id))
+            except Exception:
+                errors.append("journal_id must be a valid UUID")
+        if not legal_entity_id:
+            errors.append("legal_entity_id is required")
+        else:
+            try:
+                UUID(str(legal_entity_id))
+            except Exception:
+                errors.append("legal_entity_id must be a valid UUID")
+        if not journal_type:
+            errors.append("journal_type is required")
+        if amount is not None:
+            try:
+                Decimal(str(amount))
+            except Exception:
+                errors.append("amount must be a valid number")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "requirements_count": len(self._requirements),
+                "violations_count": len(self._violation_history),
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> EvidenceMandateEnforcer:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._strict_mode = data.get("strict_mode", True)
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> EvidenceMandateEnforcer:
+        """Clone instance."""
+        new_instance = EvidenceMandateEnforcer()
+        new_instance._enabled = self._enabled
+        new_instance._strict_mode = self._strict_mode
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "violations_count": len(self._violation_history),
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> EvidenceMandateEnforcer:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Evidence mandate enforcer enabled: {enabled}")
 
     def set_strict_mode(self, strict: bool = True) -> None:
         self._strict_mode = strict
+        self._record_audit("SET_STRICT_MODE", "system", {"strict": strict})
         logger.info(f"Evidence mandate enforcer strict mode: {strict}")
 
     def register_requirement(self, requirement: EvidenceRequirement) -> None:
         with self._lock:
             self._requirements[requirement.journal_type] = requirement
+        self._record_audit("REGISTER_REQUIREMENT", "system", {
+            "journal_type": requirement.journal_type,
+        })
         logger.info(f"Registered evidence requirement for {requirement.journal_type}")
 
     def get_requirement(self, journal_type: str) -> EvidenceRequirement | None:
@@ -779,6 +1095,11 @@ class EvidenceMandateEnforcer:
             quality=evidence.quality.value,
         )
 
+        self._record_audit("CREATE_EVIDENCE", uploaded_by, {
+            "evidence_id": str(evidence_id),
+            "filename": filename,
+            "evidence_type": evidence_type.value,
+        })
         logger.info(f"Evidence created: {evidence_id} - {filename} by {uploaded_by}")
         return evidence
 
@@ -800,6 +1121,10 @@ class EvidenceMandateEnforcer:
             attached_at=datetime.now(UTC),
         )
         if success:
+            self._record_audit("ATTACH_EVIDENCE", attached_by, {
+                "journal_id": str(journal_id),
+                "evidence_id": str(evidence_id),
+            })
             logger.info(f"Evidence {evidence_id} attached to journal {journal_id} by {attached_by}")
         return success
 
@@ -820,6 +1145,10 @@ class EvidenceMandateEnforcer:
             detached_by=detached_by,
         )
         if success:
+            self._record_audit("DETACH_EVIDENCE", detached_by, {
+                "journal_id": str(journal_id),
+                "evidence_id": str(evidence_id),
+            })
             logger.info(
                 f"Evidence {evidence_id} detached from journal {journal_id} by {detached_by}"
             )
@@ -841,6 +1170,11 @@ class EvidenceMandateEnforcer:
             verified_at=datetime.now(UTC),
         )
         if success:
+            self._record_audit("VERIFY_EVIDENCE", verified_by, {
+                "evidence_id": str(evidence_id),
+                "status": status.value,
+                "notes": notes or "",
+            })
             logger.info(
                 f"Evidence {evidence_id} verification status set to {status.value} by {verified_by}"
             )
@@ -893,6 +1227,10 @@ class EvidenceMandateEnforcer:
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
+            self._record_audit("VIOLATION", violation.user_id or "system", {
+                "journal_type": violation.journal_type,
+                "severity": violation.severity.name,
+            })
 
     def get_violations(
         self,
@@ -916,6 +1254,7 @@ class EvidenceMandateEnforcer:
                     "total_violations": 0,
                     "enabled": self._enabled,
                     "strict_mode": self._strict_mode,
+                    "version": self._version,
                 }
 
             by_journal_type = {}
@@ -934,6 +1273,7 @@ class EvidenceMandateEnforcer:
                 "active_requirements": len(self._requirements),
                 "enabled": self._enabled,
                 "strict_mode": self._strict_mode,
+                "version": self._version,
                 "latest_violation": self._violation_history[-1].timestamp.isoformat()
                 if self._violation_history
                 else None,
@@ -945,6 +1285,8 @@ class EvidenceMandateEnforcer:
             self._requirements = DEFAULT_EVIDENCE_REQUIREMENTS.copy()
             self._enabled = True
             self._strict_mode = True
+            self._version += 1
+            self._audit_trail = []
 
 
 # === 5. SINGLETON ACCESSOR ===

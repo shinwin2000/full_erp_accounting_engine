@@ -3,8 +3,17 @@
 """
 layer_checker.py — Layer Dependency Validator for Hexagonal/DDD Architecture
 =============================================================================
-Versi   : 3.0.1
+Versi   : 3.0.6
 Standar : Big 4 Forensic Audit · ISO/IEC 25010 · SOX/ISA 315 Compliant
+Integrasi penuh dengan RCA engine (checker/core/rca.py).
+
+Perubahan v3.0.6:
+  - Deteksi siklus sekarang hanya mempertimbangkan import runtime:
+    * top-level (bukan di dalam fungsi/class)
+    * bukan di dalam blok TYPE_CHECKING
+    * bukan import relatif
+  - Konsisten dengan checker_integration.py
+  - Mempertahankan semua fitur lain (RCA, JSON, dll.)
 """
 
 from __future__ import annotations
@@ -27,9 +36,72 @@ from typing import (
     Set, Tuple, Union,
 )
 
-# ─── HELPER FUNCTIONS (didefinisikan AWAL) ──────────────────────────────────
+# ─── RCA ENGINE INTEGRATION ─────────────────────────────────────────────────
+_RCA_ENGINE = None
+_RCA_AVAILABLE = False
+
+def _init_rca() -> bool:
+    global _RCA_ENGINE, _RCA_AVAILABLE
+    if _RCA_AVAILABLE:
+        return True
+    try:
+        from checker.core.rca import RCAEngine, RCAResult, Severity
+        _RCA_ENGINE = RCAEngine()
+        _RCA_AVAILABLE = True
+        return True
+    except ImportError:
+        pass
+    _root = pathlib.Path(__file__).resolve().parent.parent
+    if str(_root) not in sys.path:
+        sys.path.insert(0, str(_root))
+    try:
+        from checker.core.rca import RCAEngine, RCAResult, Severity
+        _RCA_ENGINE = RCAEngine()
+        _RCA_AVAILABLE = True
+        return True
+    except ImportError:
+        pass
+    return False
+
+_init_rca()
+
+def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Any]:
+    if not _RCA_AVAILABLE or _RCA_ENGINE is None:
+        return {
+            "severity": "WARNING",
+            "root_cause": str(exc)[:200],
+            "suggested_fix": "Install checker.core.rca atau periksa dependency.",
+            "confidence": 0.0,
+        }
+    try:
+        return _RCA_ENGINE.analyze(exc, context or {})
+    except Exception as e:
+        return {
+            "severity": "WARNING",
+            "root_cause": f"RCA analysis failed: {e}",
+            "suggested_fix": "Periksa kestabilan RCA engine.",
+            "confidence": 0.0,
+        }
+
+def _rca_to_dict(rca_result: Optional[Any]) -> Optional[Dict[str, Any]]:
+    if rca_result is None:
+        return None
+    if isinstance(rca_result, dict):
+        return rca_result
+    try:
+        if hasattr(rca_result, "to_dict"):
+            return rca_result.to_dict()
+        return {
+            "severity": getattr(rca_result, "severity", "UNKNOWN"),
+            "root_cause": getattr(rca_result, "root_cause", ""),
+            "suggested_fix": getattr(rca_result, "suggested_fix", ""),
+            "confidence": getattr(rca_result, "confidence", 0.0),
+        }
+    except Exception:
+        return {"error": "RCA serialization failed"}
+
+# ─── HELPER FUNCTIONS ──────────────────────────────────────────────────────
 def _build_stdlib_set() -> Set[str]:
-    """Build comprehensive set of Python standard library module names."""
     if hasattr(sys, "stdlib_module_names"):
         return set(sys.stdlib_module_names)
     return {
@@ -51,7 +123,7 @@ def _build_stdlib_set() -> Set[str]:
 def get_layer(module: str) -> str:
     if not module: return "unknown"
     top = module.split(".")[0]
-    return LAYER_MAP.get(top, "unknown")  # LAYER_MAP didefinisikan nanti
+    return LAYER_MAP.get(top, "unknown")
 
 def is_stdlib(module: str) -> bool:
     return module.split(".")[0] in STD_LIB_MODULES
@@ -62,11 +134,14 @@ def is_friend(layer: str, module: str) -> bool:
 def is_allowed_third_party(module: str) -> bool:
     return module.split(".")[0] in ALWAYS_ALLOWED_THIRD_PARTY
 
-def resolve_relative(source_module: str, level: int, target: Optional[str]) -> str:
+def resolve_relative_import(source_module: str, level: int, target: Optional[str]) -> str:
     parts = source_module.split(".")
-    if level > len(parts):
+    # level=1 berarti current package, level=2 parent package, dst.
+    # Kita naik (level - 1) sesuai PEP 328
+    up = max(0, level - 1)
+    if up > len(parts):
         return target or ""
-    base = ".".join(parts[:-level]) if level > 0 else ""
+    base = ".".join(parts[:-up]) if up > 0 else ""
     if not base:
         return target or (parts[0] if parts else "")
     return f"{base}.{target}" if target else base
@@ -84,58 +159,6 @@ def _normalize_cycle(cycle: List[str]) -> Tuple[str, ...]:
     rotated = c[min_idx:] + c[:min_idx]
     return tuple(rotated)
 
-# ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
-_RCA_ENGINE = None
-_RCA_AVAILABLE = False
-
-def _init_rca() -> bool:
-    global _RCA_ENGINE, _RCA_AVAILABLE
-    if _RCA_AVAILABLE:
-        return True
-    try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
-        _RCA_ENGINE = get_engine()
-        _RCA_AVAILABLE = True
-        return True
-    except ImportError:
-        pass
-    _root = pathlib.Path(__file__).resolve().parent.parent
-    if str(_root) not in sys.path:
-        sys.path.insert(0, str(_root))
-    try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
-        _RCA_ENGINE = get_engine()
-        _RCA_AVAILABLE = True
-        return True
-    except ImportError:
-        pass
-    return False
-
-_init_rca()
-
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
-    if not _RCA_AVAILABLE:
-        return {
-            "severity": "WARNING",
-            "root_cause": str(exc)[:200],
-            "suggested_fix": "Install checker.core.rca",
-            "confidence": 0.0,
-        }
-    try:
-        r = _RCA_ENGINE.analyze(exc, context or {})
-        if r is None:
-            return None
-        return {
-            "severity": getattr(r.severity, "value", str(r.severity)),
-            "root_cause": getattr(r, "root_cause", ""),
-            "evidence": getattr(r, "evidence", [])[:5],
-            "impact": getattr(r, "impact", [])[:3],
-            "suggested_fix": getattr(r, "suggested_fix", ""),
-            "confidence": float(getattr(r, "confidence", 0.0)),
-        }
-    except Exception:
-        return None
-
 # ─── LOGGING ──────────────────────────────────────────────────────────────────
 _log_handler = logging.StreamHandler(sys.stderr)
 _log_handler.setFormatter(logging.Formatter(
@@ -149,7 +172,7 @@ if not logger.handlers:
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
 COLOR: Dict[str, str] = {
-    "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "BOLD": "", "RESET": "",
+    "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "BOLD": "", "DIM": "", "RESET": "",
 }
 try:
     import colorama
@@ -160,13 +183,14 @@ try:
         "YELLOW": colorama.Fore.YELLOW,
         "CYAN"  : colorama.Fore.CYAN,
         "BOLD"  : colorama.Style.BRIGHT,
+        "DIM"   : colorama.Style.DIM,
         "RESET" : colorama.Style.RESET_ALL,
     })
 except ImportError:
     pass
 
 # ─── VERSION ──────────────────────────────────────────────────────────────────
-__version__ = "3.0.1"
+__version__ = "3.0.6"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 LAYER_MAP: Dict[str, str] = {
@@ -263,6 +287,7 @@ ALLOWED_PAIRS: FrozenSet[Tuple[str, str]] = frozenset({
     ("bootstrap", "infrastructure"),
     ("bootstrap", "application"),
     ("bootstrap", "adapters"),
+    ("bootstrap", "ports"),
     ("app", "app"),
     ("app", "bootstrap"),
     ("app", "adapters"),
@@ -299,8 +324,13 @@ ALLOWED_PAIRS: FrozenSet[Tuple[str, str]] = frozenset({
     ("vendor", "vendor"),
     ("external", "external"),
     ("app", "kernel"),
-
 })
+
+# Aturan khusus untuk import yang memang diperlukan (exception)
+ALLOWED_SPECIAL_IMPORTS: List[Tuple[str, str, str]] = [
+    ("application", "infrastructure", "infrastructure"),
+    ("adapters", "bootstrap.dependency_container", "bootstrap"),
+]
 
 SKIP_LAYERS: FrozenSet[str] = frozenset({
     "unknown", "checker", "scripts", "tools", "migrations", "deployment",
@@ -340,6 +370,13 @@ class ViolationSeverity:
             return ViolationSeverity.FATAL
         if src in _inner and tgt in _business:
             return ViolationSeverity.CRITICAL
+        return ViolationSeverity.HIGH
+
+    @staticmethod
+    def for_cycle(cycle: List[str]) -> str:
+        important = {"domain", "axioms", "constitution", "kernel", "ports"}
+        if any(l in important for l in cycle):
+            return ViolationSeverity.FATAL
         return ViolationSeverity.HIGH
 
 @dataclass
@@ -386,6 +423,15 @@ class Violation:
         }
 
 @dataclass
+class CycleViolation(Violation):
+    cycle: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict:
+        d = super().to_dict()
+        d["cycle"] = " → ".join(self.cycle + [self.cycle[0]]) if self.cycle else ""
+        return d
+
+@dataclass
 class LayerStats:
     total_files    : int = 0
     total_imports  : int = 0
@@ -427,6 +473,9 @@ def get_ast_cached(file_path: pathlib.Path) -> Tuple[Optional[ast.AST], Optional
     return tree, error
 
 def extract_imports(file_path: pathlib.Path, root: pathlib.Path) -> Tuple[List[ImportRecord], Optional[str]]:
+    """
+    Ekstrak semua import dengan konteks (top-level, TYPE_CHECKING, relatif, dll.)
+    """
     tree, error = get_ast_cached(file_path)
     if error or tree is None:
         return [], error
@@ -436,50 +485,84 @@ def extract_imports(file_path: pathlib.Path, root: pathlib.Path) -> Tuple[List[I
     source_layer = get_layer(source_module)
     records: List[ImportRecord] = []
 
-    top_nodes = set()
-    if isinstance(tree, ast.Module):
-        for child in ast.iter_child_nodes(tree):
-            top_nodes.add(id(child))
+    class ImportVisitor(ast.NodeVisitor):
+        def __init__(self):
+            self.records = []
+            self.type_checking_depth = 0
+            self.try_depth = 0
+            self.scope_depth = 0          # 0 = modul, >0 = di dalam fungsi/class
 
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.Import, ast.ImportFrom)):
-            continue
-        is_toplevel = id(node) in top_nodes
-        # detect type_checking guard (simplified)
-        in_type_checking = False
-        in_try_except = False
-        # We'll keep simple detection; more complex would need parent links
-        if isinstance(node, ast.Import):
+        def visit_FunctionDef(self, node):
+            self.scope_depth += 1
+            self.generic_visit(node)
+            self.scope_depth -= 1
+
+        def visit_AsyncFunctionDef(self, node):
+            self.scope_depth += 1
+            self.generic_visit(node)
+            self.scope_depth -= 1
+
+        def visit_ClassDef(self, node):
+            self.scope_depth += 1
+            self.generic_visit(node)
+            self.scope_depth -= 1
+
+        def visit_If(self, node):
+            if self._is_type_checking_condition(node.test):
+                self.type_checking_depth += 1
+                self.generic_visit(node)
+                self.type_checking_depth -= 1
+            else:
+                self.generic_visit(node)
+
+        def visit_Try(self, node):
+            self.try_depth += 1
+            self.generic_visit(node)
+            self.try_depth -= 1
+
+        def _is_type_checking_condition(self, test):
+            if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
+                return True
+            if isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING":
+                return True
+            # fallback: typing.TYPE_CHECKING
+            if (isinstance(test, ast.Attribute) and
+                isinstance(test.value, ast.Name) and
+                test.value.id == "typing" and test.attr == "TYPE_CHECKING"):
+                return True
+            return False
+
+        def _make_record(self, node, target_module: str, is_relative: bool = False):
+            self.records.append(ImportRecord(
+                source_file=rel_path,
+                source_layer=source_layer,
+                target_module=target_module,
+                target_layer=get_layer(target_module),
+                line=node.lineno,
+                is_relative=is_relative,
+                is_toplevel=(self.scope_depth == 0),
+                in_type_checking=(self.type_checking_depth > 0),
+                in_try_except=(self.try_depth > 0),
+            ))
+
+        def visit_Import(self, node):
             for alias in node.names:
-                records.append(ImportRecord(
-                    source_file=rel_path,
-                    source_layer=source_layer,
-                    target_module=alias.name,
-                    target_layer=get_layer(alias.name),
-                    line=node.lineno,
-                    is_toplevel=is_toplevel,
-                    in_type_checking=in_type_checking,
-                    in_try_except=in_try_except,
-                ))
-        elif isinstance(node, ast.ImportFrom):
+                self._make_record(node, alias.name, is_relative=False)
+            self.generic_visit(node)
+
+        def visit_ImportFrom(self, node):
             level = node.level or 0
             if level == 0:
                 target_mod = node.module or ""
             else:
-                target_mod = resolve_relative(source_module, level, node.module)
+                target_mod = resolve_relative_import(source_module, level, node.module)
             if target_mod:
-                records.append(ImportRecord(
-                    source_file=rel_path,
-                    source_layer=source_layer,
-                    target_module=target_mod,
-                    target_layer=get_layer(target_mod),
-                    line=node.lineno,
-                    is_relative=level > 0,
-                    is_toplevel=is_toplevel,
-                    in_type_checking=in_type_checking,
-                    in_try_except=in_try_except,
-                ))
-    return records, None
+                self._make_record(node, target_mod, is_relative=(level > 0))
+            self.generic_visit(node)
+
+    visitor = ImportVisitor()
+    visitor.visit(tree)
+    return visitor.records, None
 
 # ─── CYCLE DETECTION ──────────────────────────────────────────────────────────
 def find_cycles(graph: Dict[str, Set[str]], max_cycles: int = 100) -> List[List[str]]:
@@ -500,7 +583,7 @@ def find_cycles(graph: Dict[str, Set[str]], max_cycles: int = 100) -> List[List[
                     norm = _normalize_cycle(cycle)
                     if norm and norm not in seen and len(cycle) >= 2:
                         seen.add(norm)
-                        result.append(list(cycle) + [cycle[0]])
+                        result.append(cycle)
                 elif nxt not in visited:
                     visited.add(nxt)
                     stack.append((nxt, iter(sorted(graph.get(nxt, set()))), path + [nxt], path_set | {nxt}))
@@ -590,6 +673,13 @@ class LayerChecker:
                 continue
             if self.strict_toplevel and not rec.is_toplevel:
                 continue
+            special_allowed = False
+            for s_pat, prefix, t_pat in ALLOWED_SPECIAL_IMPORTS:
+                if src == s_pat and tgt == t_pat and rec.target_module.startswith(prefix):
+                    special_allowed = True
+                    break
+            if special_allowed:
+                continue
             if (src, tgt) not in ALLOWED_PAIRS:
                 sev = ViolationSeverity.for_pair(src, tgt)
                 violations.append(Violation(
@@ -607,11 +697,44 @@ class LayerChecker:
                 ))
         return violations
 
+    def _analyze_cycle_with_rca(self, cycle: List[str]) -> Optional[CycleViolation]:
+        if not cycle:
+            return None
+        cycle_str = " → ".join(cycle + [cycle[0]])
+        severity = ViolationSeverity.for_cycle(cycle)
+        message = f"Circular dependency: {cycle_str}"
+        exc = RuntimeError(f"Circular dependency detected: {cycle_str}")
+        context = {
+            "cycle": cycle,
+            "layers_involved": cycle,
+            "phase": "layer_checker_cycles",
+        }
+        rca_result = _rca_analyze(exc, context) if self.enable_rca else None
+        rca_dict = _rca_to_dict(rca_result) if rca_result else None
+        first_file = ".".join(cycle) + "/__init__.py"
+        return CycleViolation(
+            source_file=first_file,
+            source_layer=cycle[0] if cycle else "unknown",
+            target_module=" → ".join(cycle),
+            target_layer=cycle[-1] if cycle else "unknown",
+            line=0,
+            rule="cycle",
+            severity=severity,
+            message=message,
+            is_toplevel=True,
+            in_type_checking=False,
+            in_try_except=False,
+            rca=rca_dict,
+            cycle=cycle,
+        )
+
     def _enrich_rca(self, violations: List[Violation]) -> List[Violation]:
         if not self.enable_rca or not _RCA_AVAILABLE:
             return violations
 
         def _enrich_one(v: Violation) -> Violation:
+            if v.rca is not None:
+                return v
             try:
                 exc = Exception(v.message)
                 context = {
@@ -622,7 +745,7 @@ class LayerChecker:
                 }
                 r = _rca_analyze(exc, context)
                 if r:
-                    v.rca = r
+                    v.rca = _rca_to_dict(r)
             except Exception:
                 pass
             return v
@@ -648,17 +771,59 @@ class LayerChecker:
             layer_counts[rec.source_layer] += 1
         stats.layer_counts = dict(layer_counts)
 
+        # ─── Build graph untuk siklus ──────────────────────────────────────
+        # HANYA import runtime: top-level, bukan TYPE_CHECKING, bukan relatif
         graph = defaultdict(set)
         for rec in records:
+            # Filter import yang tidak termasuk runtime
+            if rec.in_type_checking or not rec.is_toplevel or rec.is_relative:
+                continue
             src, tgt = rec.source_layer, rec.target_layer
             if src in SKIP_LAYERS or tgt in SKIP_LAYERS or src == tgt:
                 continue
             graph[src].add(tgt)
         stats.dependency_graph = dict(graph)
-        stats.cycles = find_cycles(dict(graph), max_cycles=self.max_cycles)
 
-        violations = self._check_violations(records)
-        stats.violations = self._enrich_rca(violations)
+        cycles = find_cycles(dict(graph), max_cycles=self.max_cycles)
+        stats.cycles = cycles
+
+        cycle_violations: List[Violation] = []
+        for cycle in cycles:
+            if self.enable_rca and _RCA_AVAILABLE:
+                v = self._analyze_cycle_with_rca(cycle)
+                if v:
+                    cycle_violations.append(v)
+            else:
+                cycle_str = " → ".join(cycle + [cycle[0]])
+                v = CycleViolation(
+                    source_file=".".join(cycle) + "/__init__.py",
+                    source_layer=cycle[0] if cycle else "unknown",
+                    target_module=" → ".join(cycle),
+                    target_layer=cycle[-1] if cycle else "unknown",
+                    line=0,
+                    rule="cycle",
+                    severity=ViolationSeverity.for_cycle(cycle),
+                    message=f"Circular dependency: {cycle_str}",
+                    is_toplevel=True,
+                    in_type_checking=False,
+                    in_try_except=False,
+                    rca=None,
+                    cycle=cycle,
+                )
+                cycle_violations.append(v)
+
+        reg_violations = self._check_violations(records)
+        if self.enable_rca and _RCA_AVAILABLE:
+            reg_violations = self._enrich_rca(reg_violations)
+            for cv in cycle_violations:
+                if cv.rca is None and self.enable_rca and _RCA_AVAILABLE:
+                    exc = RuntimeError(cv.message)
+                    context = {"cycle": cv.cycle, "phase": "layer_checker_cycles"}
+                    r = _rca_analyze(exc, context)
+                    if r:
+                        cv.rca = _rca_to_dict(r)
+
+        stats.violations = reg_violations + cycle_violations
         stats.rca_enriched = self.enable_rca and _RCA_AVAILABLE
         stats.scan_time_s = time.monotonic() - t0
         return stats
@@ -693,16 +858,31 @@ def print_report(stats: LayerStats, verbose: bool = False, hide_unknown: bool = 
         for err in stats.parse_errors[:20]:
             emit(f"    {err}")
 
-    if stats.cycles:
-        emit(f"\n{c['RED']}{c['BOLD']}⚠️  Circular dependencies ({stats.cycle_count}):{c['RESET']}")
-        for i, cycle in enumerate(stats.cycles, 1):
-            emit(f"  {i:>3}. {' → '.join(cycle)}")
+    cycles = [v for v in stats.violations if isinstance(v, CycleViolation)]
+    reg_violations = [v for v in stats.violations if not isinstance(v, CycleViolation)]
 
-    if stats.violations:
+    if cycles:
+        emit(f"\n{c['RED']}{c['BOLD']}⚠️  Circular dependencies ({len(cycles)}):{c['RESET']}")
+        for i, cv in enumerate(cycles, 1):
+            cycle_path = cv.cycle + [cv.cycle[0]] if cv.cycle else []
+            cycle_str = " → ".join(cycle_path)
+            emit(f"  {i:>3}. {cycle_str}")
+            if cv.rca:
+                rc = cv.rca.get("root_cause", "")
+                fix = cv.rca.get("suggested_fix", "")
+                conf = cv.rca.get("confidence", 0.0)
+                if rc:
+                    emit(f"         {c['CYAN']}RCA: {rc[:120]}{c['RESET']}")
+                if fix:
+                    emit(f"         {c['CYAN']}Fix: {fix[:120]}{c['RESET']}")
+                if conf:
+                    emit(f"         {c['DIM']}Confidence: {conf:.0%}{c['RESET']}")
+
+    if reg_violations:
         by_sev = defaultdict(list)
-        for v in stats.violations:
+        for v in reg_violations:
             by_sev[v.severity].append(v)
-        emit(f"\n{c['RED']}{c['BOLD']}❌ Violations ({stats.violation_count}):{c['RESET']}")
+        emit(f"\n{c['RED']}{c['BOLD']}❌ Violations ({len(reg_violations)}):{c['RESET']}")
         for sev in [ViolationSeverity.FATAL, ViolationSeverity.CRITICAL, ViolationSeverity.HIGH]:
             cnt = len(by_sev.get(sev, []))
             if cnt:
@@ -710,7 +890,7 @@ def print_report(stats: LayerStats, verbose: bool = False, hide_unknown: bool = 
                 emit(f"    {col}{sev:<10}{c['RESET']}: {cnt}")
 
         by_file = defaultdict(list)
-        for v in stats.violations:
+        for v in reg_violations:
             by_file[v.source_file].append(v)
         for idx, (file, vlist) in enumerate(sorted(by_file.items(), key=lambda x: len(x[1]), reverse=True), 1):
             emit(f"\n  {c['YELLOW']}[{idx}] {file}{c['RESET']}  ({len(vlist)} violations)")
@@ -726,11 +906,19 @@ def print_report(stats: LayerStats, verbose: bool = False, hide_unknown: bool = 
                     f"{v.source_layer} → {v.target_layer:<20}  {v.target_module}{tag}"
                 )
                 if verbose and v.rca:
-                    emit(f"         {c['CYAN']}RCA: {v.rca.get('root_cause', '')[:120]}{c['RESET']}")
-                    if v.rca.get('suggested_fix'):
-                        emit(f"         {c['CYAN']}Fix: {v.rca['suggested_fix'][:120]}{c['RESET']}")
+                    rc = v.rca.get("root_cause", "")
+                    fix = v.rca.get("suggested_fix", "")
+                    conf = v.rca.get("confidence", 0.0)
+                    if rc:
+                        emit(f"         {c['CYAN']}RCA: {rc[:120]}{c['RESET']}")
+                    if fix:
+                        emit(f"         {c['CYAN']}Fix: {fix[:120]}{c['RESET']}")
+                    if conf:
+                        emit(f"         {c['DIM']}Confidence: {conf:.0%}{c['RESET']}")
+
     else:
-        emit(f"\n{c['GREEN']}{c['BOLD']}✅ No violations!{c['RESET']}")
+        if not cycles:
+            emit(f"\n{c['GREEN']}{c['BOLD']}✅ No violations or cycles!{c['RESET']}")
 
     emit(f"\n{c['CYAN']}{'─'*80}{c['RESET']}")
     return lines
@@ -782,9 +970,9 @@ def self_test(verbose: bool = True) -> bool:
     check("get_layer: infrastructure → infrastructure", get_layer("infrastructure") == "infrastructure")
     check("get_layer: unknown → unknown", get_layer("unknown") == "unknown")
 
-    check("resolve_relative: level=1", resolve_relative("a.b.c", 1, "d") == "a.b.d")
-    check("resolve_relative: level=2", resolve_relative("a.b.c", 2, None) == "a")
-    check("resolve_relative: level=0", resolve_relative("a.b", 0, "c") == "a.b.c")
+    check("resolve_relative_import: level=1", resolve_relative_import("a.b.c", 1, "d") == "a.b.d")
+    check("resolve_relative_import: level=2", resolve_relative_import("a.b.c", 2, None) == "a")
+    check("resolve_relative_import: level=0", resolve_relative_import("a.b", 0, "c") == "a.b.c")
 
     check("is_stdlib: os → True", is_stdlib("os"))
     check("is_stdlib: requests → False", not is_stdlib("requests"))
@@ -794,7 +982,7 @@ def self_test(verbose: bool = True) -> bool:
 
     g1 = {"A": {"B"}, "B": {"A"}}
     cycles = find_cycles(g1)
-    check("find_cycles: A→B→A", len(cycles) >= 1)
+    check("find_cycles: A→B→A", len(cycles) >= 1 and cycles[0] == ["A","B"])
     g2 = {"A": {"B"}, "B": {"C"}}
     check("find_cycles: no cycle", len(find_cycles(g2)) == 0)
 

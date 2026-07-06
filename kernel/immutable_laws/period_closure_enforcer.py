@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -113,7 +114,6 @@ class _FallbackFiscalPeriodRepository:
         return True
 
     async def get_pending_by_period(self, period_id: UUID, legal_entity_id: UUID) -> list[Any]:
-        # In fallback, return empty list
         return []
 
     async def get_periods_by_status(
@@ -350,10 +350,206 @@ class PeriodClosureCheckResult:
         }
 
 
-# === 3. PERIOD CLOSURE ENFORCER ===
+# ============================================================================
+# BASE PERIOD CLOSURE ENFORCER (ABSTRACT)
+# ============================================================================
+
+class BasePeriodClosureEnforcer(ABC):
+    """Base contract untuk Period Closure Enforcer."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan enforcer."""
+        pass
+
+    @abstractmethod
+    def set_allow_future_posting(self, allow: bool, max_days: int = 7) -> None:
+        """Set future posting policy."""
+        pass
+
+    @abstractmethod
+    async def check_period_open(
+        self,
+        period_id: UUID,
+        legal_entity_id: UUID,
+        transaction_date: datetime | None = None,
+        allow_locked: bool = False,
+        require_approval: bool = False,
+        approved_by: list[str] | None = None,
+    ) -> PeriodClosureCheckResult:
+        """Check if period is open for posting."""
+        pass
+
+    @abstractmethod
+    async def enforce_period_open(
+        self,
+        period_id: UUID,
+        legal_entity_id: UUID,
+        transaction_date: datetime | None = None,
+        user_id: str | None = None,
+        allow_locked: bool = False,
+        require_approval: bool = False,
+        approved_by: list[str] | None = None,
+        raise_on_violation: bool = True,
+    ) -> PeriodClosureCheckResult:
+        """Enforce period open, raise violation if closed."""
+        pass
+
+    @abstractmethod
+    async def enforce_period_sequence(
+        self,
+        period_id: UUID,
+        legal_entity_id: UUID,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, PeriodClosureViolation | None]:
+        """Enforce period sequence (previous period must be closed)."""
+        pass
+
+    @abstractmethod
+    async def close_period(
+        self,
+        period_id: UUID,
+        legal_entity_id: UUID,
+        closed_by: str,
+        adjustment_journal_id: UUID | None = None,
+        force: bool = False,
+    ) -> bool:
+        """Close a period."""
+        pass
+
+    @abstractmethod
+    async def lock_period(
+        self,
+        period_id: UUID,
+        legal_entity_id: UUID,
+        locked_by: str,
+    ) -> bool:
+        """Lock a period."""
+        pass
+
+    @abstractmethod
+    async def reopen_period(
+        self,
+        period_id: UUID,
+        legal_entity_id: UUID,
+        reopened_by: str,
+        reason: str,
+        requires_dual_control: bool = True,
+        approved_by: list[str] | None = None,
+    ) -> bool:
+        """Reopen a closed period."""
+        pass
+
+    @abstractmethod
+    async def get_period_status_summary(
+        self,
+        fiscal_year: int,
+        legal_entity_id: UUID,
+    ) -> dict[str, Any]:
+        """Get status summary for fiscal year."""
+        pass
+
+    @abstractmethod
+    async def get_current_open_period(
+        self,
+        legal_entity_id: UUID,
+        date: datetime | None = None,
+    ) -> FiscalPeriod | None:
+        """Get current open period."""
+        pass
+
+    @abstractmethod
+    async def get_last_closed_period(
+        self,
+        legal_entity_id: UUID,
+    ) -> FiscalPeriod | None:
+        """Get last closed period."""
+        pass
+
+    @abstractmethod
+    def get_closure_history(
+        self,
+        limit: int = 100,
+        only_violations: bool = False,
+        period_id: UUID | None = None,
+    ) -> list[PeriodClosureCheckResult]:
+        """Get closure check history."""
+        pass
+
+    @abstractmethod
+    def get_violations(
+        self,
+        limit: int = 100,
+        period_id: UUID | None = None,
+    ) -> list[PeriodClosureViolation]:
+        """Get violation history."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset state."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BasePeriodClosureEnforcer:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BasePeriodClosureEnforcer:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BasePeriodClosureEnforcer:
+        """Touch instance (increment version)."""
+        pass
 
 
-class PeriodClosureEnforcer:
+# ============================================================================
+# PERIOD CLOSURE ENFORCER (CONCRETE)
+# ============================================================================
+
+class PeriodClosureEnforcer(BasePeriodClosureEnforcer):
     """
     Enforcer untuk hukum period closure.
 
@@ -376,14 +572,141 @@ class PeriodClosureEnforcer:
         self._allow_future_posting = False
         self._max_future_days = 7
         self._enabled = True
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        period_id = context.get("period_id")
+        legal_entity_id = context.get("legal_entity_id")
+        transaction_date = context.get("transaction_date")
+
+        if not period_id:
+            errors.append("period_id is required")
+        else:
+            try:
+                UUID(str(period_id))
+            except Exception:
+                errors.append("period_id must be a valid UUID")
+        if not legal_entity_id:
+            errors.append("legal_entity_id is required")
+        else:
+            try:
+                UUID(str(legal_entity_id))
+            except Exception:
+                errors.append("legal_entity_id must be a valid UUID")
+        if transaction_date:
+            try:
+                if isinstance(transaction_date, str):
+                    datetime.fromisoformat(transaction_date)
+                elif not isinstance(transaction_date, datetime):
+                    errors.append("transaction_date must be a datetime or ISO string")
+            except ValueError:
+                errors.append("transaction_date must be a valid ISO format date")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        if self._max_future_days < 0:
+            errors.append("max_future_days cannot be negative")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "allow_future_posting": self._allow_future_posting,
+                "max_future_days": self._max_future_days,
+                "max_history": self._max_history,
+                "closure_history_count": len(self._closure_history),
+                "violation_history_count": len(self._violation_history),
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PeriodClosureEnforcer:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._allow_future_posting = data.get("allow_future_posting", False)
+        instance._max_future_days = data.get("max_future_days", 7)
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> PeriodClosureEnforcer:
+        """Clone instance."""
+        new_instance = PeriodClosureEnforcer()
+        new_instance._enabled = self._enabled
+        new_instance._allow_future_posting = self._allow_future_posting
+        new_instance._max_future_days = self._max_future_days
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "closure_history_count": len(self._closure_history),
+                "violation_history_count": len(self._violation_history),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> PeriodClosureEnforcer:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Period closure enforcer enabled: {enabled}")
 
     def set_allow_future_posting(self, allow: bool, max_days: int = 7) -> None:
         self._allow_future_posting = allow
         self._max_future_days = max_days
+        self._record_audit("SET_FUTURE_POSTING", "system", {"allow": allow, "max_days": max_days})
         logger.info(f"Future posting allowed: {allow}, max days: {max_days}")
 
     async def check_period_open(
@@ -554,7 +877,6 @@ class PeriodClosureEnforcer:
         raise_on_violation: bool = True,
     ) -> PeriodClosureCheckResult:
         if not self._enabled:
-            # return allowed if disabled
             return PeriodClosureCheckResult(
                 check_id=uuid4(),
                 period_id=period_id,
@@ -594,6 +916,7 @@ class PeriodClosureEnforcer:
             )
             with self._lock:
                 self._violation_history.append(violation)
+                self._record_audit("VIOLATION", user_id, {"period_id": str(period_id)})
             raise violation
 
         return result
@@ -646,6 +969,9 @@ class PeriodClosureEnforcer:
                         },
                     )
                     if raise_on_violation:
+                        self._record_audit("SEQUENCE_VIOLATION", user_id or "system", {
+                            "period_id": str(period_id),
+                        })
                         raise violation
                     return False, violation
 
@@ -691,6 +1017,7 @@ class PeriodClosureEnforcer:
         )
 
         if success:
+            self._record_audit("CLOSE_PERIOD", closed_by, {"period_id": str(period_id)})
             logger.info(f"Period {period_id} closed by {closed_by}")
 
         return success
@@ -721,6 +1048,7 @@ class PeriodClosureEnforcer:
         )
 
         if success:
+            self._record_audit("LOCK_PERIOD", locked_by, {"period_id": str(period_id)})
             logger.info(f"Period {period_id} locked by {locked_by}")
 
         return success
@@ -765,6 +1093,10 @@ class PeriodClosureEnforcer:
         )
 
         if success:
+            self._record_audit("REOPEN_PERIOD", reopened_by, {
+                "period_id": str(period_id),
+                "reason": reason,
+            })
             logger.warning(f"Period {period_id} REOPENED by {reopened_by}. Reason: {reason}")
 
         return success
@@ -876,6 +1208,7 @@ class PeriodClosureEnforcer:
                     "total_checks": 0,
                     "total_violations": 0,
                     "enabled": self._enabled,
+                    "version": self._version,
                 }
 
             allowed = len([r for r in self._closure_history if r.is_allowed])
@@ -897,6 +1230,7 @@ class PeriodClosureEnforcer:
                 "allow_future_posting": self._allow_future_posting,
                 "max_future_days": self._max_future_days,
                 "enabled": self._enabled,
+                "version": self._version,
                 "latest_check": self._closure_history[-1].timestamp.isoformat()
                 if self._closure_history
                 else None,
@@ -907,6 +1241,8 @@ class PeriodClosureEnforcer:
             self._closure_history = []
             self._violation_history = []
             self._enabled = True
+            self._version += 1
+            self._audit_trail = []
             if hasattr(self._period_repo, "clear"):
                 self._period_repo.clear()
             if hasattr(self._journal_repo, "clear"):

@@ -1,4 +1,4 @@
-# service_inventory.py - Complete rewrite with full event publishing
+# service_inventory.py - Complete rewrite with full event publishing and validations
 
 #!/usr/bin/env python3
 
@@ -735,15 +735,18 @@ class InventoryService:
         if not item_agg:
             raise ItemNotFoundError(f"Item {request.item_id} not found")
 
-        discrepancy = request.physical_quantity - item_agg.item.current_stock
+        # Explicitly compare system vs physical
+        system_qty = item_agg.item.current_stock
+        physical_qty = request.physical_quantity
+        discrepancy = physical_qty - system_qty
 
         opname = StockOpname(
             id=uuid4(),
             legal_entity_id=request.legal_entity_id,
             item_id=request.item_id,
             opname_date=request.opname_date or date.today(),
-            system_quantity=item_agg.item.current_stock,
-            physical_quantity=request.physical_quantity,
+            system_quantity=system_qty,
+            physical_quantity=physical_qty,
             discrepancy=discrepancy,
             unit_cost=item_agg.item.average_cost,
             discrepancy_value=discrepancy * item_agg.item.average_cost,
@@ -792,11 +795,16 @@ class InventoryService:
         if not item_agg:
             raise ItemNotFoundError(f"Item {opname.item_id} not found")
 
+        # Explicit comparison between system and physical quantity
+        system_qty = opname.system_quantity
+        physical_qty = opname.physical_quantity
+        discrepancy = opname.discrepancy  # already calculated
+
         # Create adjustment movement if needed
-        if opname.discrepancy != 0:
+        if discrepancy != 0:
             adjustment_type = (
                 MovementType.ADJUSTMENT_IN
-                if opname.discrepancy > 0
+                if discrepancy > 0
                 else MovementType.ADJUSTMENT_OUT
             )
             movement = StockMovement(
@@ -804,20 +812,20 @@ class InventoryService:
                 legal_entity_id=opname.legal_entity_id,
                 item_id=opname.item_id,
                 movement_type=adjustment_type,
-                quantity=abs(opname.discrepancy),
+                quantity=abs(discrepancy),
                 unit_cost=item_agg.item.average_cost,
                 total_value=abs(opname.discrepancy_value),
                 movement_date=date.today(),
                 reference_document_type="STOCK_OPNAME",
                 reference_document_number=opname.id.hex[:8],
-                notes=f"Adjustment from opname {opname.id}",
+                notes=f"Adjustment from opname {opname.id} (system={system_qty}, physical={physical_qty})",
                 created_by=approver_id,
                 created_at=datetime.utcnow(),
             )
             await self._inv_repo.save_movement(movement)
 
             # Update item stock
-            new_stock = item_agg.item.current_stock + opname.discrepancy
+            new_stock = item_agg.item.current_stock + discrepancy
             new_value = item_agg.item.current_stock_value + opname.discrepancy_value
             item_agg.update_stock(new_stock, new_value, item_agg.item.average_cost, approver_id)
             await self._inv_repo.save_item(item_agg)
@@ -834,7 +842,7 @@ class InventoryService:
             event = StockOpnameApproved(
                 aggregate_id=opname_id,
                 item_id=opname.item_id,
-                discrepancy=opname.discrepancy,
+                discrepancy=discrepancy,
                 user_id=approver_id,
                 occurred_at=datetime.utcnow(),
             )
@@ -922,19 +930,42 @@ class InventoryService:
     async def complete_transfer(
         self, transfer_id: UUID, user_id: UUID, correlation_id: str | None = None
     ) -> TransferResponse:
-        """Complete a transfer."""
+        """
+        Complete a transfer (receiving goods at destination warehouse).
+
+        Validations added:
+        - Transfer existence (implicit)
+        - Item existence
+        - Warehouse validation (from_warehouse and to_warehouse must be set and different)
+        - Quantity must be positive (implicit from transfer data)
+        - Stock negative prevention (not applicable for inbound)
+        """
         transfer = await self._inv_repo.get_transfer_by_id(transfer_id)
         if not transfer:
             raise TransferNotFoundError(f"Transfer {transfer_id} not found")
 
+        # ========== VALIDATION: Transfer must be in PENDING status ==========
         if transfer.status != TransferStatus.PENDING:
             raise InventoryServiceError(f"Transfer already {transfer.status.value}")
 
+        # ========== VALIDATION: Item must exist ==========
         item_agg = await self._inv_repo.get_item_by_id(transfer.item_id)
         if not item_agg:
             raise ItemNotFoundError(f"Item {transfer.item_id} not found")
 
-        # Receive goods in to_warehouse
+        # ========== VALIDATION: Warehouse must be valid ==========
+        if not transfer.from_warehouse or not transfer.to_warehouse:
+            raise InventoryServiceError("Transfer must have from_warehouse and to_warehouse")
+        if transfer.from_warehouse == transfer.to_warehouse:
+            raise InventoryServiceError(
+                f"Source and destination warehouses cannot be the same: {transfer.from_warehouse}"
+            )
+
+        # ========== VALIDATION: Quantity must be positive ==========
+        if transfer.quantity <= 0:
+            raise InventoryServiceError(f"Transfer quantity must be positive: {transfer.quantity}")
+
+        # Receive goods in to_warehouse (inbound movement, no negative stock risk)
         movement = StockMovement(
             id=uuid4(),
             legal_entity_id=transfer.legal_entity_id,
@@ -953,7 +984,7 @@ class InventoryService:
         )
         await self._inv_repo.save_movement(movement)
 
-        # Update item stock
+        # Update item stock (inbound, stock increases)
         new_stock = item_agg.item.current_stock + transfer.quantity
         new_value = item_agg.item.current_stock_value + transfer.total_value
         new_avg_cost = new_value / new_stock if new_stock > 0 else item_agg.item.average_cost

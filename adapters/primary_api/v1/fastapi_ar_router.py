@@ -25,6 +25,8 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -32,7 +34,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
@@ -43,6 +45,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -522,7 +570,7 @@ class ARWriteOffResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_ar_service(request: Request, ) -> Any:
+async def get_ar_service(request: Request) -> Any:
     """Get AR Service instance."""
 
     from application.service_layer.service_ar import ARService
@@ -581,6 +629,7 @@ def info() -> dict[str, str]:
 )
 async def create_ar_invoice(
     request: ARInvoiceCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("ar:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
@@ -595,6 +644,13 @@ async def create_ar_invoice(
     - Dapat memberikan diskon early payment
     """
     from application.dto_objects.ar_invoice_request import ARInvoiceCreateRequest
+
+    method_name = "create_ar_invoice"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ARInvoiceResponseSchema(**cached)
 
     try:
         create_dto = ARInvoiceCreateRequest(
@@ -638,7 +694,7 @@ async def create_ar_invoice(
                     result.total_amount * request.early_payment_discount_percent / 100
                 ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-        return ARInvoiceResponseSchema(
+        response = ARInvoiceResponseSchema(
             id=result.id,
             invoice_number=result.invoice_number,
             customer_id=result.customer_id,
@@ -674,6 +730,11 @@ async def create_ar_invoice(
             can_cancel=True,
             can_post=True,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except PermissionError as e:
@@ -859,6 +920,7 @@ async def list_ar_invoices(
 async def update_ar_invoice(
     invoice_id: UUID,
     request: ARInvoiceUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("ar:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
@@ -866,6 +928,13 @@ async def update_ar_invoice(
 ) -> ARInvoiceResponseSchema:
     """Update AR invoice (only draft/pending status)."""
     from application.dto_objects.ar_invoice_request import ARInvoiceUpdateRequest
+
+    method_name = "update_ar_invoice"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ARInvoiceResponseSchema(**cached)
 
     try:
         update_dto = ARInvoiceUpdateRequest(
@@ -891,7 +960,7 @@ async def update_ar_invoice(
             else 0
         )
 
-        return ARInvoiceResponseSchema(
+        response = ARInvoiceResponseSchema(
             id=result.id,
             invoice_number=result.invoice_number,
             customer_id=result.customer_id,
@@ -929,6 +998,11 @@ async def update_ar_invoice(
             can_cancel=True,
             can_post=True,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except HTTPException:
@@ -948,12 +1022,20 @@ async def delete_ar_invoice(
     invoice_id: UUID,
     permanent: bool = Query(False, description="Permanent deletion (void)"),
     reason: str = Query("", description="Reason for deletion"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("ar:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ar_service: Any = Depends(get_ar_service),
 ) -> ARInvoiceActionResponseSchema:
     """Delete or cancel AR invoice (soft delete by default)."""
+    method_name = "delete_ar_invoice"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ARInvoiceActionResponseSchema(**cached)
+
     try:
         if permanent:
             result = await ar_service.void_invoice(
@@ -969,7 +1051,7 @@ async def delete_ar_invoice(
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found or cannot be cancelled")
 
-        return ARInvoiceActionResponseSchema(
+        response = ARInvoiceActionResponseSchema(
             invoice_id=result.id,
             invoice_number=result.invoice_number,
             action=action,
@@ -977,6 +1059,11 @@ async def delete_ar_invoice(
             message=f"{action}ed successfully",
             timestamp=datetime.now(),
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except HTTPException:
@@ -1070,19 +1157,27 @@ async def restore_ar_invoice(
 )
 async def submit_ar_invoice(
     invoice_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("ar:submit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ar_service: Any = Depends(get_ar_service),
 ) -> ARInvoiceActionResponseSchema:
     """Submit invoice for approval workflow."""
+    method_name = "submit_ar_invoice"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ARInvoiceActionResponseSchema(**cached)
+
     try:
         result = await ar_service.submit_invoice(invoice_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found or cannot be submitted")
 
-        return ARInvoiceActionResponseSchema(
+        response = ARInvoiceActionResponseSchema(
             invoice_id=result.id,
             invoice_number=result.invoice_number,
             action="submit",
@@ -1090,6 +1185,11 @@ async def submit_ar_invoice(
             message="Invoice submitted for approval",
             timestamp=datetime.now(),
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1183,19 +1283,27 @@ async def reject_ar_invoice(
 )
 async def post_ar_invoice(
     invoice_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("ar:post")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     ar_service: Any = Depends(get_ar_service),
 ) -> ARInvoiceActionResponseSchema:
     """Post invoice to GL (creates journal entry)."""
+    method_name = "post_ar_invoice"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ARInvoiceActionResponseSchema(**cached)
+
     try:
         result = await ar_service.post_invoice(invoice_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found or cannot be posted")
 
-        return ARInvoiceActionResponseSchema(
+        response = ARInvoiceActionResponseSchema(
             invoice_id=result.id,
             invoice_number=result.invoice_number,
             action="post",
@@ -1203,6 +1311,11 @@ async def post_ar_invoice(
             message="Invoice posted to General Ledger",
             timestamp=datetime.now(),
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1522,6 +1635,7 @@ async def reverse_ar_payment(
 )
 async def create_ar_credit_note(
     request: ARCreditNoteCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("ar:create_credit_note")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
@@ -1529,6 +1643,13 @@ async def create_ar_credit_note(
 ) -> ARCreditNoteResponseSchema:
     """Create credit note for invoice (reduces receivable amount)."""
     from application.dto_objects.ar_invoice_request import ARCreditNoteCreateRequest
+
+    method_name = "create_ar_credit_note"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ARCreditNoteResponseSchema(**cached)
 
     try:
         note_dto = ARCreditNoteCreateRequest(
@@ -1543,7 +1664,7 @@ async def create_ar_credit_note(
         )
         result = await ar_service.create_credit_note(note_dto)
 
-        return ARCreditNoteResponseSchema(
+        response = ARCreditNoteResponseSchema(
             id=result.id,
             credit_note_number=result.credit_note_number,
             invoice_id=result.invoice_id,
@@ -1564,6 +1685,11 @@ async def create_ar_credit_note(
             approved_by=result.approved_by,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

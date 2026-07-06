@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -186,11 +187,154 @@ class BudgetCheckResult:
 
 
 # ============================================================================
-# BUDGET AVAILABILITY GUARD
+# BASE BUDGET AVAILABILITY GUARD (ABSTRACT)
+# ============================================================================
+
+class BaseBudgetAvailabilityGuard(ABC):
+    """Base contract untuk Budget Availability Guard."""
+
+    @abstractmethod
+    def set_mode(self, mode: BudgetCheckMode) -> None:
+        """Set budget check mode."""
+        pass
+
+    @abstractmethod
+    def set_tolerance(self, percentage: Decimal) -> None:
+        """Set tolerance percentage for warning mode."""
+        pass
+
+    @abstractmethod
+    async def check_budget(
+        self,
+        cost_center_id: UUID,
+        account_code: str,
+        amount: Decimal,
+        transaction_date: datetime,
+        legal_entity_id: UUID | None = None,
+        period_type: BudgetPeriodType = BudgetPeriodType.MONTHLY,
+    ) -> BudgetCheckResult:
+        """Check budget availability for a transaction."""
+        pass
+
+    @abstractmethod
+    async def check_multiple_budgets(
+        self,
+        budget_checks: list[dict[str, Any]],
+        legal_entity_id: UUID | None = None,
+    ) -> tuple[bool, list[BudgetCheckResult]]:
+        """Check multiple budgets simultaneously."""
+        pass
+
+    @abstractmethod
+    async def reserve_budget(
+        self,
+        budget_id: UUID,
+        amount: Decimal,
+        transaction_id: UUID,
+        reservation_type: str = "COMMITTED",
+    ) -> bool:
+        """Reserve budget amount for a transaction."""
+        pass
+
+    @abstractmethod
+    async def release_budget(
+        self,
+        budget_id: UUID,
+        amount: Decimal,
+        transaction_id: UUID,
+    ) -> bool:
+        """Release previously reserved budget."""
+        pass
+
+    @abstractmethod
+    async def enforce(
+        self,
+        cost_center_id: UUID,
+        account_code: str,
+        amount: Decimal,
+        transaction_date: datetime,
+        legal_entity_id: UUID | None = None,
+        require_approval_override: bool = False,
+        raise_on_violation: bool = True,
+    ) -> BudgetCheckResult:
+        """Enforce budget check, raise exception if violation."""
+        pass
+
+    @abstractmethod
+    def get_check_history(
+        self,
+        limit: int = 100,
+        only_violations: bool = False,
+        cost_center_id: UUID | None = None,
+    ) -> list[BudgetCheckResult]:
+        """Get budget check history."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics about budget checks."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset guard state."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseBudgetAvailabilityGuard:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseBudgetAvailabilityGuard:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseBudgetAvailabilityGuard:
+        """Touch instance (increment version)."""
+        pass
+
+
+# ============================================================================
+# BUDGET AVAILABILITY GUARD (CONCRETE)
 # ============================================================================
 
 
-class BudgetAvailabilityGuard:
+class BudgetAvailabilityGuard(BaseBudgetAvailabilityGuard):
     def __init__(self, budget_repository: Any | None = None):
         self._budget_repo = budget_repository or _get_budget_repository()
         self._mode = BudgetCheckMode.STRICT
@@ -198,14 +342,133 @@ class BudgetAvailabilityGuard:
         self._check_history: list[BudgetCheckResult] = []
         self._max_history = 10000
         self._lock = threading.RLock()
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        cost_center_id = context.get("cost_center_id")
+        account_code = context.get("account_code")
+        amount = context.get("amount")
+        transaction_date = context.get("transaction_date")
+
+        if not cost_center_id:
+            errors.append("cost_center_id is required")
+        if not account_code:
+            errors.append("account_code is required")
+        if amount is None:
+            errors.append("amount is required")
+        else:
+            try:
+                amt = Decimal(str(amount))
+                if amt < 0:
+                    errors.append("amount must be non-negative")
+            except Exception:
+                errors.append("amount must be a valid number")
+        if transaction_date:
+            try:
+                if isinstance(transaction_date, str):
+                    datetime.fromisoformat(transaction_date)
+                elif not isinstance(transaction_date, datetime):
+                    errors.append("transaction_date must be a datetime or ISO string")
+            except ValueError:
+                errors.append("transaction_date must be a valid ISO format date")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._tolerance_percentage < 0 or self._tolerance_percentage > 100:
+            errors.append("tolerance_percentage must be between 0 and 100")
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        return {
+            "mode": self._mode.value,
+            "tolerance_percentage": str(self._tolerance_percentage),
+            "max_history": self._max_history,
+            "version": self._version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> BudgetAvailabilityGuard:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._mode = BudgetCheckMode(data.get("mode", "strict"))
+        instance._tolerance_percentage = Decimal(str(data.get("tolerance_percentage", 5)))
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> BudgetAvailabilityGuard:
+        """Clone instance."""
+        new_instance = BudgetAvailabilityGuard()
+        new_instance._mode = self._mode
+        new_instance._tolerance_percentage = self._tolerance_percentage
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "history_count": len(self._check_history),
+                "mode": self._mode.value,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> BudgetAvailabilityGuard:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def set_mode(self, mode: BudgetCheckMode) -> None:
         self._mode = mode
+        self._record_audit("SET_MODE", "system", {"mode": mode.value})
         logger.info(f"Budget check mode set to {mode.value}")
 
     def set_tolerance(self, percentage: Decimal) -> None:
         if 0 <= percentage <= 100:
             self._tolerance_percentage = percentage
+            self._record_audit("SET_TOLERANCE", "system", {"percentage": str(percentage)})
             logger.info(f"Budget tolerance set to {percentage}%")
 
     async def check_budget(
@@ -468,7 +731,7 @@ class BudgetAvailabilityGuard:
         with self._lock:
             total = len(self._check_history)
             if total == 0:
-                return {"total_checks": 0}
+                return {"total_checks": 0, "version": self._version}
             violations = [r for r in self._check_history if not r.is_available]
             violation_count = len(violations)
             by_severity = {}
@@ -484,11 +747,14 @@ class BudgetAvailabilityGuard:
                 "latest_check": self._check_history[-1].timestamp.isoformat()
                 if self._check_history
                 else None,
+                "version": self._version,
             }
 
     def reset(self) -> None:
         with self._lock:
             self._check_history = []
+            self._version += 1
+            self._audit_trail = []
 
 
 # ============================================================================

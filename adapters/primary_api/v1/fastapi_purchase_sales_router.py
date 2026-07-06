@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_purchase_sales_router.py
@@ -27,6 +26,8 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -34,7 +35,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -46,6 +47,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -530,9 +577,8 @@ class DeliveryOrderResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_purchase_sales_service(request: Request, ) -> Any:
+async def get_purchase_sales_service(request: Request) -> Any:
     """Get Purchase Sales Service instance."""
-
     from application.service_layer.service_purchase_sales import PurchaseSalesService
 
     container = request.app.state.container
@@ -560,12 +606,20 @@ router = APIRouter(prefix="/purchase-sales", tags=["Purchase & Sales"])
 )
 async def create_purchase_order(
     request: PurchaseOrderCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("purchase:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_purchase_sales_service),
 ) -> PurchaseOrderResponseSchema:
     """Create a new Purchase Order."""
+    method_name = "create_purchase_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return PurchaseOrderResponseSchema(**cached)
+
     try:
         result = await service.create_purchase_order(
             po_number=request.po_number,
@@ -583,7 +637,7 @@ async def create_purchase_order(
             legal_entity_id=legal_entity_id,
         )
 
-        return PurchaseOrderResponseSchema(
+        response = PurchaseOrderResponseSchema(
             id=result.id,
             po_number=result.po_number,
             po_date=result.po_date,
@@ -621,6 +675,11 @@ async def create_purchase_order(
             is_locked=result.is_locked,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -711,7 +770,7 @@ async def get_purchase_order_by_number(
         if not po:
             raise HTTPException(
                 status_code=404,
-                detail=f"Purchase order {po_number} not found",  # nosec
+                detail=f"Purchase order {po_number} not found",
             )
 
         return PurchaseOrderResponseSchema(
@@ -843,12 +902,20 @@ async def list_purchase_orders(
 async def update_purchase_order(
     po_id: UUID,
     request: PurchaseOrderUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("purchase:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_purchase_sales_service),
 ) -> PurchaseOrderResponseSchema:
     """Update Purchase Order (only DRAFT or REJECTED status)."""
+    method_name = "update_purchase_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return PurchaseOrderResponseSchema(**cached)
+
     try:
         result = await service.update_purchase_order(
             po_id=po_id,
@@ -866,7 +933,7 @@ async def update_purchase_order(
                 status_code=404, detail="Purchase order not found or cannot be updated"
             )
 
-        return PurchaseOrderResponseSchema(
+        response = PurchaseOrderResponseSchema(
             id=result.id,
             po_number=result.po_number,
             po_date=result.po_date,
@@ -904,6 +971,11 @@ async def update_purchase_order(
             is_locked=result.is_locked,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -924,12 +996,20 @@ async def update_purchase_order(
 )
 async def submit_purchase_order(
     po_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("purchase:submit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_purchase_sales_service),
 ) -> PurchaseOrderResponseSchema:
     """Submit Purchase Order for approval workflow."""
+    method_name = "submit_purchase_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return PurchaseOrderResponseSchema(**cached)
+
     try:
         result = await service.submit_purchase_order(po_id, current_user.user_id, legal_entity_id)
 
@@ -938,7 +1018,7 @@ async def submit_purchase_order(
                 status_code=404, detail="Purchase order not found or cannot be submitted"
             )
 
-        return PurchaseOrderResponseSchema(
+        response = PurchaseOrderResponseSchema(
             id=result.id,
             po_number=result.po_number,
             po_date=result.po_date,
@@ -976,6 +1056,11 @@ async def submit_purchase_order(
             is_locked=result.is_locked,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1244,12 +1329,20 @@ async def close_purchase_order(
 )
 async def create_sales_order(
     request: SalesOrderCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("sales:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_purchase_sales_service),
 ) -> SalesOrderResponseSchema:
     """Create a new Sales Order."""
+    method_name = "create_sales_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SalesOrderResponseSchema(**cached)
+
     try:
         result = await service.create_sales_order(
             so_number=request.so_number,
@@ -1267,7 +1360,7 @@ async def create_sales_order(
             legal_entity_id=legal_entity_id,
         )
 
-        return SalesOrderResponseSchema(
+        response = SalesOrderResponseSchema(
             id=result.id,
             so_number=result.so_number,
             so_date=result.so_date,
@@ -1305,6 +1398,11 @@ async def create_sales_order(
             is_locked=result.is_locked,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1395,7 +1493,7 @@ async def get_sales_order_by_number(
         if not so:
             raise HTTPException(
                 status_code=404,
-                detail=f"Sales order {so_number} not found",  # nosec
+                detail=f"Sales order {so_number} not found",
             )
 
         return SalesOrderResponseSchema(
@@ -1527,12 +1625,20 @@ async def list_sales_orders(
 async def update_sales_order(
     so_id: UUID,
     request: SalesOrderUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("sales:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_purchase_sales_service),
 ) -> SalesOrderResponseSchema:
     """Update Sales Order (only DRAFT or REJECTED status)."""
+    method_name = "update_sales_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SalesOrderResponseSchema(**cached)
+
     try:
         result = await service.update_sales_order(
             so_id=so_id,
@@ -1550,7 +1656,7 @@ async def update_sales_order(
                 status_code=404, detail="Sales order not found or cannot be updated"
             )
 
-        return SalesOrderResponseSchema(
+        response = SalesOrderResponseSchema(
             id=result.id,
             so_number=result.so_number,
             so_date=result.so_date,
@@ -1588,6 +1694,11 @@ async def update_sales_order(
             is_locked=result.is_locked,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1608,12 +1719,20 @@ async def update_sales_order(
 )
 async def submit_sales_order(
     so_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("sales:submit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_purchase_sales_service),
 ) -> SalesOrderResponseSchema:
     """Submit Sales Order for approval workflow."""
+    method_name = "submit_sales_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SalesOrderResponseSchema(**cached)
+
     try:
         result = await service.submit_sales_order(so_id, current_user.user_id, legal_entity_id)
 
@@ -1622,7 +1741,7 @@ async def submit_sales_order(
                 status_code=404, detail="Sales order not found or cannot be submitted"
             )
 
-        return SalesOrderResponseSchema(
+        response = SalesOrderResponseSchema(
             id=result.id,
             so_number=result.so_number,
             so_date=result.so_date,
@@ -1660,6 +1779,11 @@ async def submit_sales_order(
             is_locked=result.is_locked,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1926,12 +2050,20 @@ async def close_sales_order(
 )
 async def create_goods_receipt(
     request: GoodsReceiptCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("purchase:receive")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_purchase_sales_service),
 ) -> GoodsReceiptResponseSchema:
     """Create a Goods Receipt Note for a Purchase Order."""
+    method_name = "create_goods_receipt"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return GoodsReceiptResponseSchema(**cached)
+
     try:
         result = await service.create_goods_receipt_note(
             grn_number=request.grn_number,
@@ -1944,7 +2076,7 @@ async def create_goods_receipt(
             legal_entity_id=legal_entity_id,
         )
 
-        return GoodsReceiptResponseSchema(
+        response = GoodsReceiptResponseSchema(
             id=result.id,
             grn_number=result.grn_number,
             grn_date=result.grn_date,
@@ -1965,6 +2097,11 @@ async def create_goods_receipt(
             posted_at=result.posted_at,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -2074,12 +2211,20 @@ async def cancel_goods_receipt(
 )
 async def create_delivery_order(
     request: DeliveryOrderCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("sales:deliver")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_purchase_sales_service),
 ) -> DeliveryOrderResponseSchema:
     """Create a Delivery Order for a Sales Order."""
+    method_name = "create_delivery_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return DeliveryOrderResponseSchema(**cached)
+
     try:
         result = await service.create_delivery_order(
             do_number=request.do_number,
@@ -2095,7 +2240,7 @@ async def create_delivery_order(
             legal_entity_id=legal_entity_id,
         )
 
-        return DeliveryOrderResponseSchema(
+        response = DeliveryOrderResponseSchema(
             id=result.id,
             do_number=result.do_number,
             do_date=result.do_date,
@@ -2120,6 +2265,11 @@ async def create_delivery_order(
             delivered_at=result.delivered_at,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

@@ -9,6 +9,8 @@ Responsibility: Menyediakan REST API endpoint untuk mengelola Customer:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import datetime
 from decimal import Decimal
@@ -16,7 +18,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -38,6 +40,52 @@ from application.service_layer.service_customer import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 router = APIRouter()
 
@@ -165,12 +213,22 @@ def to_customer_response(customer: Customer) -> CustomerResponseModel:
 async def create_customer(
     request: Request,
     payload: CreateCustomerRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> CustomerResponseModel:
     """
     Create a new customer.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "create_customer"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return CustomerResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.create_customer(
@@ -188,7 +246,12 @@ async def create_customer(
             created_by=user.user_id,
             correlation_id=correlation_id,
         )
-        return to_customer_response(result)
+        response = to_customer_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except CustomerServiceError as e:
         logger.warning(f"Customer service error: {e}")
         raise HTTPException(
@@ -277,12 +340,22 @@ async def update_customer(
     request: Request,
     customer_id: UUID,
     payload: UpdateCustomerRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> CustomerResponseModel:
     """
     Update customer details (name, address, contact, etc.).
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "update_customer"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return CustomerResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         # Convert status to string if provided
@@ -305,7 +378,12 @@ async def update_customer(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Customer not found",
             )
-        return to_customer_response(result)
+        response = to_customer_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except CustomerNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -337,12 +415,22 @@ async def update_customer(
 async def deactivate_customer(
     request: Request,
     customer_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> Response:
     """
     Deactivate a customer (soft delete).
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "deactivate_customer"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     try:
         correlation_id = get_correlation_id(request)
         # Get current customer to check if exists
@@ -359,6 +447,12 @@ async def deactivate_customer(
             updated_by=user.user_id,
             correlation_id=correlation_id,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"status": "success", "customer_id": str(customer_id)}
+            )
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except HTTPException:
         raise
@@ -378,12 +472,22 @@ async def deactivate_customer(
 async def activate_customer(
     request: Request,
     customer_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> Response:
     """
     Activate a previously deactivated customer.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "activate_customer"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     try:
         correlation_id = get_correlation_id(request)
         customer = await service.get_customer(customer_id)
@@ -398,6 +502,12 @@ async def activate_customer(
             updated_by=user.user_id,
             correlation_id=correlation_id,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"status": "success", "customer_id": str(customer_id)}
+            )
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except HTTPException:
         raise
@@ -418,12 +528,22 @@ async def change_customer_status(
     request: Request,
     customer_id: UUID,
     status: CustomerStatusEnum = Body(..., description="New status"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> CustomerResponseModel:
     """
     Change customer status (active, inactive, suspended, blacklisted).
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "change_customer_status"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return CustomerResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.update_customer(
@@ -437,7 +557,12 @@ async def change_customer_status(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Customer not found",
             )
-        return to_customer_response(result)
+        response = to_customer_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -461,12 +586,22 @@ async def update_credit_limit(
     request: Request,
     customer_id: UUID,
     payload: UpdateCreditLimitRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> CustomerResponseModel:
     """
     Update credit limit for a customer.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "update_credit_limit"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return CustomerResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.update_credit_limit(
@@ -480,7 +615,12 @@ async def update_credit_limit(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Customer not found",
             )
-        return to_customer_response(result)
+        response = to_customer_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except CustomerNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -507,6 +647,7 @@ async def update_balance(
     request: Request,
     customer_id: UUID,
     payload: UpdateBalanceRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: CustomerService = Depends(get_service(CustomerService)),
 ) -> dict[str, Decimal]:
@@ -514,7 +655,16 @@ async def update_balance(
     Update customer balance (add/subtract amount).
     Positive delta increases balance (customer owes more).
     Negative delta decreases balance (customer pays).
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "update_balance"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         correlation_id = get_correlation_id(request)
         new_balance = await service.update_balance(
@@ -523,7 +673,12 @@ async def update_balance(
             updated_by=user.user_id,
             correlation_id=correlation_id,
         )
-        return {"new_balance": new_balance}
+        response = {"new_balance": new_balance}
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except CustomerNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

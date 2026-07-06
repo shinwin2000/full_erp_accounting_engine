@@ -21,6 +21,7 @@ import logging
 import signal
 import sys
 import threading
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -183,8 +184,75 @@ class LifecycleCallback:
         return self.clone()
 
 
+# ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseLifecycleListener(ABC):
+    """
+    Base contract for Lifecycle Listener.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    def register(
+        self,
+        event_type: LifecycleEventType,
+        callback: Callable[[LifecycleEvent], Any],
+        priority: int = 0,
+        name: str = "",
+        async_callback: Callable[[LifecycleEvent], Any] | None = None,
+    ) -> None:
+        """Register a callback for a lifecycle event."""
+        pass
+
+    @abstractmethod
+    async def emit(
+        self,
+        event_type: LifecycleEventType,
+        source: str = "system",
+        details: dict[str, Any] = None,
+    ) -> None:
+        """Emit a lifecycle event (async)."""
+        pass
+
+    @abstractmethod
+    def emit_sync(
+        self,
+        event_type: LifecycleEventType,
+        source: str = "system",
+        details: dict[str, Any] = None,
+    ) -> None:
+        """Emit a lifecycle event (sync)."""
+        pass
+
+    @abstractmethod
+    def get_current_phase(self) -> LifecyclePhase:
+        """Get the current lifecycle phase."""
+        pass
+
+    @abstractmethod
+    def is_running(self) -> bool:
+        """Check if kernel is running."""
+        pass
+
+    @abstractmethod
+    def is_healthy(self) -> bool:
+        """Check if kernel is healthy."""
+        pass
+
+    @abstractmethod
+    async def shutdown(self, timeout: float | None = None) -> None:
+        """Trigger graceful shutdown."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics about lifecycle events."""
+        pass
+
+
 # === 2. LIFECYCLE LISTENER ===
-class LifecycleListener:
+class LifecycleListener(BaseLifecycleListener):
     _instance: LifecycleListener | None = None
     _lock = threading.Lock()
 

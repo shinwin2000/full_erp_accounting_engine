@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-JOURNAL BALANCE CHECKER v1 — PRECISION ARCHITECTURAL VALIDATOR
-================================================================
-Memeriksa apakah implementasi jurnal memastikan debit == kredit.
+JOURNAL BALANCE CHECKER v3 — PRECISION ARCHITECTURAL VALIDATOR WITH RCA
+========================================================================
+Memeriksa implementasi jurnal memastikan debit == kredit.
+Integrasi dengan RCAEngine untuk rekomendasi perbaikan.
 
-V1 PERBAIKAN:
-- Skip file *_mapper.py dan *mapper.py
-- Skip class dengan nama Mapped* atau *MapperOutput
-- Hanya class dengan kata Journal/Ledger yang diperiksa
+v3:
+- Skip GraphQL types (strawberry) agar tidak salah deteksi
+- Perbaikan deteksi class jurnal lebih akurat
 
 Cara pakai:
-    python checker/checker_journal_balance.py [--json report.json]
+    python checker/checker_journal_balance.py [--json report.json] [--rca]
 
 Exit code: 0 jika tidak ada critical, 1 jika ada critical.
 """
@@ -23,25 +23,33 @@ import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Set
+from typing import Any, Optional, Set, List, Dict
 
-# ─── Konfigurasi ──────────────────────────────────────────────────────────────
+# ============================================================
+# Import RCA (jika ada)
+# ============================================================
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+CHECKER_CORE = ROOT / "checker" / "core"
+if str(CHECKER_CORE) not in sys.path:
+    sys.path.insert(0, str(CHECKER_CORE))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-SKIP_DIRS = {
-    "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    ".git", ".venv", "node_modules", ".tox", ".cache", "dist", "build",
-    "docs", "deployment", "scripts", "monitoring", "checker",
-    "migrations", "tests", "helm", "reports", "event_gateway",
-    "dto_objects", "commands_cqrs", "mappers",
-}
-
-SCAN_DIRS = [
-    "domain",
-    "application/service_layer",
-    "application/use_cases",
-]
+try:
+    from rca import RCAEngine, Severity, RCAResult, analyze_exception, Category, ErrorCode
+    RCA_AVAILABLE = True
+except ImportError:
+    try:
+        from checker.core.rca import RCAEngine, Severity, RCAResult, analyze_exception, Category, ErrorCode
+        RCA_AVAILABLE = True
+    except ImportError:
+        RCA_AVAILABLE = False
+        RCAEngine = None
+        Severity = None
+        RCAResult = None
+        Category = None
+        ErrorCode = None
+        print("WARNING: RCAEngine not found. RCA analysis disabled.", file=sys.stderr)
 
 # ─── Color ──────────────────────────────────────────────────────────────────
 try:
@@ -56,14 +64,25 @@ try:
 except ImportError:
     RED = GREEN = YELLOW = CYAN = BOLD = RESET = ""
 
+# ─── Konfigurasi ──────────────────────────────────────────────────────────────
+SKIP_DIRS = {
+    "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    ".git", ".venv", "node_modules", ".tox", ".cache", "dist", "build",
+    "docs", "deployment", "scripts", "monitoring",
+    "migrations", "tests", "helm", "reports", "event_gateway",
+    "dto_objects", "commands_cqrs", "mappers", "checker",
+}
+
 
 @dataclass
 class Finding:
-    severity: str
+    severity: str  # CRITICAL, ERROR, WARNING
     file: str
     line: int
     message: str
     suggestion: str = ""
+    rca_severity: str = ""
+    rca_root_cause: str = ""
 
 
 @dataclass
@@ -75,7 +94,9 @@ class JournalClassInfo:
     has_validate: bool = False
     has_post_init_check: bool = False
     is_valid: bool = False
-    is_journal: bool = False
+    has_lines_field: bool = False
+    has_total_debit: bool = False
+    has_total_credit: bool = False
 
 
 @dataclass
@@ -84,6 +105,7 @@ class ObjectCreation:
     class_name: str
     line: int
     file_path: Path
+    func_name: str
 
 
 @dataclass
@@ -113,30 +135,40 @@ def is_enum_class(class_node: ast.ClassDef) -> bool:
     return False
 
 
-def is_mapper_file(file_path: Path) -> bool:
-    """Cek apakah file adalah mapper file."""
-    name = file_path.name
-    return "_mapper.py" in name or name.endswith("mapper.py")
-
-
-def is_mapped_class(class_name: str) -> bool:
-    """Cek apakah class adalah hasil mapping."""
-    return class_name.startswith("Mapped") or class_name.endswith("MapperOutput")
+def is_graphql_type(class_node: ast.ClassDef) -> bool:
+    """
+    Deteksi apakah class adalah GraphQL type dari strawberry.
+    Cek decorator: @strawberry.type, @strawberry.input, @strawberry.interface, dll.
+    """
+    for deco in class_node.decorator_list:
+        # Kasus: @strawberry.type
+        if isinstance(deco, ast.Attribute):
+            if isinstance(deco.value, ast.Name) and deco.value.id == "strawberry":
+                if deco.attr in ("type", "input", "interface", "union", "enum"):
+                    return True
+        # Kasus: @strawberry.type(...)
+        elif isinstance(deco, ast.Call):
+            if isinstance(deco.func, ast.Attribute):
+                if isinstance(deco.func.value, ast.Name) and deco.func.value.id == "strawberry":
+                    if deco.func.attr in ("type", "input", "interface", "union", "enum"):
+                        return True
+    return False
 
 
 def is_journal_class(class_node: ast.ClassDef, file_path: Path) -> bool:
-    """Deteksi class yang benar-benar merupakan entitas jurnal."""
+    """Deteksi class yang merupakan entitas jurnal dengan kriteria lebih luas."""
     name = class_node.name
 
-    # Skip mapper file
-    if is_mapper_file(file_path):
+    # Skip GraphQL types (strawberry)
+    if is_graphql_type(class_node):
         return False
 
-    # Skip mapped class
-    if is_mapped_class(name):
-        return False
-
+    # Skip enum
     if is_enum_class(class_node):
+        return False
+
+    # Skip file mapper
+    if "_mapper.py" in file_path.name or file_path.name.endswith("mapper.py"):
         return False
 
     # Skip class dengan kata yang jelas bukan jurnal
@@ -151,42 +183,47 @@ def is_journal_class(class_node: ast.ClassDef, file_path: Path) -> bool:
         "VO", "ValueObject", "Type", "Side", "Status", "Entry",
         "TimeEntry", "Transaction", "Invoice", "Receipt", "Disbursement",
         "Payment", "Purchase", "Sales", "Budget", "Forex", "Line",
+        "Mapped", "MapperOutput",
+        "GraphQL", "Schema", "Query", "Mutation", "Subscription",
     )
     for pattern in skip_patterns:
         if pattern in name:
             return False
 
-    # HARUS mengandung kata Journal atau Ledger
-    if "Journal" not in name and "Ledger" not in name:
+    # HARUS mengandung kata Journal atau Ledger atau Entry (dengan konteks)
+    journal_keywords = ("Journal", "Ledger", "Entry")
+    if not any(kw in name for kw in journal_keywords):
         return False
 
-    # Class jurnal harus memiliki total_debit/total_credit atau is_balanced atau lines
+    # Periksa struktur internal
+    has_lines = False
     has_total_debit = False
     has_total_credit = False
     has_is_balanced = False
-    has_lines = False
 
     for item in class_node.body:
         if isinstance(item, (ast.Assign, ast.AnnAssign)):
             targets = item.targets if isinstance(item, ast.Assign) else [item.target]
             for target in targets:
-                if isinstance(target, ast.Name) and target.id in ("lines", "line_items", "journal_lines"):
-                    has_lines = True
+                if isinstance(target, ast.Name):
+                    if target.id in ("lines", "line_items", "journal_lines", "entries"):
+                        has_lines = True
+                    if target.id == "total_debit":
+                        has_total_debit = True
+                    if target.id == "total_credit":
+                        has_total_credit = True
 
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
             fname = item.name.lower()
             if fname == "is_balanced":
                 has_is_balanced = True
-            if fname == "total_debit":
-                has_total_debit = True
-            if fname == "total_credit":
-                has_total_credit = True
 
-    if has_is_balanced:
-        return True
+    # Jika class memiliki lines dan total_debit/total_credit → kemungkinan jurnal
     if has_lines and has_total_debit and has_total_credit:
         return True
-    if has_lines and "Journal" in name:
+    if has_is_balanced:
+        return True
+    if has_lines and any(kw in name for kw in ("Journal", "Ledger")):
         return True
 
     return False
@@ -197,7 +234,6 @@ def analyze_journal_class(class_node: ast.ClassDef, file_path: Path) -> JournalC
         name=class_node.name,
         file=file_path,
         line=class_node.lineno,
-        is_journal="Journal" in class_node.name or "Ledger" in class_node.name,
     )
 
     def has_balance_check(node: ast.AST) -> bool:
@@ -219,6 +255,18 @@ def analyze_journal_class(class_node: ast.ClassDef, file_path: Path) -> JournalC
                 info.has_post_init_check = True
                 info.is_valid = True
 
+        # Cek field
+        if isinstance(item, (ast.Assign, ast.AnnAssign)):
+            targets = item.targets if isinstance(item, ast.Assign) else [item.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    if target.id in ("lines", "line_items", "journal_lines", "entries"):
+                        info.has_lines_field = True
+                    if target.id == "total_debit":
+                        info.has_total_debit = True
+                    if target.id == "total_credit":
+                        info.has_total_credit = True
+
     if info.has_is_balanced:
         info.is_valid = True
 
@@ -231,20 +279,18 @@ class BalanceCheckVisitor(ast.NodeVisitor):
 
     def visit_Assert(self, node):
         if isinstance(node.test, ast.Compare):
-            left = ast.unparse(node.test.left) if hasattr(ast, 'unparse') else ""
-            for comp in node.test.comparators:
-                right = ast.unparse(comp) if hasattr(ast, 'unparse') else ""
-                if ("debit" in left and "credit" in right) or ("credit" in left and "debit" in right):
-                    self.has_check = True
+            left = ast.unparse(node.test.left)
+            right = ast.unparse(node.test.comparators[0]) if node.test.comparators else ""
+            if ("debit" in left.lower() and "credit" in right.lower()) or ("credit" in left.lower() and "debit" in right.lower()):
+                self.has_check = True
         self.generic_visit(node)
 
     def visit_If(self, node):
         if isinstance(node.test, ast.Compare):
-            left = ast.unparse(node.test.left) if hasattr(ast, 'unparse') else ""
-            for comp in node.test.comparators:
-                right = ast.unparse(comp) if hasattr(ast, 'unparse') else ""
-                if ("debit" in left and "credit" in right) or ("credit" in left and "debit" in right):
-                    self.has_check = True
+            left = ast.unparse(node.test.left)
+            right = ast.unparse(node.test.comparators[0]) if node.test.comparators else ""
+            if ("debit" in left.lower() and "credit" in right.lower()) or ("credit" in left.lower() and "debit" in right.lower()):
+                self.has_check = True
         self.generic_visit(node)
 
     def visit_Call(self, node):
@@ -282,7 +328,8 @@ def extract_object_creations(
                                 var_name=target.id,
                                 class_name=class_name,
                                 line=node.lineno,
-                                file_path=file_path
+                                file_path=file_path,
+                                func_name=func_node.name
                             ))
         elif isinstance(node, ast.AnnAssign):
             if isinstance(node.value, ast.Call):
@@ -293,7 +340,8 @@ def extract_object_creations(
                             var_name=node.target.id,
                             class_name=class_name,
                             line=node.lineno,
-                            file_path=file_path
+                            file_path=file_path,
+                            func_name=func_node.name
                         ))
 
     return creations
@@ -319,14 +367,11 @@ def extract_method_calls(
 
 
 def is_abstract_method(func_node: ast.FunctionDef) -> bool:
-    """Cek apakah method adalah abstract (raise NotImplementedError, pass, atau ...)."""
     body = func_node.body
     if len(body) != 1:
         return False
-
     stmt = body[0]
     if isinstance(stmt, ast.Raise):
-        # Cek apakah raise NotImplementedError
         if isinstance(stmt.exc, ast.Call):
             if isinstance(stmt.exc.func, ast.Name) and stmt.exc.func.id == "NotImplementedError":
                 return True
@@ -334,54 +379,49 @@ def is_abstract_method(func_node: ast.FunctionDef) -> bool:
     if isinstance(stmt, ast.Pass):
         return True
     if isinstance(stmt, ast.Expr):
-        if isinstance(stmt.value, ast.Constant):
-            if stmt.value.value is Ellipsis:
-                return True
+        if isinstance(stmt.value, ast.Constant) and stmt.value.value is Ellipsis:
+            return True
     return False
 
 
-def is_journal_entity_name(name: str) -> bool:
-    skip_patterns = (
-        "Event", "Response", "Request", "DTO", "Command", "Query",
-        "Envelope", "Notification", "Snapshot", "Projection", "ViewModel",
-        "Mixin", "Protocol", "Port", "VO", "ValueObject", "Type", "Side",
-        "Status", "Entry", "TimeEntry", "Transaction", "Invoice",
-        "Receipt", "Disbursement", "Payment", "Purchase", "Sales",
-        "Budget", "Forex", "Line", "Invariants", "StateMachine",
-        "Validator", "Helper", "Manager", "Config", "Factory",
-        "Repository", "Service", "Controller", "Router", "Middleware",
-        "Handler", "Listener", "Consumer", "Producer", "Wrapper",
-        "Adapter", "Transformer", "Mapper", "Error", "Exception",
-        "Mapped", "MapperOutput",
-    )
-    for pattern in skip_patterns:
-        if pattern in name:
-            return False
-    return "Journal" in name or "Ledger" in name
+# ─── RCA Integration ──────────────────────────────────────────────────────────
+
+def get_rca_analysis_for_finding(finding: Finding) -> tuple[str, str]:
+    """Gunakan RCAEngine untuk menganalisis temuan dan beri rekomendasi."""
+    if not RCA_AVAILABLE:
+        return "", ""
+
+    # Buat exception dummy dengan pesan temuan
+    dummy_exc = RuntimeError(f"Journal Balance Violation: {finding.message}")
+    try:
+        result = analyze_exception(dummy_exc)
+        if result:
+            return result.severity.value, result.suggested_fix or result.root_cause
+    except Exception:
+        pass
+    return "", ""
 
 
 # ─── Main Orchestrator ──────────────────────────────────────────────────────
 
-def run_checker(verbose: bool = False, json_out: Optional[str] = None) -> int:
+def run_checker(verbose: bool = False, json_out: Optional[str] = None, use_rca: bool = True) -> int:
     print(f"{BOLD}{CYAN}╔{'═'*78}╗{RESET}")
-    print(f"{BOLD}{CYAN}║{' '*20}JOURNAL BALANCE CHECKER v1 (PRECISION){' '*20}║{RESET}")
+    print(f"{BOLD}{CYAN}║{' '*20}JOURNAL BALANCE CHECKER v3 (RCA-ENABLED){' '*20}║{RESET}")
     print(f"{BOLD}{CYAN}╚{'═'*78}╝{RESET}")
     print(f"  Root: {ROOT}")
+    print(f"  RCA Enabled: {RCA_AVAILABLE and use_rca}")
     print()
 
+    # Scan semua file Python di seluruh proyek (kecuali skip dirs)
     all_files = []
-    for dir_name in SCAN_DIRS:
-        target = ROOT / dir_name
-        if not target.exists():
+    for p in ROOT.rglob("*.py"):
+        if any(part in SKIP_DIRS for part in p.parts):
             continue
-        for p in target.rglob("*.py"):
-            if any(part in SKIP_DIRS for part in p.parts):
-                continue
-            if p.name.startswith("__") and p.name != "__init__.py":
-                continue
-            if p.name == "checker_journal_balance.py":
-                continue
-            all_files.append(p)
+        if p.name.startswith("__") and p.name != "__init__.py":
+            continue
+        if p.name in ("checker_journal_balance.py", "rca.py", "rca_project_rules.py", "test_rca.py"):
+            continue
+        all_files.append(p)
 
     print(f"🔍 Scanning {len(all_files)} Python files...")
 
@@ -400,26 +440,21 @@ def run_checker(verbose: bool = False, json_out: Optional[str] = None) -> int:
                 if is_journal_class(node, file_path):
                     info = analyze_journal_class(node, file_path)
                     journal_classes.append(info)
-                    if info.is_journal:
-                        journal_class_names.add(info.name)
+                    journal_class_names.add(info.name)
 
-                    if not info.is_valid and info.is_journal:
+                    if not info.is_valid:
                         findings.append(Finding(
                             severity="CRITICAL",
                             file=str(file_path.relative_to(ROOT)),
                             line=node.lineno,
-                            message=f"Journal class '{info.name}' tidak memiliki validasi balance.",
+                            message=f"Journal class '{info.name}' tidak memiliki validasi balance (is_balanced / __post_init__).",
                             suggestion="Tambahkan metode is_balanced() atau __post_init__ yang membandingkan total_debit == total_credit."
                         ))
 
-    # ─── Step 2: Analisis fungsi service/use_case ─────────────────────────────
+    # ─── Step 2: Analisis semua fungsi yang membuat dan menyimpan entitas jurnal ──
     for file_path in all_files:
         tree = get_ast_tree(file_path)
         if tree is None:
-            continue
-
-        rel_path = str(file_path.relative_to(ROOT))
-        if "service_layer" not in rel_path and "use_cases" not in rel_path:
             continue
 
         for node in ast.walk(tree):
@@ -431,26 +466,41 @@ def run_checker(verbose: bool = False, json_out: Optional[str] = None) -> int:
                 calls = extract_method_calls(node, file_path)
 
                 for creation in creations:
-                    save_calls = [c for c in calls if c.var_name == creation.var_name and c.method in ("save", "add", "persist", "store")]
+                    # Cek apakah ada method save/persist yang dipanggil pada object ini
+                    save_calls = [c for c in calls if c.var_name == creation.var_name and c.method in ("save", "add", "persist", "store", "create")]
                     if not save_calls:
                         continue
 
+                    # Cek apakah ada validasi balance sebelum save
                     validate_calls = [c for c in calls if c.var_name == creation.var_name and c.method in ("validate", "is_balanced", "ensure_balanced")]
+                    if validate_calls:
+                        continue
 
-                    if not validate_calls:
-                        class_info = next((ci for ci in journal_classes if ci.name == creation.class_name), None)
-                        if class_info and class_info.has_post_init_check:
-                            continue
+                    # Cek apakah class memiliki __post_init__ yang validasi
+                    class_info = next((ci for ci in journal_classes if ci.name == creation.class_name), None)
+                    if class_info and class_info.has_post_init_check:
+                        continue
 
+                    # Cek apakah class memiliki is_balanced
+                    if class_info and class_info.has_is_balanced:
+                        # Jika ada is_balanced tapi tidak dipanggil sebelum save, tetap warning
+                        findings.append(Finding(
+                            severity="ERROR",
+                            file=str(file_path.relative_to(ROOT)),
+                            line=creation.line,
+                            message=f"Fungsi '{node.name}' membuat entitas jurnal ({creation.class_name}) tetapi tidak memanggil .is_balanced() sebelum save.",
+                            suggestion=f"Panggil {creation.var_name}.is_balanced() sebelum menyimpan untuk memastikan debit == kredit."
+                        ))
+                    else:
                         findings.append(Finding(
                             severity="CRITICAL",
                             file=str(file_path.relative_to(ROOT)),
                             line=creation.line,
-                            message=f"Fungsi posting '{node.name}' membuat entitas jurnal ({creation.class_name}) tanpa memanggil .validate() atau .is_balanced() sebelum save.",
-                            suggestion=f"Panggil {creation.var_name}.validate() atau {creation.var_name}.is_balanced() sebelum menyimpan."
+                            message=f"Fungsi '{node.name}' membuat entitas jurnal ({creation.class_name}) tanpa validasi balance.",
+                            suggestion=f"Panggil {creation.var_name}.validate() atau {creation.var_name}.is_balanced() sebelum menyimpan, atau tambahkan __post_init__ dengan validasi."
                         ))
 
-    # ─── Step 3: Repository (hanya JournalRepository/LedgerRepository) ──────
+    # ─── Step 3: Analisis Repository (JournalRepository, LedgerRepository) ──
     for file_path in all_files:
         tree = get_ast_tree(file_path)
         if tree is None:
@@ -467,8 +517,6 @@ def run_checker(verbose: bool = False, json_out: Optional[str] = None) -> int:
                     if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         if item.name.lower() not in ("save", "update", "add", "persist", "store"):
                             continue
-
-                        # Skip abstract method
                         if is_abstract_method(item):
                             continue
 
@@ -478,24 +526,33 @@ def run_checker(verbose: bool = False, json_out: Optional[str] = None) -> int:
                             if entity_var.endswith("_id"):
                                 continue
 
-                            if not is_journal_entity_name(entity_var.title()) and not is_journal_entity_name(entity_var):
+                            # Cek apakah entity_var adalah entitas jurnal (cek class_names)
+                            if entity_var not in journal_class_names and entity_var.title() not in journal_class_names:
                                 continue
 
                             calls = extract_method_calls(item, file_path)
                             validate_calls = [c for c in calls if c.var_name == entity_var and c.method in ("validate", "is_balanced", "ensure_balanced")]
 
-                            class_info = next((ci for ci in journal_classes if ci.name == entity_var.title() or ci.name == entity_var), None)
+                            class_info = next((ci for ci in journal_classes if ci.name == entity_var or ci.name == entity_var.title()), None)
                             if class_info and class_info.has_post_init_check:
                                 continue
 
                             if not validate_calls:
                                 findings.append(Finding(
-                                    severity="CRITICAL",
+                                    severity="ERROR",
                                     file=str(file_path.relative_to(ROOT)),
                                     line=item.lineno,
                                     message=f"Repository '{node.name}.{item.name}' menyimpan {entity_var} tanpa validasi balance.",
                                     suggestion=f"Panggil {entity_var}.validate() atau {entity_var}.is_balanced() sebelum commit."
                                 ))
+
+    # ─── Step 4: Analisis RCA ──────────────────────────────────────────────
+    if use_rca and RCA_AVAILABLE:
+        for f in findings:
+            sev, suggestion = get_rca_analysis_for_finding(f)
+            f.rca_severity = sev
+            if suggestion:
+                f.suggestion = suggestion if not f.suggestion else f.suggestion + " " + suggestion
 
     # ─── Report ──────────────────────────────────────────────────────────────
     critical = [f for f in findings if f.severity == "CRITICAL"]
@@ -505,6 +562,9 @@ def run_checker(verbose: bool = False, json_out: Optional[str] = None) -> int:
     print("\n" + "═" * 80)
     print(f"{BOLD}📊 SUMMARY{RESET}")
     print(f"  Journal classes found:    {len(journal_classes)}")
+    if verbose:
+        for jc in journal_classes:
+            print(f"    - {jc.name} ({jc.file.relative_to(ROOT)}:{jc.line}) {'✅' if jc.is_valid else '❌'}")
     print(f"  ❌ Critical issues:       {len(critical)}")
     print(f"  ⚠️  Errors:                {len(errors)}")
     print(f"  ℹ️  Warnings:              {len(warnings)}")
@@ -516,6 +576,8 @@ def run_checker(verbose: bool = False, json_out: Optional[str] = None) -> int:
             print(f"      {f.message}")
             if f.suggestion:
                 print(f"      💡 {f.suggestion}")
+            if f.rca_severity:
+                print(f"      🧠 RCA Severity: {f.rca_severity}")
         print("\n" + f"{RED}{BOLD}❌ VALIDATION FAILED — Perbaiki critical/error issues.{RESET}")
         exit_code = 1
     else:
@@ -532,10 +594,14 @@ def run_checker(verbose: bool = False, json_out: Optional[str] = None) -> int:
                 "errors": len(errors),
                 "warnings": len(warnings),
             },
+            "journal_classes": [
+                {"name": jc.name, "file": str(jc.file.relative_to(ROOT)), "line": jc.line, "valid": jc.is_valid}
+                for jc in journal_classes
+            ],
             "issues": {
-                "critical": [{"file": f.file, "line": f.line, "message": f.message, "suggestion": f.suggestion} for f in critical],
-                "errors": [{"file": f.file, "line": f.line, "message": f.message, "suggestion": f.suggestion} for f in errors],
-                "warnings": [{"file": f.file, "line": f.line, "message": f.message, "suggestion": f.suggestion} for f in warnings],
+                "critical": [{"file": f.file, "line": f.line, "message": f.message, "suggestion": f.suggestion, "rca_severity": f.rca_severity} for f in critical],
+                "errors": [{"file": f.file, "line": f.line, "message": f.message, "suggestion": f.suggestion, "rca_severity": f.rca_severity} for f in errors],
+                "warnings": [{"file": f.file, "line": f.line, "message": f.message, "suggestion": f.suggestion, "rca_severity": f.rca_severity} for f in warnings],
             }
         }
         Path(json_out).write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -546,7 +612,9 @@ def run_checker(verbose: bool = False, json_out: Optional[str] = None) -> int:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--verbose", "-v", action="store_true")
-    parser.add_argument("--json", metavar="FILE")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan detail class jurnal")
+    parser.add_argument("--json", metavar="FILE", help="Simpan laporan ke JSON")
+    parser.add_argument("--no-rca", action="store_true", help="Nonaktifkan RCA analysis")
     args = parser.parse_args()
-    sys.exit(run_checker(verbose=args.verbose, json_out=args.json))
+
+    sys.exit(run_checker(verbose=args.verbose, json_out=args.json, use_rca=not args.no_rca))

@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -260,10 +261,135 @@ class FraudAlert:
         }
 
 
-# === 3. FRAUD PATTERN DETECTOR ===
+# === 3. FRAUD CHECK RESULT (untuk sync check) ===
 
 
-class FraudPatternDetector:
+class FraudCheckResult:
+    """Hasil fraud check sync."""
+
+    def __init__(self, is_suspicious: bool, reasons: list[str] = None):
+        self.is_suspicious = is_suspicious
+        self.reasons = reasons or []
+
+
+# ============================================================================
+# BASE FRAUD PATTERN DETECTOR (ABSTRACT)
+# ============================================================================
+
+class BaseFraudPatternDetector(ABC):
+    """Base contract untuk Fraud Pattern Detector."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan detector."""
+        pass
+
+    @abstractmethod
+    def set_thresholds(
+        self,
+        aml_threshold: Decimal,
+        large_threshold: Decimal,
+        structuring_window_days: int,
+    ) -> None:
+        """Set threshold deteksi."""
+        pass
+
+    @abstractmethod
+    async def analyze_transaction(
+        self,
+        transaction_id: UUID,
+        customer_id: UUID,
+        amount: Decimal,
+        transaction_date: datetime,
+        legal_entity_id: UUID,
+        transaction_type: str = "UNKNOWN",
+    ) -> list[FraudAlert]:
+        """Menganalisis transaksi untuk semua pola fraud."""
+        pass
+
+    @abstractmethod
+    async def check(self, context: dict) -> list[str]:
+        """Async check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def check_sync(self, transaction: dict[str, Any]) -> FraudCheckResult:
+        """Sync fraud pattern check untuk unit tests."""
+        pass
+
+    @abstractmethod
+    def get_alerts(
+        self,
+        min_severity: FraudSeverity = FraudSeverity.LOW,
+        limit: int = 100,
+        pattern_type: FraudPatternType | None = None,
+    ) -> list[FraudAlert]:
+        """Mendapatkan alerts."""
+        pass
+
+    @abstractmethod
+    def acknowledge_alert(self, alert_id: UUID, action_taken: str) -> FraudAlert | None:
+        """Acknowledge alert."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Mendapatkan statistik."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset state."""
+        pass
+
+    # === Entity methods (wajib untuk semua guard) ===
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseFraudPatternDetector:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseFraudPatternDetector:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseFraudPatternDetector:
+        """Touch instance (increment version)."""
+        pass
+
+
+# ============================================================================
+# FRAUD PATTERN DETECTOR (CONCRETE)
+# ============================================================================
+
+class FraudPatternDetector(BaseFraudPatternDetector):
     """
     Detector untuk pola transaksi mencurigakan.
 
@@ -286,35 +412,18 @@ class FraudPatternDetector:
         self._structuring_window_days = 7
         self._enabled = True
 
-        # Attributes for synchronous check() method (supporting tests)
+        # Attributes for synchronous check method (supporting tests)
         self._user_transaction_count: dict[UUID, int] = {}
         self._user_last_timestamp: dict[UUID, datetime] = {}
         self._device_history: dict[str, list[Decimal]] = {}
 
-    def enable(self, enabled: bool = True) -> None:
-        self._enabled = enabled
-        logger.info(f"Fraud pattern detector enabled: {enabled}")
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
 
-    def set_thresholds(
-        self,
-        aml_threshold: Decimal,
-        large_threshold: Decimal,
-        structuring_window_days: int,
-    ) -> None:
-        self._aml_threshold = aml_threshold
-        self._large_threshold = large_threshold
-        self._structuring_window_days = structuring_window_days
-        logger.info(
-            f"Fraud thresholds updated: aml={aml_threshold}, large={large_threshold}, window={structuring_window_days}"
-        )
+    # ==================== SYNC CHECK METHOD (untuk test compatibility) ====================
 
-    # --- Synchronous check method for unit tests ---
-    class FraudCheckResult:
-        def __init__(self, is_suspicious: bool, reasons: list[str] = None):
-            self.is_suspicious = is_suspicious
-            self.reasons = reasons or []
-
-    def check(self, transaction: dict[str, Any]) -> FraudCheckResult:
+    def check_sync(self, transaction: dict[str, Any]) -> FraudCheckResult:
         """
         Synchronous fraud pattern check for unit tests.
         Returns an object with `is_suspicious` and `reasons`.
@@ -364,9 +473,142 @@ class FraudPatternDetector:
                     reasons.append("unusual amount from new device")
 
         is_suspicious = len(reasons) > 0
-        return self.FraudCheckResult(is_suspicious, reasons)
+        return FraudCheckResult(is_suspicious, reasons)
 
-    # --- End of synchronous check method ---
+    # ==================== ASYNC CHECK METHOD (untuk checker compliance) ====================
+
+    async def check(self, context: dict) -> list[str]:
+        """
+        Async check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        transaction_id = context.get("transaction_id")
+        customer_id = context.get("customer_id")
+        amount = context.get("amount")
+
+        if not transaction_id:
+            errors.append("transaction_id is required")
+        if not customer_id:
+            errors.append("customer_id is required")
+        if amount is None:
+            errors.append("amount is required")
+        else:
+            try:
+                amt = Decimal(str(amount))
+                if amt < 0:
+                    errors.append("amount must be non-negative")
+            except Exception:
+                errors.append("amount must be a valid number")
+
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._aml_threshold <= 0:
+            errors.append("aml_threshold must be positive")
+        if self._large_threshold <= 0:
+            errors.append("large_threshold must be positive")
+        if self._structuring_window_days <= 0:
+            errors.append("structuring_window_days must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        return {
+            "enabled": self._enabled,
+            "aml_threshold": str(self._aml_threshold),
+            "large_threshold": str(self._large_threshold),
+            "structuring_window_days": self._structuring_window_days,
+            "version": self._version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> FraudPatternDetector:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._aml_threshold = Decimal(str(data.get("aml_threshold", 100000000)))
+        instance._large_threshold = Decimal(str(data.get("large_threshold", 50000000)))
+        instance._structuring_window_days = data.get("structuring_window_days", 7)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> FraudPatternDetector:
+        """Clone instance."""
+        new_instance = FraudPatternDetector()
+        new_instance._enabled = self._enabled
+        new_instance._aml_threshold = self._aml_threshold
+        new_instance._large_threshold = self._large_threshold
+        new_instance._structuring_window_days = self._structuring_window_days
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "alerts_count": len(self._alerts),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> FraudPatternDetector:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
+
+    def enable(self, enabled: bool = True) -> None:
+        self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
+        logger.info(f"Fraud pattern detector enabled: {enabled}")
+
+    def set_thresholds(
+        self,
+        aml_threshold: Decimal,
+        large_threshold: Decimal,
+        structuring_window_days: int,
+    ) -> None:
+        self._aml_threshold = aml_threshold
+        self._large_threshold = large_threshold
+        self._structuring_window_days = structuring_window_days
+        self._record_audit("SET_THRESHOLDS", "system", {
+            "aml": str(aml_threshold),
+            "large": str(large_threshold),
+            "window": structuring_window_days,
+        })
+        logger.info(
+            f"Fraud thresholds updated: aml={aml_threshold}, large={large_threshold}, window={structuring_window_days}"
+        )
 
     async def detect_structuring(
         self,
@@ -739,6 +981,11 @@ class FraudPatternDetector:
         for alert in alerts:
             with self._lock:
                 self._alerts.append(alert)
+            self._record_audit("FRAUD_ALERT", "system", {
+                "alert_id": str(alert.alert_id),
+                "pattern": alert.pattern_type.name,
+                "severity": alert.severity.name,
+            })
             logger.warning(f"Fraud alert: {alert.pattern_type.name} - {alert.description}")
 
         # Trim history
@@ -778,6 +1025,10 @@ class FraudPatternDetector:
                         cryptographic_hash=a.cryptographic_hash,
                     )
                     self._alerts[i] = acknowledged_alert
+                    self._record_audit("ACKNOWLEDGE_ALERT", "system", {
+                        "alert_id": str(alert_id),
+                        "action": action_taken,
+                    })
                     return acknowledged_alert
         return None
 
@@ -785,7 +1036,11 @@ class FraudPatternDetector:
         with self._lock:
             total = len(self._alerts)
             if total == 0:
-                return {"total_alerts": 0, "enabled": self._enabled}
+                return {
+                    "total_alerts": 0,
+                    "enabled": self._enabled,
+                    "version": self._version,
+                }
             by_severity = {}
             by_pattern = {}
             for a in self._alerts:
@@ -799,6 +1054,7 @@ class FraudPatternDetector:
                 "aml_threshold": str(self._aml_threshold),
                 "large_threshold": str(self._large_threshold),
                 "structuring_window_days": self._structuring_window_days,
+                "version": self._version,
             }
 
     def reset(self) -> None:
@@ -807,10 +1063,12 @@ class FraudPatternDetector:
             if hasattr(self._tx_repo, "reset"):
                 self._tx_repo.reset()
             self._enabled = True
-            # Reset internal tracking for check() method
+            # Reset internal tracking for check_sync() method
             self._user_transaction_count.clear()
             self._user_last_timestamp.clear()
             self._device_history.clear()
+            self._version += 1
+            self._audit_trail = []
 
 
 # === 4. SINGLETON ACCESSOR ===
@@ -832,6 +1090,7 @@ def get_fraud_pattern_detector() -> FraudPatternDetector:
 
 __all__ = [
     "FraudAlert",
+    "FraudCheckResult",
     "FraudPatternDetector",
     "FraudPatternType",
     "FraudSeverity",

@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -275,10 +276,199 @@ class TraceabilityCheckResult:
         }
 
 
-# === 3. TRACEABILITY ENFORCER ===
+# ============================================================================
+# BASE TRACEABILITY ENFORCER (ABSTRACT)
+# ============================================================================
+
+class BaseTraceabilityEnforcer(ABC):
+    """Base contract untuk Traceability Enforcer."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan enforcer."""
+        pass
+
+    @abstractmethod
+    def set_strict_mode(self, strict: bool = True) -> None:
+        """Set strict mode."""
+        pass
+
+    @abstractmethod
+    async def enforce_traceability(
+        self,
+        transaction_id: UUID,
+        legal_entity_id: UUID,
+        source_type: SourceType | None = None,
+        source_id: str | None = None,
+        source_description: str | None = None,
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: UUID | None = None,
+        raise_on_violation: bool = True,
+    ) -> TraceabilityCheckResult:
+        """Enforce traceability for a transaction."""
+        pass
+
+    @abstractmethod
+    async def create_traceability_record(
+        self,
+        transaction_id: UUID,
+        legal_entity_id: UUID,
+        source_type: SourceType,
+        source_id: str | None = None,
+        source_description: str = "",
+        user_id: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: UUID | None = None,
+    ) -> TraceabilityRecord:
+        """Create a traceability record for a transaction."""
+        pass
+
+    @abstractmethod
+    async def get_traceability_chain(
+        self,
+        transaction_id: UUID,
+        legal_entity_id: UUID,
+        max_depth: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Get traceability chain for a transaction."""
+        pass
+
+    @abstractmethod
+    async def verify_chain_integrity(
+        self,
+        transaction_id: UUID,
+        legal_entity_id: UUID,
+    ) -> tuple[bool, str | None, list[str]]:
+        """Verify integrity of traceability chain."""
+        pass
+
+    @abstractmethod
+    async def get_transaction_source_summary(
+        self,
+        transaction_id: UUID,
+        legal_entity_id: UUID,
+    ) -> dict[str, Any]:
+        """Get source summary for a transaction."""
+        pass
+
+    @abstractmethod
+    async def ensure_root_cause(
+        self,
+        transaction_id: UUID,
+        legal_entity_id: UUID,
+        root_source_type: SourceType,
+        root_source_id: str,
+        root_description: str,
+        user_id: str | None = None,
+    ) -> TraceabilityRecord:
+        """Ensure root cause exists for a transaction."""
+        pass
+
+    @abstractmethod
+    async def get_by_correlation(
+        self, correlation_id: str, legal_entity_id: UUID
+    ) -> list[dict[str, Any]]:
+        """Get traceability records by correlation ID."""
+        pass
+
+    @abstractmethod
+    async def get_by_source(
+        self, source_type: SourceType, source_id: str, legal_entity_id: UUID
+    ) -> list[dict[str, Any]]:
+        """Get traceability records by source."""
+        pass
+
+    @abstractmethod
+    def get_check_history(
+        self,
+        limit: int = 100,
+        only_violations: bool = False,
+    ) -> list[TraceabilityCheckResult]:
+        """Get check history."""
+        pass
+
+    @abstractmethod
+    def get_violations(
+        self,
+        limit: int = 100,
+    ) -> list[TraceabilityViolation]:
+        """Get violation history."""
+        pass
+
+    @abstractmethod
+    def get_traceability_records(
+        self,
+        transaction_id: UUID | None = None,
+        limit: int = 100,
+    ) -> list[TraceabilityRecord]:
+        """Get traceability records."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset state."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseTraceabilityEnforcer:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseTraceabilityEnforcer:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseTraceabilityEnforcer:
+        """Touch instance (increment version)."""
+        pass
 
 
-class TraceabilityEnforcer:
+# ============================================================================
+# TRACEABILITY ENFORCER (CONCRETE)
+# ============================================================================
+
+class TraceabilityEnforcer(BaseTraceabilityEnforcer):
     """
     Enforcer untuk hukum traceability.
 
@@ -300,13 +490,135 @@ class TraceabilityEnforcer:
         self._lock = threading.RLock()
         self._enabled = True
         self._strict_mode = True
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        transaction_id = context.get("transaction_id")
+        legal_entity_id = context.get("legal_entity_id")
+        source_type = context.get("source_type")
+
+        if not transaction_id:
+            errors.append("transaction_id is required")
+        else:
+            try:
+                UUID(str(transaction_id))
+            except Exception:
+                errors.append("transaction_id must be a valid UUID")
+        if not legal_entity_id:
+            errors.append("legal_entity_id is required")
+        else:
+            try:
+                UUID(str(legal_entity_id))
+            except Exception:
+                errors.append("legal_entity_id must be a valid UUID")
+        if source_type:
+            try:
+                SourceType(source_type.upper())
+            except ValueError:
+                errors.append(f"source_type '{source_type}' is not a valid SourceType")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "max_history": self._max_history,
+                "trace_records_count": len(self._trace_records),
+                "checks_count": len(self._check_history),
+                "violations_count": len(self._violation_history),
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TraceabilityEnforcer:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._strict_mode = data.get("strict_mode", True)
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> TraceabilityEnforcer:
+        """Clone instance."""
+        new_instance = TraceabilityEnforcer()
+        new_instance._enabled = self._enabled
+        new_instance._strict_mode = self._strict_mode
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "trace_records_count": len(self._trace_records),
+                "checks_count": len(self._check_history),
+                "violations_count": len(self._violation_history),
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> TraceabilityEnforcer:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Traceability enforcer enabled: {enabled}")
 
     def set_strict_mode(self, strict: bool = True) -> None:
         self._strict_mode = strict
+        self._record_audit("SET_STRICT_MODE", "system", {"strict": strict})
         logger.info(f"Traceability enforcer strict mode: {strict}")
 
     async def enforce_traceability(
@@ -472,6 +784,10 @@ class TraceabilityEnforcer:
             if len(self._trace_records) > self._max_history:
                 self._trace_records = self._trace_records[-self._max_history :]
 
+        self._record_audit("CREATE_TRACEABILITY_RECORD", user_id, {
+            "transaction_id": str(transaction_id),
+            "source_type": source_type.value,
+        })
         logger.info(f"Traceability record {record_id} created for transaction {transaction_id}")
         return trace_record
 
@@ -639,6 +955,10 @@ class TraceabilityEnforcer:
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
+            self._record_audit("VIOLATION", violation.user_id or "system", {
+                "message": violation.message,
+                "severity": violation.severity.name,
+            })
 
     def get_check_history(
         self,
@@ -682,6 +1002,7 @@ class TraceabilityEnforcer:
                     "total_records": 0,
                     "enabled": self._enabled,
                     "strict_mode": self._strict_mode,
+                    "version": self._version,
                 }
 
             valid = len([r for r in self._check_history if r.is_valid])
@@ -709,6 +1030,7 @@ class TraceabilityEnforcer:
                 "by_source_type": by_source_type,
                 "enabled": self._enabled,
                 "strict_mode": self._strict_mode,
+                "version": self._version,
                 "latest_check": self._check_history[-1].timestamp.isoformat()
                 if self._check_history
                 else None,
@@ -721,6 +1043,8 @@ class TraceabilityEnforcer:
             self._violation_history = []
             self._enabled = True
             self._strict_mode = True
+            self._version += 1
+            self._audit_trail = []
             if hasattr(self._audit_repo, "clear"):
                 self._audit_repo.clear()
             if hasattr(self._tx_repo, "clear"):

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 """
 Module: ap_payment_run.py
@@ -18,7 +19,8 @@ import io
 import logging
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from functools import wraps
+from typing import Any, List, Optional
 from uuid import UUID
 
 from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
@@ -26,8 +28,19 @@ from application.service_layer.service_ap import APService
 from application.service_layer.service_bank_cash import BankCashService
 from application.service_layer.service_journal import JournalService
 from kernel.sealed_gate import SealedGate
+from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)
+
+
+# ─── REAL TRANSACTIONAL DECORATOR ──────────────────────────────────────────
+def transactional(method):
+    """Membungkus method dengan Unit of Work context (commit/rollback otomatis)."""
+    @wraps(method)
+    async def wrapper(self, *args, **kwargs):
+        async with self._uow:
+            return await method(self, *args, **kwargs)
+    return wrapper
 
 
 class APPaymentRunCommand(BaseCommand):
@@ -118,14 +131,17 @@ class APPaymentRunUseCase:
         ap_service: APService,
         bank_cash_service: BankCashService,
         journal_service: JournalService,
+        uow: UnitOfWorkPort,                     # ← ditambahkan
         sealed_gate: SealedGate | None = None,
     ):
         self._ap_service = ap_service
         self._bank_service = bank_cash_service
         self._journal_service = journal_service
+        self._uow = uow                          # ← disimpan
         self._sealed_gate = sealed_gate
         self._stats = {"executed": 0, "succeeded": 0, "failed": 0}
 
+    @transactional                                  # ← real decorator
     async def execute(self, command: APPaymentRunCommand) -> CommandResult:
         self._stats["executed"] += 1
 
@@ -257,6 +273,7 @@ class APPaymentRunUseCase:
         except Exception as e:
             self._stats["failed"] += 1
             logger.exception(f"AP payment run failed: {e}")
+            # Rollback otomatis oleh dekorator
             return CommandResult.failure(
                 command_id=command.command_id, error=str(e), error_code="AP_PAYMENT_RUN_ERROR"
             )
@@ -346,7 +363,7 @@ async def ap_payment_run_handler(command: BaseCommand, use_case: APPaymentRunUse
 
 
 # ============================================================================
-# SIMPLE CLASS FOR E2E TESTS (synchronous)
+# SIMPLE CLASS FOR E2E TESTS (synchronous) — dengan DI
 # ============================================================================
 
 
@@ -357,17 +374,16 @@ class ApPaymentRun:
     total_paid and payment_reference.
     """
 
+    def __init__(self, ap_service=None, bank_service=None, journal_service=None):
+        self._ap_service = ap_service
+        self._bank_service = bank_service
+        self._journal_service = journal_service
+
     def execute(self, invoices: list, bank_account: str) -> object:
-        """
-        Execute a payment run for the given invoices.
-        Returns a simple object with attributes total_paid (Decimal) and payment_reference (str).
-        """
         from types import SimpleNamespace
 
         total_paid = Decimal("0")
         for inv in invoices:
-            # Each invoice is an instance of ApInvoice (from domain.subledger_ap.invoice_entity)
-            # It has attributes 'amount' and 'tax' (or total amount)
             amt = getattr(inv, "amount", Decimal("0"))
             tax = getattr(inv, "tax", Decimal("0"))
             total_paid += amt + tax
@@ -377,10 +393,6 @@ class ApPaymentRun:
         result.payment_reference = f"PAY-{bank_account}-{len(invoices)}"
         return result
 
-
-# ============================================================================
-# EXPORTS
-# ============================================================================
 
 __all__ = [
     "APPaymentRunCommand",

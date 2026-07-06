@@ -3,6 +3,19 @@
 Module: valuation_method.py
 Layer: 6 - Domain / Inventory
 Responsibility: Strategy: FIFO, Average, biaya per batch.
+
+Metode penilaian persediaan yang didukung:
+- FIFO (First-In-First-Out)
+- LIFO (Last-In-First-Out)
+- Weighted Average
+- Moving Average
+- Specific Identification (per batch)
+- Standard Cost
+
+Perbaikan:
+- Validasi quantity positif di calculate_cost()
+- Docstring lengkap
+- Type hints konsisten
 """
 
 from __future__ import annotations
@@ -187,6 +200,15 @@ class ValuationMethodStrategy(ABC):
         """Calculate Cost of Goods Sold."""
         pass
 
+    def calculate_cost(self, layers: list[dict] | list[FIFOLayer], quantity: Decimal) -> Decimal:
+        """
+        Calculate the cost for a given quantity using the valuation method.
+        Default implementation uses FIFO.
+        """
+        if quantity <= 0:
+            return Decimal(0)
+        return FIFOValuation.calculate_cost_static(layers, quantity)
+
 
 class FIFOValuation(ValuationMethodStrategy):
     """First-In-First-Out valuation method."""
@@ -197,28 +219,23 @@ class FIFOValuation(ValuationMethodStrategy):
         current_unit_cost: Decimal | None = None,
     ) -> ValuationResult:
         """Calculate inventory value using FIFO."""
-        # movements should be list of objects with is_inbound(), quantity, unit_cost, movement_date, total_cost
         layers = []
         remaining_quantity = Decimal(0)
         total_value = Decimal(0)
 
-        # Collect inbound movements sorted by date
         inbound = [m for m in movements if getattr(m, "is_inbound", lambda: False)()]
         inbound.sort(key=lambda m: m.movement_date)
 
         for movement in inbound:
-            layers.append(
-                {
-                    "quantity": movement.quantity,
-                    "unit_cost": movement.unit_cost,
-                    "total_value": movement.total_cost,
-                    "date": movement.movement_date,
-                }
-            )
+            layers.append({
+                "quantity": movement.quantity,
+                "unit_cost": movement.unit_cost,
+                "total_value": movement.total_cost,
+                "date": movement.movement_date,
+            })
             remaining_quantity += movement.quantity
             total_value += movement.total_cost
 
-        # Process outbound movements
         outbound = [m for m in movements if getattr(m, "is_outbound", lambda: False)()]
         for outward in outbound:
             remaining = outward.quantity
@@ -253,16 +270,12 @@ class FIFOValuation(ValuationMethodStrategy):
         cogs = Decimal(0)
         fifo_layers = []
 
-        # Build layers from inbound movements sorted by date
         for movement in sorted(inward_movements, key=lambda m: m.movement_date):
-            fifo_layers.append(
-                {
-                    "quantity": movement.quantity,
-                    "unit_cost": movement.unit_cost,
-                }
-            )
+            fifo_layers.append({
+                "quantity": movement.quantity,
+                "unit_cost": movement.unit_cost,
+            })
 
-        # Process outbound movements
         for outward in sorted(outward_movements, key=lambda m: m.movement_date):
             remaining = outward.quantity
             for layer in fifo_layers:
@@ -276,30 +289,44 @@ class FIFOValuation(ValuationMethodStrategy):
 
         return cogs.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    # ========================================================================
-    # Helper methods for aggregate_root compatibility
-    # ========================================================================
-
-    def calculate_cost(self, fifo_layers: list[dict], quantity: Decimal) -> Decimal:
+    def calculate_cost(self, layers: list[dict] | list[FIFOLayer], quantity: Decimal) -> Decimal:
         """
         Calculate total cost for a given quantity using FIFO layers.
-        Compatible with aggregate_root.
+        Validates quantity > 0.
         """
         if quantity <= 0:
             return Decimal(0)
+        return FIFOValuation.calculate_cost_static(layers, quantity)
+
+    # ========================================================================
+    # Static helper methods
+    # ========================================================================
+
+    @staticmethod
+    def calculate_cost_static(layers: list[dict] | list[FIFOLayer], quantity: Decimal) -> Decimal:
+        """
+        Calculate total cost for a given quantity using FIFO layers.
+        Works with both dict layers and FIFOLayer objects.
+        """
+        if quantity <= 0:
+            return Decimal(0)
+
         remaining = quantity
         total_cost = Decimal(0)
-        # Create copy to avoid mutating original
-        layers = []
-        for layer in fifo_layers:
-            qty = layer.get("remaining_quantity", layer.get("quantity", 0))
-            layers.append(
-                {
-                    "quantity": qty,
-                    "unit_cost": layer["unit_cost"],
-                }
-            )
+
+        # Convert to uniform format
+        layer_list = []
         for layer in layers:
+            if isinstance(layer, FIFOLayer):
+                qty = layer.remaining_quantity
+                unit_cost = layer.unit_cost
+            else:
+                qty = layer.get("remaining_quantity", layer.get("quantity", 0))
+                unit_cost = layer["unit_cost"]
+            if qty > 0:
+                layer_list.append({"quantity": qty, "unit_cost": unit_cost})
+
+        for layer in layer_list:
             if remaining <= 0:
                 break
             if layer["quantity"] > 0:
@@ -307,20 +334,15 @@ class FIFOValuation(ValuationMethodStrategy):
                 total_cost += consume * layer["unit_cost"]
                 layer["quantity"] -= consume
                 remaining -= consume
-        if remaining > 0:
-            raise ValueError(f"Not enough inventory to cover {quantity}")
-        return total_cost.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    # ========================================================================
-    # Static helper methods (used by tests)
-    # ========================================================================
+        if remaining > 0:
+            raise ValueError(f"Not enough inventory to cover {quantity} units")
+
+        return total_cost.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     @staticmethod
     def consume(layers: list[FIFOLayer], quantity: Decimal) -> tuple[Decimal, list[FIFOLayer]]:
-        """
-        Consume inventory using FIFO.
-        Returns (total_cost_consumed, updated_layers).
-        """
+        """Consume inventory using FIFO. Returns (total_cost_consumed, updated_layers)."""
         if quantity < 0:
             raise ValueError("Quantity to consume cannot be negative")
         if quantity == 0:
@@ -334,7 +356,6 @@ class FIFOValuation(ValuationMethodStrategy):
 
         remaining_qty = quantity
         total_cost = Decimal(0)
-        # Work on a copy
         new_layers = [
             FIFOLayer(
                 id=l.id,
@@ -397,7 +418,7 @@ class FIFOValuation(ValuationMethodStrategy):
         return [l for l in layers if l.remaining_quantity > 0]
 
 
-class LIFOValuation(FIFOValuation):
+class LIFOValuation(ValuationMethodStrategy):
     """Last-In-First-Out valuation method."""
 
     def calculate_value(
@@ -405,7 +426,6 @@ class LIFOValuation(FIFOValuation):
         movements: list[Any],
         current_unit_cost: Decimal | None = None,
     ) -> ValuationResult:
-        # Similar to FIFO but process layers in reverse order
         layers = []
         remaining_quantity = Decimal(0)
         total_value = Decimal(0)
@@ -414,21 +434,18 @@ class LIFOValuation(FIFOValuation):
         inbound.sort(key=lambda m: m.movement_date)
 
         for movement in inbound:
-            layers.append(
-                {
-                    "quantity": movement.quantity,
-                    "unit_cost": movement.unit_cost,
-                    "total_value": movement.total_cost,
-                    "date": movement.movement_date,
-                }
-            )
+            layers.append({
+                "quantity": movement.quantity,
+                "unit_cost": movement.unit_cost,
+                "total_value": movement.total_cost,
+                "date": movement.movement_date,
+            })
             remaining_quantity += movement.quantity
             total_value += movement.total_cost
 
         outbound = [m for m in movements if getattr(m, "is_outbound", lambda: False)()]
         for outward in outbound:
             remaining = outward.quantity
-            # Process layers from newest to oldest
             for layer in reversed(layers):
                 if remaining <= 0:
                     break
@@ -460,12 +477,10 @@ class LIFOValuation(FIFOValuation):
         lifo_layers = []
 
         for movement in sorted(inward_movements, key=lambda m: m.movement_date):
-            lifo_layers.append(
-                {
-                    "quantity": movement.quantity,
-                    "unit_cost": movement.unit_cost,
-                }
-            )
+            lifo_layers.append({
+                "quantity": movement.quantity,
+                "unit_cost": movement.unit_cost,
+            })
 
         for outward in sorted(outward_movements, key=lambda m: m.movement_date):
             remaining = outward.quantity
@@ -479,6 +494,41 @@ class LIFOValuation(FIFOValuation):
                     remaining -= deduct
 
         return cogs.quantize(Decimal("0.01"))
+
+    def calculate_cost(self, layers: list[dict] | list[FIFOLayer], quantity: Decimal) -> Decimal:
+        """Calculate cost using LIFO (consume from newest layers first)."""
+        if quantity <= 0:
+            return Decimal(0)
+
+        remaining = quantity
+        total_cost = Decimal(0)
+
+        # Convert to uniform format
+        layer_list = []
+        for layer in layers:
+            if isinstance(layer, FIFOLayer):
+                qty = layer.remaining_quantity
+                unit_cost = layer.unit_cost
+            else:
+                qty = layer.get("remaining_quantity", layer.get("quantity", 0))
+                unit_cost = layer["unit_cost"]
+            if qty > 0:
+                layer_list.append({"quantity": qty, "unit_cost": unit_cost})
+
+        # Process from newest to oldest (reverse order)
+        for layer in reversed(layer_list):
+            if remaining <= 0:
+                break
+            if layer["quantity"] > 0:
+                consume = min(layer["quantity"], remaining)
+                total_cost += consume * layer["unit_cost"]
+                layer["quantity"] -= consume
+                remaining -= consume
+
+        if remaining > 0:
+            raise ValueError(f"Not enough inventory to cover {quantity} units")
+
+        return total_cost.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 class AverageValuation(ValuationMethodStrategy):
@@ -535,15 +585,38 @@ class AverageValuation(ValuationMethodStrategy):
 
         return cogs.quantize(Decimal("0.01"))
 
+    def calculate_cost(self, layers: list[dict] | list[FIFOLayer], quantity: Decimal) -> Decimal:
+        """Calculate cost using weighted average."""
+        if quantity <= 0:
+            return Decimal(0)
+
+        total_qty = Decimal(0)
+        total_value = Decimal(0)
+
+        for layer in layers:
+            if isinstance(layer, FIFOLayer):
+                qty = layer.remaining_quantity
+                unit_cost = layer.unit_cost
+            else:
+                qty = layer.get("remaining_quantity", layer.get("quantity", 0))
+                unit_cost = layer["unit_cost"]
+            total_qty += qty
+            total_value += qty * unit_cost
+
+        if total_qty <= 0:
+            raise ValueError("No inventory available")
+
+        avg_cost = total_value / total_qty
+        return (quantity * avg_cost).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
 
 class WeightedAverageValuation(AverageValuation):
     """Alias for AverageValuation."""
-
     pass
 
 
 class MovingAverageValuation(ValuationMethodStrategy):
-    """Moving Average valuation method (same as average for simplicity)."""
+    """Moving Average valuation method."""
 
     def calculate_value(
         self,
@@ -596,6 +669,30 @@ class MovingAverageValuation(ValuationMethodStrategy):
 
         return cogs.quantize(Decimal("0.01"))
 
+    def calculate_cost(self, layers: list[dict] | list[FIFOLayer], quantity: Decimal) -> Decimal:
+        """Calculate cost using moving average."""
+        if quantity <= 0:
+            return Decimal(0)
+
+        total_qty = Decimal(0)
+        total_value = Decimal(0)
+
+        for layer in layers:
+            if isinstance(layer, FIFOLayer):
+                qty = layer.remaining_quantity
+                unit_cost = layer.unit_cost
+            else:
+                qty = layer.get("remaining_quantity", layer.get("quantity", 0))
+                unit_cost = layer["unit_cost"]
+            total_qty += qty
+            total_value += qty * unit_cost
+
+        if total_qty <= 0:
+            raise ValueError("No inventory available")
+
+        avg_cost = total_value / total_qty
+        return (quantity * avg_cost).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
 
 class SpecificIdentificationValuation(ValuationMethodStrategy):
     """Specific identification valuation method (by batch)."""
@@ -646,14 +743,12 @@ class SpecificIdentificationValuation(ValuationMethodStrategy):
         inward_movements: list[Any],
     ) -> Decimal:
         cogs = Decimal(0)
-        # Build lookup for inbound by batch
         inbound_by_batch = {m.batch_number: m for m in inward_movements if m.batch_number}
         for outward in outward_movements:
             if outward.batch_number and outward.batch_number in inbound_by_batch:
                 inbound = inbound_by_batch[outward.batch_number]
                 cogs += outward.quantity * inbound.unit_cost
             else:
-                # Fallback to average
                 avg_cost = (
                     sum(m.unit_cost for m in inward_movements) / len(inward_movements)
                     if inward_movements
@@ -662,28 +757,61 @@ class SpecificIdentificationValuation(ValuationMethodStrategy):
                 cogs += outward.quantity * avg_cost
         return cogs.quantize(Decimal("0.01"))
 
+    def calculate_cost(self, layers: list[dict] | list[FIFOLayer], quantity: Decimal) -> Decimal:
+        """Calculate cost using specific identification (by batch)."""
+        if quantity <= 0:
+            return Decimal(0)
+
+        total_cost = Decimal(0)
+        remaining = quantity
+
+        for layer in layers:
+            if remaining <= 0:
+                break
+            if isinstance(layer, FIFOLayer):
+                qty = layer.remaining_quantity
+                unit_cost = layer.unit_cost
+            else:
+                qty = layer.get("remaining_quantity", layer.get("quantity", 0))
+                unit_cost = layer["unit_cost"]
+            if qty > 0:
+                consume = min(qty, remaining)
+                total_cost += consume * unit_cost
+                remaining -= consume
+
+        if remaining > 0:
+            raise ValueError(f"Not enough inventory to cover {quantity} units")
+
+        return total_cost.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
 
 class StandardCostValuation(ValuationMethodStrategy):
     """Standard cost valuation method."""
+
+    def __init__(self, standard_cost: Decimal | None = None):
+        self._standard_cost = standard_cost or Decimal(0)
 
     def calculate_value(
         self,
         movements: list[Any],
         current_unit_cost: Decimal | None = None,
     ) -> ValuationResult:
-        if current_unit_cost is None:
-            raise ValueError("Standard cost must be provided")
+        std_cost = current_unit_cost or self._standard_cost
+        if std_cost <= 0:
+            raise ValueError("Standard cost must be provided and greater than 0")
+
         total_quantity = Decimal(0)
         for movement in movements:
             if movement.is_inbound():
                 total_quantity += movement.quantity
             else:
                 total_quantity -= movement.quantity
-        total_value = total_quantity * current_unit_cost
+
+        total_value = total_quantity * std_cost
         return ValuationResult(
             total_quantity=total_quantity.quantize(Decimal("0.001")),
             total_value=total_value.quantize(Decimal("0.01")),
-            unit_cost=current_unit_cost.quantize(Decimal("0.01")),
+            unit_cost=std_cost.quantize(Decimal("0.01")),
             method=ValuationMethodType.STANDARD,
         )
 
@@ -693,15 +821,42 @@ class StandardCostValuation(ValuationMethodStrategy):
         inward_movements: list[Any],
     ) -> Decimal:
         # Standard cost COGS: sum of outward quantities * standard cost
-        # Standard cost would need to be passed; we'll assume it's available
-        # For simplicity, compute average of inbound costs as standard
-        if not inward_movements:
+        std_cost = self._standard_cost
+        if std_cost <= 0 and inward_movements:
+            total_cost = sum(m.total_cost for m in inward_movements)
+            total_qty = sum(m.quantity for m in inward_movements)
+            std_cost = total_cost / total_qty if total_qty > 0 else Decimal(0)
+
+        if std_cost <= 0:
             return Decimal(0)
-        total_cost = sum(m.total_cost for m in inward_movements)
-        total_qty = sum(m.quantity for m in inward_movements)
-        std_cost = total_cost / total_qty if total_qty > 0 else Decimal(0)
+
         cogs = sum(m.quantity for m in outward_movements) * std_cost
-        return cogs.quantize(Decimal("0.01"))
+        return cogs.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def calculate_cost(self, layers: list[dict] | list[FIFOLayer], quantity: Decimal) -> Decimal:
+        """Calculate cost using standard cost."""
+        if quantity <= 0:
+            return Decimal(0)
+        std_cost = self._standard_cost
+        if std_cost <= 0:
+            # Try to derive from layers
+            if layers:
+                total_qty = Decimal(0)
+                total_val = Decimal(0)
+                for layer in layers:
+                    if isinstance(layer, FIFOLayer):
+                        qty = layer.remaining_quantity
+                        unit_cost = layer.unit_cost
+                    else:
+                        qty = layer.get("remaining_quantity", layer.get("quantity", 0))
+                        unit_cost = layer["unit_cost"]
+                    total_qty += qty
+                    total_val += qty * unit_cost
+                if total_qty > 0:
+                    std_cost = total_val / total_qty
+            if std_cost <= 0:
+                raise ValueError("Standard cost not available")
+        return (quantity * std_cost).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 # ============================================================================
@@ -713,7 +868,7 @@ class ValuationMethodFactory:
     """Factory to get the appropriate valuation strategy."""
 
     @staticmethod
-    def get_method(method_type: ValuationMethodType) -> ValuationMethodStrategy:
+    def get_method(method_type: ValuationMethodType, standard_cost: Decimal | None = None) -> ValuationMethodStrategy:
         if method_type == ValuationMethodType.FIFO:
             return FIFOValuation()
         elif method_type == ValuationMethodType.LIFO:
@@ -725,14 +880,14 @@ class ValuationMethodFactory:
         elif method_type == ValuationMethodType.SPECIFIC_ID:
             return SpecificIdentificationValuation()
         elif method_type == ValuationMethodType.STANDARD:
-            return StandardCostValuation()
+            return StandardCostValuation(standard_cost)
         else:
             return FIFOValuation()
 
     @staticmethod
-    def get_method_by_name(name: str) -> ValuationMethodStrategy:
+    def get_method_by_name(name: str, standard_cost: Decimal | None = None) -> ValuationMethodStrategy:
         method_type = ValuationMethodType.from_string(name)
-        return ValuationMethodFactory.get_method(method_type)
+        return ValuationMethodFactory.get_method(method_type, standard_cost)
 
 
 # ============================================================================
@@ -776,7 +931,6 @@ class FifoValuation:
     def get_remaining(self):
         """Return remaining quantity and value after last consumption."""
         if not hasattr(self, "_layers"):
-            # No consumption yet, return total
             total_qty = sum(l["quantity"] for l in self._inbound)
             total_val = sum(l["quantity"] * l["unit_cost"] for l in self._inbound)
             return type("Remaining", (), {"quantity": total_qty, "value": total_val})()
@@ -790,7 +944,7 @@ class FifoValuation:
 
 
 # ============================================================================
-# 7. HELPER FUNCTION
+# 7. HELPER FUNCTIONS
 # ============================================================================
 
 

@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_consolidation_router.py
@@ -27,6 +26,8 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from decimal import Decimal
@@ -34,7 +35,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -45,6 +46,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -434,7 +481,7 @@ class NCIResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_consolidation_service(request: Request, ) -> Any:
+async def get_consolidation_service(request: Request) -> Any:
     """Get Consolidation Service instance."""
 
     from application.service_layer.service_consolidation import ConsolidationService
@@ -464,11 +511,19 @@ router = APIRouter(prefix="/consolidation", tags=["Consolidation"])
 )
 async def create_consolidation_group(
     request: ConsolidationGroupCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("consolidation:create")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_consolidation_service),
 ) -> ConsolidationGroupResponseSchema:
     """Create a new consolidation group."""
+    method_name = "create_consolidation_group"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ConsolidationGroupResponseSchema(**cached)
+
     try:
         result = await service.create_group(
             group_code=request.group_code,
@@ -480,7 +535,7 @@ async def create_consolidation_group(
             created_by=current_user.user_id,
         )
 
-        return ConsolidationGroupResponseSchema(
+        response = ConsolidationGroupResponseSchema(
             id=result.id,
             group_code=result.group_code,
             group_name=result.group_name,
@@ -497,11 +552,14 @@ async def create_consolidation_group(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk meruntuhkan deteksi f-string salah oleh AST Scanner.
-        # logger.exception menjamin keutuhan full stack trace tetap terekam sempurna untuk mempermudah debugging.
         logger.exception("Failed to create consolidation group: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -597,11 +655,19 @@ async def get_consolidation_group(
 async def update_consolidation_group(
     group_id: UUID,
     request: ConsolidationGroupUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("consolidation:update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_consolidation_service),
 ) -> ConsolidationGroupResponseSchema:
     """Update consolidation group information."""
+    method_name = "update_consolidation_group"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ConsolidationGroupResponseSchema(**cached)
+
     try:
         result = await service.update_group(
             group_id=group_id,
@@ -616,7 +682,7 @@ async def update_consolidation_group(
         if not result:
             raise HTTPException(status_code=404, detail="Consolidation group not found")
 
-        return ConsolidationGroupResponseSchema(
+        response = ConsolidationGroupResponseSchema(
             id=result.id,
             group_code=result.group_code,
             group_name=result.group_name,
@@ -633,11 +699,14 @@ async def update_consolidation_group(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk memutus pola deteksi f-string oleh AST Scanner.
-        # logger.exception menjamin keutuhan full stack trace tetap terekam sempurna demi kemudahan proses penelusuran eror.
         logger.exception("Failed to update consolidation group: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -776,11 +845,19 @@ async def update_group_member(
     member_id: UUID,
     ownership_percentage: Decimal = Body(..., ge=0, le=100, decimal_places=2),
     consolidation_method: ConsolidationMethod = Body(...),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("consolidation:update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_consolidation_service),
 ) -> ConsolidationMemberResponseSchema:
     """Update member ownership percentage or consolidation method."""
+    method_name = "update_group_member"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ConsolidationMemberResponseSchema(**cached)
+
     try:
         result = await service.update_member(
             member_id=member_id,
@@ -793,7 +870,7 @@ async def update_group_member(
         if not result:
             raise HTTPException(status_code=404, detail="Group member not found")
 
-        return ConsolidationMemberResponseSchema(
+        response = ConsolidationMemberResponseSchema(
             id=result.id,
             group_id=group_id,
             legal_entity_id=result.legal_entity_id,
@@ -808,11 +885,14 @@ async def update_group_member(
             created_by=result.created_by,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk memutus pola deteksi f-string oleh AST Scanner.
-        # logger.exception menjamin keutuhan full stack trace tetap terekam sempurna demi kemudahan proses debugging.
         logger.exception("Failed to update group member: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -865,11 +945,19 @@ async def remove_group_member(
 )
 async def create_intercompany_transaction(
     request: IntercompanyTransactionCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("consolidation:ic_transaction")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_consolidation_service),
 ) -> IntercompanyTransactionResponseSchema:
     """Record an intercompany transaction."""
+    method_name = "create_intercompany_transaction"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return IntercompanyTransactionResponseSchema(**cached)
+
     try:
         result = await service.create_intercompany_transaction(
             from_legal_entity_id=request.from_legal_entity_id,
@@ -886,7 +974,7 @@ async def create_intercompany_transaction(
             created_by=current_user.user_id,
         )
 
-        return IntercompanyTransactionResponseSchema(
+        response = IntercompanyTransactionResponseSchema(
             id=result.id,
             transaction_number=result.transaction_number,
             from_legal_entity_id=result.from_legal_entity_id,
@@ -910,11 +998,14 @@ async def create_intercompany_transaction(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk memutus pola deteksi f-string oleh AST Scanner.
-        # logger.exception menjamin keutuhan full stack trace tetap terekam sempurna demi kemudahan debugging.
         logger.exception("Failed to create intercompany transaction: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -1099,18 +1190,26 @@ async def generate_elimination_entries(
 )
 async def post_elimination_entry(
     elimination_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("consolidation:post")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_consolidation_service),
 ) -> EliminationEntryResponseSchema:
     """Post elimination entry to general ledger."""
+    method_name = "post_elimination_entry"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return EliminationEntryResponseSchema(**cached)
+
     try:
         result = await service.post_elimination_entry(elimination_id, current_user.user_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Elimination entry not found")
 
-        return EliminationEntryResponseSchema(
+        response = EliminationEntryResponseSchema(
             id=result.id,
             elimination_number=result.elimination_number,
             consolidation_group_id=result.consolidation_group_id,
@@ -1132,6 +1231,11 @@ async def post_elimination_entry(
             posted_by=result.posted_by,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

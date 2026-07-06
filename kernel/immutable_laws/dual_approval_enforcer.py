@@ -8,7 +8,7 @@ Responsibility: Hukum: transaksi di atas threshold harus dua persetujuan.
                minimal dua orang yang berwenang (dual control/approval).
 
 Dependencies:
-- standard library (logging, decimal, datetime, typing, hashlib)
+- standard library (logging, decimal, datetime, typing, hashlib, copy)
 - kernel.context_holder (get_current_user)
 - kernel.immutable_laws.law_violation_exceptions (ImmutableLawViolationError, DualApprovalViolation)
 
@@ -17,6 +17,7 @@ Audit: Setiap transaksi yang memerlukan dual approval dictat status approval-nya
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import logging
 import threading
@@ -35,21 +36,23 @@ from kernel.immutable_laws.law_violation_exceptions import (
 
 logger = logging.getLogger(__name__)
 
+VERSION = "1.0.0"  # version of this enforcer implementation
 
-# === 1. FALLBACK REPOSITORIES (internal) ===
+
+# === 1. FALLBACK REPOSITORIES (internal, synchronous) ===
 
 
 class _FallbackApprovalRepository:
-    """Fallback approval repository jika infrastructure belum tersedia."""
+    """Fallback approval repository (synchronous)."""
 
     def __init__(self):
         self._approvals: dict[UUID, list[dict[str, Any]]] = {}  # transaction_id -> approvals
 
-    async def get_by_transaction(self, transaction_id: UUID, legal_entity_id: UUID) -> list[Any]:
+    def get_by_transaction(self, transaction_id: UUID, legal_entity_id: UUID) -> list[Any]:
         approvals = self._approvals.get(transaction_id, [])
         return [_ApprovalProxy(a) for a in approvals]
 
-    async def get_by_transaction_and_approver(
+    def get_by_transaction_and_approver(
         self,
         transaction_id: UUID,
         approver_id: str,
@@ -61,7 +64,7 @@ class _FallbackApprovalRepository:
                 return _ApprovalProxy(a)
         return None
 
-    async def add_approval(
+    def add_approval(
         self,
         transaction_id: UUID,
         legal_entity_id: UUID,
@@ -101,12 +104,12 @@ class _ApprovalProxy:
 
 
 class _FallbackJournalRepository:
-    """Fallback journal repository jika infrastructure belum tersedia."""
+    """Fallback journal repository (synchronous)."""
 
     def __init__(self):
         self._journals: dict[UUID, dict[str, Any]] = {}
 
-    async def get_by_id(self, journal_id: UUID, legal_entity_id: UUID) -> dict[str, Any] | None:
+    def get_by_id(self, journal_id: UUID, legal_entity_id: UUID) -> dict[str, Any] | None:
         journal = self._journals.get(journal_id)
         if journal and journal.get("legal_entity_id") == legal_entity_id:
             return journal
@@ -176,7 +179,7 @@ class ApprovalRecord:
         }
 
 
-# === 3. DUAL APPROVAL ENFORCER ===
+# === 3. DUAL APPROVAL ENFORCER (synchronous) ===
 
 
 class DualApprovalEnforcer:
@@ -217,6 +220,7 @@ class DualApprovalEnforcer:
         self._max_history = 10000
         self._lock = threading.RLock()
         self._enabled = True
+        self._last_touched: datetime | None = None
 
     def enable(self, enabled: bool = True) -> None:
         self._enabled = enabled
@@ -226,25 +230,25 @@ class DualApprovalEnforcer:
         self._thresholds[transaction_type] = threshold
         logger.info(f"Dual approval threshold for {transaction_type} set to {threshold}")
 
-    async def requires_dual_approval(self, transaction_type: str, amount: Decimal) -> bool:
+    def requires_dual_approval(self, transaction_type: str, amount: Decimal) -> bool:
         if transaction_type in self.ALWAYS_REQUIRE_DUAL:
             return True
         threshold = self._thresholds.get(transaction_type, Decimal("1000000000"))
         return amount >= threshold
 
-    async def check_approval_status(
+    def check_approval_status(
         self,
         transaction_id: UUID,
         transaction_type: str,
         legal_entity_id: UUID,
     ) -> tuple[bool, int, list[str]]:
-        approvals = await self._approval_repo.get_by_transaction(transaction_id, legal_entity_id)
+        approvals = self._approval_repo.get_by_transaction(transaction_id, legal_entity_id)
         approved = [a for a in approvals if getattr(a, "status", "") == "APPROVED"]
         approvers = [getattr(a, "approver_id", "") for a in approved]
         is_approved = len(approvers) >= 2
         return is_approved, len(approvers), approvers
 
-    async def enforce_dual_approval(
+    def enforce_dual_approval(
         self,
         transaction_id: UUID,
         transaction_type: str,
@@ -259,11 +263,11 @@ class DualApprovalEnforcer:
         if user_id is None:
             user_id = get_current_user() or "unknown"
 
-        requires = await self.requires_dual_approval(transaction_type, amount)
+        requires = self.requires_dual_approval(transaction_type, amount)
         if not requires:
             return True, None
 
-        is_approved, approval_count, approvers = await self.check_approval_status(
+        is_approved, approval_count, approvers = self.check_approval_status(
             transaction_id, transaction_type, legal_entity_id
         )
 
@@ -293,7 +297,7 @@ class DualApprovalEnforcer:
 
         return True, None
 
-    async def add_approval(
+    def add_approval(
         self,
         transaction_id: UUID,
         legal_entity_id: UUID,
@@ -301,14 +305,14 @@ class DualApprovalEnforcer:
         approval_level: int = 1,
         notes: str | None = None,
     ) -> ApprovalRecord | None:
-        existing = await self._approval_repo.get_by_transaction_and_approver(
+        existing = self._approval_repo.get_by_transaction_and_approver(
             transaction_id, approver_id, legal_entity_id
         )
         if existing:
             logger.warning(f"Approver {approver_id} already approved transaction {transaction_id}")
             return None
 
-        success = await self._approval_repo.add_approval(
+        success = self._approval_repo.add_approval(
             transaction_id=transaction_id,
             legal_entity_id=legal_entity_id,
             approver_id=approver_id,
@@ -339,12 +343,12 @@ class DualApprovalEnforcer:
 
         return None
 
-    async def get_approval_status_summary(
+    def get_approval_status_summary(
         self,
         transaction_id: UUID,
         legal_entity_id: UUID,
     ) -> dict[str, Any]:
-        approvals = await self._approval_repo.get_by_transaction(transaction_id, legal_entity_id)
+        approvals = self._approval_repo.get_by_transaction(transaction_id, legal_entity_id)
         return {
             "transaction_id": str(transaction_id),
             "total_approvals": len(approvals),
@@ -419,6 +423,144 @@ class DualApprovalEnforcer:
             self._thresholds = self.DEFAULT_THRESHOLDS.copy()
             self._enabled = True
 
+    # ----------------------------------------------------------------------
+    # Required compliance methods (synchronous)
+    # ----------------------------------------------------------------------
+
+    def enforce(
+        self,
+        transaction_id: UUID,
+        transaction_type: str,
+        amount: Decimal,
+        legal_entity_id: UUID,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, DualApprovalViolation | None]:
+        """
+        Enforce dual approval for a transaction. Alias for enforce_dual_approval.
+        """
+        return self.enforce_dual_approval(
+            transaction_id, transaction_type, amount, legal_entity_id,
+            user_id, raise_on_violation
+        )
+
+    def check(
+        self,
+        transaction_id: UUID,
+        transaction_type: str,
+        amount: Decimal,
+        legal_entity_id: UUID,
+        user_id: str | None = None,
+    ) -> bool:
+        """
+        Check if the transaction complies with dual approval requirements.
+        Returns True if approved or not required, False otherwise.
+        """
+        ok, _ = self.enforce_dual_approval(
+            transaction_id, transaction_type, amount, legal_entity_id,
+            user_id, raise_on_violation=False
+        )
+        return ok
+
+    def validate(self) -> list[str]:
+        """
+        Validate the cryptographic integrity of all stored approval records.
+        Returns a list of error messages (empty if all valid).
+        """
+        errors = []
+        with self._lock:
+            for record in self._approval_history:
+                computed = record.compute_hash()
+                if record.cryptographic_hash != computed:
+                    errors.append(
+                        f"Hash mismatch for approval {record.approval_id} "
+                        f"(tx {record.transaction_id})"
+                    )
+        return errors
+
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Serialize the enforcer's configuration and basic state.
+        """
+        with self._lock:
+            return {
+                "version": VERSION,
+                "enabled": self._enabled,
+                "thresholds": {k: str(v) for k, v in self._thresholds.items()},
+                "max_history": self._max_history,
+                "total_approvals": len(self._approval_history),
+                "total_violations": len(self._violation_history),
+                "last_touched": self._last_touched.isoformat() if self._last_touched else None,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DualApprovalEnforcer:
+        """
+        Create an enforcer instance from a dictionary (restores configuration).
+        Note: History is not restored; only configuration.
+        """
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        if "thresholds" in data:
+            instance._thresholds = {
+                k: Decimal(v) for k, v in data["thresholds"].items()
+            }
+        if "max_history" in data:
+            instance._max_history = data["max_history"]
+        # last_touched is not restored; it is updated on usage.
+        return instance
+
+    def clone(self) -> DualApprovalEnforcer:
+        """
+        Create a shallow clone of this enforcer.
+        Repositories are not cloned; the new instance gets fresh fallback repos.
+        """
+        new_instance = DualApprovalEnforcer()
+        # Copy configuration
+        new_instance._enabled = self._enabled
+        new_instance._thresholds = self._thresholds.copy()
+        new_instance._max_history = self._max_history
+        # Do NOT copy history or violations to keep clones isolated.
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """
+        Capture a snapshot of the current state (same as to_dict for simplicity).
+        """
+        return self.to_dict()
+
+    def version(self) -> str:
+        """
+        Return the version of this enforcer implementation.
+        """
+        return VERSION
+
+    def audit_trail(self, limit: int = 100) -> dict[str, Any]:
+        """
+        Retrieve the audit trail: recent approvals and violations.
+        """
+        with self._lock:
+            approvals = self._approval_history[-limit:]
+            violations = self._violation_history[-limit:]
+        return {
+            "approvals": [a.to_dict() for a in approvals],
+            "violations": [
+                {
+                    "transaction_id": v.transaction_id,
+                    "amount": v.amount,
+                    "message": v.message,
+                    "severity": v.severity.value if hasattr(v, "severity") else None,
+                }
+                for v in violations
+            ],
+        }
+
+    def touch(self) -> None:
+        """
+        Mark the enforcer as used (update last_touched timestamp).
+        """
+        self._last_touched = datetime.now(UTC)
+
 
 # === 4. SINGLETON ACCESSOR ===
 
@@ -443,4 +585,5 @@ __all__ = [
     "ApprovalStatus",
     "DualApprovalEnforcer",
     "get_dual_approval_enforcer",
+    "VERSION",
 ]

@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_hedge_router.py
@@ -23,14 +22,16 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -42,6 +43,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: Dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> Optional[Dict[str, Any]]:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now(timezone.utc) - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: Dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now(timezone.utc))
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -516,12 +563,20 @@ router = APIRouter(prefix="/hedge", tags=["Hedge Accounting"])
 )
 async def create_derivative(
     request: DerivativeCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("hedge:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_hedge_service),
 ) -> DerivativeResponseSchema:
     """Create a new derivative instrument."""
+    method_name = "create_derivative"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return DerivativeResponseSchema(**cached)
+
     try:
         result = await service.create_derivative(
             instrument_code=request.instrument_code,
@@ -544,7 +599,7 @@ async def create_derivative(
             legal_entity_id=legal_entity_id,
         )
 
-        return DerivativeResponseSchema(
+        response = DerivativeResponseSchema(
             id=result.id,
             instrument_code=result.instrument_code,
             instrument_name=result.instrument_name,
@@ -574,6 +629,12 @@ async def create_derivative(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -707,12 +768,20 @@ async def get_derivative(
 async def update_derivative(
     derivative_id: UUID,
     request: DerivativeUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("hedge:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_hedge_service),
 ) -> DerivativeResponseSchema:
     """Update derivative instrument information."""
+    method_name = "update_derivative"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return DerivativeResponseSchema(**cached)
+
     try:
         result = await service.update_derivative(
             derivative_id=derivative_id,
@@ -729,7 +798,7 @@ async def update_derivative(
         if not result:
             raise HTTPException(status_code=404, detail="Derivative instrument not found")
 
-        return DerivativeResponseSchema(
+        response = DerivativeResponseSchema(
             id=result.id,
             instrument_code=result.instrument_code,
             instrument_name=result.instrument_name,
@@ -759,6 +828,12 @@ async def update_derivative(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -775,12 +850,20 @@ async def update_derivative(
 async def terminate_derivative(
     derivative_id: UUID,
     reason: str = Query("", description="Termination reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("hedge:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_hedge_service),
 ) -> dict[str, Any]:
     """Terminate a derivative instrument."""
+    method_name = "terminate_derivative"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.terminate_derivative(
             derivative_id=derivative_id,
@@ -792,12 +875,18 @@ async def terminate_derivative(
         if not result:
             raise HTTPException(status_code=404, detail="Derivative instrument not found")
 
-        return {
+        response = {
             "derivative_id": str(derivative_id),
             "instrument_code": result.instrument_code,
             "status": result.status,
             "message": "Derivative instrument terminated",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -819,12 +908,20 @@ async def terminate_derivative(
 )
 async def create_hedge_relationship(
     request: HedgeRelationshipCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("hedge:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_hedge_service),
 ) -> HedgeRelationshipResponseSchema:
     """Create a new hedge relationship."""
+    method_name = "create_hedge_relationship"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return HedgeRelationshipResponseSchema(**cached)
+
     try:
         result = await service.create_hedge_relationship(
             hedge_type=request.hedge_type.value,
@@ -850,7 +947,7 @@ async def create_hedge_relationship(
             legal_entity_id=legal_entity_id,
         )
 
-        return HedgeRelationshipResponseSchema(
+        response = HedgeRelationshipResponseSchema(
             id=result.id,
             hedge_type=HedgeType(result.hedge_type),
             hedge_ratio=result.hedge_ratio,
@@ -881,6 +978,12 @@ async def create_hedge_relationship(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1016,12 +1119,20 @@ async def get_hedge_relationship(
 async def update_hedge_relationship(
     relationship_id: UUID,
     request: HedgeRelationshipUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("hedge:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_hedge_service),
 ) -> HedgeRelationshipResponseSchema:
     """Update hedge relationship information."""
+    method_name = "update_hedge_relationship"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return HedgeRelationshipResponseSchema(**cached)
+
     try:
         result = await service.update_hedge_relationship(
             relationship_id=relationship_id,
@@ -1036,7 +1147,7 @@ async def update_hedge_relationship(
         if not result:
             raise HTTPException(status_code=404, detail="Hedge relationship not found")
 
-        return HedgeRelationshipResponseSchema(
+        response = HedgeRelationshipResponseSchema(
             id=result.id,
             hedge_type=HedgeType(result.hedge_type),
             hedge_ratio=result.hedge_ratio,
@@ -1067,6 +1178,12 @@ async def update_hedge_relationship(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1082,12 +1199,20 @@ async def update_hedge_relationship(
 )
 async def designate_hedge(
     relationship_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("hedge:designate")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_hedge_service),
 ) -> HedgeRelationshipResponseSchema:
     """Designate a hedge relationship (start hedge accounting)."""
+    method_name = "designate_hedge"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return HedgeRelationshipResponseSchema(**cached)
+
     try:
         result = await service.designate_hedge(
             relationship_id=relationship_id,
@@ -1100,7 +1225,7 @@ async def designate_hedge(
                 status_code=404, detail="Hedge relationship not found or cannot be designated"
             )
 
-        return HedgeRelationshipResponseSchema(
+        response = HedgeRelationshipResponseSchema(
             id=result.id,
             hedge_type=HedgeType(result.hedge_type),
             hedge_ratio=result.hedge_ratio,
@@ -1131,6 +1256,12 @@ async def designate_hedge(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1148,12 +1279,20 @@ async def discontinue_hedge(
     relationship_id: UUID,
     discontinue_date: date = Query(..., description="Date of discontinuation"),
     reason: str = Query(..., min_length=5, description="Reason for discontinuation"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("hedge:designate")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_hedge_service),
 ) -> HedgeRelationshipResponseSchema:
     """Discontinue a hedge relationship (stop hedge accounting)."""
+    method_name = "discontinue_hedge"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return HedgeRelationshipResponseSchema(**cached)
+
     try:
         result = await service.discontinue_hedge(
             relationship_id=relationship_id,
@@ -1168,7 +1307,7 @@ async def discontinue_hedge(
                 status_code=404, detail="Hedge relationship not found or cannot be discontinued"
             )
 
-        return HedgeRelationshipResponseSchema(
+        response = HedgeRelationshipResponseSchema(
             id=result.id,
             hedge_type=HedgeType(result.hedge_type),
             hedge_ratio=result.hedge_ratio,
@@ -1199,6 +1338,12 @@ async def discontinue_hedge(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1221,12 +1366,20 @@ async def discontinue_hedge(
 async def run_effectiveness_test(
     relationship_id: UUID,
     request: EffectivenessTestCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("hedge:test")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_hedge_service),
 ) -> EffectivenessTestResponseSchema:
     """Run hedge effectiveness test."""
+    method_name = "run_effectiveness_test"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return EffectivenessTestResponseSchema(**cached)
+
     try:
         result = await service.run_effectiveness_test(
             hedge_relationship_id=relationship_id,
@@ -1242,7 +1395,7 @@ async def run_effectiveness_test(
         if not result:
             raise HTTPException(status_code=404, detail="Hedge relationship not found")
 
-        return EffectivenessTestResponseSchema(
+        response = EffectivenessTestResponseSchema(
             test_id=result.test_id,
             hedge_relationship_id=relationship_id,
             test_date=request.test_date,
@@ -1260,6 +1413,12 @@ async def run_effectiveness_test(
             created_by=result.created_by,
             created_by_name=result.created_by_name,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1323,12 +1482,20 @@ async def list_effectiveness_tests(
 )
 async def record_fair_value(
     request: FairValueMeasurementSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("hedge:fair_value")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_hedge_service),
 ) -> FairValueMeasurementResponseSchema:
     """Record fair value measurement for an instrument."""
+    method_name = "record_fair_value"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return FairValueMeasurementResponseSchema(**cached)
+
     try:
         result = await service.record_fair_value_measurement(
             instrument_id=request.instrument_id,
@@ -1345,7 +1512,7 @@ async def record_fair_value(
             recorded_by=current_user.user_id,
         )
 
-        return FairValueMeasurementResponseSchema(
+        response = FairValueMeasurementResponseSchema(
             id=result.id,
             instrument_id=result.instrument_id,
             instrument_code=result.instrument_code,
@@ -1363,6 +1530,12 @@ async def record_fair_value(
             created_by=result.created_by,
             created_by_name=result.created_by_name,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1435,12 +1608,21 @@ async def get_fair_value_history(
 )
 async def recognize_ineffectiveness(
     request: HedgeIneffectivenessRecognitionSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("hedge:ineffectiveness")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_hedge_service),
 ) -> list[HedgeIneffectivenessResponseSchema]:
     """Recognize hedge ineffectiveness for the period."""
+    method_name = "recognize_ineffectiveness"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            # cached is list of dicts
+            return [HedgeIneffectivenessResponseSchema(**item) for item in cached]
+
     try:
         results = await service.recognize_ineffectiveness(
             legal_entity_id=legal_entity_id,
@@ -1450,7 +1632,7 @@ async def recognize_ineffectiveness(
             recognized_by=current_user.user_id,
         )
 
-        return [
+        response = [
             HedgeIneffectivenessResponseSchema(
                 recognition_id=r.id,
                 hedge_relationship_id=r.hedge_relationship_id,
@@ -1465,6 +1647,15 @@ async def recognize_ineffectiveness(
             )
             for r in results
         ]
+
+        if idempotency_key:
+            # Convert list to dict for caching (wrap in dict)
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"items": [r.model_dump() for r in response]}
+            )
+
+        return response
+
     except Exception as e:
         logger.exception("Failed to recognize ineffectiveness: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")

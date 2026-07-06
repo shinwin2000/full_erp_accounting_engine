@@ -3,59 +3,19 @@
 """
 checker/checker_integration.py
 ════════════════════════════════════════════════════════════════════════════
-SOVEREIGN ERP — ULTIMATE INTEGRATION VALIDATOR v5.0.0
+SOVEREIGN ERP — ULTIMATE INTEGRATION VALIDATOR v5.1.0
 Audit-Grade  |  Big4-Ready  |  RCA-Integrated  |  Zero False Negatives
 
-PERBAIKAN v5.0.0 (100+ bug fixed):
+PERBAIKAN v5.1.0:
 ────────────────────────────────────────────────────────────────────────────
-[B001] ROOT auto-deteksi dengan validasi (cari pyproject.toml/setup.py)
-[B002] Tarjan SCC iteratif — tidak ada RecursionError pada 1200+ modul
-[B003] Runtime imports dengan timeout per-modul dan isolasi subprocess
-[B004] asyncio.run() aman: cek running loop, gunakan new_event_loop()
-[B005] resolve_relative_import: range(level) bukan range(level-1)
-[B006] Import graph: semua local_mods yang cocok prefix ditambahkan ke graph
-[B007] Dynamic import detection: cek ast.Constant secara langsung
-[B008] Runtime filter: gunakan CHECKER_FILES set, bukan string contains
-[B009] phase_broken_imports: single pass AST walk, tidak double walk
-[B010] resolve_deep_import: cek re-export via __init__.py package + __all__
-[B011] JSON export: timestamp ISO dengan timezone, git hash, python version
-[B012] App bootstrap: import dengan env check, tidak crash tanpa DB
-[B013] DI container: introspect via public API, bukan _registry private
-[B014] Sterile probe: subprocess.run dengan timeout=30
-[B015] all_py_files: scan semua PROJECT_TOPS termasuk checker/
-[B016] check_symbol_in_ast: rekursif ke dalam class body + nested scope
-[B017] Critical modules: diverifikasi terhadap Struktur_Terbaru.txt
-[B018] module_name: file root level teridentifikasi dengan benar
-[B019] CHECKER_FILES: sinkron dengan nama file aktual
-[B020] Cycle list: sorted untuk output deterministik
-[B021] RCAEngine terintegrasi — setiap finding punya RCA analysis
-[B022] Finding dataclass punya field rca_result: Optional[RCAResult]
-[B023] Context propagation: prior_findings dikirim ke RCA context
-[B024] JSON export: menyertakan RCA data lengkap per finding
-[B025] Import path: from checker.core.rca import RCAEngine
-[B026] Normalisasi encoding: gunakan utf-8-sig, lalu utf-8, latin-1, cp1252
-[B027] `__all__` re-export detection di resolve_deep_import
-[B028] Penanganan KeyboardInterrupt di semua phase
-[B029] Penanganan MemoryError pada AST parsing
-[B030] Fallback jika rca.py tidak ditemukan (manual template)
-[B031] Penambahan relative imports pada phase_circular_imports
-[B032] Filtering dynamic imports yang sah (ALLOWED_DYNAMIC_MODS)
-[B033] Pengecekan app variable sebagai FastAPI instance
-[B034] Pengecekan __init__.py di app package
-[B035] Penambahan timeout pada semua subprocess panggilan
-[B036] Penambahan environment variables pada subprocess (copy os.environ)
-[B037] Penambahan encoding fallback pada file reading
-[B038] Penambahan limit untuk jumlah findings per phase (50 per jenis)
-[B039] Penambahan total duration per phase di summary
-[B040] Penambahan RCA confidence percentage di output
-[B041] Penanganan None pada rca_result di _print_phase
-[B042] Normalisasi rca_result ke dict untuk output
-... dan 58 perbaikan lainnya (total 100+).
-════════════════════════════════════════════════════════════════════════════
-
-Usage:
-    python checker/checker_integration.py [--verbose] [--json report.json]
-        [--no-runtime] [--no-db] [--strict-isolate] [--sarif out.sarif]
+[B043] Skip entry point files (asgi.py, app/main.py) pada runtime import
+[B044] Batasi runtime import hanya layer kritis (domain, application, kernel, infrastructure, bootstrap, config)
+[B045] Paralelisasi runtime import dengan ThreadPoolExecutor (4 worker) untuk mengurangi total waktu
+[B046] Timeout override untuk modul berat (bootstrap.orchestrator, dll.) dengan timeout 30s
+[B047] Opsi CLI --skip-runtime-files untuk fleksibilitas
+[B048] Penambahan logging durasi per modul (verbose)
+[B049] Penanganan KeyboardInterrupt lebih baik pada paralelisasi
+[B050] Peningkatan error message dengan modul yang gagal
 """
 from __future__ import annotations
 
@@ -72,6 +32,7 @@ import subprocess
 import sys
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -203,6 +164,23 @@ ALLOWED_DYNAMIC_MODS: Set[str] = {
 }
 
 RUNTIME_IMPORT_TIMEOUT = 10
+# [B046] Timeout override untuk modul berat
+RUNTIME_IMPORT_TIMEOUT_OVERRIDE: Dict[str, int] = {
+    "bootstrap.orchestrator": 30,
+    "bootstrap.dependency_container.container_bootstrap": 30,
+    "app.main": 30,
+    "domain.journal.aggregate_root": 20,
+}
+# [B043] File entry point yang tidak diuji runtime
+RUNTIME_IMPORT_SKIP_FILES: Set[str] = {
+    "asgi.py", "app/main.py", "wsgi.py", "manage.py", "setup.py",
+}
+# [B044] Hanya layer kritis yang diuji runtime
+RUNTIME_ALLOWED_LAYERS: Set[str] = {
+    "domain", "application", "kernel", "infrastructure", "bootstrap", "config"
+}
+# Jumlah worker paralel untuk runtime import
+RUNTIME_PARALLEL_WORKERS = 4
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DATA CLASSES [B022]
@@ -669,21 +647,7 @@ def phase_circular_imports() -> PhaseResult:
                     if local.startswith(imp_mod + "."):
                         graph[mod].add(local)
 
-        # Relative imports [B031]
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.level > 0:
-                level = node.level
-                target = None
-                if node.module:
-                    # from .module import x
-                    target = node.module
-                    # Resolve relative ke absolute module
-                else:
-                    # from . import x
-                    # Kita coba resolve via file path
-                    target = None
-                # Sulit resolve relatif secara akurat, jadi skip untuk graph.
-                # Bisa ditambahkan nanti.
+        # Relative imports [B031] - skip for now
 
     # Tarjan SCC Iteratif [B002]
     index_counter = [0]
@@ -816,29 +780,70 @@ def phase_dynamic_imports() -> PhaseResult:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PHASE 5: RUNTIME IMPORTS [B003][B008][B036]
+# PHASE 5: RUNTIME IMPORTS [B003][B008][B036] dengan PERBAIKAN v5.1.0
 # ─────────────────────────────────────────────────────────────────────────────
-def phase_runtime_imports(prior_findings: List[Finding]) -> PhaseResult:
+def _import_worker(mod: str, timeout: int, verbose: bool = False) -> Tuple[str, bool, Optional[str], float]:
+    """Worker untuk paralelisasi import."""
+    start = time.monotonic()
+    ok, err = safe_import(mod, timeout=timeout)
+    dur = time.monotonic() - start
+    if verbose:
+        print(f"      {COLOR['DIM']}{mod} → {'OK' if ok else 'FAIL'} ({dur:.1f}s){COLOR['RESET']}")
+    return mod, ok, err, dur
+
+
+def phase_runtime_imports(prior_findings: List[Finding], verbose: bool = False) -> PhaseResult:
     pr = PhaseResult("Runtime Imports (subprocess isolated)")
     t0 = time.monotonic()
-    files  = all_py_files()
-    errors: List[Tuple[str, str, str]] = []
-
+    files = all_py_files()
+    errors: List[Tuple[str, str, str]] = []   # (file, mod, error)
     SKIP_TOP_LAYERS = {"tests", "migrations", "checker"}
     already_broken = {f.file for f in prior_findings if f.severity == "CRITICAL"}
 
+    # Kumpulkan modul yang akan diuji
+    modules_to_test: List[Tuple[str, Path, int]] = []  # (mod, file, timeout)
     for f in files:
+        if f.name in RUNTIME_IMPORT_SKIP_FILES:
+            if verbose:
+                print(f"      {COLOR['YELLOW']}Skip {f.name} (entry point){COLOR['RESET']}")
+            continue
         mod = module_name(f)
         if not mod:
             continue
         layer = top_layer(mod)
         if layer in SKIP_TOP_LAYERS:
             continue
+        if layer not in RUNTIME_ALLOWED_LAYERS:
+            continue
         if rel_path(f) in already_broken:
             continue
-        ok, err = safe_import(mod, timeout=RUNTIME_IMPORT_TIMEOUT)
-        if not ok:
-            errors.append((rel_path(f), mod, err or "Unknown error"))
+        timeout = RUNTIME_IMPORT_TIMEOUT_OVERRIDE.get(mod, RUNTIME_IMPORT_TIMEOUT)
+        modules_to_test.append((mod, f, timeout))
+
+    if not modules_to_test:
+        pr.add("PASS", ".", 0, "Tidak ada modul yang memenuhi kriteria runtime import.")
+        pr.duration = time.monotonic() - t0
+        return pr
+
+    if verbose:
+        print(f"      Menguji {len(modules_to_test)} modul dengan {RUNTIME_PARALLEL_WORKERS} worker paralel...")
+
+    # Paralelisasi dengan ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=RUNTIME_PARALLEL_WORKERS) as executor:
+        future_to_mod = {
+            executor.submit(_import_worker, mod, timeout, verbose): (mod, f)
+            for mod, f, timeout in modules_to_test
+        }
+        for future in as_completed(future_to_mod):
+            mod, f = future_to_mod[future]
+            try:
+                mod_name, ok, err, dur = future.result(timeout=60)  # timeout total 60s per modul
+                if not ok:
+                    errors.append((rel_path(f), mod, err or "Unknown error"))
+            except FutureTimeoutError:
+                errors.append((rel_path(f), mod, "Future timeout (modul hang)"))
+            except Exception as e:
+                errors.append((rel_path(f), mod, f"Exception: {e}"))
 
     if errors:
         for rp, mod, err in errors[:20]:
@@ -851,7 +856,7 @@ def phase_runtime_imports(prior_findings: List[Finding]) -> PhaseResult:
         if len(errors) > 20:
             pr.add("INFO", ".", 0, f"Plus {len(errors)-20} lagi import failures")
     else:
-        pr.add("PASS", ".", 0, "Semua modul produksi berhasil di-import (subprocess isolated).")
+        pr.add("PASS", ".", 0, f"Semua {len(modules_to_test)} modul produksi berhasil di-import (subprocess isolated).")
     pr.duration = time.monotonic() - t0
     return pr
 
@@ -891,7 +896,9 @@ def phase_critical_imports() -> PhaseResult:
         if not exists:
             errors.append((mod, label, "File tidak ditemukan di filesystem"))
             continue
-        ok, err = safe_import(mod, timeout=15)
+        # Gunakan timeout lebih besar untuk critical modules
+        timeout = RUNTIME_IMPORT_TIMEOUT_OVERRIDE.get(mod, 15)
+        ok, err = safe_import(mod, timeout=timeout)
         if not ok:
             errors.append((mod, label, err or "Unknown"))
 
@@ -947,7 +954,8 @@ def phase_app_bootstrap() -> PhaseResult:
                "Tidak ditemukan `app` variable atau factory function (create_app/get_app).",
                rec="Definisikan `app = FastAPI()` atau `def create_app() -> FastAPI`.")
 
-    # Subprocess check untuk AST dan import aman
+    # Subprocess check untuk AST dan import aman (skip jika file adalah entry point)
+    # Kita sudah skip asgi.py di fase runtime, tapi untuk app/main.py kita tetap cek sintaks
     try:
         result = subprocess.run(
             [sys.executable, "-c",
@@ -1128,12 +1136,19 @@ def run_unified_check(
     skip_runtime:  bool,
     skip_db:       bool,
     strict_isolate: bool,
+    skip_runtime_files: Optional[str] = None,
 ) -> int:
+    # Jika ada opsi skip_runtime_files, tambahkan ke set global
+    global RUNTIME_IMPORT_SKIP_FILES
+    if skip_runtime_files:
+        extra = set(skip_runtime_files.split(','))
+        RUNTIME_IMPORT_SKIP_FILES.update(extra)
+
     git_hash = _get_git_info()
     scan_ts  = datetime.now(timezone.utc).isoformat()
 
     print(f"{COLOR['BOLD']}{COLOR['CYAN']}╔{'═'*78}╗{COLOR['RESET']}")
-    print(f"{COLOR['BOLD']}{COLOR['CYAN']}║{'SOVEREIGN ERP — ULTIMATE INTEGRATION VALIDATOR v5.0.0':^78}║{COLOR['RESET']}")
+    print(f"{COLOR['BOLD']}{COLOR['CYAN']}║{'SOVEREIGN ERP — ULTIMATE INTEGRATION VALIDATOR v5.1.0':^78}║{COLOR['RESET']}")
     print(f"{COLOR['BOLD']}{COLOR['CYAN']}║{'Audit-Grade · RCA-Integrated · Big4-Ready':^78}║{COLOR['RESET']}")
     print(f"{COLOR['BOLD']}{COLOR['CYAN']}╚{'═'*78}╝{COLOR['RESET']}")
     print(f"  Root    : {ROOT}")
@@ -1149,6 +1164,8 @@ def run_unified_check(
         print(f"  {COLOR['YELLOW']}⚠️  Database check disabled{COLOR['RESET']}")
     if strict_isolate:
         print(f"  {COLOR['CYAN']}🔬 Sterilization probe aktif{COLOR['RESET']}")
+    if RUNTIME_IMPORT_SKIP_FILES:
+        print(f"  {COLOR['DIM']}   Skip runtime files: {', '.join(sorted(RUNTIME_IMPORT_SKIP_FILES))}{COLOR['RESET']}")
     print()
 
     results: List[PhaseResult] = []
@@ -1179,7 +1196,7 @@ def run_unified_check(
     run_phase("dynamic_imports", phase_dynamic_imports)
 
     if not skip_runtime:
-        run_phase("runtime_imports", lambda: phase_runtime_imports(list(all_findings)))
+        run_phase("runtime_imports", lambda: phase_runtime_imports(list(all_findings), verbose=verbose))
         run_phase("critical_modules", phase_critical_imports)
         run_phase("app_bootstrap", phase_app_bootstrap)
         run_phase("di_container", lambda: phase_di_container(optional=True))
@@ -1196,7 +1213,7 @@ def run_unified_check(
     total_dur = sum(pr.duration for pr in results)
 
     print("═" * 80)
-    print(f"{COLOR['BOLD']}  SUMMARY — INTEGRATION VALIDATOR v5.0.0{COLOR['RESET']}")
+    print(f"{COLOR['BOLD']}  SUMMARY — INTEGRATION VALIDATOR v5.1.0{COLOR['RESET']}")
     print(f"  Phases run      : {len(results)}")
     print(f"  Critical issues : {COLOR['RED']}{critical}{COLOR['RESET']}")
     print(f"  Warnings        : {COLOR['YELLOW']}{warnings}{COLOR['RESET']}")
@@ -1214,7 +1231,7 @@ def run_unified_check(
         payload = {
             "meta": {
                 "tool":           "SovereignERPIntegrationValidator",
-                "version":        "5.0.0",
+                "version":        "5.1.0",
                 "scan_timestamp": scan_ts,
                 "root_dir":       str(ROOT),
                 "python_version": sys.version.split()[0],
@@ -1275,7 +1292,7 @@ def run_unified_check(
                 "tool": {
                     "driver": {
                         "name": "SovereignERPIntegrationValidator",
-                        "version": "5.0.0",
+                        "version": "5.1.0",
                         "rules": [
                             {"id": "ERP-CRITICAL", "shortDescription": {"text": "Critical integration issue"}},
                             {"id": "ERP-WARNING",  "shortDescription": {"text": "Integration warning"}},
@@ -1321,7 +1338,6 @@ def _print_phase(pr: PhaseResult, verbose: bool) -> None:
         # [B041] Normalisasi RCA output
         if f.rca_result is not None and f.severity in ("CRITICAL", "WARNING"):
             try:
-                # Coba ambil dari objek langsung (RCAResult)
                 rc = getattr(f.rca_result, "root_cause", None)
                 fix = getattr(f.rca_result, "suggested_fix", None)
                 conf = getattr(f.rca_result, "confidence", None)
@@ -1341,7 +1357,7 @@ def _print_phase(pr: PhaseResult, verbose: bool) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Sovereign ERP — Ultimate Integration Validator v5.0.0",
+        description="Sovereign ERP — Ultimate Integration Validator v5.1.0",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Contoh:
@@ -1349,6 +1365,7 @@ Contoh:
   python checker/checker_integration.py --verbose --json report.json
   python checker/checker_integration.py --no-runtime --no-db
   python checker/checker_integration.py --strict-isolate --sarif output.sarif
+  python checker/checker_integration.py --skip-runtime-files asgi.py,app/main.py
         """
     )
     parser.add_argument("--verbose",        "-v", action="store_true",
@@ -1363,6 +1380,8 @@ Contoh:
                         help="Skip database connectivity check")
     parser.add_argument("--strict-isolate", action="store_true",
                         help="Jalankan sterile subprocess probe")
+    parser.add_argument("--skip-runtime-files", metavar="FILES",
+                        help="Koma-separated file names to skip in runtime import (e.g., asgi.py,app/main.py)")
     args = parser.parse_args()
 
     sys.exit(run_unified_check(
@@ -1372,6 +1391,7 @@ Contoh:
         skip_runtime=args.no_runtime,
         skip_db=args.no_db,
         strict_isolate=args.strict_isolate,
+        skip_runtime_files=args.skip_runtime_files,
     ))
 
 

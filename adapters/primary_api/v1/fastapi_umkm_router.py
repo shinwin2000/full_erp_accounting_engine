@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_umkm_router.py
@@ -23,6 +22,8 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from decimal import Decimal
@@ -30,7 +31,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -42,6 +43,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -318,7 +365,7 @@ class TransactionSummarySchema(BaseModel):
 # ============================================================================
 
 
-async def get_umkm_service(request: Request, ) -> Any:
+async def get_umkm_service(request: Request) -> Any:
     """Get UMKM Simplified Service instance."""
 
     from application.service_layer.service_umkm import UMKMSimplifiedService
@@ -348,12 +395,20 @@ router = APIRouter(prefix="/umkm", tags=["UMKM Simplified"])
 )
 async def create_journal_entry(
     request: SimplifiedJournalEntrySchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("umkm:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_umkm_service),
 ) -> SimplifiedJournalResponseSchema:
     """Create a simplified journal entry for UMKM (one debit, one credit)."""
+    method_name = "create_umkm_journal"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SimplifiedJournalResponseSchema(**cached)
+
     try:
         result = await service.create_journal_entry(
             legal_entity_id=legal_entity_id,
@@ -372,7 +427,7 @@ async def create_journal_entry(
         debit_account = SIMPLIFIED_ACCOUNTS.get(request.debit_account_code, {})
         credit_account = SIMPLIFIED_ACCOUNTS.get(request.credit_account_code, {})
 
-        return SimplifiedJournalResponseSchema(
+        response = SimplifiedJournalResponseSchema(
             id=result.id,
             journal_number=result.journal_number,
             journal_date=result.journal_date,
@@ -394,6 +449,11 @@ async def create_journal_entry(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -525,12 +585,20 @@ async def get_journal_entry(
 async def update_journal_entry(
     journal_id: UUID,
     request: SimplifiedJournalEntrySchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("umkm:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_umkm_service),
 ) -> SimplifiedJournalResponseSchema:
     """Update a draft journal entry."""
+    method_name = "update_umkm_journal"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SimplifiedJournalResponseSchema(**cached)
+
     try:
         result = await service.update_journal_entry(
             journal_id=journal_id,
@@ -555,7 +623,7 @@ async def update_journal_entry(
         debit_account = SIMPLIFIED_ACCOUNTS.get(request.debit_account_code, {})
         credit_account = SIMPLIFIED_ACCOUNTS.get(request.credit_account_code, {})
 
-        return SimplifiedJournalResponseSchema(
+        response = SimplifiedJournalResponseSchema(
             id=result.id,
             journal_number=result.journal_number,
             journal_date=result.journal_date,
@@ -577,6 +645,11 @@ async def update_journal_entry(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -593,12 +666,20 @@ async def update_journal_entry(
 async def cancel_journal_entry(
     journal_id: UUID,
     reason: str = Query("", description="Cancellation reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("umkm:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_umkm_service),
 ) -> dict[str, Any]:
     """Cancel a draft journal entry."""
+    method_name = "cancel_umkm_journal"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.cancel_journal_entry(
             journal_id, current_user.user_id, legal_entity_id, reason
@@ -609,12 +690,17 @@ async def cancel_journal_entry(
                 status_code=404, detail="Journal entry not found or cannot be cancelled"
             )
 
-        return {
+        response = {
             "journal_id": str(journal_id),
             "journal_number": result.journal_number,
             "status": result.status,
             "message": "Journal entry cancelled",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -630,12 +716,20 @@ async def cancel_journal_entry(
 )
 async def post_journal_entry(
     journal_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("umkm:post")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_umkm_service),
 ) -> SimplifiedJournalResponseSchema:
     """Post a journal entry to the general ledger."""
+    method_name = "post_umkm_journal"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SimplifiedJournalResponseSchema(**cached)
+
     try:
         result = await service.post_journal_entry(journal_id, current_user.user_id, legal_entity_id)
 
@@ -644,7 +738,7 @@ async def post_journal_entry(
                 status_code=404, detail="Journal entry not found or cannot be posted"
             )
 
-        return SimplifiedJournalResponseSchema(
+        response = SimplifiedJournalResponseSchema(
             id=result.id,
             journal_number=result.journal_number,
             journal_date=result.journal_date,
@@ -670,6 +764,11 @@ async def post_journal_entry(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -686,12 +785,20 @@ async def post_journal_entry(
 async def reverse_journal_entry(
     journal_id: UUID,
     reason: str = Query(..., min_length=5, description="Reversal reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("umkm:post")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_umkm_service),
 ) -> SimplifiedJournalResponseSchema:
     """Reverse a posted journal entry (creates reversing entry)."""
+    method_name = "reverse_umkm_journal"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SimplifiedJournalResponseSchema(**cached)
+
     try:
         result = await service.reverse_journal_entry(
             journal_id=journal_id,
@@ -705,7 +812,7 @@ async def reverse_journal_entry(
                 status_code=404, detail="Journal entry not found or cannot be reversed"
             )
 
-        return SimplifiedJournalResponseSchema(
+        response = SimplifiedJournalResponseSchema(
             id=result.id,
             journal_number=result.journal_number,
             journal_date=result.journal_date,
@@ -731,6 +838,11 @@ async def reverse_journal_entry(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -964,12 +1076,20 @@ async def get_business_profile(
 )
 async def update_business_profile(
     request: BusinessProfileSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("umkm:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_umkm_service),
 ) -> BusinessProfileResponseSchema:
     """Update UMKM business profile."""
+    method_name = "update_umkm_profile"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BusinessProfileResponseSchema(**cached)
+
     try:
         result = await service.update_business_profile(
             legal_entity_id=legal_entity_id,
@@ -992,7 +1112,7 @@ async def update_business_profile(
         if not result:
             raise HTTPException(status_code=404, detail="Business profile not found")
 
-        return BusinessProfileResponseSchema(
+        response = BusinessProfileResponseSchema(
             id=result.id,
             legal_entity_id=result.legal_entity_id,
             business_name=result.business_name,
@@ -1012,6 +1132,11 @@ async def update_business_profile(
             updated_at=result.updated_at,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

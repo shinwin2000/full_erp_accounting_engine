@@ -2,12 +2,14 @@
 """
 Module: domain_events.py
 Layer: 6 - Domain / Journal
-Responsibility: Event: JournalPosted, JournalReversed, JournalVoided, dll.
+Responsibility: Domain events for Journal aggregate (Posted, Reversed, Voided, etc.)
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -18,7 +20,37 @@ from uuid import UUID, uuid4
 from domain.journal.journal_entity import JournalEntity
 
 
+# ============================================================================
+# CUSTOM EXCEPTIONS FOR EVENT PUBLISHING
+# ============================================================================
+
+
+class EventPublishError(Exception):
+    """Base exception for event publishing failures."""
+
+    pass
+
+
+class EventPublishTimeoutError(EventPublishError):
+    """Raised when event publishing times out after maximum retries."""
+
+    pass
+
+
+class EventPublishUnexpectedError(EventPublishError):
+    """Raised when an unexpected error occurs during event publishing."""
+
+    pass
+
+
+# ============================================================================
+# DOMAIN EVENT TYPE ENUM
+# ============================================================================
+
+
 class DomainEventType(Enum):
+    """Enumeration of all possible journal domain event types."""
+
     JOURNAL_CREATED = "journal_created"
     JOURNAL_UPDATED = "journal_updated"
     JOURNAL_SUBMITTED = "journal_submitted"
@@ -34,19 +66,39 @@ class DomainEventType(Enum):
 
     @classmethod
     def from_string(cls, value: str) -> DomainEventType:
+        """Convert a string to a DomainEventType enum member."""
+        normalized = value.lower()
         for member in cls:
-            if member.value == value.lower():
+            if member.value == normalized:
                 return member
         return cls.JOURNAL_CREATED
 
 
-@dataclass
+# ============================================================================
+# BASE DOMAIN EVENT
+# ============================================================================
+
+
+@dataclass(frozen=True)
 class DomainEvent:
-    # Non-default fields first (required)
+    """
+    Base class for all domain events.
+
+    Attributes:
+        event_type: Type of the domain event.
+        aggregate_id: UUID of the aggregate root.
+        aggregate_version: Version of the aggregate after applying this event.
+        event_id: Unique identifier for this event instance (auto-generated).
+        occurred_at: Timestamp when the event occurred (UTC).
+        event_data: Additional structured data for the event.
+        user_id: ID of the user who triggered the event (optional).
+        correlation_id: ID to correlate related events in a flow (optional).
+        causation_id: ID of the event that caused this one (optional).
+    """
+
     event_type: DomainEventType
     aggregate_id: UUID
     aggregate_version: int
-    # Default fields after
     event_id: UUID = field(default_factory=uuid4)
     occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     event_data: dict[str, Any] = field(default_factory=dict)
@@ -55,6 +107,12 @@ class DomainEvent:
     causation_id: str | None = None
 
     def to_json(self) -> str:
+        """
+        Serialize the event to a JSON string.
+
+        Returns:
+            JSON string representation of the event.
+        """
         return json.dumps(
             {
                 "event_id": str(self.event_id),
@@ -72,6 +130,15 @@ class DomainEvent:
 
     @classmethod
     def from_json(cls, json_str: str) -> DomainEvent:
+        """
+        Deserialize a JSON string back to a DomainEvent.
+
+        Args:
+            json_str: JSON string representation of the event.
+
+        Returns:
+            A DomainEvent instance.
+        """
         data = json.loads(json_str)
         return cls(
             event_id=UUID(data["event_id"]),
@@ -79,25 +146,43 @@ class DomainEvent:
             aggregate_id=UUID(data["aggregate_id"]),
             aggregate_version=data["aggregate_version"],
             occurred_at=datetime.fromisoformat(data["occurred_at"]),
-            event_data=data["event_data"],
+            event_data=data.get("event_data", {}),
             user_id=data.get("user_id"),
             correlation_id=data.get("correlation_id"),
             causation_id=data.get("causation_id"),
         )
 
     def serialize(self) -> bytes:
+        """
+        Serialize the event to bytes (UTF-8 encoded JSON).
+
+        Returns:
+            Bytes representation of the event.
+        """
         return self.to_json().encode("utf-8")
 
     @classmethod
     def deserialize(cls, data: bytes) -> DomainEvent:
+        """
+        Deserialize bytes back to a DomainEvent.
+
+        Args:
+            data: Bytes representation of the event.
+
+        Returns:
+            A DomainEvent instance.
+        """
         return cls.from_json(data.decode("utf-8"))
 
 
-# ==================== JOURNAL EVENTS ====================
+# ============================================================================
+# CONCRETE JOURNAL EVENTS
+# ============================================================================
 
 
-@dataclass
 class JournalCreatedEvent(DomainEvent):
+    """Event emitted when a new journal entry is created."""
+
     def __init__(
         self,
         aggregate_id: UUID,
@@ -107,7 +192,7 @@ class JournalCreatedEvent(DomainEvent):
         created_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
-    ):
+    ) -> None:
         event_data = {
             "journal_id": str(journal.journal_id),
             "journal_number": journal.journal_number,
@@ -130,8 +215,9 @@ class JournalCreatedEvent(DomainEvent):
         )
 
 
-@dataclass
 class JournalSubmittedEvent(DomainEvent):
+    """Event emitted when a journal entry is submitted for approval."""
+
     def __init__(
         self,
         aggregate_id: UUID,
@@ -140,7 +226,7 @@ class JournalSubmittedEvent(DomainEvent):
         submitted_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
-    ):
+    ) -> None:
         event_data = {
             "journal_id": str(journal.journal_id),
             "journal_number": journal.journal_number,
@@ -157,8 +243,9 @@ class JournalSubmittedEvent(DomainEvent):
         )
 
 
-@dataclass
 class JournalApprovedEvent(DomainEvent):
+    """Event emitted when a journal entry is approved."""
+
     def __init__(
         self,
         aggregate_id: UUID,
@@ -167,7 +254,7 @@ class JournalApprovedEvent(DomainEvent):
         approved_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
-    ):
+    ) -> None:
         event_data = {
             "journal_id": str(journal.journal_id),
             "journal_number": journal.journal_number,
@@ -184,8 +271,9 @@ class JournalApprovedEvent(DomainEvent):
         )
 
 
-@dataclass
 class JournalRejectedEvent(DomainEvent):
+    """Event emitted when a journal entry is rejected."""
+
     def __init__(
         self,
         aggregate_id: UUID,
@@ -195,7 +283,7 @@ class JournalRejectedEvent(DomainEvent):
         reason: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
-    ):
+    ) -> None:
         event_data = {
             "journal_id": str(journal.journal_id),
             "journal_number": journal.journal_number,
@@ -213,8 +301,14 @@ class JournalRejectedEvent(DomainEvent):
         )
 
 
-@dataclass
 class JournalPostedEvent(DomainEvent):
+    """
+    Event emitted when a journal entry is posted to the general ledger.
+
+    This event includes validation to ensure the journal is balanced
+    (total_debit == total_credit) before creation.
+    """
+
     def __init__(
         self,
         aggregate_id: UUID,
@@ -225,7 +319,17 @@ class JournalPostedEvent(DomainEvent):
         posted_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
-    ):
+    ) -> None:
+        # Domain validation: ensure double-entry balance is maintained
+        if total_debit != total_credit:
+            raise ValueError(
+                f"Unbalanced journal: total_debit {total_debit} != total_credit {total_credit}"
+            )
+        if total_debit < 0 or total_credit < 0:
+            raise ValueError(
+                f"Debit and credit must be non-negative: debit={total_debit}, credit={total_credit}"
+            )
+
         event_data = {
             "journal_id": str(journal.journal_id),
             "journal_number": journal.journal_number,
@@ -246,8 +350,9 @@ class JournalPostedEvent(DomainEvent):
         )
 
 
-@dataclass
 class JournalReversedEvent(DomainEvent):
+    """Event emitted when a journal entry is reversed."""
+
     def __init__(
         self,
         aggregate_id: UUID,
@@ -259,7 +364,7 @@ class JournalReversedEvent(DomainEvent):
         reason: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
-    ):
+    ) -> None:
         event_data = {
             "original_journal_id": str(original_journal_id),
             "reversal_journal_id": str(reversal_journal_id),
@@ -277,8 +382,9 @@ class JournalReversedEvent(DomainEvent):
         )
 
 
-@dataclass
 class JournalVoidedEvent(DomainEvent):
+    """Event emitted when a journal entry is voided."""
+
     def __init__(
         self,
         aggregate_id: UUID,
@@ -288,7 +394,7 @@ class JournalVoidedEvent(DomainEvent):
         reason: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
-    ):
+    ) -> None:
         event_data = {
             "journal_id": str(journal.journal_id),
             "journal_number": journal.journal_number,
@@ -306,8 +412,9 @@ class JournalVoidedEvent(DomainEvent):
         )
 
 
-@dataclass
 class JournalAdjustedEvent(DomainEvent):
+    """Event emitted when a journal entry is adjusted."""
+
     def __init__(
         self,
         aggregate_id: UUID,
@@ -317,7 +424,7 @@ class JournalAdjustedEvent(DomainEvent):
         adjustment_reason: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
-    ):
+    ) -> None:
         event_data = {
             "journal_id": str(journal.journal_id),
             "journal_number": journal.journal_number,
@@ -335,8 +442,9 @@ class JournalAdjustedEvent(DomainEvent):
         )
 
 
-@dataclass
 class JournalArchivedEvent(DomainEvent):
+    """Event emitted when a journal entry is archived."""
+
     def __init__(
         self,
         aggregate_id: UUID,
@@ -345,7 +453,7 @@ class JournalArchivedEvent(DomainEvent):
         archived_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
-    ):
+    ) -> None:
         event_data = {
             "journal_id": str(journal.journal_id),
             "journal_number": journal.journal_number,
@@ -362,8 +470,9 @@ class JournalArchivedEvent(DomainEvent):
         )
 
 
-@dataclass
 class JournalUnarchivedEvent(DomainEvent):
+    """Event emitted when a journal entry is unarchived."""
+
     def __init__(
         self,
         aggregate_id: UUID,
@@ -372,7 +481,7 @@ class JournalUnarchivedEvent(DomainEvent):
         unarchived_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
-    ):
+    ) -> None:
         event_data = {
             "journal_id": str(journal.journal_id),
             "journal_number": journal.journal_number,
@@ -389,8 +498,9 @@ class JournalUnarchivedEvent(DomainEvent):
         )
 
 
-@dataclass
 class JournalCancelledEvent(DomainEvent):
+    """Event emitted when a journal entry is cancelled."""
+
     def __init__(
         self,
         aggregate_id: UUID,
@@ -400,7 +510,7 @@ class JournalCancelledEvent(DomainEvent):
         reason: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
-    ):
+    ) -> None:
         event_data = {
             "journal_id": str(journal.journal_id),
             "journal_number": journal.journal_number,
@@ -418,7 +528,9 @@ class JournalCancelledEvent(DomainEvent):
         )
 
 
-# ==================== ALIASES ====================
+# ============================================================================
+# ALIASES FOR BACKWARDS COMPATIBILITY
+# ============================================================================
 
 JournalCreated = JournalCreatedEvent
 JournalSubmitted = JournalSubmittedEvent
@@ -433,55 +545,134 @@ JournalUnarchived = JournalUnarchivedEvent
 JournalCancelled = JournalCancelledEvent
 
 
-# ==================== PUBLISHER ====================
+# ============================================================================
+# DOMAIN EVENT PUBLISHER INTERFACE
+# ============================================================================
 
 
 class DomainEventPublisher:
+    """
+    Abstract interface for publishing domain events.
+
+    Implementations should handle delivery to message brokers, event stores,
+    or other event consumers.
+    """
+
     async def publish(self, event: DomainEvent) -> None:
-        raise NotImplementedError
+        """
+        Publish a single domain event.
+
+        Args:
+            event: The domain event to publish.
+
+        Raises:
+            EventPublishError: If publishing fails.
+        """
+        raise NotImplementedError("Subclasses must implement publish()")
 
     async def publish_many(self, events: list[DomainEvent]) -> None:
+        """
+        Publish multiple domain events sequentially.
+
+        Args:
+            events: List of domain events to publish.
+
+        Raises:
+            EventPublishError: If publishing fails for any event.
+        """
         for event in events:
             await self.publish(event)
 
-    async def publish_with_retry(self, event: DomainEvent, max_retries: int = 3) -> None:
-        import asyncio
+    async def publish_with_retry(
+        self,
+        event: DomainEvent,
+        max_retries: int = 3,
+    ) -> None:
+        """
+        Publish a domain event with exponential backoff retry logic.
 
-        last_error = None
+        Args:
+            event: The domain event to publish.
+            max_retries: Maximum number of retry attempts.
+
+        Raises:
+            EventPublishTimeoutError: If all retry attempts fail.
+            EventPublishUnexpectedError: If an unexpected error occurs.
+        """
+        last_error: Exception | None = None
+
         for attempt in range(max_retries):
             try:
                 await self.publish(event)
                 return
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError, asyncio.TimeoutError) as e:
+                # Retry-able network/timeout errors
                 last_error = e
-                await asyncio.sleep(0.1 * (2**attempt))
-        raise last_error
+                wait_time = 0.1 * (2**attempt)  # Exponential backoff: 0.1, 0.2, 0.4...
+                logging.warning(
+                    "Event publish attempt %d/%d failed: %s. Retrying in %.2fs",
+                    attempt + 1,
+                    max_retries,
+                    e,
+                    wait_time,
+                )
+                await asyncio.sleep(wait_time)
+            except EventPublishError as e:
+                # Custom publish errors: re-raise immediately, do not retry
+                # (retry logic should be handled by the caller if desired)
+                raise
+            except Exception as e:
+                # Unexpected error: log and re-raise as a specific exception
+                logging.error(
+                    "Unexpected error during event publish: %s",
+                    e,
+                    exc_info=True,
+                )
+                raise EventPublishUnexpectedError(
+                    f"Unexpected error publishing event {event.event_id}: {e}"
+                ) from e
 
+        # All retries exhausted
+        raise EventPublishTimeoutError(
+            f"Event publish failed after {max_retries} attempts"
+        ) from last_error
+
+
+# ============================================================================
+# MODULE EXPORTS
+# ============================================================================
 
 __all__ = [
+    # Base classes
     "DomainEvent",
     "DomainEventPublisher",
     "DomainEventType",
-    "JournalAdjusted",
-    "JournalAdjustedEvent",
-    "JournalApproved",
-    "JournalApprovedEvent",
-    "JournalArchived",
-    "JournalArchivedEvent",
-    "JournalCancelled",
-    "JournalCancelledEvent",
-    "JournalCreated",
+    # Exceptions
+    "EventPublishError",
+    "EventPublishTimeoutError",
+    "EventPublishUnexpectedError",
+    # Concrete events
     "JournalCreatedEvent",
-    "JournalPosted",
-    "JournalPostedEvent",
-    "JournalRejected",
-    "JournalRejectedEvent",
-    "JournalReversed",
-    "JournalReversedEvent",
-    "JournalSubmitted",
     "JournalSubmittedEvent",
-    "JournalUnarchived",
-    "JournalUnarchivedEvent",
-    "JournalVoided",
+    "JournalApprovedEvent",
+    "JournalRejectedEvent",
+    "JournalPostedEvent",
+    "JournalReversedEvent",
     "JournalVoidedEvent",
+    "JournalAdjustedEvent",
+    "JournalArchivedEvent",
+    "JournalUnarchivedEvent",
+    "JournalCancelledEvent",
+    # Aliases
+    "JournalCreated",
+    "JournalSubmitted",
+    "JournalApproved",
+    "JournalRejected",
+    "JournalPosted",
+    "JournalReversed",
+    "JournalVoided",
+    "JournalAdjusted",
+    "JournalArchived",
+    "JournalUnarchived",
+    "JournalCancelled",
 ]

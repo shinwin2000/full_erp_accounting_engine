@@ -21,6 +21,7 @@ import logging
 import random
 import threading
 import time
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum, auto
@@ -117,11 +118,79 @@ class LockInfo:
 
 
 # ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseDistributedLock(ABC):
+    """
+    Base contract for Distributed Lock.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    async def acquire(
+        self,
+        lock_key: str,
+        ttl_seconds: int = 30,
+        retry_count: int = 10,
+        retry_interval: float = 0.1,
+        auto_renew: bool = True,
+        blocking: bool = True,
+    ) -> bool:
+        """Acquire a distributed lock."""
+        pass
+
+    @abstractmethod
+    async def release(self, lock_key: str) -> bool:
+        """Release a distributed lock."""
+        pass
+
+    @abstractmethod
+    async def is_locked(self, lock_key: str) -> bool:
+        """Check if a lock is currently held."""
+        pass
+
+    @abstractmethod
+    async def get_lock_holder(self, lock_key: str) -> str | None:
+        """Get the holder of a lock."""
+        pass
+
+    @abstractmethod
+    async def is_held_by_current(self, lock_key: str) -> bool:
+        """Check if the current instance holds the lock."""
+        pass
+
+    @abstractmethod
+    async def force_release(self, lock_key: str) -> bool:
+        """Force release a lock (emergency)."""
+        pass
+
+    @abstractmethod
+    def get_held_locks(self) -> list[dict[str, Any]]:
+        """Get list of locks held by this instance."""
+        pass
+
+    @abstractmethod
+    async def get_lock_info(self, lock_key: str) -> dict[str, Any] | None:
+        """Get detailed info about a lock."""
+        pass
+
+    @abstractmethod
+    async def get_all_locks(self) -> list[dict[str, Any]]:
+        """Get all locks (across all instances)."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics about the lock manager."""
+        pass
+
+
+# ============================================================================
 # DISTRIBUTED LOCK
 # ============================================================================
 
 
-class DistributedLock:
+class DistributedLock(BaseDistributedLock):
     """
     Kunci terdistribusi menggunakan Redis (Redlock algorithm) – dengan fallback in-memory.
     """

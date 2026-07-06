@@ -17,8 +17,10 @@ Alert disederhanakan dengan logging.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 from redis.asyncio import ConnectionPool, Redis
@@ -48,6 +50,55 @@ CACHE_TTL_1_DAY = 86400
 CACHE_TTL_1_WEEK = 604800
 
 
+# ============================================================================
+# IDEMPOTENCY MANAGER (for delete operation)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk operasi Redis delete.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+_idempotency_manager = IdempotencyManager()
+
+
+# ============================================================================
+# EXCEPTIONS
+# ============================================================================
+
 class RedisManagerError(Exception):
     pass
 
@@ -59,6 +110,10 @@ class RedisConnectionError(RedisManagerError):
 class RedisOperationError(RedisManagerError):
     pass
 
+
+# ============================================================================
+# REDIS MANAGER
+# ============================================================================
 
 class RedisManager:
     _instance: RedisManager | None = None
@@ -181,7 +236,8 @@ class RedisManager:
             self._healthy = False
             return False
 
-    # --- Cache operations (sama seperti versi sebelumnya) ---
+    # --- Cache operations ---
+
     async def get(self, key: str) -> Any | None:
         client = await self.get_client()
         try:
@@ -210,10 +266,25 @@ class RedisManager:
             logger.error(f"Redis SET error for key {key}: {e}")
             raise RedisOperationError(f"SET failed: {e}") from e
 
-    async def delete(self, *keys: str) -> int:
+    async def delete(self, idempotency_key: str | None = None, *keys: str) -> int:
+        """
+        Delete one or more keys.
+
+        This method is idempotent: repeated calls with the same keys produce
+        the same result (number of deleted keys). If an idempotency_key is
+        provided, the result is cached to guarantee idempotent behavior.
+        """
+        if idempotency_key:
+            cached = _idempotency_manager.get_cached_result(idempotency_key, "delete")
+            if cached is not None:
+                return cached.get("result", 0)
+
         client = await self.get_client()
         try:
-            return await client.delete(*keys)
+            result = await client.delete(*keys)
+            if idempotency_key:
+                _idempotency_manager.cache_result(idempotency_key, "delete", {"result": result})
+            return result
         except RedisError as e:
             logger.error(f"Redis DELETE error: {e}")
             raise RedisOperationError(f"DELETE failed: {e}") from e

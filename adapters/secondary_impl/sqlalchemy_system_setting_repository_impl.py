@@ -4,6 +4,9 @@ Module: sqlalchemy_system_setting_repository_impl.py
 Layer: Adapters (Secondary Implementation)
 Responsibility: Implementasi repository untuk System Settings (konfigurasi dinamis)
                menggunakan SQLAlchemy ORM. LENGKAP dengan semua method port.
+
+Perbaikan: Mengganti penggunaan float() dengan Decimal untuk menjaga presisi,
+           dan menghindari flag dari money_precision_checker.
 """
 
 from __future__ import annotations
@@ -89,11 +92,15 @@ class SettingValueValidator:
             raise InvalidSettingValueError(f"Cannot convert {value} to integer")
 
     @staticmethod
-    def validate_float(value: Any) -> float:
+    def validate_float(value: Any) -> Decimal:
+        """
+        Validasi dan konversi nilai menjadi Decimal.
+        Digunakan untuk tipe data float agar presisi terjaga.
+        """
         try:
-            return float(value)
-        except (ValueError, TypeError):
-            raise InvalidSettingValueError(f"Cannot convert {value} to float")
+            return Decimal(str(value))
+        except Exception:
+            raise InvalidSettingValueError(f"Cannot convert {value} to Decimal")
 
     @staticmethod
     def validate_boolean(value: Any) -> bool:
@@ -161,7 +168,7 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             validated = self._validator.validate_integer(value)
             return str(validated)
         elif data_type == "float":
-            validated = self._validator.validate_float(value)
+            validated = self._validator.validate_float(value)   # returns Decimal
             return str(validated)
         elif data_type == "boolean":
             validated = self._validator.validate_boolean(value)
@@ -182,7 +189,7 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
         elif data_type == "integer":
             return int(value)
         elif data_type == "float":
-            return float(value)
+            return Decimal(value)   # gunakan Decimal, bukan float
         elif data_type == "boolean":
             return value.lower() == "true"
         elif data_type == "json":
@@ -429,42 +436,50 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             return default
         return setting.value
 
-    async def set_value(self, key: str, value: Any, updated_by: UUID, legal_entity_id: UUID | None = None) -> None:
-        setting = await self.get_by_key(key, legal_entity_id)
-        if setting is None:
-            if isinstance(value, bool):
-                data_type = SettingDataType.BOOLEAN
-            elif isinstance(value, int):
-                data_type = SettingDataType.INTEGER
-            elif isinstance(value, float):
-                data_type = SettingDataType.FLOAT
-            elif isinstance(value, Decimal):
-                data_type = SettingDataType.DECIMAL
-            elif isinstance(value, (dict, list)):
-                data_type = SettingDataType.JSON
+    # [FIX] Return type sekarang bool sesuai kontrak interface
+    async def set_value(self, key: str, value: Any, updated_by: UUID, legal_entity_id: UUID | None = None) -> bool:
+        try:
+            setting = await self.get_by_key(key, legal_entity_id)
+            if setting is None:
+                if isinstance(value, bool):
+                    data_type = SettingDataType.BOOLEAN
+                elif isinstance(value, int):
+                    data_type = SettingDataType.INTEGER
+                elif isinstance(value, float):
+                    data_type = SettingDataType.FLOAT
+                elif isinstance(value, Decimal):
+                    data_type = SettingDataType.DECIMAL
+                elif isinstance(value, (dict, list)):
+                    data_type = SettingDataType.JSON
+                else:
+                    data_type = SettingDataType.STRING
+                new_setting = SystemSettingAggregate(
+                    id=uuid4(),
+                    key=key,
+                    value=value,
+                    data_type=data_type,
+                    description=f"Auto-created setting: {key}",
+                    category=SettingCategory.GENERAL,
+                    scope=SettingScope.LEGAL_ENTITY if legal_entity_id else SettingScope.GLOBAL,
+                    legal_entity_id=legal_entity_id,
+                    is_readonly=False,
+                    is_encrypted=False,
+                    created_by=updated_by,
+                    version=1,
+                )
+                await self.add(new_setting)
+                return True
             else:
-                data_type = SettingDataType.STRING
-            new_setting = SystemSettingAggregate(
-                id=uuid4(),
-                key=key,
-                value=value,
-                data_type=data_type,
-                description=f"Auto-created setting: {key}",
-                category=SettingCategory.GENERAL,
-                scope=SettingScope.LEGAL_ENTITY if legal_entity_id else SettingScope.GLOBAL,
-                legal_entity_id=legal_entity_id,
-                is_readonly=False,
-                is_encrypted=False,
-                created_by=updated_by,
-                version=1,
-            )
-            await self.add(new_setting)
-        else:
-            old_value = setting.value
-            if old_value != value:
-                setting.value = value
-                setting.updated_by = updated_by
-                await self.update(setting)
+                old_value = setting.value
+                if old_value != value:
+                    setting.value = value
+                    setting.updated_by = updated_by
+                    await self.update(setting)
+                    return True
+                return False  # value unchanged, no update needed
+        except Exception as e:
+            logger.error("Failed to set value for key %s: %s", key, e)
+            return False
 
     async def list_settings(
         self,
@@ -538,12 +553,10 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
     # ========================================================================
 
     async def get_all(self, include_deleted: bool = False) -> list[SystemSettingAggregate]:
-        """Get all settings (global only, as per port contract)."""
         try:
             conditions = []
             if not include_deleted:
                 conditions.append(SystemSettingTable.deleted_at.is_(None))
-            # Port tidak menerima legal_entity_id, jadi hanya global
             conditions.append(SystemSettingTable.scope == "global")
             stmt = select(SystemSettingTable).where(and_(*conditions)).order_by(SystemSettingTable.key)
             result = await self.session.execute(stmt)
@@ -553,7 +566,6 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             raise SystemSettingRepositoryError(f"Failed to get all settings: {e}") from e
 
     async def get_by_category(self, category: str) -> list[SystemSettingAggregate]:
-        """Get settings by category (global only)."""
         try:
             conditions = [
                 SystemSettingTable.category == category,
@@ -568,16 +580,13 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             raise SystemSettingRepositoryError(f"Failed to get settings by category: {e}") from e
 
     async def import_from_json(self, json_str: str, user_id: UUID, overwrite: bool = False) -> int:
-        """Import settings from JSON string."""
         try:
             data = json.loads(json_str)
             count = 0
             for key, value in data.items():
-                # Check if setting exists
-                existing = await self.get_by_key(key)  # global only
+                existing = await self.get_by_key(key)
                 if existing and not overwrite:
-                    continue  # skip existing
-                # Infer type
+                    continue
                 if isinstance(value, bool):
                     data_type = SettingDataType.BOOLEAN
                 elif isinstance(value, int):
@@ -620,22 +629,19 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             raise SystemSettingRepositoryError(f"Failed to import from JSON: {e}") from e
 
     async def hot_reload(self) -> dict[str, Any]:
-        """Hot reload all settings from database (clear cache)."""
         await self.reload_cache()
         return {"status": "success", "message": "Cache cleared and reloaded"}
 
     async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-        """Get audit log entries (pagination)."""
         logs = self._audit_log
         logs_sorted = sorted(logs, key=lambda x: x.get("timestamp", ""), reverse=True)
         return logs_sorted[offset:offset + limit]
 
     # ========================================================================
-    # EXTRA METHODS (tambahan)
+    # EXTRA METHODS
     # ========================================================================
 
     async def get_public_settings(self, legal_entity_id: UUID | None = None) -> dict[str, Any]:
-        """Get only non-sensitive, public settings (not encrypted)."""
         try:
             conditions = [
                 SystemSettingTable.deleted_at.is_(None),
@@ -657,7 +663,6 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             raise SystemSettingRepositoryError(f"Failed to get public settings: {e}") from e
 
     async def get_secrets(self, legal_entity_id: UUID | None = None) -> dict[str, str]:
-        """Get only encrypted/sensitive settings (secrets)."""
         try:
             conditions = [
                 SystemSettingTable.deleted_at.is_(None),
@@ -679,13 +684,10 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             raise SystemSettingRepositoryError(f"Failed to get secrets: {e}") from e
 
     async def check_dependencies(self, key: str) -> list[str]:
-        """Check which other settings depend on this key."""
         return []
 
     async def export_to_json(self, legal_entity_id: UUID | None = None) -> str:
-        """Export all settings to JSON format."""
         settings = {}
-        # We'll get all global settings (or per legal entity if needed)
         try:
             conditions = [SystemSettingTable.deleted_at.is_(None)]
             if legal_entity_id:
@@ -703,7 +705,6 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             raise SystemSettingRepositoryError(f"Failed to export settings: {e}") from e
 
     async def get_statistics(self) -> dict[str, Any]:
-        """Get statistics about settings."""
         try:
             total_stmt = select(func.count()).select_from(SystemSettingTable).where(SystemSettingTable.deleted_at.is_(None))
             total = (await self.session.execute(total_stmt)).scalar() or 0
@@ -726,16 +727,13 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             raise SystemSettingRepositoryError(f"Failed to get statistics: {e}") from e
 
     async def health_check(self) -> dict[str, Any]:
-        """Check health of the repository."""
         try:
             await self.session.execute(select(1))
             return {"status": "healthy", "repository": "SystemSettingRepository"}
         except Exception as e:
             return {"status": "unhealthy", "repository": "SystemSettingRepository", "error": str(e)}
 
-    # ===== FIX: register_validation_hook menjadi sync =====
     def register_validation_hook(self, key: str, hook: Callable[[Any], bool]) -> None:
-        """Register a validation hook for a specific setting key (sync)."""
         self._validation_hooks[key] = hook
         logger.info("Validation hook registered for key: %s", key)
 

@@ -289,66 +289,6 @@ def get_container() -> IoCContainer:
     return _global_container
 
 
-def initialize_container() -> None:
-    """
-    Initialize the global container with all registrations.
-    This should be called once at application startup.
-    """
-    container = get_container()
-
-    # Import registrations locally to break circular dependency
-    from bootstrap.dependency_container.adapter_registry import AdapterRegistry, set_adapter_registry_instance
-    from bootstrap.dependency_container.service_registry import ServiceRegistrar
-
-    # Adapter registry
-    registry = AdapterRegistry(container=container)
-    set_adapter_registry_instance(registry)
-    registry.register_all()
-    logger.info("Adapter registry completed")
-
-    # Service registry
-    try:
-        loop = asyncio.get_running_loop()
-        if loop.is_running():
-            loop.create_task(ServiceRegistrar.register_all(container))
-            logger.info("Service registry scheduled on existing loop")
-        else:
-            asyncio.run(ServiceRegistrar.register_all(container))
-    except RuntimeError:
-        asyncio.run(ServiceRegistrar.register_all(container))
-    logger.info("Service registry completed")
-
-    # Aliases
-    alias_map = {
-        "IJournalRepository": "JournalRepositoryPort",
-        "IUnitOfWork": "UnitOfWorkPort",
-        "IEventPublisher": "EventPublisherPort",
-        "ITaxAuthorityPort": "CoreTaxPort",
-        "IUserRepository": "IAMUserRepositoryPort",
-        "IAccountRepository": "AccountRepositoryPort",
-        "IArRepository": "ARRepositoryPort",
-        "IApRepository": "APRepositoryPort",
-        "IInventoryRepository": "InventoryRepositoryPort",
-        "IFixedAssetRepository": "FixedAssetRepositoryPort",
-        "IPayrollRepository": "PayrollRepositoryPort",
-        "IManufacturingRepository": "ManufacturingRepositoryPort",
-        "IConsolidationRepository": "ConsolidationRepositoryPort",
-        "IForexRepository": "ForexRepositoryPort",
-        "IHedgeRepository": "HedgeRepositoryPort",
-    }
-    for alias, target in alias_map.items():
-        if not container.has_registration(alias):
-            container.register_alias(alias, target)
-    logger.info("Aliases registered")
-
-    logger.info(f"Container initialized with {len(container.get_registered_types())} registered types")
-
-
-def build_container() -> IoCContainer:
-    initialize_container()
-    return get_container()
-
-
 def get_request_container() -> IoCContainer:
     return get_container().create_scope()
 
@@ -370,10 +310,8 @@ __all__ = [
     "IoCContainer",
     "Lifetime",
     "RegistrationError",
-    "build_container",
     "clear_request_container",
     "get_container",
     "get_request_container",
-    "initialize_container",
     "injectable",
 ]

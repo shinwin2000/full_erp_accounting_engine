@@ -22,6 +22,7 @@ import hashlib
 import json
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -360,10 +361,209 @@ DEFAULT_SOD_RULES: list[SODRule] = [
 ]
 
 
-# === 4. SEGREGATION OF DUTIES ENFORCER ===
+# ============================================================================
+# BASE SEGREGATION OF DUTIES ENFORCER (ABSTRACT)
+# ============================================================================
+
+class BaseSegregationOfDutiesEnforcer(ABC):
+    """Base contract untuk Segregation of Duties Enforcer."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan enforcer."""
+        pass
+
+    @abstractmethod
+    def set_strict_mode(self, strict: bool = True) -> None:
+        """Set strict mode."""
+        pass
+
+    @abstractmethod
+    def register_rule(self, rule: SODRule) -> None:
+        """Register a new SOD rule."""
+        pass
+
+    @abstractmethod
+    def get_rule(self, rule_id: str) -> SODRule | None:
+        """Get rule by ID."""
+        pass
+
+    @abstractmethod
+    def get_all_rules(self, active_only: bool = True) -> list[SODRule]:
+        """Get all rules."""
+        pass
+
+    @abstractmethod
+    def update_rule_status(self, rule_id: str, is_active: bool, updated_by: str) -> bool:
+        """Update rule active status."""
+        pass
+
+    @abstractmethod
+    async def check_maker_checker(
+        self,
+        creator_user_id: str,
+        approver_user_id: str,
+        transaction_type: str,
+        transaction_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+    ) -> tuple[bool, SODViolationRecord | None]:
+        """Check maker-checker rule."""
+        pass
+
+    @abstractmethod
+    async def check_conflicting_roles(
+        self,
+        user_id: str,
+        roles: list[str],
+        transaction_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+    ) -> tuple[bool, list[SODViolationRecord]]:
+        """Check conflicting roles."""
+        pass
+
+    @abstractmethod
+    async def check_transaction_approval_limit(
+        self,
+        amount: Decimal,
+        user_roles: list[str],
+        transaction_type: str,
+        transaction_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+    ) -> tuple[bool, SODViolationRecord | None, list[str]]:
+        """Check transaction approval limit."""
+        pass
+
+    @abstractmethod
+    async def check_dual_control(
+        self,
+        transaction_type: str,
+        approvers: list[str],
+        transaction_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+    ) -> tuple[bool, SODViolationRecord | None]:
+        """Check dual control."""
+        pass
+
+    @abstractmethod
+    async def check_role_assignment(
+        self,
+        user_id: str,
+        new_roles: list[str],
+        legal_entity_id: UUID,
+    ) -> tuple[bool, list[str]]:
+        """Check role assignment conflicts."""
+        pass
+
+    @abstractmethod
+    async def enforce(
+        self,
+        transaction_type: str,
+        amount: Decimal | None = None,
+        creator_user_id: str | None = None,
+        approver_user_id: str | None = None,
+        approvers: list[str] | None = None,
+        user_roles: list[str] | None = None,
+        transaction_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, list[SODViolationRecord]]:
+        """Enforce all SOD rules."""
+        pass
+
+    @abstractmethod
+    async def get_sod_status(
+        self,
+        user_id: str,
+        legal_entity_id: UUID,
+    ) -> dict[str, Any]:
+        """Get SOD status for a user."""
+        pass
+
+    @abstractmethod
+    def get_violations(
+        self,
+        limit: int = 100,
+        user_id: str | None = None,
+        rule_id: str | None = None,
+        unresolved_only: bool = False,
+    ) -> list[SODViolationRecord]:
+        """Get violation history."""
+        pass
+
+    @abstractmethod
+    def resolve_violation(
+        self,
+        violation_id: UUID,
+        resolved_by: str,
+        resolution_action: str,
+    ) -> SODViolationRecord | None:
+        """Resolve a violation."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset state."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseSegregationOfDutiesEnforcer:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseSegregationOfDutiesEnforcer:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseSegregationOfDutiesEnforcer:
+        """Touch instance (increment version)."""
+        pass
 
 
-class SegregationOfDutiesEnforcer:
+# ============================================================================
+# SEGREGATION OF DUTIES ENFORCER (CONCRETE)
+# ============================================================================
+
+class SegregationOfDutiesEnforcer(BaseSegregationOfDutiesEnforcer):
     """
     Enforcer untuk hukum pemisahan tugas (SoD).
 
@@ -396,18 +596,133 @@ class SegregationOfDutiesEnforcer:
         self._lock = threading.RLock()
         self._enabled = True
         self._strict_mode = True
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        transaction_type = context.get("transaction_type")
+        creator_user_id = context.get("creator_user_id")
+        approver_user_id = context.get("approver_user_id")
+        amount = context.get("amount")
+
+        if not transaction_type:
+            errors.append("transaction_type is required")
+        if not creator_user_id:
+            errors.append("creator_user_id is required")
+        if not approver_user_id:
+            errors.append("approver_user_id is required")
+        if amount is not None:
+            try:
+                Decimal(str(amount))
+            except Exception:
+                errors.append("amount must be a valid number")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        if not self._rules:
+            errors.append("No rules registered")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "rules_count": len(self._rules),
+                "active_rules": len([r for r in self._rules.values() if r.is_active]),
+                "violations_count": len(self._violations),
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SegregationOfDutiesEnforcer:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._strict_mode = data.get("strict_mode", True)
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> SegregationOfDutiesEnforcer:
+        """Clone instance."""
+        new_instance = SegregationOfDutiesEnforcer()
+        new_instance._enabled = self._enabled
+        new_instance._strict_mode = self._strict_mode
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "violations_count": len(self._violations),
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> SegregationOfDutiesEnforcer:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Segregation of duties enforcer enabled: {enabled}")
 
     def set_strict_mode(self, strict: bool = True) -> None:
         self._strict_mode = strict
+        self._record_audit("SET_STRICT_MODE", "system", {"strict": strict})
         logger.info(f"Segregation of duties enforcer strict mode: {strict}")
 
     def register_rule(self, rule: SODRule) -> None:
         with self._lock:
             self._rules[rule.rule_id] = rule
+        self._record_audit("REGISTER_RULE", "system", {"rule_id": rule.rule_id})
         logger.info(f"Registered SOD rule: {rule.rule_id}")
 
     def get_rule(self, rule_id: str) -> SODRule | None:
@@ -437,6 +752,10 @@ class SegregationOfDutiesEnforcer:
                 )
                 new_rule.cryptographic_hash = new_rule.compute_hash()
                 self._rules[rule_id] = new_rule
+                self._record_audit("UPDATE_RULE", updated_by, {
+                    "rule_id": rule_id,
+                    "is_active": is_active,
+                })
                 logger.info(f"SOD rule {rule_id} active status set to {is_active} by {updated_by}")
                 return True
         return False
@@ -648,6 +967,10 @@ class SegregationOfDutiesEnforcer:
             self._violations.append(violation)
             if len(self._violations) > self._max_history:
                 self._violations = self._violations[-self._max_history :]
+            self._record_audit("VIOLATION", violation.user_id, {
+                "rule_id": violation.rule_id,
+                "severity": violation.severity.name,
+            })
 
     async def enforce(
         self,
@@ -782,6 +1105,10 @@ class SegregationOfDutiesEnforcer:
                 if v.violation_id == violation_id and not v.is_resolved:
                     resolved = v.resolve(resolved_by, resolution_action)
                     self._violations[i] = resolved
+                    self._record_audit("RESOLVE_VIOLATION", resolved_by, {
+                        "violation_id": str(violation_id),
+                        "action": resolution_action,
+                    })
                     logger.info(f"SOD violation {violation_id} resolved by {resolved_by}")
                     return resolved
         return None
@@ -794,6 +1121,7 @@ class SegregationOfDutiesEnforcer:
                     "total_violations": 0,
                     "enabled": self._enabled,
                     "strict_mode": self._strict_mode,
+                    "version": self._version,
                 }
 
             by_rule_type = {}
@@ -819,6 +1147,7 @@ class SegregationOfDutiesEnforcer:
                 "active_rules": len([r for r in self._rules.values() if r.is_active]),
                 "enabled": self._enabled,
                 "strict_mode": self._strict_mode,
+                "version": self._version,
                 "latest_violation": self._violations[-1].detected_at.isoformat()
                 if self._violations
                 else None,
@@ -830,6 +1159,8 @@ class SegregationOfDutiesEnforcer:
             self._rules = {r.rule_id: r for r in DEFAULT_SOD_RULES}
             self._enabled = True
             self._strict_mode = True
+            self._version += 1
+            self._audit_trail = []
             if hasattr(self._user_repo, "clear"):
                 self._user_repo.clear()
             if hasattr(self._approval_repo, "clear"):

@@ -9,6 +9,8 @@ Responsibility: Menyediakan REST API endpoint untuk mengelola Employee (karyawan
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from decimal import Decimal
@@ -16,7 +18,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -39,6 +41,52 @@ from application.service_layer.service_employee import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 router = APIRouter()
 
@@ -203,12 +251,22 @@ def to_employee_response(employee: Employee) -> EmployeeResponseModel:
 async def create_employee(
     request: Request,
     payload: CreateEmployeeRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
     """
     Create a new employee.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "create_employee"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return EmployeeResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.create_employee(
@@ -229,7 +287,12 @@ async def create_employee(
             created_by=user.user_id,
             correlation_id=correlation_id,
         )
-        return to_employee_response(result)
+        response = to_employee_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except EmployeeServiceError as e:
         logger.warning(f"Employee service error: {e}")
         raise HTTPException(
@@ -316,12 +379,22 @@ async def update_employee(
     request: Request,
     employee_id: UUID,
     payload: UpdateEmployeeRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
     """
     Update employee details (name, NIK, NPWP, marital status, dependents, etc.).
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "update_employee"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return EmployeeResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         # Convert marital_status to string if provided
@@ -342,7 +415,12 @@ async def update_employee(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Employee not found",
             )
-        return to_employee_response(result)
+        response = to_employee_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except EmployeeNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -375,12 +453,22 @@ async def update_salary_structure(
     request: Request,
     employee_id: UUID,
     payload: UpdateSalaryStructureRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
     """
     Update employee salary structure (basic salary, allowances, overtime rate).
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "update_salary_structure"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return EmployeeResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.update_salary_structure(
@@ -398,7 +486,12 @@ async def update_salary_structure(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Employee not found",
             )
-        return to_employee_response(result)
+        response = to_employee_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except EmployeeNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -425,12 +518,22 @@ async def update_bpjs(
     request: Request,
     employee_id: UUID,
     payload: UpdateBPJSRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
     """
     Update BPJS (health and employment insurance) data for employee.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "update_bpjs"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return EmployeeResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.update_bpjs(
@@ -447,7 +550,12 @@ async def update_bpjs(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Employee not found",
             )
-        return to_employee_response(result)
+        response = to_employee_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except EmployeeNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -474,12 +582,22 @@ async def update_ptkp(
     request: Request,
     employee_id: UUID,
     payload: UpdatePTKPRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
     """
     Update PTKP (marital status and number of dependents) for tax calculation.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "update_ptkp"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return EmployeeResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.update_ptkp(
@@ -494,7 +612,12 @@ async def update_ptkp(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Employee not found",
             )
-        return to_employee_response(result)
+        response = to_employee_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except EmployeeNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -521,12 +644,22 @@ async def resign_employee(
     request: Request,
     employee_id: UUID,
     payload: ResignEmployeeRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: EmployeeService = Depends(get_service(EmployeeService)),
 ) -> EmployeeResponseModel:
     """
     Process employee resignation.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "resign_employee"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return EmployeeResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.resign_employee(
@@ -541,7 +674,12 @@ async def resign_employee(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Employee not found",
             )
-        return to_employee_response(result)
+        response = to_employee_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except EmployeeNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

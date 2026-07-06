@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -308,10 +309,147 @@ class PeriodLockCheckResult:
         }
 
 
-# === 5. PERIOD LOCK GUARD ===
+# ============================================================================
+# BASE PERIOD LOCK GUARD (ABSTRACT)
+# ============================================================================
+
+class BasePeriodLockGuard(ABC):
+    """Base contract untuk Period Lock Guard."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan guard."""
+        pass
+
+    @abstractmethod
+    def set_allow_future_posting(self, allow: bool, max_days: int = 7) -> None:
+        """Set apakah future posting diizinkan dan batas maksimal hari."""
+        pass
+
+    @abstractmethod
+    def set_max_backdate_days(self, max_days: int) -> None:
+        """Set batas maksimal backdate dalam hari."""
+        pass
+
+    @abstractmethod
+    async def get_period(self, period_id: UUID, legal_entity_id: UUID) -> FiscalPeriod | None:
+        """Mendapatkan periode berdasarkan ID."""
+        pass
+
+    @abstractmethod
+    async def get_current_period(
+        self, legal_entity_id: UUID | None = None, date: datetime | None = None
+    ) -> FiscalPeriod | None:
+        """Mendapatkan periode yang saat ini aktif untuk tanggal tertentu."""
+        pass
+
+    @abstractmethod
+    async def check_period_open(
+        self,
+        period_id: UUID,
+        legal_entity_id: UUID | None = None,
+        allow_locked: bool = False,
+        require_approval: bool = False,
+        approved_by: list[str] | None = None,
+        transaction_date: datetime | None = None,
+        is_adjustment: bool = False,
+    ) -> PeriodLockCheckResult:
+        """Memeriksa apakah periode terbuka untuk posting."""
+        pass
+
+    @abstractmethod
+    async def enforce(
+        self,
+        period_id: UUID,
+        legal_entity_id: UUID | None = None,
+        allow_locked: bool = False,
+        require_approval: bool = False,
+        approved_by: list[str] | None = None,
+        transaction_date: datetime | None = None,
+        user_id: str | None = None,
+        is_adjustment: bool = False,
+        raise_on_violation: bool = True,
+    ) -> PeriodLockCheckResult:
+        """Menegakkan period lock, raise exception jika tidak diizinkan."""
+        pass
+
+    @abstractmethod
+    def get_check_history(
+        self,
+        limit: int = 100,
+        only_violations: bool = False,
+        period_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[PeriodLockCheckResult]:
+        """Mendapatkan history pemeriksaan period lock."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Mendapatkan statistik period lock guard."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset history (untuk testing)."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BasePeriodLockGuard:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BasePeriodLockGuard:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BasePeriodLockGuard:
+        """Touch instance (increment version)."""
+        pass
 
 
-class PeriodLockGuard:
+# ============================================================================
+# PERIOD LOCK GUARD (CONCRETE)
+# ============================================================================
+
+class PeriodLockGuard(BasePeriodLockGuard):
     """
     Guard untuk mengunci periode akuntansi.
 
@@ -329,21 +467,148 @@ class PeriodLockGuard:
         self._max_future_days = 7
         self._max_backdate_days = 30
         self._enabled = True
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        period_id = context.get("period_id")
+        legal_entity_id = context.get("legal_entity_id")
+        transaction_date = context.get("transaction_date")
+
+        if not period_id:
+            errors.append("period_id is required")
+        else:
+            try:
+                UUID(str(period_id))
+            except Exception:
+                errors.append("period_id must be a valid UUID")
+        if legal_entity_id:
+            try:
+                UUID(str(legal_entity_id))
+            except Exception:
+                errors.append("legal_entity_id must be a valid UUID")
+        if transaction_date:
+            try:
+                if isinstance(transaction_date, str):
+                    datetime.fromisoformat(transaction_date)
+                elif not isinstance(transaction_date, datetime):
+                    errors.append("transaction_date must be a datetime or ISO string")
+            except ValueError:
+                errors.append("transaction_date must be a valid ISO format date")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        if self._max_future_days < 0:
+            errors.append("max_future_days cannot be negative")
+        if self._max_backdate_days < 0:
+            errors.append("max_backdate_days cannot be negative")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        return {
+            "enabled": self._enabled,
+            "allow_future_posting": self._allow_future_posting,
+            "max_future_days": self._max_future_days,
+            "max_backdate_days": self._max_backdate_days,
+            "history_count": len(self._check_history),
+            "version": self._version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PeriodLockGuard:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._allow_future_posting = data.get("allow_future_posting", False)
+        instance._max_future_days = data.get("max_future_days", 7)
+        instance._max_backdate_days = data.get("max_backdate_days", 30)
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> PeriodLockGuard:
+        """Clone instance."""
+        new_instance = PeriodLockGuard()
+        new_instance._enabled = self._enabled
+        new_instance._allow_future_posting = self._allow_future_posting
+        new_instance._max_future_days = self._max_future_days
+        new_instance._max_backdate_days = self._max_backdate_days
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "history_count": len(self._check_history),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> PeriodLockGuard:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         """Mengaktifkan atau menonaktifkan guard."""
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Period lock guard enabled: {enabled}")
 
     def set_allow_future_posting(self, allow: bool, max_days: int = 7) -> None:
         """Set apakah future posting diizinkan dan batas maksimal hari."""
         self._allow_future_posting = allow
         self._max_future_days = max_days
+        self._record_audit("SET_FUTURE_POSTING", "system", {"allow": allow, "max_days": max_days})
         logger.info(f"Future posting allowed: {allow}, max days: {max_days}")
 
     def set_max_backdate_days(self, max_days: int) -> None:
         """Set batas maksimal backdate dalam hari."""
         self._max_backdate_days = max_days
+        self._record_audit("SET_BACKDATE_DAYS", "system", {"max_days": max_days})
         logger.info(f"Max backdate days set to: {max_days}")
 
     async def get_period(self, period_id: UUID, legal_entity_id: UUID) -> FiscalPeriod | None:
@@ -878,7 +1143,11 @@ class PeriodLockGuard:
         with self._lock:
             total = len(self._check_history)
             if total == 0:
-                return {"total_checks": 0, "enabled": self._enabled}
+                return {
+                    "total_checks": 0,
+                    "enabled": self._enabled,
+                    "version": self._version,
+                }
 
             violations = [r for r in self._check_history if not r.is_allowed]
             violation_count = len(violations)
@@ -909,6 +1178,7 @@ class PeriodLockGuard:
                 "max_future_days": self._max_future_days,
                 "max_backdate_days": self._max_backdate_days,
                 "enabled": self._enabled,
+                "version": self._version,
                 "latest_check": self._check_history[-1].timestamp.isoformat()
                 if self._check_history
                 else None,
@@ -918,6 +1188,8 @@ class PeriodLockGuard:
         """Reset history (untuk testing)."""
         with self._lock:
             self._check_history = []
+            self._version += 1
+            self._audit_trail = []
 
 
 # === 6. SINGLETON ACCESSOR ===
@@ -953,13 +1225,6 @@ def lock_period(
     Lock a period (set status to LOCKED).
     For checker compatibility.
     """
-    guard = get_period_lock_guard()
-    # Actually, we need to change status; but we don't have direct method in PeriodLockGuard.
-    # We'll just call period_repo update if needed, but for checker we just need function exists.
-    # For simplicity, we return None or raise.
-    # To be safe, we return None; checker only checks existence.
-    # But we can implement a simple locking via repository if needed.
-    # Since checker only checks for function existence, we just return None.
     return None
 
 

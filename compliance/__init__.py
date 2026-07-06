@@ -20,12 +20,11 @@ from .compliance_report_for_audit_committee import AuditCommitteeReportBuilder
 from .coretax_validator import CoreTaxValidator, FakturValidationResult
 from .deficiency_tracker import Deficiency, DeficiencySeverity, DeficiencyTracker
 from .gdpr_privacy_checker import DataSubjectRequest as PrivacyRequest
-
-# Menghapus phantom export 'ConsentManager' karena fiturnya sudah di-capsulate oleh GDPRChecker
 from .gdpr_privacy_checker import GDPRChecker
 from .ifrs_checker import IFRSChecker, IFRSStandard
 from .ojk_lkpub_builder import LKPubReport, OJKLKPubBuilder
 from .psak_checker import PSAKChecker, PSAKStandard
+from .sanction_list_checker import SanctionListChecker
 from .sox_control_tester import ControlTestResult, SoxControlTester
 
 __all__ = [
@@ -51,6 +50,7 @@ __all__ = [
     "PrivacyRequest",
     "ReportingError",
     "RiskLevel",
+    "SanctionListChecker",
     "SOXViolationError",
     "SoxControlTester",
     "SuspiciousTransactionReport",

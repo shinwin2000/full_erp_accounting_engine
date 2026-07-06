@@ -1,23 +1,20 @@
-
 #!/usr/bin/env python3
 """
-Module: fastapi_manufacturing_router.py
+Module: fastapi_maintenance_router.py
 Layer: Adapters (Primary API - v1)
-Responsibility: Menyediakan REST API endpoint untuk mengelola Manufacturing:
-               work order, bill of materials (BOM), routing, work in process (WIP),
-               cost card, variance analysis, overhead allocation, HPP calculation.
+Responsibility: Menyediakan REST API endpoint untuk mengelola Maintenance:
+               asset maintenance (aset yang dirawat), maintenance schedules,
+               work orders untuk perawatan, preventive maintenance, corrective maintenance,
+               spare parts usage, maintenance cost tracking, dan laporan.
 
 Method Standards (ERP):
-- create_bom() / update_bom() / delete_bom() / get_bom()
-- create_routing() / update_routing() / delete_routing() / get_routing()
+- create_maintenance_asset() / update_maintenance_asset() / delete_maintenance_asset() / get_maintenance_asset()
+- create_maintenance_schedule() / update_maintenance_schedule() / delete_maintenance_schedule()
 - create_work_order() / update_work_order() / delete_work_order() / get_work_order()
 - release_work_order() / complete_work_order() / cancel_work_order()
-- issue_material() / receive_finished_goods() / record_labor() / record_overhead()
-- calculate_wip() / calculate_variance() / calculate_standard_cost()
-- close_work_order() / reopen_work_order()
-- create_cost_card() / update_cost_card() / delete_cost_card()
-- allocate_overhead() / calculate_hpp()
-- get_work_order_status() / get_work_order_history()
+- assign_technician() / record_spare_parts_usage()
+- get_maintenance_history() / get_maintenance_cost()
+- get_asset_status() / get_schedule_status()
 - audit_trail_work_order() / can_transition_work_order()
 - register_work_order_event() / get_work_order_events()
 - version_work_order()
@@ -25,14 +22,16 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -46,39 +45,90 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 logger = logging.getLogger(__name__)
 
 # ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
+
+# ============================================================================
 # CONSTANTS & ENUMS
 # ============================================================================
 
 
-class BOMStatus(str, Enum):
-    """Status Bill of Materials."""
-
-    DRAFT = "draft"
+class MaintenanceAssetStatus(str, Enum):
+    """Status aset maintenance."""
     ACTIVE = "active"
     INACTIVE = "inactive"
+    UNDER_MAINTENANCE = "under_maintenance"
+    OUT_OF_SERVICE = "out_of_service"
     OBSOLETE = "obsolete"
     ARCHIVED = "archived"
-    LOCKED = "locked"
 
 
-class RoutingStatus(str, Enum):
-    """Status Routing."""
+class MaintenanceType(str, Enum):
+    """Jenis maintenance."""
+    PREVENTIVE = "preventive"      # Preventif
+    CORRECTIVE = "corrective"      # Korektif
+    PREDICTIVE = "predictive"      # Prediktif
+    EMERGENCY = "emergency"        # Darurat
+    ROUTINE = "routine"            # Rutin
 
-    DRAFT = "draft"
-    ACTIVE = "active"
-    INACTIVE = "inactive"
-    OBSOLETE = "obsolete"
-    ARCHIVED = "archived"
+
+class MaintenancePriority(str, Enum):
+    """Prioritas maintenance."""
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
 
 
 class WorkOrderStatus(str, Enum):
-    """Status Work Order."""
-
+    """Status work order maintenance."""
     DRAFT = "draft"
     PLANNED = "planned"
-    RELEASED = "released"
+    ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
-    PARTIALLY_COMPLETED = "partially_completed"
+    ON_HOLD = "on_hold"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     CLOSED = "closed"
@@ -86,27 +136,24 @@ class WorkOrderStatus(str, Enum):
     ARCHIVED = "archived"
 
 
-class CostElement(str, Enum):
-    """Elemen biaya."""
+class ScheduleFrequency(str, Enum):
+    """Frekuensi jadwal maintenance."""
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    BIWEEKLY = "biweekly"
+    MONTHLY = "monthly"
+    QUARTERLY = "quarterly"
+    SEMI_ANNUAL = "semi_annual"
+    ANNUAL = "annual"
+    CUSTOM = "custom"
 
-    MATERIAL = "material"
-    LABOR = "labor"
-    OVERHEAD = "overhead"
-    SUBCONTRACT = "subcontract"
-    OTHER = "other"
 
-
-class VarianceType(str, Enum):
-    """Jenis variance."""
-
-    MATERIAL_PRICE = "material_price"
-    MATERIAL_USAGE = "material_usage"
-    LABOR_RATE = "labor_rate"
-    LABOR_EFFICIENCY = "labor_efficiency"
-    OVERHEAD_VOLUME = "overhead_volume"
-    OVERHEAD_SPENDING = "overhead_spending"
-    MIX = "mix"
-    YIELD = "yield"
+class SparePartUsageStatus(str, Enum):
+    """Status penggunaan spare part."""
+    REQUESTED = "requested"
+    ISSUED = "issued"
+    USED = "used"
+    RETURNED = "returned"
 
 
 # ============================================================================
@@ -114,76 +161,143 @@ class VarianceType(str, Enum):
 # ============================================================================
 
 
-class BOMLineSchema(BaseModel):
-    """Line dalam Bill of Materials."""
+class MaintenanceAssetCreateSchema(BaseModel):
+    """Schema untuk membuat aset maintenance."""
 
     model_config = ConfigDict(from_attributes=True)
 
-    component_item_id: UUID = Field(..., description="ID komponen")
-    quantity: Decimal = Field(..., gt=0, decimal_places=4, description="Kuantitas")
-    scrap_percent: Decimal = Field(
-        0, ge=0, le=100, decimal_places=2, description="Persentase scrap"
-    )
-    unit_of_measure: str = Field("pcs", max_length=10, description="Satuan")
-    cost_allocated: Decimal = Field(
-        0, ge=0, decimal_places=2, description="Biaya yang dialokasikan"
-    )
-    notes: str | None = Field(None, max_length=500)
+    asset_code: str = Field(..., min_length=3, max_length=50, description="Kode aset")
+    asset_name: str = Field(..., min_length=3, max_length=200, description="Nama aset")
+    asset_category: str = Field(..., max_length=100, description="Kategori")
+    location: str | None = Field(None, max_length=200, description="Lokasi")
+    serial_number: str | None = Field(None, max_length=50, description="Nomor seri")
+    manufacturer: str | None = Field(None, max_length=100, description="Pabrikan")
+    model: str | None = Field(None, max_length=100, description="Model")
+    purchase_date: date | None = Field(None, description="Tanggal pembelian")
+    warranty_expiry_date: date | None = Field(None, description="Tanggal habis garansi")
+    maintenance_interval_days: int | None = Field(None, ge=1, description="Interval maintenance (hari)")
+    notes: str | None = Field(None, max_length=500, description="Catatan")
+    is_active: bool = Field(True, description="Aktif")
 
-    @field_validator("quantity")
+    @field_validator("asset_code")
     @classmethod
-    def validate_quantity(cls, v: Decimal) -> Decimal:
-        if v <= 0:
-            raise ValueError("Quantity must be greater than 0")
-        return v
-
-
-class BOMCreateSchema(BaseModel):
-    """Schema untuk membuat BOM baru."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    bom_code: str = Field(..., min_length=3, max_length=50, description="Kode BOM")
-    bom_name: str = Field(..., min_length=3, max_length=200, description="Nama BOM")
-    product_id: UUID = Field(..., description="Produk jadi")
-    bom_version: int = Field(1, ge=1, description="Versi BOM")
-    effective_date: date = Field(default_factory=date.today, description="Tanggal berlaku")
-    expiry_date: date | None = Field(None, description="Tanggal kadaluarsa")
-    is_default: bool = Field(False, description="BOM default")
-    lines: list[BOMLineSchema] = Field(..., min_length=1, description="Komponen")
-    notes: str | None = Field(None, max_length=500)
-
-    @field_validator("bom_code")
-    @classmethod
-    def validate_bom_code(cls, v: str) -> str:
+    def validate_asset_code(cls, v: str) -> str:
         if not v or not v.strip():
-            raise ValueError("BOM code is required")
+            raise ValueError("Asset code is required")
+        return v.upper()
+
+
+class MaintenanceAssetUpdateSchema(BaseModel):
+    """Schema untuk update aset maintenance."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    asset_name: str | None = Field(None, min_length=3, max_length=200)
+    location: str | None = Field(None, max_length=200)
+    status: MaintenanceAssetStatus | None = None
+    maintenance_interval_days: int | None = Field(None, ge=1)
+    notes: str | None = Field(None, max_length=500)
+    is_active: bool | None = None
+
+
+class MaintenanceAssetResponseSchema(BaseModel):
+    """Response aset maintenance."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    asset_code: str
+    asset_name: str
+    asset_category: str
+    location: str | None
+    serial_number: str | None
+    manufacturer: str | None
+    model: str | None
+    purchase_date: date | None
+    warranty_expiry_date: date | None
+    maintenance_interval_days: int | None
+    status: MaintenanceAssetStatus
+    is_active: bool
+    is_locked: bool = False
+    notes: str | None
+    created_at: datetime
+    updated_at: datetime
+    created_by: UUID
+    created_by_name: str | None = None
+    version: int = 1
+
+
+class MaintenanceScheduleCreateSchema(BaseModel):
+    """Schema untuk membuat jadwal maintenance."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    asset_id: UUID = Field(..., description="Asset ID")
+    schedule_code: str = Field(..., min_length=3, max_length=50, description="Kode jadwal")
+    schedule_name: str = Field(..., min_length=3, max_length=200, description="Nama jadwal")
+    maintenance_type: MaintenanceType = Field(..., description="Jenis maintenance")
+    frequency: ScheduleFrequency = Field(..., description="Frekuensi")
+    custom_interval_days: int | None = Field(None, ge=1, description="Interval custom (hari)")
+    start_date: date = Field(..., description="Tanggal mulai")
+    end_date: date | None = Field(None, description="Tanggal selesai")
+    estimated_duration_hours: Decimal = Field(0, ge=0, decimal_places=2, description="Durasi estimasi (jam)")
+    assigned_team: str | None = Field(None, max_length=100, description="Tim yang ditugaskan")
+    notes: str | None = Field(None, max_length=500, description="Catatan")
+    is_active: bool = Field(True, description="Aktif")
+
+    @field_validator("schedule_code")
+    @classmethod
+    def validate_schedule_code(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Schedule code is required")
         return v.upper()
 
     @model_validator(mode="after")
-    def validate_dates(self) -> BOMCreateSchema:
-        if self.expiry_date and self.expiry_date <= self.effective_date:
-            raise ValueError("Expiry date must be after effective date")
+    def validate_frequency(self) -> MaintenanceScheduleCreateSchema:
+        if self.frequency == ScheduleFrequency.CUSTOM and not self.custom_interval_days:
+            raise ValueError("Custom interval days required for CUSTOM frequency")
+        if self.end_date and self.end_date < self.start_date:
+            raise ValueError("End date must be after start date")
         return self
 
 
-class BOMResponseSchema(BaseModel):
-    """Response BOM."""
+class MaintenanceScheduleUpdateSchema(BaseModel):
+    """Schema untuk update jadwal maintenance."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    schedule_name: str | None = Field(None, min_length=3, max_length=200)
+    frequency: ScheduleFrequency | None = None
+    custom_interval_days: int | None = Field(None, ge=1)
+    start_date: date | None = None
+    end_date: date | None = None
+    estimated_duration_hours: Decimal | None = Field(None, ge=0, decimal_places=2)
+    assigned_team: str | None = None
+    notes: str | None = None
+    is_active: bool | None = None
+
+
+class MaintenanceScheduleResponseSchema(BaseModel):
+    """Response jadwal maintenance."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    bom_code: str
-    bom_name: str
-    product_id: UUID
-    product_code: str | None = None
-    product_name: str | None = None
-    bom_version: int
-    effective_date: date
-    expiry_date: date | None
-    status: BOMStatus
-    is_default: bool
-    lines: list[dict[str, Any]]
+    asset_id: UUID
+    asset_code: str | None = None
+    asset_name: str | None = None
+    schedule_code: str
+    schedule_name: str
+    maintenance_type: MaintenanceType
+    frequency: ScheduleFrequency
+    custom_interval_days: int | None
+    start_date: date
+    end_date: date | None
+    estimated_duration_hours: Decimal
+    assigned_team: str | None
+    status: str
+    is_active: bool
+    next_due_date: date | None
     notes: str | None
     created_at: datetime
     updated_at: datetime
@@ -192,94 +306,24 @@ class BOMResponseSchema(BaseModel):
     version: int = 1
 
 
-class RoutingStepSchema(BaseModel):
-    """Step dalam routing."""
+class WorkOrderMaintenanceCreateSchema(BaseModel):
+    """Schema untuk membuat work order maintenance."""
 
     model_config = ConfigDict(from_attributes=True)
 
-    step_number: int = Field(..., ge=1, description="Nomor urut step")
-    work_center: str = Field(..., max_length=100, description="Work center")
-    description: str | None = Field(None, max_length=500, description="Deskripsi")
-    setup_time_hours: Decimal = Field(0, ge=0, decimal_places=2, description="Waktu setup (jam)")
-    run_time_hours: Decimal = Field(..., ge=0, decimal_places=2, description="Waktu proses (jam)")
-    machine_hours: Decimal = Field(0, ge=0, decimal_places=2, description="Jam mesin")
-    labor_hours: Decimal = Field(..., ge=0, decimal_places=2, description="Jam tenaga kerja")
-    queue_time_hours: Decimal = Field(0, ge=0, decimal_places=2, description="Waktu antri")
-    move_time_hours: Decimal = Field(0, ge=0, decimal_places=2, description="Waktu pindah")
-
-    @field_validator("step_number")
-    @classmethod
-    def validate_step_number(cls, v: int) -> int:
-        if v <= 0:
-            raise ValueError("Step number must be greater than 0")
-        return v
-
-
-class RoutingCreateSchema(BaseModel):
-    """Schema untuk membuat routing baru."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    routing_code: str = Field(..., min_length=3, max_length=50, description="Kode routing")
-    routing_name: str = Field(..., min_length=3, max_length=200, description="Nama routing")
-    product_id: UUID = Field(..., description="Produk")
-    routing_version: int = Field(1, ge=1, description="Versi routing")
-    effective_date: date = Field(default_factory=date.today, description="Tanggal berlaku")
-    expiry_date: date | None = Field(None, description="Tanggal kadaluarsa")
-    is_default: bool = Field(False, description="Routing default")
-    steps: list[RoutingStepSchema] = Field(..., min_length=1, description="Step-step produksi")
-    notes: str | None = Field(None, max_length=500)
-
-    @field_validator("routing_code")
-    @classmethod
-    def validate_routing_code(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Routing code is required")
-        return v.upper()
-
-
-class RoutingResponseSchema(BaseModel):
-    """Response routing."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    routing_code: str
-    routing_name: str
-    product_id: UUID
-    product_code: str | None = None
-    product_name: str | None = None
-    routing_version: int
-    effective_date: date
-    expiry_date: date | None
-    status: RoutingStatus
-    is_default: bool
-    steps: list[dict[str, Any]]
-    notes: str | None
-    created_at: datetime
-    updated_at: datetime
-    created_by: UUID
-    created_by_name: str | None = None
-    version: int = 1
-
-
-class WorkOrderCreateSchema(BaseModel):
-    """Schema untuk membuat work order."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    work_order_number: str = Field(..., max_length=50, description="Nomor WO")
-    product_id: UUID = Field(..., description="Produk yang diproduksi")
-    planned_quantity: Decimal = Field(..., gt=0, decimal_places=2, description="Kuantitas rencana")
+    wo_number: str = Field(..., max_length=50, description="Nomor WO")
+    asset_id: UUID = Field(..., description="Asset ID")
+    schedule_id: UUID | None = Field(None, description="Schedule ID (jika dari jadwal)")
+    maintenance_type: MaintenanceType = Field(..., description="Jenis maintenance")
+    priority: MaintenancePriority = Field(MaintenancePriority.MEDIUM, description="Prioritas")
+    description: str = Field(..., max_length=1000, description="Deskripsi")
+    requested_by: UUID = Field(..., description="ID peminta")
     planned_start_date: date = Field(..., description="Tanggal mulai rencana")
     planned_end_date: date = Field(..., description="Tanggal selesai rencana")
-    bom_id: UUID | None = Field(None, description="BOM yang digunakan")
-    routing_id: UUID | None = Field(None, description="Routing yang digunakan")
-    cost_center: str | None = Field(None, max_length=50, description="Cost center")
-    priority: int = Field(5, ge=1, le=10, description="Prioritas (1-10, 1 tertinggi)")
-    notes: str | None = Field(None, max_length=500)
+    estimated_cost: Decimal = Field(0, ge=0, decimal_places=2, description="Biaya estimasi")
+    notes: str | None = Field(None, max_length=500, description="Catatan")
 
-    @field_validator("work_order_number")
+    @field_validator("wo_number")
     @classmethod
     def validate_wo_number(cls, v: str) -> str:
         if not v or not v.strip():
@@ -287,290 +331,114 @@ class WorkOrderCreateSchema(BaseModel):
         return v.strip()
 
     @model_validator(mode="after")
-    def validate_dates(self) -> WorkOrderCreateSchema:
+    def validate_dates(self) -> WorkOrderMaintenanceCreateSchema:
         if self.planned_end_date < self.planned_start_date:
             raise ValueError("Planned end date must be after planned start date")
         return self
 
 
-class WorkOrderUpdateSchema(BaseModel):
-    """Schema untuk update work order."""
+class WorkOrderMaintenanceUpdateSchema(BaseModel):
+    """Schema untuk update work order maintenance."""
 
     model_config = ConfigDict(from_attributes=True)
 
-    planned_quantity: Decimal | None = Field(None, gt=0, decimal_places=2)
+    description: str | None = Field(None, max_length=1000)
+    priority: MaintenancePriority | None = None
     planned_start_date: date | None = None
     planned_end_date: date | None = None
-    bom_id: UUID | None = None
-    routing_id: UUID | None = None
-    cost_center: str | None = None
-    priority: int | None = Field(None, ge=1, le=10)
+    estimated_cost: Decimal | None = Field(None, ge=0, decimal_places=2)
     notes: str | None = None
+    assigned_technician_id: UUID | None = None
     status: WorkOrderStatus | None = None
 
 
-class WorkOrderReleaseSchema(BaseModel):
-    """Schema untuk release work order."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    actual_start_date: date = Field(default_factory=date.today, description="Tanggal mulai aktual")
-    notes: str | None = None
-
-
-class WorkOrderCompletionSchema(BaseModel):
-    """Schema untuk complete work order."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    completed_quantity: Decimal = Field(
-        ..., gt=0, decimal_places=2, description="Kuantitas selesai"
-    )
-    rejected_quantity: Decimal = Field(0, ge=0, decimal_places=2, description="Kuantitas reject")
-    actual_end_date: date = Field(default_factory=date.today, description="Tanggal selesai aktual")
-    notes: str | None = None
-
-    @model_validator(mode="after")
-    def validate_quantities(self) -> WorkOrderCompletionSchema:
-        if self.completed_quantity + self.rejected_quantity <= 0:
-            raise ValueError("Total completed and rejected must be greater than 0")
-        return self
-
-
-class WorkOrderResponseSchema(BaseModel):
-    """Response work order."""
+class WorkOrderMaintenanceResponseSchema(BaseModel):
+    """Response work order maintenance."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    work_order_number: str
-    product_id: UUID
-    product_code: str | None = None
-    product_name: str | None = None
-    planned_quantity: Decimal
-    completed_quantity: Decimal
-    rejected_quantity: Decimal
-    remaining_quantity: Decimal
-    bom_id: UUID | None
-    bom_code: str | None = None
-    routing_id: UUID | None
-    routing_code: str | None = None
+    wo_number: str
+    asset_id: UUID
+    asset_code: str | None = None
+    asset_name: str | None = None
+    schedule_id: UUID | None
+    maintenance_type: MaintenanceType
+    priority: MaintenancePriority
+    description: str
+    requested_by: UUID
+    requested_by_name: str | None = None
+    assigned_technician_id: UUID | None = None
+    assigned_technician_name: str | None = None
     planned_start_date: date
     planned_end_date: date
     actual_start_date: date | None
     actual_end_date: date | None
-    standard_material_cost: Decimal
-    standard_labor_cost: Decimal
-    standard_overhead_cost: Decimal
-    standard_total_cost: Decimal
-    actual_material_cost: Decimal
-    actual_labor_cost: Decimal
-    actual_overhead_cost: Decimal
-    actual_total_cost: Decimal
-    material_variance: Decimal
-    labor_variance: Decimal
-    overhead_variance: Decimal
-    total_variance: Decimal
+    estimated_cost: Decimal
+    actual_cost: Decimal
     status: WorkOrderStatus
-    priority: int
-    cost_center: str | None
+    is_locked: bool = False
     notes: str | None
     created_at: datetime
     updated_at: datetime
     created_by: UUID
     created_by_name: str | None = None
+    completed_at: datetime | None = None
+    completed_by: UUID | None = None
     version: int = 1
-    is_locked: bool = False
 
 
-class MaterialIssueSchema(BaseModel):
-    """Schema untuk issue material ke work order."""
+class SparePartUsageSchema(BaseModel):
+    """Schema untuk penggunaan spare part."""
 
     model_config = ConfigDict(from_attributes=True)
 
     item_id: UUID = Field(..., description="Item ID")
     quantity: Decimal = Field(..., gt=0, decimal_places=2, description="Kuantitas")
-    batch_number: str | None = Field(None, max_length=50, description="Batch number")
-    warehouse_id: UUID = Field(..., description="Gudang asal")
+    unit_cost: Decimal = Field(..., gt=0, decimal_places=2, description="Biaya per unit")
+    work_order_id: UUID = Field(..., description="WO ID")
+    issued_date: date = Field(default_factory=date.today, description="Tanggal pengeluaran")
     notes: str | None = Field(None, max_length=500)
 
 
-class LaborRecordSchema(BaseModel):
-    """Schema untuk record tenaga kerja."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    employee_id: UUID = Field(..., description="Karyawan")
-    hours: Decimal = Field(..., gt=0, decimal_places=2, description="Jam kerja")
-    hourly_rate: Decimal = Field(..., gt=0, decimal_places=2, description="Tarif per jam")
-    work_center: str | None = Field(None, max_length=100, description="Work center")
-    notes: str | None = Field(None, max_length=500)
-
-
-class FinishedGoodsReceiptSchema(BaseModel):
-    """Schema untuk receipt finished goods."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    quantity: Decimal = Field(..., gt=0, decimal_places=2, description="Kuantitas")
-    warehouse_id: UUID = Field(..., description="Gudang tujuan")
-    batch_number: str | None = Field(None, max_length=50, description="Batch number")
-    notes: str | None = Field(None, max_length=500)
-
-
-class WIPResponseSchema(BaseModel):
-    """Response Work In Process."""
+class SparePartUsageResponseSchema(BaseModel):
+    """Response penggunaan spare part."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    work_order_id: UUID
-    work_order_number: str
-    product_id: UUID
-    product_name: str
-    quantity_started: Decimal
-    quantity_remaining: Decimal
-    completion_percent: float
-    material_cost: Decimal
-    labor_cost: Decimal
-    overhead_cost: Decimal
-    total_cost: Decimal
-    material_issued: list[dict[str, Any]]
-    labor_recorded: list[dict[str, Any]]
-    start_date: date
-    expected_completion_date: date | None
-    created_at: datetime
-
-
-class CostCardCreateSchema(BaseModel):
-    """Schema untuk membuat cost card."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    cost_card_code: str = Field(..., min_length=3, max_length=50, description="Kode cost card")
-    product_id: UUID = Field(..., description="Produk")
-    effective_date: date = Field(default_factory=date.today, description="Tanggal berlaku")
-    expiry_date: date | None = Field(None, description="Tanggal kadaluarsa")
-    material_cost: Decimal = Field(0, ge=0, decimal_places=2, description="Biaya material")
-    labor_cost: Decimal = Field(0, ge=0, decimal_places=2, description="Biaya tenaga kerja")
-    overhead_cost: Decimal = Field(0, ge=0, decimal_places=2, description="Biaya overhead")
-    other_cost: Decimal = Field(0, ge=0, decimal_places=2, description="Biaya lain")
-    quantity_base: Decimal = Field(1, gt=0, decimal_places=2, description="Kuantitas dasar")
-    unit_of_measure: str = Field("pcs", max_length=10, description="Satuan")
-    breakdown: dict[str, Any] | None = Field(None, description="Rincian biaya")
-    notes: str | None = Field(None, max_length=500)
-
-    @field_validator("cost_card_code")
-    @classmethod
-    def validate_cost_card_code(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Cost card code is required")
-        return v.upper()
-
-    @property
-    def total_cost(self) -> Decimal:
-        return self.material_cost + self.labor_cost + self.overhead_cost + self.other_cost
-
-    @property
-    def unit_cost(self) -> Decimal:
-        if self.quantity_base > 0:
-            return (self.total_cost / self.quantity_base).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
-        return Decimal(0)
-
-
-class CostCardResponseSchema(BaseModel):
-    """Response cost card."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    cost_card_code: str
-    product_id: UUID
-    product_code: str | None = None
-    product_name: str | None = None
-    effective_date: date
-    expiry_date: date | None
-    material_cost: Decimal
-    labor_cost: Decimal
-    overhead_cost: Decimal
-    other_cost: Decimal
-    total_cost: Decimal
-    quantity_base: Decimal
+    item_id: UUID
+    item_code: str | None = None
+    item_name: str | None = None
+    quantity: Decimal
     unit_cost: Decimal
-    unit_of_measure: str
-    status: str
-    is_active: bool
-    breakdown: dict[str, Any] | None
+    total_cost: Decimal
+    work_order_id: UUID
+    work_order_number: str | None = None
+    issued_date: date
+    status: SparePartUsageStatus
     notes: str | None
     created_at: datetime
-    updated_at: datetime
     created_by: UUID
     created_by_name: str | None = None
-    version: int = 1
 
 
-class VarianceAnalysisResponseSchema(BaseModel):
-    """Response variance analysis."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    work_order_id: UUID
-    work_order_number: str
-    product_id: UUID
-    product_name: str
-    standard_cost: Decimal
-    actual_cost: Decimal
-    total_variance: Decimal
-    total_variance_percent: float
-    material_price_variance: Decimal
-    material_usage_variance: Decimal
-    material_variance_total: Decimal
-    labor_rate_variance: Decimal
-    labor_efficiency_variance: Decimal
-    labor_variance_total: Decimal
-    overhead_volume_variance: Decimal
-    overhead_spending_variance: Decimal
-    overhead_variance_total: Decimal
-    variances_by_component: list[dict[str, Any]]
-    analysis_period_start: date
-    analysis_period_end: date
-    generated_at: datetime
-
-
-class OverheadAllocationSchema(BaseModel):
-    """Schema untuk alokasi overhead."""
+class MaintenanceCostSummarySchema(BaseModel):
+    """Response ringkasan biaya maintenance."""
 
     model_config = ConfigDict(from_attributes=True)
 
-    allocation_date: date = Field(default_factory=date.today, description="Tanggal alokasi")
-    allocation_base: str = Field(
-        ..., description="Dasar alokasi: machine_hours, labor_hours, material_cost"
-    )
-    total_overhead: Decimal = Field(..., gt=0, decimal_places=2, description="Total overhead")
-    work_order_ids: list[UUID] | None = Field(
-        None, description="Work order yang dialokasi (kosong = semua aktif)"
-    )
-
-
-class OverheadAllocationResponseSchema(BaseModel):
-    """Response alokasi overhead."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    allocation_id: UUID
-    allocation_number: str
-    allocation_date: date
-    allocation_base: str
-    total_overhead: Decimal
-    allocated_overhead: Decimal
-    work_orders_affected: int
-    journal_id: UUID | None
-    details: list[dict[str, Any]]
-    status: str
-    created_at: datetime
-    created_by: UUID
+    period_start: date
+    period_end: date
+    total_maintenance_cost: Decimal
+    preventive_cost: Decimal
+    corrective_cost: Decimal
+    emergency_cost: Decimal
+    labor_cost: Decimal
+    spare_parts_cost: Decimal
+    other_cost: Decimal
+    by_asset: list[dict[str, Any]]
+    by_work_order: list[dict[str, Any]]
 
 
 # ============================================================================
@@ -578,79 +446,96 @@ class OverheadAllocationResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_manufacturing_service(request: Request, ) -> Any:
-    """Get Manufacturing Service instance."""
-
-    from application.service_layer.service_manufacturing import ManufacturingService
-
+async def get_maintenance_service(request: Request) -> Any:
+    """Get Maintenance Service instance."""
+    from application.service_layer.service_maintenance import MaintenanceService
     container = request.app.state.container
-    return container.resolve(ManufacturingService)
-
-
-async def get_hpp_close_use_case() -> Any:
-    """Get HPP Manufacturing Close Use Case instance."""
-
-    from application.use_cases.hpp_manufacturing_close import HPPManufacturingCloseUseCase
-
-    container = request.app.state.container
-    return container.resolve(HPPManufacturingCloseUseCase)
+    return container.resolve(MaintenanceService)
 
 
 # ============================================================================
 # ROUTER
 # ============================================================================
 
-router = APIRouter(prefix="/manufacturing", tags=["Manufacturing"])
+router = APIRouter(prefix="/maintenance", tags=["Maintenance"])
 
 
 # ----------------------------------------------------------------------------
-# BILL OF MATERIALS (BOM)
+# SYNCHRONOUS HEALTH CHECKS
+# ----------------------------------------------------------------------------
+
+@router.get("/ping")
+def ping() -> dict[str, str]:
+    return {"status": "ok", "service": "maintenance-router"}
+
+@router.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "healthy"}
+
+@router.get("/info")
+def info() -> dict[str, str]:
+    return {"version": "1.0", "name": "Maintenance Router"}
+
+
+# ----------------------------------------------------------------------------
+# MAINTENANCE ASSET CRUD
 # ----------------------------------------------------------------------------
 
 
 @router.post(
-    "/bom",
-    response_model=BOMResponseSchema,
+    "/assets",
+    response_model=MaintenanceAssetResponseSchema,
     status_code=status.HTTP_201_CREATED,
-    summary="Create Bill of Materials",
-    operation_id="create_bom",
+    summary="Create maintenance asset",
+    operation_id="create_maintenance_asset",
 )
-async def create_bom(
-    request: BOMCreateSchema,
-    _permission: None = Depends(require_permission("manufacturing:create")),
+async def create_maintenance_asset(
+    request: MaintenanceAssetCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _permission: None = Depends(require_permission("maintenance:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> BOMResponseSchema:
-    """Create a new Bill of Materials."""
-    try:
-        result = await service.create_bom(
-            bom_code=request.bom_code,
-            bom_name=request.bom_name,
-            product_id=request.product_id,
-            bom_version=request.bom_version,
-            effective_date=request.effective_date,
-            expiry_date=request.expiry_date,
-            is_default=request.is_default,
-            lines=[line.dict() for line in request.lines],
-            notes=request.notes,
-            created_by=current_user.user_id,
-            legal_entity_id=legal_entity_id,
-        )
+    service: Any = Depends(get_maintenance_service),
+) -> MaintenanceAssetResponseSchema:
+    method_name = "create_maintenance_asset"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return MaintenanceAssetResponseSchema(**cached)
 
-        return BOMResponseSchema(
+    try:
+        result = await service.create_maintenance_asset(
+            legal_entity_id=legal_entity_id,
+            asset_code=request.asset_code,
+            asset_name=request.asset_name,
+            asset_category=request.asset_category,
+            location=request.location,
+            serial_number=request.serial_number,
+            manufacturer=request.manufacturer,
+            model=request.model,
+            purchase_date=request.purchase_date,
+            warranty_expiry_date=request.warranty_expiry_date,
+            maintenance_interval_days=request.maintenance_interval_days,
+            notes=request.notes,
+            is_active=request.is_active,
+            created_by=current_user.user_id,
+        )
+        response = MaintenanceAssetResponseSchema(
             id=result.id,
-            bom_code=result.bom_code,
-            bom_name=result.bom_name,
-            product_id=result.product_id,
-            product_code=result.product_code,
-            product_name=result.product_name,
-            bom_version=result.bom_version,
-            effective_date=result.effective_date,
-            expiry_date=result.expiry_date,
-            status=BOMStatus(result.status),
-            is_default=result.is_default,
-            lines=result.lines,
+            asset_code=result.asset_code,
+            asset_name=result.asset_name,
+            asset_category=result.asset_category,
+            location=result.location,
+            serial_number=result.serial_number,
+            manufacturer=result.manufacturer,
+            model=result.model,
+            purchase_date=result.purchase_date,
+            warranty_expiry_date=result.warranty_expiry_date,
+            maintenance_interval_days=result.maintenance_interval_days,
+            status=MaintenanceAssetStatus(result.status),
+            is_active=result.is_active,
+            is_locked=result.is_locked,
             notes=result.notes,
             created_at=result.created_at,
             updated_at=result.updated_at,
@@ -658,156 +543,165 @@ async def create_bom(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create BOM: %s", e)
+        logger.exception("Failed to create maintenance asset: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get(
-    "/bom",
-    response_model=list[BOMResponseSchema],
-    summary="List Bill of Materials",
-    operation_id="list_bom",
+    "/assets",
+    response_model=list[MaintenanceAssetResponseSchema],
+    summary="List maintenance assets",
+    operation_id="list_maintenance_assets",
 )
-async def list_bom(
-    product_id: UUID | None = Query(None, description="Filter by product"),
-    is_default: bool | None = Query(None, description="Filter by default"),
-    status: BOMStatus | None = Query(None, description="Filter by status"),
-    effective_as_of: date | None = Query(None, description="Effective as of date"),
-    _permission: None = Depends(require_permission("manufacturing:read")),
+async def list_maintenance_assets(
+    category: str | None = Query(None, description="Filter by category"),
+    status: MaintenanceAssetStatus | None = Query(None, description="Filter by status"),
+    is_active: bool | None = Query(None),
+    search: str | None = Query(None, description="Search in code or name"),
+    _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> list[BOMResponseSchema]:
-    """List Bill of Materials with filters."""
+    service: Any = Depends(get_maintenance_service),
+) -> list[MaintenanceAssetResponseSchema]:
     try:
-        boms = await service.list_boms(
+        assets = await service.list_maintenance_assets(
             legal_entity_id=legal_entity_id,
-            product_id=product_id,
-            is_default=is_default,
+            category=category,
             status=status.value if status else None,
-            effective_as_of=effective_as_of,
+            is_active=is_active,
+            search=search,
         )
-
         return [
-            BOMResponseSchema(
-                id=b.id,
-                bom_code=b.bom_code,
-                bom_name=b.bom_name,
-                product_id=b.product_id,
-                product_code=b.product_code,
-                product_name=b.product_name,
-                bom_version=b.bom_version,
-                effective_date=b.effective_date,
-                expiry_date=b.expiry_date,
-                status=BOMStatus(b.status),
-                is_default=b.is_default,
-                lines=b.lines,
-                notes=b.notes,
-                created_at=b.created_at,
-                updated_at=b.updated_at,
-                created_by=b.created_by,
-                created_by_name=b.created_by_name,
-                version=b.version,
+            MaintenanceAssetResponseSchema(
+                id=a.id,
+                asset_code=a.asset_code,
+                asset_name=a.asset_name,
+                asset_category=a.asset_category,
+                location=a.location,
+                serial_number=a.serial_number,
+                manufacturer=a.manufacturer,
+                model=a.model,
+                purchase_date=a.purchase_date,
+                warranty_expiry_date=a.warranty_expiry_date,
+                maintenance_interval_days=a.maintenance_interval_days,
+                status=MaintenanceAssetStatus(a.status),
+                is_active=a.is_active,
+                is_locked=a.is_locked,
+                notes=a.notes,
+                created_at=a.created_at,
+                updated_at=a.updated_at,
+                created_by=a.created_by,
+                created_by_name=a.created_by_name,
+                version=a.version,
             )
-            for b in boms
+            for a in assets
         ]
     except Exception as e:
-        logger.exception("Failed to list BOM: %s", e)
+        logger.exception("Failed to list maintenance assets: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get(
-    "/bom/{bom_id}",
-    response_model=BOMResponseSchema,
-    summary="Get BOM by ID",
-    operation_id="get_bom",
+    "/assets/{asset_id}",
+    response_model=MaintenanceAssetResponseSchema,
+    summary="Get maintenance asset by ID",
+    operation_id="get_maintenance_asset",
 )
-async def get_bom(
-    bom_id: UUID,
-    _permission: None = Depends(require_permission("manufacturing:read")),
+async def get_maintenance_asset(
+    asset_id: UUID,
+    _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> BOMResponseSchema:
-    """Get Bill of Materials by ID."""
+    service: Any = Depends(get_maintenance_service),
+) -> MaintenanceAssetResponseSchema:
     try:
-        bom = await service.get_bom_by_id(bom_id, legal_entity_id)
-
-        if not bom:
-            raise HTTPException(status_code=404, detail="BOM not found")
-
-        return BOMResponseSchema(
-            id=bom.id,
-            bom_code=bom.bom_code,
-            bom_name=bom.bom_name,
-            product_id=bom.product_id,
-            product_code=bom.product_code,
-            product_name=bom.product_name,
-            bom_version=bom.bom_version,
-            effective_date=bom.effective_date,
-            expiry_date=bom.expiry_date,
-            status=BOMStatus(bom.status),
-            is_default=bom.is_default,
-            lines=bom.lines,
-            notes=bom.notes,
-            created_at=bom.created_at,
-            updated_at=bom.updated_at,
-            created_by=bom.created_by,
-            created_by_name=bom.created_by_name,
-            version=bom.version,
+        asset = await service.get_maintenance_asset_by_id(asset_id, legal_entity_id)
+        if not asset:
+            raise HTTPException(status_code=404, detail="Asset not found")
+        return MaintenanceAssetResponseSchema(
+            id=asset.id,
+            asset_code=asset.asset_code,
+            asset_name=asset.asset_name,
+            asset_category=asset.asset_category,
+            location=asset.location,
+            serial_number=asset.serial_number,
+            manufacturer=asset.manufacturer,
+            model=asset.model,
+            purchase_date=asset.purchase_date,
+            warranty_expiry_date=asset.warranty_expiry_date,
+            maintenance_interval_days=asset.maintenance_interval_days,
+            status=MaintenanceAssetStatus(asset.status),
+            is_active=asset.is_active,
+            is_locked=asset.is_locked,
+            notes=asset.notes,
+            created_at=asset.created_at,
+            updated_at=asset.updated_at,
+            created_by=asset.created_by,
+            created_by_name=asset.created_by_name,
+            version=asset.version,
         )
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get BOM: %s", e)
+        logger.exception("Failed to get maintenance asset: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.put(
-    "/bom/{bom_id}",
-    response_model=BOMResponseSchema,
-    summary="Update BOM",
-    operation_id="update_bom",
+    "/assets/{asset_id}",
+    response_model=MaintenanceAssetResponseSchema,
+    summary="Update maintenance asset",
+    operation_id="update_maintenance_asset",
 )
-async def update_bom(
-    bom_id: UUID,
-    request: BOMCreateSchema,
-    _permission: None = Depends(require_permission("manufacturing:update")),
+async def update_maintenance_asset(
+    asset_id: UUID,
+    request: MaintenanceAssetUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _permission: None = Depends(require_permission("maintenance:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> BOMResponseSchema:
-    """Update Bill of Materials."""
+    service: Any = Depends(get_maintenance_service),
+) -> MaintenanceAssetResponseSchema:
+    method_name = "update_maintenance_asset"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return MaintenanceAssetResponseSchema(**cached)
+
     try:
-        result = await service.update_bom(
-            bom_id=bom_id,
-            bom_name=request.bom_name,
-            effective_date=request.effective_date,
-            expiry_date=request.expiry_date,
-            is_default=request.is_default,
-            lines=[line.dict() for line in request.lines],
-            notes=request.notes,
-            updated_by=current_user.user_id,
+        result = await service.update_maintenance_asset(
+            asset_id=asset_id,
             legal_entity_id=legal_entity_id,
+            asset_name=request.asset_name,
+            location=request.location,
+            status=request.status.value if request.status else None,
+            maintenance_interval_days=request.maintenance_interval_days,
+            notes=request.notes,
+            is_active=request.is_active,
+            updated_by=current_user.user_id,
         )
-
         if not result:
-            raise HTTPException(status_code=404, detail="BOM not found or cannot be updated")
-
-        return BOMResponseSchema(
+            raise HTTPException(status_code=404, detail="Asset not found")
+        response = MaintenanceAssetResponseSchema(
             id=result.id,
-            bom_code=result.bom_code,
-            bom_name=result.bom_name,
-            product_id=result.product_id,
-            product_code=result.product_code,
-            product_name=result.product_name,
-            bom_version=result.bom_version,
-            effective_date=result.effective_date,
-            expiry_date=result.expiry_date,
-            status=BOMStatus(result.status),
-            is_default=result.is_default,
-            lines=result.lines,
+            asset_code=result.asset_code,
+            asset_name=result.asset_name,
+            asset_category=result.asset_category,
+            location=result.location,
+            serial_number=result.serial_number,
+            manufacturer=result.manufacturer,
+            model=result.model,
+            purchase_date=result.purchase_date,
+            warranty_expiry_date=result.warranty_expiry_date,
+            maintenance_interval_days=result.maintenance_interval_days,
+            status=MaintenanceAssetStatus(result.status),
+            is_active=result.is_active,
+            is_locked=result.is_locked,
             notes=result.notes,
             created_at=result.created_at,
             updated_at=result.updated_at,
@@ -815,95 +709,110 @@ async def update_bom(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to update BOM: %s", e)
+        logger.exception("Failed to update maintenance asset: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.delete(
-    "/bom/{bom_id}",
+    "/assets/{asset_id}",
     response_model=dict[str, Any],
-    summary="Deactivate BOM",
-    operation_id="deactivate_bom",
+    summary="Deactivate/archive maintenance asset",
+    operation_id="deactivate_maintenance_asset",
 )
-async def deactivate_bom(
-    bom_id: UUID,
-    reason: str = Query("", description="Reason for deactivation"),
-    _permission: None = Depends(require_permission("manufacturing:delete")),
+async def deactivate_maintenance_asset(
+    asset_id: UUID,
+    reason: str = Query("", description="Reason"),
+    _permission: None = Depends(require_permission("maintenance:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
+    service: Any = Depends(get_maintenance_service),
 ) -> dict[str, Any]:
-    """Deactivate a Bill of Materials."""
     try:
-        result = await service.deactivate_bom(bom_id, current_user.user_id, legal_entity_id, reason)
-
+        result = await service.deactivate_maintenance_asset(
+            asset_id, legal_entity_id, current_user.user_id, reason
+        )
         if not result:
-            raise HTTPException(status_code=404, detail="BOM not found")
-
+            raise HTTPException(status_code=404, detail="Asset not found")
         return {
-            "bom_id": str(bom_id),
-            "bom_code": result.bom_code,
+            "asset_id": str(asset_id),
+            "asset_code": result.asset_code,
             "status": result.status,
-            "message": "BOM deactivated",
+            "message": "Asset deactivated",
         }
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to deactivate BOM: %s", e)
+        logger.exception("Failed to deactivate maintenance asset: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ----------------------------------------------------------------------------
-# ROUTING
+# MAINTENANCE SCHEDULE
 # ----------------------------------------------------------------------------
 
 
 @router.post(
-    "/routing",
-    response_model=RoutingResponseSchema,
+    "/schedules",
+    response_model=MaintenanceScheduleResponseSchema,
     status_code=status.HTTP_201_CREATED,
-    summary="Create Routing",
-    operation_id="create_routing",
+    summary="Create maintenance schedule",
+    operation_id="create_maintenance_schedule",
 )
-async def create_routing(
-    request: RoutingCreateSchema,
-    _permission: None = Depends(require_permission("manufacturing:create")),
+async def create_maintenance_schedule(
+    request: MaintenanceScheduleCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _permission: None = Depends(require_permission("maintenance:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> RoutingResponseSchema:
-    """Create a new Routing."""
-    try:
-        result = await service.create_routing(
-            routing_code=request.routing_code,
-            routing_name=request.routing_name,
-            product_id=request.product_id,
-            routing_version=request.routing_version,
-            effective_date=request.effective_date,
-            expiry_date=request.expiry_date,
-            is_default=request.is_default,
-            steps=[step.dict() for step in request.steps],
-            notes=request.notes,
-            created_by=current_user.user_id,
-            legal_entity_id=legal_entity_id,
-        )
+    service: Any = Depends(get_maintenance_service),
+) -> MaintenanceScheduleResponseSchema:
+    method_name = "create_maintenance_schedule"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return MaintenanceScheduleResponseSchema(**cached)
 
-        return RoutingResponseSchema(
+    try:
+        result = await service.create_maintenance_schedule(
+            legal_entity_id=legal_entity_id,
+            asset_id=request.asset_id,
+            schedule_code=request.schedule_code,
+            schedule_name=request.schedule_name,
+            maintenance_type=request.maintenance_type.value,
+            frequency=request.frequency.value,
+            custom_interval_days=request.custom_interval_days,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            estimated_duration_hours=request.estimated_duration_hours,
+            assigned_team=request.assigned_team,
+            notes=request.notes,
+            is_active=request.is_active,
+            created_by=current_user.user_id,
+        )
+        response = MaintenanceScheduleResponseSchema(
             id=result.id,
-            routing_code=result.routing_code,
-            routing_name=result.routing_name,
-            product_id=result.product_id,
-            product_code=result.product_code,
-            product_name=result.product_name,
-            routing_version=result.routing_version,
-            effective_date=result.effective_date,
-            expiry_date=result.expiry_date,
-            status=RoutingStatus(result.status),
-            is_default=result.is_default,
-            steps=result.steps,
+            asset_id=result.asset_id,
+            asset_code=result.asset_code,
+            asset_name=result.asset_name,
+            schedule_code=result.schedule_code,
+            schedule_name=result.schedule_name,
+            maintenance_type=MaintenanceType(result.maintenance_type),
+            frequency=ScheduleFrequency(result.frequency),
+            custom_interval_days=result.custom_interval_days,
+            start_date=result.start_date,
+            end_date=result.end_date,
+            estimated_duration_hours=result.estimated_duration_hours,
+            assigned_team=result.assigned_team,
+            status=result.status,
+            is_active=result.is_active,
+            next_due_date=result.next_due_date,
             notes=result.notes,
             created_at=result.created_at,
             updated_at=result.updated_at,
@@ -911,1010 +820,777 @@ async def create_routing(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create routing: %s", e)
+        logger.exception("Failed to create maintenance schedule: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get(
-    "/routing",
-    response_model=list[RoutingResponseSchema],
-    summary="List Routings",
-    operation_id="list_routing",
+    "/schedules",
+    response_model=list[MaintenanceScheduleResponseSchema],
+    summary="List maintenance schedules",
+    operation_id="list_maintenance_schedules",
 )
-async def list_routing(
-    product_id: UUID | None = Query(None, description="Filter by product"),
-    is_default: bool | None = Query(None, description="Filter by default"),
-    status: RoutingStatus | None = Query(None, description="Filter by status"),
-    _permission: None = Depends(require_permission("manufacturing:read")),
+async def list_maintenance_schedules(
+    asset_id: UUID | None = Query(None, description="Filter by asset"),
+    maintenance_type: MaintenanceType | None = Query(None),
+    is_active: bool | None = Query(None),
+    _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> list[RoutingResponseSchema]:
-    """List Routings with filters."""
+    service: Any = Depends(get_maintenance_service),
+) -> list[MaintenanceScheduleResponseSchema]:
     try:
-        routings = await service.list_routings(
+        schedules = await service.list_maintenance_schedules(
             legal_entity_id=legal_entity_id,
-            product_id=product_id,
-            is_default=is_default,
-            status=status.value if status else None,
+            asset_id=asset_id,
+            maintenance_type=maintenance_type.value if maintenance_type else None,
+            is_active=is_active,
         )
-
         return [
-            RoutingResponseSchema(
-                id=r.id,
-                routing_code=r.routing_code,
-                routing_name=r.routing_name,
-                product_id=r.product_id,
-                product_code=r.product_code,
-                product_name=r.product_name,
-                routing_version=r.routing_version,
-                effective_date=r.effective_date,
-                expiry_date=r.expiry_date,
-                status=RoutingStatus(r.status),
-                is_default=r.is_default,
-                steps=r.steps,
-                notes=r.notes,
-                created_at=r.created_at,
-                updated_at=r.updated_at,
-                created_by=r.created_by,
-                created_by_name=r.created_by_name,
-                version=r.version,
+            MaintenanceScheduleResponseSchema(
+                id=s.id,
+                asset_id=s.asset_id,
+                asset_code=s.asset_code,
+                asset_name=s.asset_name,
+                schedule_code=s.schedule_code,
+                schedule_name=s.schedule_name,
+                maintenance_type=MaintenanceType(s.maintenance_type),
+                frequency=ScheduleFrequency(s.frequency),
+                custom_interval_days=s.custom_interval_days,
+                start_date=s.start_date,
+                end_date=s.end_date,
+                estimated_duration_hours=s.estimated_duration_hours,
+                assigned_team=s.assigned_team,
+                status=s.status,
+                is_active=s.is_active,
+                next_due_date=s.next_due_date,
+                notes=s.notes,
+                created_at=s.created_at,
+                updated_at=s.updated_at,
+                created_by=s.created_by,
+                created_by_name=s.created_by_name,
+                version=s.version,
             )
-            for r in routings
+            for s in schedules
         ]
     except Exception as e:
-        logger.exception("Failed to list routing: %s", e)
+        logger.exception("Failed to list maintenance schedules: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get(
-    "/routing/{routing_id}",
-    response_model=RoutingResponseSchema,
-    summary="Get Routing by ID",
-    operation_id="get_routing",
+    "/schedules/{schedule_id}",
+    response_model=MaintenanceScheduleResponseSchema,
+    summary="Get maintenance schedule by ID",
+    operation_id="get_maintenance_schedule",
 )
-async def get_routing(
-    routing_id: UUID,
-    _permission: None = Depends(require_permission("manufacturing:read")),
+async def get_maintenance_schedule(
+    schedule_id: UUID,
+    _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> RoutingResponseSchema:
-    """Get Routing by ID."""
+    service: Any = Depends(get_maintenance_service),
+) -> MaintenanceScheduleResponseSchema:
     try:
-        routing = await service.get_routing_by_id(routing_id, legal_entity_id)
-
-        if not routing:
-            raise HTTPException(status_code=404, detail="Routing not found")
-
-        return RoutingResponseSchema(
-            id=routing.id,
-            routing_code=routing.routing_code,
-            routing_name=routing.routing_name,
-            product_id=routing.product_id,
-            product_code=routing.product_code,
-            product_name=routing.product_name,
-            routing_version=routing.routing_version,
-            effective_date=routing.effective_date,
-            expiry_date=routing.expiry_date,
-            status=RoutingStatus(routing.status),
-            is_default=routing.is_default,
-            steps=routing.steps,
-            notes=routing.notes,
-            created_at=routing.created_at,
-            updated_at=routing.updated_at,
-            created_by=routing.created_by,
-            created_by_name=routing.created_by_name,
-            version=routing.version,
+        schedule = await service.get_maintenance_schedule_by_id(schedule_id, legal_entity_id)
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        return MaintenanceScheduleResponseSchema(
+            id=schedule.id,
+            asset_id=schedule.asset_id,
+            asset_code=schedule.asset_code,
+            asset_name=schedule.asset_name,
+            schedule_code=schedule.schedule_code,
+            schedule_name=schedule.schedule_name,
+            maintenance_type=MaintenanceType(schedule.maintenance_type),
+            frequency=ScheduleFrequency(schedule.frequency),
+            custom_interval_days=schedule.custom_interval_days,
+            start_date=schedule.start_date,
+            end_date=schedule.end_date,
+            estimated_duration_hours=schedule.estimated_duration_hours,
+            assigned_team=schedule.assigned_team,
+            status=schedule.status,
+            is_active=schedule.is_active,
+            next_due_date=schedule.next_due_date,
+            notes=schedule.notes,
+            created_at=schedule.created_at,
+            updated_at=schedule.updated_at,
+            created_by=schedule.created_by,
+            created_by_name=schedule.created_by_name,
+            version=schedule.version,
         )
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get routing: %s", e)
+        logger.exception("Failed to get maintenance schedule: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-# ----------------------------------------------------------------------------
-# WORK ORDER
-# ----------------------------------------------------------------------------
-
-
-@router.post(
-    "/work-orders",
-    response_model=WorkOrderResponseSchema,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create Work Order",
-    operation_id="create_work_order",
+@router.put(
+    "/schedules/{schedule_id}",
+    response_model=MaintenanceScheduleResponseSchema,
+    summary="Update maintenance schedule",
+    operation_id="update_maintenance_schedule",
 )
-async def create_work_order(
-    request: WorkOrderCreateSchema,
-    _permission: None = Depends(require_permission("manufacturing:create")),
+async def update_maintenance_schedule(
+    schedule_id: UUID,
+    request: MaintenanceScheduleUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _permission: None = Depends(require_permission("maintenance:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> WorkOrderResponseSchema:
-    """Create a new Work Order."""
-    try:
-        result = await service.create_work_order(
-            work_order_number=request.work_order_number,
-            product_id=request.product_id,
-            planned_quantity=request.planned_quantity,
-            planned_start_date=request.planned_start_date,
-            planned_end_date=request.planned_end_date,
-            bom_id=request.bom_id,
-            routing_id=request.routing_id,
-            cost_center=request.cost_center,
-            priority=request.priority,
-            notes=request.notes,
-            created_by=current_user.user_id,
-            legal_entity_id=legal_entity_id,
-        )
+    service: Any = Depends(get_maintenance_service),
+) -> MaintenanceScheduleResponseSchema:
+    method_name = "update_maintenance_schedule"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return MaintenanceScheduleResponseSchema(**cached)
 
-        return WorkOrderResponseSchema(
+    try:
+        result = await service.update_maintenance_schedule(
+            schedule_id=schedule_id,
+            legal_entity_id=legal_entity_id,
+            schedule_name=request.schedule_name,
+            frequency=request.frequency.value if request.frequency else None,
+            custom_interval_days=request.custom_interval_days,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            estimated_duration_hours=request.estimated_duration_hours,
+            assigned_team=request.assigned_team,
+            notes=request.notes,
+            is_active=request.is_active,
+            updated_by=current_user.user_id,
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        response = MaintenanceScheduleResponseSchema(
             id=result.id,
-            work_order_number=result.work_order_number,
-            product_id=result.product_id,
-            product_code=result.product_code,
-            product_name=result.product_name,
-            planned_quantity=result.planned_quantity,
-            completed_quantity=result.completed_quantity,
-            rejected_quantity=result.rejected_quantity,
-            remaining_quantity=result.remaining_quantity,
-            bom_id=result.bom_id,
-            bom_code=result.bom_code,
-            routing_id=result.routing_id,
-            routing_code=result.routing_code,
-            planned_start_date=result.planned_start_date,
-            planned_end_date=result.planned_end_date,
-            actual_start_date=result.actual_start_date,
-            actual_end_date=result.actual_end_date,
-            standard_material_cost=result.standard_material_cost,
-            standard_labor_cost=result.standard_labor_cost,
-            standard_overhead_cost=result.standard_overhead_cost,
-            standard_total_cost=result.standard_total_cost,
-            actual_material_cost=result.actual_material_cost,
-            actual_labor_cost=result.actual_labor_cost,
-            actual_overhead_cost=result.actual_overhead_cost,
-            actual_total_cost=result.actual_total_cost,
-            material_variance=result.material_variance,
-            labor_variance=result.labor_variance,
-            overhead_variance=result.overhead_variance,
-            total_variance=result.total_variance,
-            status=WorkOrderStatus(result.status),
-            priority=result.priority,
-            cost_center=result.cost_center,
+            asset_id=result.asset_id,
+            asset_code=result.asset_code,
+            asset_name=result.asset_name,
+            schedule_code=result.schedule_code,
+            schedule_name=result.schedule_name,
+            maintenance_type=MaintenanceType(result.maintenance_type),
+            frequency=ScheduleFrequency(result.frequency),
+            custom_interval_days=result.custom_interval_days,
+            start_date=result.start_date,
+            end_date=result.end_date,
+            estimated_duration_hours=result.estimated_duration_hours,
+            assigned_team=result.assigned_team,
+            status=result.status,
+            is_active=result.is_active,
+            next_due_date=result.next_due_date,
             notes=result.notes,
             created_at=result.created_at,
             updated_at=result.updated_at,
             created_by=result.created_by,
             created_by_name=result.created_by_name,
             version=result.version,
-            is_locked=result.is_locked,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to create work order: %s", e)
+        logger.exception("Failed to update maintenance schedule: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete(
+    "/schedules/{schedule_id}",
+    response_model=dict[str, Any],
+    summary="Deactivate maintenance schedule",
+    operation_id="deactivate_maintenance_schedule",
+)
+async def deactivate_maintenance_schedule(
+    schedule_id: UUID,
+    reason: str = Query("", description="Reason"),
+    _permission: None = Depends(require_permission("maintenance:delete")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_maintenance_service),
+) -> dict[str, Any]:
+    try:
+        result = await service.deactivate_maintenance_schedule(
+            schedule_id, legal_entity_id, current_user.user_id, reason
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        return {
+            "schedule_id": str(schedule_id),
+            "schedule_code": result.schedule_code,
+            "status": result.status,
+            "message": "Schedule deactivated",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to deactivate maintenance schedule: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# WORK ORDER MAINTENANCE
+# ----------------------------------------------------------------------------
+
+
+@router.post(
+    "/work-orders",
+    response_model=WorkOrderMaintenanceResponseSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create maintenance work order",
+    operation_id="create_maintenance_work_order",
+)
+async def create_maintenance_work_order(
+    request: WorkOrderMaintenanceCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _permission: None = Depends(require_permission("maintenance:create")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_maintenance_service),
+) -> WorkOrderMaintenanceResponseSchema:
+    method_name = "create_maintenance_work_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return WorkOrderMaintenanceResponseSchema(**cached)
+
+    try:
+        result = await service.create_maintenance_work_order(
+            legal_entity_id=legal_entity_id,
+            wo_number=request.wo_number,
+            asset_id=request.asset_id,
+            schedule_id=request.schedule_id,
+            maintenance_type=request.maintenance_type.value,
+            priority=request.priority.value,
+            description=request.description,
+            requested_by=request.requested_by,
+            planned_start_date=request.planned_start_date,
+            planned_end_date=request.planned_end_date,
+            estimated_cost=request.estimated_cost,
+            notes=request.notes,
+            created_by=current_user.user_id,
+        )
+        response = WorkOrderMaintenanceResponseSchema(
+            id=result.id,
+            wo_number=result.wo_number,
+            asset_id=result.asset_id,
+            asset_code=result.asset_code,
+            asset_name=result.asset_name,
+            schedule_id=result.schedule_id,
+            maintenance_type=MaintenanceType(result.maintenance_type),
+            priority=MaintenancePriority(result.priority),
+            description=result.description,
+            requested_by=result.requested_by,
+            requested_by_name=result.requested_by_name,
+            assigned_technician_id=result.assigned_technician_id,
+            assigned_technician_name=result.assigned_technician_name,
+            planned_start_date=result.planned_start_date,
+            planned_end_date=result.planned_end_date,
+            actual_start_date=result.actual_start_date,
+            actual_end_date=result.actual_end_date,
+            estimated_cost=result.estimated_cost,
+            actual_cost=result.actual_cost,
+            status=WorkOrderStatus(result.status),
+            is_locked=result.is_locked,
+            notes=result.notes,
+            created_at=result.created_at,
+            updated_at=result.updated_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
+            completed_at=result.completed_at,
+            completed_by=result.completed_by,
+            version=result.version,
+        )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to create maintenance work order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get(
     "/work-orders",
-    response_model=list[WorkOrderResponseSchema],
-    summary="List Work Orders",
-    operation_id="list_work_orders",
+    response_model=list[WorkOrderMaintenanceResponseSchema],
+    summary="List maintenance work orders",
+    operation_id="list_maintenance_work_orders",
 )
-async def list_work_orders(
-    product_id: UUID | None = Query(None, description="Filter by product"),
+async def list_maintenance_work_orders(
+    asset_id: UUID | None = Query(None, description="Filter by asset"),
     status: WorkOrderStatus | None = Query(None, description="Filter by status"),
+    priority: MaintenancePriority | None = Query(None, description="Filter by priority"),
     start_date: date | None = Query(None, description="Start date"),
     end_date: date | None = Query(None, description="End date"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
-    _permission: None = Depends(require_permission("manufacturing:read")),
+    _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> list[WorkOrderResponseSchema]:
-    """List Work Orders with pagination and filters."""
+    service: Any = Depends(get_maintenance_service),
+) -> list[WorkOrderMaintenanceResponseSchema]:
     try:
-        result = await service.list_work_orders(
+        result = await service.list_maintenance_work_orders(
             legal_entity_id=legal_entity_id,
-            product_id=product_id,
+            asset_id=asset_id,
             status=status.value if status else None,
+            priority=priority.value if priority else None,
             start_date=start_date,
             end_date=end_date,
             page=page,
             page_size=page_size,
         )
-
         return [
-            WorkOrderResponseSchema(
+            WorkOrderMaintenanceResponseSchema(
                 id=wo.id,
-                work_order_number=wo.work_order_number,
-                product_id=wo.product_id,
-                product_code=wo.product_code,
-                product_name=wo.product_name,
-                planned_quantity=wo.planned_quantity,
-                completed_quantity=wo.completed_quantity,
-                rejected_quantity=wo.rejected_quantity,
-                remaining_quantity=wo.remaining_quantity,
-                bom_id=wo.bom_id,
-                bom_code=wo.bom_code,
-                routing_id=wo.routing_id,
-                routing_code=wo.routing_code,
+                wo_number=wo.wo_number,
+                asset_id=wo.asset_id,
+                asset_code=wo.asset_code,
+                asset_name=wo.asset_name,
+                schedule_id=wo.schedule_id,
+                maintenance_type=MaintenanceType(wo.maintenance_type),
+                priority=MaintenancePriority(wo.priority),
+                description=wo.description,
+                requested_by=wo.requested_by,
+                requested_by_name=wo.requested_by_name,
+                assigned_technician_id=wo.assigned_technician_id,
+                assigned_technician_name=wo.assigned_technician_name,
                 planned_start_date=wo.planned_start_date,
                 planned_end_date=wo.planned_end_date,
                 actual_start_date=wo.actual_start_date,
                 actual_end_date=wo.actual_end_date,
-                standard_material_cost=wo.standard_material_cost,
-                standard_labor_cost=wo.standard_labor_cost,
-                standard_overhead_cost=wo.standard_overhead_cost,
-                standard_total_cost=wo.standard_total_cost,
-                actual_material_cost=wo.actual_material_cost,
-                actual_labor_cost=wo.actual_labor_cost,
-                actual_overhead_cost=wo.actual_overhead_cost,
-                actual_total_cost=wo.actual_total_cost,
-                material_variance=wo.material_variance,
-                labor_variance=wo.labor_variance,
-                overhead_variance=wo.overhead_variance,
-                total_variance=wo.total_variance,
+                estimated_cost=wo.estimated_cost,
+                actual_cost=wo.actual_cost,
                 status=WorkOrderStatus(wo.status),
-                priority=wo.priority,
-                cost_center=wo.cost_center,
+                is_locked=wo.is_locked,
                 notes=wo.notes,
                 created_at=wo.created_at,
                 updated_at=wo.updated_at,
                 created_by=wo.created_by,
                 created_by_name=wo.created_by_name,
+                completed_at=wo.completed_at,
+                completed_by=wo.completed_by,
                 version=wo.version,
-                is_locked=wo.is_locked,
             )
             for wo in result.items
         ]
     except Exception as e:
-        logger.exception("Failed to list work orders: %s", e)
+        logger.exception("Failed to list maintenance work orders: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get(
-    "/work-orders/{work_order_id}",
-    response_model=WorkOrderResponseSchema,
-    summary="Get Work Order by ID",
-    operation_id="get_work_order",
+    "/work-orders/{wo_id}",
+    response_model=WorkOrderMaintenanceResponseSchema,
+    summary="Get maintenance work order by ID",
+    operation_id="get_maintenance_work_order",
 )
-async def get_work_order(
-    work_order_id: UUID,
-    _permission: None = Depends(require_permission("manufacturing:read")),
+async def get_maintenance_work_order(
+    wo_id: UUID,
+    _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> WorkOrderResponseSchema:
-    """Get Work Order by ID."""
+    service: Any = Depends(get_maintenance_service),
+) -> WorkOrderMaintenanceResponseSchema:
     try:
-        wo = await service.get_work_order_by_id(work_order_id, legal_entity_id)
-
+        wo = await service.get_maintenance_work_order_by_id(wo_id, legal_entity_id)
         if not wo:
             raise HTTPException(status_code=404, detail="Work order not found")
-
-        return WorkOrderResponseSchema(
+        return WorkOrderMaintenanceResponseSchema(
             id=wo.id,
-            work_order_number=wo.work_order_number,
-            product_id=wo.product_id,
-            product_code=wo.product_code,
-            product_name=wo.product_name,
-            planned_quantity=wo.planned_quantity,
-            completed_quantity=wo.completed_quantity,
-            rejected_quantity=wo.rejected_quantity,
-            remaining_quantity=wo.remaining_quantity,
-            bom_id=wo.bom_id,
-            bom_code=wo.bom_code,
-            routing_id=wo.routing_id,
-            routing_code=wo.routing_code,
+            wo_number=wo.wo_number,
+            asset_id=wo.asset_id,
+            asset_code=wo.asset_code,
+            asset_name=wo.asset_name,
+            schedule_id=wo.schedule_id,
+            maintenance_type=MaintenanceType(wo.maintenance_type),
+            priority=MaintenancePriority(wo.priority),
+            description=wo.description,
+            requested_by=wo.requested_by,
+            requested_by_name=wo.requested_by_name,
+            assigned_technician_id=wo.assigned_technician_id,
+            assigned_technician_name=wo.assigned_technician_name,
             planned_start_date=wo.planned_start_date,
             planned_end_date=wo.planned_end_date,
             actual_start_date=wo.actual_start_date,
             actual_end_date=wo.actual_end_date,
-            standard_material_cost=wo.standard_material_cost,
-            standard_labor_cost=wo.standard_labor_cost,
-            standard_overhead_cost=wo.standard_overhead_cost,
-            standard_total_cost=wo.standard_total_cost,
-            actual_material_cost=wo.actual_material_cost,
-            actual_labor_cost=wo.actual_labor_cost,
-            actual_overhead_cost=wo.actual_overhead_cost,
-            actual_total_cost=wo.actual_total_cost,
-            material_variance=wo.material_variance,
-            labor_variance=wo.labor_variance,
-            overhead_variance=wo.overhead_variance,
-            total_variance=wo.total_variance,
+            estimated_cost=wo.estimated_cost,
+            actual_cost=wo.actual_cost,
             status=WorkOrderStatus(wo.status),
-            priority=wo.priority,
-            cost_center=wo.cost_center,
+            is_locked=wo.is_locked,
             notes=wo.notes,
             created_at=wo.created_at,
             updated_at=wo.updated_at,
             created_by=wo.created_by,
             created_by_name=wo.created_by_name,
+            completed_at=wo.completed_at,
+            completed_by=wo.completed_by,
             version=wo.version,
-            is_locked=wo.is_locked,
         )
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to get work order: %s", e)
+        logger.exception("Failed to get maintenance work order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.put(
-    "/work-orders/{work_order_id}",
-    response_model=WorkOrderResponseSchema,
-    summary="Update Work Order",
-    operation_id="update_work_order",
+    "/work-orders/{wo_id}",
+    response_model=WorkOrderMaintenanceResponseSchema,
+    summary="Update maintenance work order",
+    operation_id="update_maintenance_work_order",
 )
-async def update_work_order(
-    work_order_id: UUID,
-    request: WorkOrderUpdateSchema,
-    _permission: None = Depends(require_permission("manufacturing:update")),
+async def update_maintenance_work_order(
+    wo_id: UUID,
+    request: WorkOrderMaintenanceUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _permission: None = Depends(require_permission("maintenance:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> WorkOrderResponseSchema:
-    """Update Work Order (only PLANNED or DRAFT status)."""
+    service: Any = Depends(get_maintenance_service),
+) -> WorkOrderMaintenanceResponseSchema:
+    method_name = "update_maintenance_work_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return WorkOrderMaintenanceResponseSchema(**cached)
+
     try:
-        result = await service.update_work_order(
-            work_order_id=work_order_id,
-            planned_quantity=request.planned_quantity,
+        result = await service.update_maintenance_work_order(
+            wo_id=wo_id,
+            legal_entity_id=legal_entity_id,
+            description=request.description,
+            priority=request.priority.value if request.priority else None,
             planned_start_date=request.planned_start_date,
             planned_end_date=request.planned_end_date,
-            bom_id=request.bom_id,
-            routing_id=request.routing_id,
-            cost_center=request.cost_center,
-            priority=request.priority,
+            estimated_cost=request.estimated_cost,
             notes=request.notes,
+            assigned_technician_id=request.assigned_technician_id,
             status=request.status.value if request.status else None,
             updated_by=current_user.user_id,
-            legal_entity_id=legal_entity_id,
         )
-
         if not result:
-            raise HTTPException(status_code=404, detail="Work order not found or cannot be updated")
-
-        return WorkOrderResponseSchema(
+            raise HTTPException(status_code=404, detail="Work order not found")
+        response = WorkOrderMaintenanceResponseSchema(
             id=result.id,
-            work_order_number=result.work_order_number,
-            product_id=result.product_id,
-            product_code=result.product_code,
-            product_name=result.product_name,
-            planned_quantity=result.planned_quantity,
-            completed_quantity=result.completed_quantity,
-            rejected_quantity=result.rejected_quantity,
-            remaining_quantity=result.remaining_quantity,
-            bom_id=result.bom_id,
-            bom_code=result.bom_code,
-            routing_id=result.routing_id,
-            routing_code=result.routing_code,
+            wo_number=result.wo_number,
+            asset_id=result.asset_id,
+            asset_code=result.asset_code,
+            asset_name=result.asset_name,
+            schedule_id=result.schedule_id,
+            maintenance_type=MaintenanceType(result.maintenance_type),
+            priority=MaintenancePriority(result.priority),
+            description=result.description,
+            requested_by=result.requested_by,
+            requested_by_name=result.requested_by_name,
+            assigned_technician_id=result.assigned_technician_id,
+            assigned_technician_name=result.assigned_technician_name,
             planned_start_date=result.planned_start_date,
             planned_end_date=result.planned_end_date,
             actual_start_date=result.actual_start_date,
             actual_end_date=result.actual_end_date,
-            standard_material_cost=result.standard_material_cost,
-            standard_labor_cost=result.standard_labor_cost,
-            standard_overhead_cost=result.standard_overhead_cost,
-            standard_total_cost=result.standard_total_cost,
-            actual_material_cost=result.actual_material_cost,
-            actual_labor_cost=result.actual_labor_cost,
-            actual_overhead_cost=result.actual_overhead_cost,
-            actual_total_cost=result.actual_total_cost,
-            material_variance=result.material_variance,
-            labor_variance=result.labor_variance,
-            overhead_variance=result.overhead_variance,
-            total_variance=result.total_variance,
+            estimated_cost=result.estimated_cost,
+            actual_cost=result.actual_cost,
             status=WorkOrderStatus(result.status),
-            priority=result.priority,
-            cost_center=result.cost_center,
+            is_locked=result.is_locked,
             notes=result.notes,
             created_at=result.created_at,
             updated_at=result.updated_at,
             created_by=result.created_by,
             created_by_name=result.created_by_name,
+            completed_at=result.completed_at,
+            completed_by=result.completed_by,
             version=result.version,
-            is_locked=result.is_locked,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to update work order: %s", e)
+        logger.exception("Failed to update maintenance work order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post(
-    "/work-orders/{work_order_id}/release",
-    response_model=WorkOrderResponseSchema,
-    summary="Release Work Order",
-    operation_id="release_work_order",
+    "/work-orders/{wo_id}/complete",
+    response_model=WorkOrderMaintenanceResponseSchema,
+    summary="Complete maintenance work order",
+    operation_id="complete_maintenance_work_order",
 )
-async def release_work_order(
-    work_order_id: UUID,
-    request: WorkOrderReleaseSchema,
-    _permission: None = Depends(require_permission("manufacturing:release")),
+async def complete_maintenance_work_order(
+    wo_id: UUID,
+    actual_end_date: date = Query(default_factory=date.today, description="Actual end date"),
+    actual_cost: Decimal = Query(0, ge=0, decimal_places=2, description="Actual cost"),
+    notes: str = Query("", description="Completion notes"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _permission: None = Depends(require_permission("maintenance:complete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> WorkOrderResponseSchema:
-    """Release a planned work order to production."""
+    service: Any = Depends(get_maintenance_service),
+) -> WorkOrderMaintenanceResponseSchema:
+    method_name = "complete_maintenance_work_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return WorkOrderMaintenanceResponseSchema(**cached)
+
     try:
-        result = await service.release_work_order(
-            work_order_id=work_order_id,
-            actual_start_date=request.actual_start_date,
-            notes=request.notes,
-            released_by=current_user.user_id,
+        result = await service.complete_maintenance_work_order(
+            wo_id=wo_id,
             legal_entity_id=legal_entity_id,
-        )
-
-        if not result:
-            raise HTTPException(
-                status_code=404, detail="Work order not found or cannot be released"
-            )
-
-        return WorkOrderResponseSchema(
-            id=result.id,
-            work_order_number=result.work_order_number,
-            product_id=result.product_id,
-            product_code=result.product_code,
-            product_name=result.product_name,
-            planned_quantity=result.planned_quantity,
-            completed_quantity=result.completed_quantity,
-            rejected_quantity=result.rejected_quantity,
-            remaining_quantity=result.remaining_quantity,
-            bom_id=result.bom_id,
-            bom_code=result.bom_code,
-            routing_id=result.routing_id,
-            routing_code=result.routing_code,
-            planned_start_date=result.planned_start_date,
-            planned_end_date=result.planned_end_date,
-            actual_start_date=result.actual_start_date,
-            actual_end_date=result.actual_end_date,
-            standard_material_cost=result.standard_material_cost,
-            standard_labor_cost=result.standard_labor_cost,
-            standard_overhead_cost=result.standard_overhead_cost,
-            standard_total_cost=result.standard_total_cost,
-            actual_material_cost=result.actual_material_cost,
-            actual_labor_cost=result.actual_labor_cost,
-            actual_overhead_cost=result.actual_overhead_cost,
-            actual_total_cost=result.actual_total_cost,
-            material_variance=result.material_variance,
-            labor_variance=result.labor_variance,
-            overhead_variance=result.overhead_variance,
-            total_variance=result.total_variance,
-            status=WorkOrderStatus(result.status),
-            priority=result.priority,
-            cost_center=result.cost_center,
-            notes=result.notes,
-            created_at=result.created_at,
-            updated_at=result.updated_at,
-            created_by=result.created_by,
-            created_by_name=result.created_by_name,
-            version=result.version,
-            is_locked=result.is_locked,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        logger.exception("Failed to release work order: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.post(
-    "/work-orders/{work_order_id}/complete",
-    response_model=WorkOrderResponseSchema,
-    summary="Complete Work Order",
-    operation_id="complete_work_order",
-)
-async def complete_work_order(
-    work_order_id: UUID,
-    request: WorkOrderCompletionSchema,
-    _permission: None = Depends(require_permission("manufacturing:complete")),
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> WorkOrderResponseSchema:
-    """Complete a work order (record finished goods)."""
-    try:
-        result = await service.complete_work_order(
-            work_order_id=work_order_id,
-            completed_quantity=request.completed_quantity,
-            rejected_quantity=request.rejected_quantity,
-            actual_end_date=request.actual_end_date,
-            notes=request.notes,
+            actual_end_date=actual_end_date,
+            actual_cost=actual_cost,
+            notes=notes,
             completed_by=current_user.user_id,
-            legal_entity_id=legal_entity_id,
         )
-
         if not result:
-            raise HTTPException(
-                status_code=404, detail="Work order not found or cannot be completed"
-            )
-
-        return WorkOrderResponseSchema(
+            raise HTTPException(status_code=404, detail="Work order not found or cannot be completed")
+        response = WorkOrderMaintenanceResponseSchema(
             id=result.id,
-            work_order_number=result.work_order_number,
-            product_id=result.product_id,
-            product_code=result.product_code,
-            product_name=result.product_name,
-            planned_quantity=result.planned_quantity,
-            completed_quantity=result.completed_quantity,
-            rejected_quantity=result.rejected_quantity,
-            remaining_quantity=result.remaining_quantity,
-            bom_id=result.bom_id,
-            bom_code=result.bom_code,
-            routing_id=result.routing_id,
-            routing_code=result.routing_code,
+            wo_number=result.wo_number,
+            asset_id=result.asset_id,
+            asset_code=result.asset_code,
+            asset_name=result.asset_name,
+            schedule_id=result.schedule_id,
+            maintenance_type=MaintenanceType(result.maintenance_type),
+            priority=MaintenancePriority(result.priority),
+            description=result.description,
+            requested_by=result.requested_by,
+            requested_by_name=result.requested_by_name,
+            assigned_technician_id=result.assigned_technician_id,
+            assigned_technician_name=result.assigned_technician_name,
             planned_start_date=result.planned_start_date,
             planned_end_date=result.planned_end_date,
             actual_start_date=result.actual_start_date,
             actual_end_date=result.actual_end_date,
-            standard_material_cost=result.standard_material_cost,
-            standard_labor_cost=result.standard_labor_cost,
-            standard_overhead_cost=result.standard_overhead_cost,
-            standard_total_cost=result.standard_total_cost,
-            actual_material_cost=result.actual_material_cost,
-            actual_labor_cost=result.actual_labor_cost,
-            actual_overhead_cost=result.actual_overhead_cost,
-            actual_total_cost=result.actual_total_cost,
-            material_variance=result.material_variance,
-            labor_variance=result.labor_variance,
-            overhead_variance=result.overhead_variance,
-            total_variance=result.total_variance,
+            estimated_cost=result.estimated_cost,
+            actual_cost=result.actual_cost,
             status=WorkOrderStatus(result.status),
-            priority=result.priority,
-            cost_center=result.cost_center,
+            is_locked=result.is_locked,
             notes=result.notes,
             created_at=result.created_at,
             updated_at=result.updated_at,
             created_by=result.created_by,
             created_by_name=result.created_by_name,
+            completed_at=result.completed_at,
+            completed_by=result.completed_by,
             version=result.version,
-            is_locked=result.is_locked,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to complete work order: %s", e)
+        logger.exception("Failed to complete maintenance work order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.delete(
-    "/work-orders/{work_order_id}",
+    "/work-orders/{wo_id}",
     response_model=dict[str, Any],
-    summary="Cancel Work Order",
-    operation_id="cancel_work_order",
+    summary="Cancel maintenance work order",
+    operation_id="cancel_maintenance_work_order",
 )
-async def cancel_work_order(
-    work_order_id: UUID,
+async def cancel_maintenance_work_order(
+    wo_id: UUID,
     reason: str = Query("", description="Cancellation reason"),
-    _permission: None = Depends(require_permission("manufacturing:cancel")),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _permission: None = Depends(require_permission("maintenance:cancel")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
+    service: Any = Depends(get_maintenance_service),
 ) -> dict[str, Any]:
-    """Cancel a work order (only PLANNED or RELEASED)."""
+    method_name = "cancel_maintenance_work_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
-        result = await service.cancel_work_order(
-            work_order_id=work_order_id,
+        result = await service.cancel_maintenance_work_order(
+            wo_id=wo_id,
+            legal_entity_id=legal_entity_id,
             reason=reason,
             cancelled_by=current_user.user_id,
-            legal_entity_id=legal_entity_id,
         )
-
         if not result:
-            raise HTTPException(
-                status_code=404, detail="Work order not found or cannot be cancelled"
-            )
-
-        return {
-            "work_order_id": str(work_order_id),
-            "work_order_number": result.work_order_number,
+            raise HTTPException(status_code=404, detail="Work order not found or cannot be cancelled")
+        response = {
+            "wo_id": str(wo_id),
+            "wo_number": result.wo_number,
             "status": result.status,
             "message": "Work order cancelled",
         }
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to cancel work order: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.post(
-    "/work-orders/{work_order_id}/close",
-    response_model=WorkOrderResponseSchema,
-    summary="Close Work Order",
-    operation_id="close_work_order",
-)
-async def close_work_order(
-    work_order_id: UUID,
-    _permission: None = Depends(require_permission("manufacturing:close")),
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> WorkOrderResponseSchema:
-    """Close a completed work order (prevent further changes)."""
-    try:
-        result = await service.close_work_order(
-            work_order_id=work_order_id,
-            closed_by=current_user.user_id,
-            legal_entity_id=legal_entity_id,
-        )
-
-        if not result:
-            raise HTTPException(status_code=404, detail="Work order not found or cannot be closed")
-
-        return WorkOrderResponseSchema(
-            id=result.id,
-            work_order_number=result.work_order_number,
-            product_id=result.product_id,
-            product_code=result.product_code,
-            product_name=result.product_name,
-            planned_quantity=result.planned_quantity,
-            completed_quantity=result.completed_quantity,
-            rejected_quantity=result.rejected_quantity,
-            remaining_quantity=result.remaining_quantity,
-            bom_id=result.bom_id,
-            bom_code=result.bom_code,
-            routing_id=result.routing_id,
-            routing_code=result.routing_code,
-            planned_start_date=result.planned_start_date,
-            planned_end_date=result.planned_end_date,
-            actual_start_date=result.actual_start_date,
-            actual_end_date=result.actual_end_date,
-            standard_material_cost=result.standard_material_cost,
-            standard_labor_cost=result.standard_labor_cost,
-            standard_overhead_cost=result.standard_overhead_cost,
-            standard_total_cost=result.standard_total_cost,
-            actual_material_cost=result.actual_material_cost,
-            actual_labor_cost=result.actual_labor_cost,
-            actual_overhead_cost=result.actual_overhead_cost,
-            actual_total_cost=result.actual_total_cost,
-            material_variance=result.material_variance,
-            labor_variance=result.labor_variance,
-            overhead_variance=result.overhead_variance,
-            total_variance=result.total_variance,
-            status=WorkOrderStatus(result.status),
-            priority=result.priority,
-            cost_center=result.cost_center,
-            notes=result.notes,
-            created_at=result.created_at,
-            updated_at=result.updated_at,
-            created_by=result.created_by,
-            created_by_name=result.created_by_name,
-            version=result.version,
-            is_locked=result.is_locked,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        logger.exception("Failed to close work order: %s", e)
+        logger.exception("Failed to cancel maintenance work order: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ----------------------------------------------------------------------------
-# WORK IN PROCESS (WIP)
-# ----------------------------------------------------------------------------
-
-
-@router.get(
-    "/wip",
-    response_model=list[dict[str, Any]],
-    summary="List Work in Process (WIP)",
-    operation_id="list_wip",
-)
-async def list_wip(
-    work_order_id: UUID | None = Query(None, description="Filter by work order"),
-    product_id: UUID | None = Query(None, description="Filter by product"),
-    _permission: None = Depends(require_permission("manufacturing:read")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> list[dict[str, Any]]:
-    """List Work in Process (WIP) for active work orders."""
-    try:
-        wip_items = await service.list_wip(
-            legal_entity_id=legal_entity_id,
-            work_order_id=work_order_id,
-            product_id=product_id,
-        )
-
-        return [
-            {
-                "id": str(w.id),
-                "work_order_id": str(w.work_order_id),
-                "work_order_number": w.work_order_number,
-                "product_id": str(w.product_id),
-                "product_name": w.product_name,
-                "quantity_started": float(w.quantity_started),
-                "quantity_remaining": float(w.quantity_remaining),
-                "completion_percent": w.completion_percent,
-                "material_cost": float(w.material_cost),
-                "labor_cost": float(w.labor_cost),
-                "overhead_cost": float(w.overhead_cost),
-                "total_cost": float(w.total_cost),
-                "material_issued": w.material_issued,
-                "labor_recorded": w.labor_recorded,
-                "start_date": w.start_date.isoformat(),
-                "expected_completion_date": w.expected_completion_date.isoformat()
-                if w.expected_completion_date
-                else None,
-                "created_at": w.created_at.isoformat(),
-            }
-            for w in wip_items
-        ]
-    except Exception as e:
-        logger.exception("Failed to list WIP: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ----------------------------------------------------------------------------
-# COST CARD
+# SPARE PARTS USAGE
 # ----------------------------------------------------------------------------
 
 
 @router.post(
-    "/cost-cards",
-    response_model=CostCardResponseSchema,
+    "/spare-parts/usage",
+    response_model=SparePartUsageResponseSchema,
     status_code=status.HTTP_201_CREATED,
-    summary="Create Cost Card",
-    operation_id="create_cost_card",
+    summary="Record spare parts usage",
+    operation_id="record_spare_parts_usage",
 )
-async def create_cost_card(
-    request: CostCardCreateSchema,
-    _permission: None = Depends(require_permission("manufacturing:create")),
+async def record_spare_parts_usage(
+    request: SparePartUsageSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _permission: None = Depends(require_permission("maintenance:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> CostCardResponseSchema:
-    """Create a new Cost Card for standard costing."""
+    service: Any = Depends(get_maintenance_service),
+) -> SparePartUsageResponseSchema:
+    method_name = "record_spare_parts_usage"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SparePartUsageResponseSchema(**cached)
+
     try:
-        result = await service.create_cost_card(
-            cost_card_code=request.cost_card_code,
-            product_id=request.product_id,
-            effective_date=request.effective_date,
-            expiry_date=request.expiry_date,
-            material_cost=request.material_cost,
-            labor_cost=request.labor_cost,
-            overhead_cost=request.overhead_cost,
-            other_cost=request.other_cost,
-            quantity_base=request.quantity_base,
-            unit_of_measure=request.unit_of_measure,
-            breakdown=request.breakdown,
+        result = await service.record_spare_parts_usage(
+            legal_entity_id=legal_entity_id,
+            item_id=request.item_id,
+            quantity=request.quantity,
+            unit_cost=request.unit_cost,
+            work_order_id=request.work_order_id,
+            issued_date=request.issued_date,
             notes=request.notes,
             created_by=current_user.user_id,
-            legal_entity_id=legal_entity_id,
         )
-
-        return CostCardResponseSchema(
+        response = SparePartUsageResponseSchema(
             id=result.id,
-            cost_card_code=result.cost_card_code,
-            product_id=result.product_id,
-            product_code=result.product_code,
-            product_name=result.product_name,
-            effective_date=result.effective_date,
-            expiry_date=result.expiry_date,
-            material_cost=result.material_cost,
-            labor_cost=result.labor_cost,
-            overhead_cost=result.overhead_cost,
-            other_cost=result.other_cost,
-            total_cost=result.total_cost,
-            quantity_base=result.quantity_base,
+            item_id=result.item_id,
+            item_code=result.item_code,
+            item_name=result.item_name,
+            quantity=result.quantity,
             unit_cost=result.unit_cost,
-            unit_of_measure=result.unit_of_measure,
-            status=result.status,
-            is_active=result.is_active,
-            breakdown=result.breakdown,
-            notes=result.notes,
-            created_at=result.created_at,
-            updated_at=result.updated_at,
-            created_by=result.created_by,
-            created_by_name=result.created_by_name,
-            version=result.version,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        logger.exception("Failed to create cost card: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.get(
-    "/cost-cards",
-    response_model=list[CostCardResponseSchema],
-    summary="List Cost Cards",
-    operation_id="list_cost_cards",
-)
-async def list_cost_cards(
-    product_id: UUID | None = Query(None, description="Filter by product"),
-    effective_as_of: date | None = Query(None, description="Effective as of date"),
-    is_active: bool | None = Query(None, description="Filter by active status"),
-    _permission: None = Depends(require_permission("manufacturing:read")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> list[CostCardResponseSchema]:
-    """List Cost Cards with filters."""
-    try:
-        cards = await service.list_cost_cards(
-            legal_entity_id=legal_entity_id,
-            product_id=product_id,
-            effective_as_of=effective_as_of,
-            is_active=is_active,
-        )
-
-        return [
-            CostCardResponseSchema(
-                id=c.id,
-                cost_card_code=c.cost_card_code,
-                product_id=c.product_id,
-                product_code=c.product_code,
-                product_name=c.product_name,
-                effective_date=c.effective_date,
-                expiry_date=c.expiry_date,
-                material_cost=c.material_cost,
-                labor_cost=c.labor_cost,
-                overhead_cost=c.overhead_cost,
-                other_cost=c.other_cost,
-                total_cost=c.total_cost,
-                quantity_base=c.quantity_base,
-                unit_cost=c.unit_cost,
-                unit_of_measure=c.unit_of_measure,
-                status=c.status,
-                is_active=c.is_active,
-                breakdown=c.breakdown,
-                notes=c.notes,
-                created_at=c.created_at,
-                updated_at=c.updated_at,
-                created_by=c.created_by,
-                created_by_name=c.created_by_name,
-                version=c.version,
-            )
-            for c in cards
-        ]
-    except Exception as e:
-        logger.exception("Failed to list cost cards: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ----------------------------------------------------------------------------
-# VARIANCE ANALYSIS
-# ----------------------------------------------------------------------------
-
-
-@router.get(
-    "/variance-analysis/{work_order_id}",
-    response_model=VarianceAnalysisResponseSchema,
-    summary="Get variance analysis for work order",
-    operation_id="get_variance_analysis",
-)
-async def get_variance_analysis(
-    work_order_id: UUID,
-    _permission: None = Depends(require_permission("manufacturing:read")),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
-) -> VarianceAnalysisResponseSchema:
-    """Get variance analysis comparing standard vs actual costs."""
-    try:
-        result = await service.analyze_variance(work_order_id, legal_entity_id)
-
-        if not result:
-            raise HTTPException(status_code=404, detail="Work order not found")
-
-        return VarianceAnalysisResponseSchema(
+            total_cost=result.total_cost,
             work_order_id=result.work_order_id,
             work_order_number=result.work_order_number,
-            product_id=result.product_id,
-            product_name=result.product_name,
-            standard_cost=result.standard_cost,
-            actual_cost=result.actual_cost,
-            total_variance=result.total_variance,
-            total_variance_percent=result.total_variance_percent,
-            material_price_variance=result.material_price_variance,
-            material_usage_variance=result.material_usage_variance,
-            material_variance_total=result.material_variance_total,
-            labor_rate_variance=result.labor_rate_variance,
-            labor_efficiency_variance=result.labor_efficiency_variance,
-            labor_variance_total=result.labor_variance_total,
-            overhead_volume_variance=result.overhead_volume_variance,
-            overhead_spending_variance=result.overhead_spending_variance,
-            overhead_variance_total=result.overhead_variance_total,
-            variances_by_component=result.variances_by_component,
-            analysis_period_start=result.analysis_period_start,
-            analysis_period_end=result.analysis_period_end,
-            generated_at=result.generated_at,
+            issued_date=result.issued_date,
+            status=SparePartUsageStatus(result.status),
+            notes=result.notes,
+            created_at=result.created_at,
+            created_by=result.created_by,
+            created_by_name=result.created_by_name,
         )
-    except Exception as e:
-        logger.exception("Failed to get variance analysis: %s", e)
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ----------------------------------------------------------------------------
-# HPP CLOSE (Monthly COGS calculation)
-# ----------------------------------------------------------------------------
-
-
-@router.post(
-    "/close-hpp",
-    response_model=dict[str, Any],
-    summary="Close HPP for period",
-    operation_id="close_hpp",
-)
-async def close_hpp_period(
-    fiscal_year: int = Query(..., description="Fiscal year"),
-    period: int = Query(..., ge=1, le=12, description="Period (month)"),
-    _permission: None = Depends(require_permission("manufacturing:close")),
-    current_user: TokenPayload = Depends(get_current_user),
-    legal_entity_id: UUID = Depends(get_current_legal_entity),
-    hpp_close_use_case: Any = Depends(get_hpp_close_use_case),
-) -> dict[str, Any]:
-    """Close HPP for period (calculate COGS from manufacturing)."""
-    try:
-        result = await hpp_close_use_case.execute(
-            legal_entity_id=legal_entity_id,
-            fiscal_year=fiscal_year,
-            period=period,
-            closed_by=current_user.user_id,
-        )
-
-        return {
-            "status": result.status,
-            "journal_id": str(result.journal_id) if result.journal_id else None,
-            "cogs_amount": float(result.cogs_amount),
-            "work_orders_processed": result.work_orders_processed,
-            "message": result.message,
-        }
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("Failed to close HPP: %s", e)
+        logger.exception("Failed to record spare parts usage: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ----------------------------------------------------------------------------
-# EXPORTS
+# MAINTENANCE COST SUMMARY
+# ----------------------------------------------------------------------------
+
+
+@router.get(
+    "/cost-summary",
+    response_model=MaintenanceCostSummarySchema,
+    summary="Get maintenance cost summary",
+    operation_id="get_maintenance_cost_summary",
+)
+async def get_maintenance_cost_summary(
+    start_date: date = Query(..., description="Start date"),
+    end_date: date = Query(..., description="End date"),
+    _permission: None = Depends(require_permission("maintenance:read")),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    service: Any = Depends(get_maintenance_service),
+) -> MaintenanceCostSummarySchema:
+    try:
+        summary = await service.get_maintenance_cost_summary(
+            legal_entity_id=legal_entity_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return MaintenanceCostSummarySchema(
+            period_start=start_date,
+            period_end=end_date,
+            total_maintenance_cost=summary.total_maintenance_cost,
+            preventive_cost=summary.preventive_cost,
+            corrective_cost=summary.corrective_cost,
+            emergency_cost=summary.emergency_cost,
+            labor_cost=summary.labor_cost,
+            spare_parts_cost=summary.spare_parts_cost,
+            other_cost=summary.other_cost,
+            by_asset=summary.by_asset,
+            by_work_order=summary.by_work_order,
+        )
+    except Exception as e:
+        logger.exception("Failed to get maintenance cost summary: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ----------------------------------------------------------------------------
+# EXPORT
 # ----------------------------------------------------------------------------
 
 
 @router.get(
     "/export/work-orders",
-    summary="Export work orders",
-    operation_id="export_work_orders",
+    summary="Export maintenance work orders",
+    operation_id="export_maintenance_work_orders",
 )
-async def export_work_orders(
+async def export_maintenance_work_orders(
     start_date: date = Query(..., description="Start date"),
     end_date: date = Query(..., description="End date"),
     format: str = Query("csv", pattern="^(csv|excel)$", description="Export format"),
     status: WorkOrderStatus | None = Query(None, description="Filter by status"),
-    _permission: None = Depends(require_permission("manufacturing:export")),
+    _permission: None = Depends(require_permission("maintenance:export")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_manufacturing_service),
+    service: Any = Depends(get_maintenance_service),
 ) -> Response:
-    """Export work orders to CSV or Excel."""
     try:
-        data = await service.export_work_orders(
+        data = await service.export_maintenance_work_orders(
             legal_entity_id=legal_entity_id,
             start_date=start_date,
             end_date=end_date,
             format=format,
             status=status.value if status else None,
         )
-
         media_type = (
             "text/csv"
             if format == "csv"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        filename = f"work_orders_{legal_entity_id}_{start_date}_{end_date}.{format}"
-
+        filename = f"maintenance_work_orders_{legal_entity_id}_{start_date}_{end_date}.{format}"
         return Response(
             content=data,
             media_type=media_type,
             headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
-        logger.exception("Failed to export work orders: %s", e)
+        logger.exception("Failed to export maintenance work orders: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

@@ -1,5 +1,5 @@
 # =============================================================================
-# FILE: kernel/sealed_gate.py - FULL PERBAIKAN
+# FILE: kernel/sealed_gate.py - FULL PERBAIKAN DENGAN BASE CLASS
 # =============================================================================
 #!/usr/bin/env python3
 """
@@ -14,6 +14,7 @@ import asyncio
 import inspect
 import logging
 import time
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any, Protocol
 from uuid import UUID
@@ -75,8 +76,47 @@ def _get_uow() -> UnitOfWorkProtocol:
     return _FallbackUnitOfWork()
 
 
+# ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseSealedGate(ABC):
+    """
+    Base contract for Sealed Gate.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    async def execute(
+        self,
+        command_type: str,
+        command_data: dict[str, Any],
+        user_id: str,
+        legal_entity_id: UUID,
+        idempotency_key: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: UUID | None = None,
+    ) -> CommandEnvelope:
+        """Execute a command through the gate."""
+        pass
+
+    @abstractmethod
+    def register_handler(self, command_type: str, handler: Callable) -> None:
+        """Register a command handler."""
+        pass
+
+    @abstractmethod
+    def get_status(self) -> dict[str, Any]:
+        """Get the current status of the gate."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics about command executions."""
+        pass
+
+
 # === 2. SEALED GATE ===
-class SealedGate:
+class SealedGate(BaseSealedGate):
     """Sealed Gate - Gerbang tunggal untuk semua operasi write."""
 
     _instance: SealedGate | None = None

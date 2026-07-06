@@ -12,29 +12,32 @@ from datetime import date
 from typing import Any
 from uuid import UUID
 
-# ============================================================================
-# INTERFACE
-# ============================================================================
+# Import SalesOrderEntity dari port sales order (agar konsisten)
+from ports.primary.sales_order_repository_port import SalesOrderEntity
 
 
 class SalesRepositoryPort(ABC):
     """
     Interface untuk repository sales.
+    Semua return type menggunakan SalesOrderEntity (konsisten dengan implementasi SQLAlchemy).
     """
 
     @abstractmethod
     async def save_transaction(self, transaction: Any) -> None:
-        """Save a sales transaction."""
+        """Save a sales transaction (expects SalesOrderEntity or dict)."""
         pass
 
     @abstractmethod
-    async def get_by_id(self, transaction_id: UUID) -> Any | None:
-        """Get sales transaction by ID."""
+    async def get_by_id(self, transaction_id: UUID) -> SalesOrderEntity | None:
+        """Get sales transaction by ID, return SalesOrderEntity or None."""
         pass
 
     @abstractmethod
-    async def get_by_number(self, transaction_number: str, legal_entity_id: UUID) -> Any | None:
-        """Get sales transaction by transaction number."""
+    async def get_by_number(self, so_number: str, legal_entity_id: UUID) -> SalesOrderEntity | None:
+        """
+        Get sales transaction by SO number.
+        Parameter 'so_number' konsisten dengan database dan implementasi.
+        """
         pass
 
     @abstractmethod
@@ -44,8 +47,8 @@ class SalesRepositoryPort(ABC):
         from_date: date,
         to_date: date,
         status: str | None = None,
-    ) -> list[Any]:
-        """List sales transactions within a period."""
+    ) -> list[SalesOrderEntity]:
+        """List sales transactions within a period, return list of SalesOrderEntity."""
         pass
 
     @abstractmethod
@@ -56,8 +59,8 @@ class SalesRepositoryPort(ABC):
         status: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[Any]:
-        """List sales transactions by customer."""
+    ) -> list[SalesOrderEntity]:
+        """List sales transactions by customer, return list of SalesOrderEntity."""
         pass
 
     @abstractmethod
@@ -94,8 +97,8 @@ class SalesRepositoryPort(ABC):
         status: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[Any]:
-        """Search sales transactions by keyword."""
+    ) -> list[SalesOrderEntity]:
+        """Search sales transactions by keyword, return list of SalesOrderEntity."""
         pass
 
     @abstractmethod
@@ -109,9 +112,5 @@ class SalesRepositoryPort(ABC):
         """Get sales totals (total amount, count) for a period."""
         pass
 
-
-# ============================================================================
-# EXPORTS
-# ============================================================================
 
 __all__ = ["SalesRepositoryPort"]

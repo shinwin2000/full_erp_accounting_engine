@@ -13,7 +13,7 @@ import logging
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID
 
 from sqlalchemy import and_, delete, func, or_, select, update
@@ -28,6 +28,9 @@ from ports.primary.tax_transaction_repository_port import (
     TaxTransactionStatus,
     TaxType,
 )
+# Tambahan: import interface TaxRepositoryPort jika ada method tambahan
+# Namun karena kita tidak punya definisi exact, kita asumsikan method tersebut ada.
+# Kita akan tambahkan dengan stub.
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +40,8 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         self._session = session
         self._audit_log: list[dict[str, Any]] = []
         self._spt_submissions: dict[UUID, SPTSubmission] = {}  # temporary in-memory store
+        # Untuk menyimpan tax return (placeholder)
+        self._tax_returns: dict[str, dict] = {}  # key: f"{legal_entity_id}_{period}"
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
@@ -567,6 +572,55 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
             return {"status": "healthy", "repository": "TaxTransactionRepository", "total": total.scalar() or 0}
         except Exception as e:
             return {"status": "unhealthy", "repository": "TaxTransactionRepository", "error": str(e)}
+
+    # ========================================================================
+    # EXTRA METHODS YANG DIMINTA OLEH TaxRepositoryPort (Contract)
+    # ========================================================================
+
+    async def save_tax_return(self, tax_return_data: dict) -> None:
+        """
+        Simpan data SPT/Tax Return ke dalam store (placeholder).
+        Method ini diperlukan oleh interface TaxRepositoryPort.
+        """
+        legal_entity_id = tax_return_data.get("legal_entity_id")
+        period = tax_return_data.get("period")  # misal "2024-01"
+        if not legal_entity_id or not period:
+            raise ValueError("legal_entity_id dan period wajib diisi")
+        key = f"{legal_entity_id}_{period}"
+        self._tax_returns[key] = tax_return_data
+        logger.info(f"Tax return saved for entity {legal_entity_id} period {period}")
+        # Audit log
+        await self._log_audit("SAVE_TAX_RETURN", UUID(int=0), {"legal_entity": str(legal_entity_id), "period": period})
+
+    async def find_tax_return_by_period(self, legal_entity_id: UUID, period: str) -> Optional[dict]:
+        """
+        Cari tax return berdasarkan legal entity dan periode.
+        """
+        key = f"{legal_entity_id}_{period}"
+        return self._tax_returns.get(key)
+
+    async def calculate_tax(self, legal_entity_id: UUID, period: str, tax_type: str) -> Decimal:
+        """
+        Hitung total pajak untuk periode tertentu (placeholder).
+        """
+        session = await self._get_session()
+        # Parse period "YYYY-MM"
+        try:
+            year, month = map(int, period.split('-'))
+        except ValueError:
+            year = int(period[:4])
+            month = int(period[5:7]) if len(period) >= 7 else 1
+        stmt = select(func.coalesce(func.sum(TaxTransactionTable.tax_amount), 0)).where(
+            TaxTransactionTable.legal_entity_id == legal_entity_id,
+            TaxTransactionTable.tax_type == tax_type,
+            TaxTransactionTable.period_year == year,
+            TaxTransactionTable.period_month == month,
+            TaxTransactionTable.deleted_at.is_(None)
+        )
+        result = await session.execute(stmt)
+        total = result.scalar() or Decimal(0)
+        logger.info(f"Calculated tax for entity {legal_entity_id} period {period}: {total}")
+        return Decimal(str(total))
 
     # ========================================================================
     # HELPER

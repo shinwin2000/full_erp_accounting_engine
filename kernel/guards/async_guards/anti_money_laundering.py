@@ -22,8 +22,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, date, timedelta
 from decimal import Decimal
 from enum import Enum, auto
 from typing import Any
@@ -88,8 +89,8 @@ class _FallbackTransactionRepository:
         count = 0
         now = datetime.now(UTC)
         for i in range(days):
-            date = (now - timedelta(days=i)).date()
-            date_str = date.isoformat()
+            date_obj = (now - timedelta(days=i)).date()
+            date_str = date_obj.isoformat()
             key = (customer_id, legal_entity_id, date_str)
             amounts = self._daily_volumes.get(key, [])
             if amounts:
@@ -302,6 +303,16 @@ class AMLAlert:
         }
 
 
+@dataclass
+class AMLScreeningResult:
+    """Hasil screening AML yang kompatibel dengan test."""
+
+    is_flagged: bool
+    threshold_exceeded: bool = False
+    reasons: list[str] = field(default_factory=list)
+    sar_id: str | None = None
+
+
 # === 3. HIGH RISK COUNTRIES (dari FATF/PP TPPU) ===
 
 HIGH_RISK_COUNTRIES = {
@@ -338,8 +349,134 @@ MONITORED_COUNTRIES = {
 }
 
 
-# === 4. ANTI-MONEY LAUNDERING ENGINE ===
+# ============================================================================
+# BASE ANTI-MONEY LAUNDERING GUARD (ABSTRACT)
+# ============================================================================
 
+class BaseAntiMoneyLaunderingGuard(ABC):
+    """Base contract untuk Anti-Money Laundering Guard."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan engine."""
+        pass
+
+    @abstractmethod
+    def set_thresholds(
+        self,
+        large_transaction: Decimal,
+        structuring_threshold: Decimal,
+        structuring_window_days: int,
+    ) -> None:
+        """Set threshold untuk deteksi AML."""
+        pass
+
+    @abstractmethod
+    async def calculate_risk_score(
+        self,
+        transaction_id: UUID,
+        customer_id: UUID,
+        amount: Decimal,
+        currency: str,
+        transaction_date: datetime,
+        legal_entity_id: UUID,
+        country_code: str | None = None,
+    ) -> AMLScore:
+        """Menghitung skor risiko AML untuk transaksi."""
+        pass
+
+    @abstractmethod
+    async def analyze_transaction(
+        self,
+        transaction_id: UUID,
+        customer_id: UUID,
+        amount: Decimal,
+        currency: str,
+        transaction_date: datetime,
+        legal_entity_id: UUID,
+        is_withdrawal: bool = False,
+        country_code: str | None = None,
+        transaction_type: str = "UNKNOWN",
+    ) -> tuple[AMLScore, list[AMLAlert]]:
+        """Menganalisis transaksi secara lengkap."""
+        pass
+
+    @abstractmethod
+    def screen(self, payment: dict[str, Any]) -> AMLScreeningResult:
+        """Sync screening method untuk checker compatibility."""
+        pass
+
+    @abstractmethod
+    async def check(self, context: dict) -> list[str]:
+        """Async check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def get_alerts(
+        self,
+        min_severity: AMLScoreLevel = AMLScoreLevel.MEDIUM,
+        limit: int = 100,
+        acknowledged: bool | None = None,
+    ) -> list[AMLAlert]:
+        """Mendapatkan alerts."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Mendapatkan statistik."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset state."""
+        pass
+
+    # === Entity methods (wajib untuk semua guard) ===
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseAntiMoneyLaunderingGuard:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseAntiMoneyLaunderingGuard:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseAntiMoneyLaunderingGuard:
+        """Touch instance (increment version)."""
+        pass
+
+
+# ============================================================================
+# ANTI-MONEY LAUNDERING ENGINE (CONCRETE)
+# ============================================================================
 
 class AntiMoneyLaunderingEngine:
     """
@@ -756,10 +893,6 @@ class AntiMoneyLaunderingEngine:
     async def _send_to_fiu(self, alert: AMLAlert) -> None:
         """Kirim alert ke Financial Intelligence Unit (PPATK) - simulasi log."""
         logger.critical(f"AML alert reported to FIU: {alert.alert_id} - {alert.description}")
-        # Dalam implementasi production, akan menggunakan message broker,
-        # tetapi karena guard tidak boleh mengimpor infrastructure,
-        # kita hanya log. Di masa depan bisa di-inject port.
-        # Tidak ada impor ke kafka di sini.
 
     async def _send_high_risk_notification(self, score: AMLScore) -> None:
         """Kirim notifikasi untuk skor risiko tinggi."""
@@ -827,49 +960,76 @@ class AntiMoneyLaunderingEngine:
             self._enabled = True
 
 
-# === 5. SINGLETON ACCESSOR ===
+# ============================================================================
+# ANTI-MONEY LAUNDERING GUARD (CONCRETE - MAIN CLASS)
+# ============================================================================
 
-_anti_money_laundering_engine_instance: AntiMoneyLaunderingEngine | None = None
-_lock_instance = threading.Lock()
-
-
-def get_anti_money_laundering_engine() -> AntiMoneyLaunderingEngine:
-    global _anti_money_laundering_engine_instance
-    if _anti_money_laundering_engine_instance is None:
-        with _lock_instance:
-            if _anti_money_laundering_engine_instance is None:
-                _anti_money_laundering_engine_instance = AntiMoneyLaunderingEngine()
-    return _anti_money_laundering_engine_instance
-
-
-# === 6. ANTI-MONEY LAUNDERING GUARD (Sync version for tests) =================
-
-from dataclasses import dataclass, field
-from datetime import date
-
-
-@dataclass
-class AMLScreeningResult:
-    """Hasil screening AML yang kompatibel dengan test."""
-
-    is_flagged: bool
-    threshold_exceeded: bool = False
-    reasons: list[str] = field(default_factory=list)
-    sar_id: str | None = None
-
-
-class AntiMoneyLaunderingGuard:
+class AntiMoneyLaunderingGuard(BaseAntiMoneyLaunderingGuard):
     """
-    Guard untuk AML screening (sync version).
-    Digunakan oleh post-commit hooks.
+    Guard untuk AML screening.
+    Digunakan oleh post-commit hooks dan checker compliance.
     """
 
     DEFAULT_AML_THRESHOLD = Decimal("100000000")  # 100 juta (test threshold_exceeded)
     DEFAULT_STRUCTURING_THRESHOLD = Decimal("150000000")  # 150 juta (test structuring)
 
     def __init__(self):
+        self._engine = AntiMoneyLaunderingEngine()
         self._daily_totals: dict[UUID, Decimal] = {}
         self._last_date: dict[UUID, date] = {}
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== CORE METHODS ====================
+
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan engine."""
+        self._engine.enable(enabled)
+        logger.info(f"AML guard enabled: {enabled}")
+
+    def set_thresholds(
+        self,
+        large_transaction: Decimal,
+        structuring_threshold: Decimal,
+        structuring_window_days: int,
+    ) -> None:
+        """Set threshold untuk deteksi AML."""
+        self._engine.set_thresholds(large_transaction, structuring_threshold, structuring_window_days)
+
+    async def calculate_risk_score(
+        self,
+        transaction_id: UUID,
+        customer_id: UUID,
+        amount: Decimal,
+        currency: str,
+        transaction_date: datetime,
+        legal_entity_id: UUID,
+        country_code: str | None = None,
+    ) -> AMLScore:
+        return await self._engine.calculate_risk_score(
+            transaction_id, customer_id, amount, currency,
+            transaction_date, legal_entity_id, country_code
+        )
+
+    async def analyze_transaction(
+        self,
+        transaction_id: UUID,
+        customer_id: UUID,
+        amount: Decimal,
+        currency: str,
+        transaction_date: datetime,
+        legal_entity_id: UUID,
+        is_withdrawal: bool = False,
+        country_code: str | None = None,
+        transaction_type: str = "UNKNOWN",
+    ) -> tuple[AMLScore, list[AMLAlert]]:
+        return await self._engine.analyze_transaction(
+            transaction_id, customer_id, amount, currency,
+            transaction_date, legal_entity_id, is_withdrawal,
+            country_code, transaction_type
+        )
+
+    # ==================== SYNC SCREENING (untuk test compatibility) ====================
 
     def screen(self, payment: dict[str, Any]) -> AMLScreeningResult:
         """
@@ -937,8 +1097,168 @@ class AntiMoneyLaunderingGuard:
         self._daily_totals.clear()
         self._last_date.clear()
 
+    # ==================== CHECK METHOD (untuk checker compliance) ====================
 
-# === 7. EKSPOR ===
+    async def check(self, context: dict) -> list[str]:
+        """
+        Async check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        transaction_id = context.get("transaction_id")
+        customer_id = context.get("customer_id")
+        amount = context.get("amount")
+
+        if not transaction_id:
+            errors.append("transaction_id is required")
+        if not customer_id:
+            errors.append("customer_id is required")
+        if amount is None:
+            errors.append("amount is required")
+        else:
+            try:
+                amt = Decimal(str(amount))
+                if amt < 0:
+                    errors.append("amount must be non-negative")
+            except Exception:
+                errors.append("amount must be a valid number")
+
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self.DEFAULT_AML_THRESHOLD <= 0:
+            errors.append("DEFAULT_AML_THRESHOLD must be positive")
+        if self.DEFAULT_STRUCTURING_THRESHOLD <= 0:
+            errors.append("DEFAULT_STRUCTURING_THRESHOLD must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        return {
+            "version": self._version,
+            "enabled": self._engine._enabled,
+            "large_threshold": str(self._engine._large_transaction_threshold),
+            "structuring_threshold": str(self._engine._structuring_threshold),
+            "structuring_window_days": self._engine._structuring_window_days,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AntiMoneyLaunderingGuard:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._version = data.get("version", 1)
+        instance._engine._enabled = data.get("enabled", True)
+        instance._engine._large_transaction_threshold = Decimal(str(data.get("large_threshold", 500000000)))
+        instance._engine._structuring_threshold = Decimal(str(data.get("structuring_threshold", 100000000)))
+        instance._engine._structuring_window_days = data.get("structuring_window_days", 7)
+        return instance
+
+    def clone(self) -> AntiMoneyLaunderingGuard:
+        """Clone instance."""
+        new_instance = AntiMoneyLaunderingGuard()
+        new_instance._version = self._version + 1
+        new_instance._engine._enabled = self._engine._enabled
+        new_instance._engine._large_transaction_threshold = self._engine._large_transaction_threshold
+        new_instance._engine._structuring_threshold = self._engine._structuring_threshold
+        new_instance._engine._structuring_window_days = self._engine._structuring_window_days
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        return {
+            "version": self._version,
+            "enabled": self._engine._enabled,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> AntiMoneyLaunderingGuard:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== DELEGATED METHODS ====================
+
+    def get_alerts(
+        self,
+        min_severity: AMLScoreLevel = AMLScoreLevel.MEDIUM,
+        limit: int = 100,
+        acknowledged: bool | None = None,
+    ) -> list[AMLAlert]:
+        return self._engine.get_alerts(min_severity, limit, acknowledged)
+
+    def get_statistics(self) -> dict[str, Any]:
+        stats = self._engine.get_statistics()
+        stats["version"] = self._version
+        return stats
+
+    def reset(self) -> None:
+        self._engine.reset()
+        self._version += 1
+        self._audit_trail = []
+        self._daily_totals.clear()
+        self._last_date.clear()
+
+
+# === 5. SINGLETON ACCESSOR ===
+
+_anti_money_laundering_guard_instance: AntiMoneyLaunderingGuard | None = None
+_lock_instance = threading.Lock()
+
+def get_anti_money_laundering_guard() -> AntiMoneyLaunderingGuard:
+    """Mendapatkan instance singleton AntiMoneyLaunderingGuard."""
+    global _anti_money_laundering_guard_instance
+    if _anti_money_laundering_guard_instance is None:
+        with _lock_instance:
+            if _anti_money_laundering_guard_instance is None:
+                _anti_money_laundering_guard_instance = AntiMoneyLaunderingGuard()
+    return _anti_money_laundering_guard_instance
+
+
+# === TAMBAHAN: Fungsi get_anti_money_laundering_engine untuk kompatibilitas import ===
+_anti_money_laundering_engine_instance: AntiMoneyLaunderingEngine | None = None
+_lock_engine = threading.Lock()
+
+def get_anti_money_laundering_engine() -> AntiMoneyLaunderingEngine:
+    """
+    Mendapatkan instance singleton AntiMoneyLaunderingEngine.
+    Fungsi ini ditambahkan untuk memenuhi import di __init__.py.
+    """
+    global _anti_money_laundering_engine_instance
+    if _anti_money_laundering_engine_instance is None:
+        with _lock_engine:
+            if _anti_money_laundering_engine_instance is None:
+                _anti_money_laundering_engine_instance = AntiMoneyLaunderingEngine()
+    return _anti_money_laundering_engine_instance
+
+
+# === 6. EKSPOR ===
 
 __all__ = [
     "AMLAlert",
@@ -948,5 +1268,6 @@ __all__ = [
     "AMLScreeningResult",
     "AntiMoneyLaunderingEngine",
     "AntiMoneyLaunderingGuard",
-    "get_anti_money_laundering_engine",
+    "get_anti_money_laundering_guard",
+    "get_anti_money_laundering_engine",  
 ]

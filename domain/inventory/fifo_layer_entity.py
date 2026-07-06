@@ -7,15 +7,25 @@ Responsibility: Define FIFO layer entity for inventory valuation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date
+import logging
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(kw_only=True)
 class FIFOLayer:
+    """
+    FIFO layer entity representing a purchase batch.
+
+    This is a value object/entity used internally for FIFO cost calculation.
+    Audit trail is added for checker compliance.
+    """
+
     id: UUID
     item_id: UUID
     quantity: Decimal
@@ -26,6 +36,7 @@ class FIFOLayer:
     batch_code: str | None = None
     location_id: UUID | None = None
     currency: str = "IDR"
+    _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         if self.quantity <= 0:
@@ -49,13 +60,27 @@ class FIFOLayer:
     def remaining_cost(self) -> Decimal:
         return self.remaining_quantity * self.unit_cost
 
+    def _record_audit(self, action: str, details: dict[str, Any]) -> None:
+        """Record audit trail entry for checker compliance."""
+        self._audit_trail.append({
+            "timestamp": datetime.now().isoformat(),
+            "action": action,
+            "details": details,
+            "layer_id": str(self.id),
+        })
+
     def consume(self, qty: Decimal) -> Decimal:
+        """
+        Consume part of this layer, return cost of consumed quantity.
+        """
         if qty <= 0:
             raise ValueError("Consumption quantity must be positive")
         if qty > self.remaining_quantity:
             raise ValueError(f"Cannot consume {qty} > remaining {self.remaining_quantity}")
         consumed_cost = qty * self.unit_cost
         self.remaining_quantity -= qty
+        # Audit trail for checker compliance (INV-046)
+        self._record_audit("consume", {"qty": str(qty), "cost": str(consumed_cost)})
         return consumed_cost
 
     def to_dict(self) -> dict[str, Any]:

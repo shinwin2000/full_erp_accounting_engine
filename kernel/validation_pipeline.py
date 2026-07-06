@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # =============================================================================
 # FILE: kernel/validation_pipeline.py - FULL VERSION (FIXED)
 # =============================================================================
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, auto
@@ -80,8 +82,41 @@ class PipelineResult:
     required_approvals: list[str] = field(default_factory=list)
 
 
+# ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseValidationPipeline(ABC):
+    """
+    Base contract for Validation Pipeline.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    async def validate(
+        self,
+        command_id: UUID,
+        command_type: str,
+        command_data: dict[str, Any],
+        user_id: str,
+        legal_entity_id: UUID,
+        context: dict[str, Any] | None = None,
+    ) -> PipelineResult:
+        """Validate a command through the pipeline."""
+        pass
+
+    @abstractmethod
+    def get_history(self, limit: int = 100) -> list[PipelineResult]:
+        """Get validation history."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics about validations."""
+        pass
+
+
 # === 3. VALIDATION PIPELINE ===
-class ValidationPipeline:
+class ValidationPipeline(BaseValidationPipeline):
     _instance: ValidationPipeline | None = None
 
     def __new__(cls) -> ValidationPipeline:

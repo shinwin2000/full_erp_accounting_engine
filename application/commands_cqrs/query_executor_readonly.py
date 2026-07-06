@@ -1,4 +1,5 @@
 # query_executor_readonly.py - Hardened version with complete implementation
+# Fixed: Added idempotency support for delete/invalidate operations
 # Fixed: Added QueryExecutionResult alias for backward compatibility
 
 #!/usr/bin/env python3
@@ -40,6 +41,50 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for cache invalidation)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager for cache invalidation operations.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+_idempotency_manager = IdempotencyManager()
 
 
 # ============================================================================
@@ -138,8 +183,12 @@ class CachePort(Protocol):
         """Check if key exists."""
         ...
 
-    async def delete(self, key: str) -> None:
-        """Delete key from cache."""
+    async def delete(self, key: str, idempotency_key: str | None = None) -> None:
+        """
+        Delete key from cache.
+        This operation is idempotent; repeated calls with the same key
+        produce the same result.
+        """
         ...
 
     async def clear_pattern(self, pattern: str) -> int:
@@ -383,6 +432,9 @@ class QueryExecutorReadonly:
 
         # Query execution history (last 100)
         self._query_history: list[dict[str, Any]] = []
+
+        # Idempotency storage for invalidation
+        self._invalidation_cache: dict[str, dict[str, Any]] = {}
 
         logger.info(
             "QueryExecutorReadonly initialized",
@@ -663,8 +715,26 @@ class QueryExecutorReadonly:
 
                 raise QueryExecutionError(f"Query execution failed: {e}") from e
 
-    def invalidate_cache(self, pattern: str | None = None) -> None:
-        """Invalidate cache entries."""
+    def invalidate_cache(self, pattern: str | None = None, idempotency_key: str | None = None) -> None:
+        """
+        Invalidate cache entries.
+
+        This operation is idempotent. Repeated calls with the same pattern
+        produce the same result.
+
+        Args:
+            pattern: Optional pattern to match keys (e.g., "query:user:*")
+            idempotency_key: Optional key for idempotency. If provided, the
+                             operation will be cached to ensure idempotency.
+        """
+        method_name = "invalidate_cache"
+        if idempotency_key:
+            # Check if this invalidation was already performed
+            cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+            if cached is not None:
+                logger.debug(f"Idempotent cache invalidation hit: {idempotency_key[:8]}...")
+                return
+
         if pattern:
             logger.info(f"Invalidating cache with pattern: {pattern}")
             if self._cache and hasattr(self._cache, "clear_pattern"):
@@ -679,6 +749,14 @@ class QueryExecutorReadonly:
             if self._cache and hasattr(self._cache, "clear"):
                 pass
             self._memory_cache.clear()
+
+        # Cache the invalidation result if idempotency key provided
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key,
+                method_name,
+                {"pattern": pattern, "status": "success", "timestamp": datetime.now().isoformat()}
+            )
 
     def get_stats(self) -> dict[str, Any]:
         """Get executor statistics."""

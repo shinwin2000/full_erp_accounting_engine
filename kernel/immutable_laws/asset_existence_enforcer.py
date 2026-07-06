@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -127,6 +128,11 @@ class _FallbackAssetRepository:
             "is_active": True,
         }
 
+    def clear(self) -> None:
+        self._assets.clear()
+        self._verifications.clear()
+        self._physical_counts.clear()
+
 
 class _FallbackInventoryRepository:
     """Fallback inventory repository jika infrastructure belum tersedia."""
@@ -146,6 +152,9 @@ class _FallbackInventoryRepository:
             "legal_entity_id": legal_entity_id,
             "item_code": item_code,
         }
+
+    def clear(self) -> None:
+        self._items.clear()
 
 
 # === 2. CONSTANTS & ENUMS ===
@@ -256,10 +265,152 @@ class PhysicalCountRecord:
             raise ValueError("Cryptographic hash mismatch")
 
 
-# === 3. ASSET EXISTENCE ENFORCER ===
+# ============================================================================
+# BASE ASSET EXISTENCE ENFORCER (ABSTRACT)
+# ============================================================================
+
+class BaseAssetExistenceEnforcer(ABC):
+    """Base contract untuk Asset Existence Enforcer."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan enforcer."""
+        pass
+
+    @abstractmethod
+    def set_verification_threshold(self, threshold: Decimal) -> None:
+        """Set verification threshold."""
+        pass
+
+    @abstractmethod
+    async def enforce_asset_existence(
+        self,
+        asset_id: UUID,
+        asset_type: AssetType,
+        legal_entity_id: UUID,
+        amount: Decimal,
+        verification_method: VerificationMethod,
+        verification_document: str,
+        user_id: str | None = None,
+        notes: str | None = None,
+    ) -> VerificationRecord:
+        """Enforce asset existence verification."""
+        pass
+
+    @abstractmethod
+    async def enforce_periodic_verification(
+        self,
+        legal_entity_id: UUID,
+        fiscal_year: int,
+        user_id: str | None = None,
+    ) -> None:
+        """Enforce periodic physical verification."""
+        pass
+
+    @abstractmethod
+    async def record_physical_count(
+        self,
+        legal_entity_id: UUID,
+        counted_by: str,
+        location: str,
+        discrepancies: dict[str, Any],
+        user_id: str | None = None,
+    ) -> PhysicalCountRecord:
+        """Record physical count."""
+        pass
+
+    @abstractmethod
+    async def get_asset_verification_status(
+        self,
+        asset_id: UUID,
+        legal_entity_id: UUID,
+    ) -> dict[str, Any]:
+        """Get asset verification status."""
+        pass
+
+    @abstractmethod
+    def get_verification_history(
+        self,
+        asset_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+        limit: int = 100,
+    ) -> list[VerificationRecord]:
+        """Get verification history."""
+        pass
+
+    @abstractmethod
+    def get_physical_count_history(
+        self,
+        legal_entity_id: UUID | None = None,
+        limit: int = 100,
+    ) -> list[PhysicalCountRecord]:
+        """Get physical count history."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset state."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseAssetExistenceEnforcer:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseAssetExistenceEnforcer:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseAssetExistenceEnforcer:
+        """Touch instance (increment version)."""
+        pass
 
 
-class AssetExistenceEnforcer:
+# ============================================================================
+# ASSET EXISTENCE ENFORCER (CONCRETE)
+# ============================================================================
+
+class AssetExistenceEnforcer(BaseAssetExistenceEnforcer):
     """
     Enforcer untuk hukum asset existence.
 
@@ -283,14 +434,185 @@ class AssetExistenceEnforcer:
         self._max_history = 10000
         self._lock = threading.RLock()
         self._enabled = True
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        asset_id = context.get("asset_id")
+        legal_entity_id = context.get("legal_entity_id")
+        asset_type = context.get("asset_type")
+        amount = context.get("amount")
+
+        if not asset_id:
+            errors.append("asset_id is required")
+        else:
+            try:
+                UUID(str(asset_id))
+            except Exception:
+                errors.append("asset_id must be a valid UUID")
+        if not legal_entity_id:
+            errors.append("legal_entity_id is required")
+        else:
+            try:
+                UUID(str(legal_entity_id))
+            except Exception:
+                errors.append("legal_entity_id must be a valid UUID")
+        if not asset_type:
+            errors.append("asset_type is required")
+        else:
+            try:
+                AssetType(asset_type)
+            except ValueError:
+                errors.append(f"asset_type '{asset_type}' is not a valid AssetType")
+        if amount is not None:
+            try:
+                Decimal(str(amount))
+            except Exception:
+                errors.append("amount must be a valid number")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        if self._verification_threshold < 0:
+            errors.append("verification_threshold cannot be negative")
+        if self.PHYSICAL_COUNT_REQUIRED_DAYS <= 0:
+            errors.append("PHYSICAL_COUNT_REQUIRED_DAYS must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "verification_threshold": str(self._verification_threshold),
+                "physical_count_required_days": self.PHYSICAL_COUNT_REQUIRED_DAYS,
+                "verifications_count": len(self._verification_records),
+                "physical_counts_count": len(self._physical_counts),
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AssetExistenceEnforcer:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._verification_threshold = Decimal(str(data.get("verification_threshold", 50000000)))
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> AssetExistenceEnforcer:
+        """Clone instance."""
+        new_instance = AssetExistenceEnforcer()
+        new_instance._enabled = self._enabled
+        new_instance._verification_threshold = self._verification_threshold
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "verifications_count": len(self._verification_records),
+                "physical_counts_count": len(self._physical_counts),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> AssetExistenceEnforcer:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Asset existence enforcer enabled: {enabled}")
 
     def set_verification_threshold(self, threshold: Decimal) -> None:
         self._verification_threshold = threshold
+        self._record_audit("SET_VERIFICATION_THRESHOLD", "system", {"threshold": str(threshold)})
         logger.info(f"Asset verification threshold set to {threshold}")
+
+    def _get_required_methods(
+        self, asset_type: AssetType, amount: Decimal
+    ) -> list[VerificationMethod]:
+        base_methods = {
+            AssetType.FIXED_ASSET: [
+                VerificationMethod.PHYSICAL_INSPECTION,
+                VerificationMethod.LEGAL_TITLE,
+                VerificationMethod.VALUATION_REPORT,
+            ],
+            AssetType.INVENTORY: [
+                VerificationMethod.PHYSICAL_INSPECTION,
+                VerificationMethod.SAMPLE_TESTING,
+                VerificationMethod.CYCLE_COUNT,
+                VerificationMethod.DOCUMENT_VERIFICATION,
+            ],
+            AssetType.INTANGIBLE: [
+                VerificationMethod.LEGAL_TITLE,
+                VerificationMethod.VALUATION_REPORT,
+                VerificationMethod.THIRD_PARTY_CONFIRMATION,
+            ],
+            AssetType.FINANCIAL: [
+                VerificationMethod.THIRD_PARTY_CONFIRMATION,
+                VerificationMethod.DOCUMENT_VERIFICATION,
+            ],
+            AssetType.BIOLOGICAL: [
+                VerificationMethod.PHYSICAL_INSPECTION,
+                VerificationMethod.VALUATION_REPORT,
+            ],
+        }
+        methods = base_methods.get(asset_type, [VerificationMethod.DOCUMENT_VERIFICATION])
+
+        if amount >= self._verification_threshold:
+            strong_methods = [
+                VerificationMethod.PHYSICAL_INSPECTION,
+                VerificationMethod.THIRD_PARTY_CONFIRMATION,
+            ]
+            methods = [m for m in methods if m in strong_methods] or methods
+
+        return methods
 
     async def enforce_asset_existence(
         self,
@@ -386,50 +708,16 @@ class AssetExistenceEnforcer:
             verified_at=datetime.now(UTC),
         )
 
+        self._record_audit("ASSET_VERIFICATION", user_id, {
+            "asset_id": str(asset_id),
+            "asset_type": asset_type.value,
+            "amount": str(amount),
+            "method": verification_method.value,
+        })
         logger.info(
             f"Asset {asset_id} existence verified via {verification_method.value} by {user_id}"
         )
         return record
-
-    def _get_required_methods(
-        self, asset_type: AssetType, amount: Decimal
-    ) -> list[VerificationMethod]:
-        base_methods = {
-            AssetType.FIXED_ASSET: [
-                VerificationMethod.PHYSICAL_INSPECTION,
-                VerificationMethod.LEGAL_TITLE,
-                VerificationMethod.VALUATION_REPORT,
-            ],
-            AssetType.INVENTORY: [
-                VerificationMethod.PHYSICAL_INSPECTION,
-                VerificationMethod.SAMPLE_TESTING,
-                VerificationMethod.CYCLE_COUNT,
-                VerificationMethod.DOCUMENT_VERIFICATION,
-            ],
-            AssetType.INTANGIBLE: [
-                VerificationMethod.LEGAL_TITLE,
-                VerificationMethod.VALUATION_REPORT,
-                VerificationMethod.THIRD_PARTY_CONFIRMATION,
-            ],
-            AssetType.FINANCIAL: [
-                VerificationMethod.THIRD_PARTY_CONFIRMATION,
-                VerificationMethod.DOCUMENT_VERIFICATION,
-            ],
-            AssetType.BIOLOGICAL: [
-                VerificationMethod.PHYSICAL_INSPECTION,
-                VerificationMethod.VALUATION_REPORT,
-            ],
-        }
-        methods = base_methods.get(asset_type, [VerificationMethod.DOCUMENT_VERIFICATION])
-
-        if amount >= self._verification_threshold:
-            strong_methods = [
-                VerificationMethod.PHYSICAL_INSPECTION,
-                VerificationMethod.THIRD_PARTY_CONFIRMATION,
-            ]
-            methods = [m for m in methods if m in strong_methods] or methods
-
-        return methods
 
     async def enforce_periodic_verification(
         self,
@@ -500,6 +788,11 @@ class AssetExistenceEnforcer:
             discrepancies=discrepancies,
         )
 
+        self._record_audit("PHYSICAL_COUNT", counted_by, {
+            "legal_entity_id": str(legal_entity_id),
+            "location": location,
+            "discrepancies_count": len(discrepancies),
+        })
         logger.info(
             f"Physical count {record.count_id} recorded for entity {legal_entity_id} by {counted_by}"
         )
@@ -560,6 +853,7 @@ class AssetExistenceEnforcer:
                     "total_verifications": 0,
                     "total_physical_counts": 0,
                     "enabled": self._enabled,
+                    "version": self._version,
                 }
 
             by_asset_type = {}
@@ -580,6 +874,7 @@ class AssetExistenceEnforcer:
                 "verification_threshold": str(self._verification_threshold),
                 "physical_count_required_days": self.PHYSICAL_COUNT_REQUIRED_DAYS,
                 "enabled": self._enabled,
+                "version": self._version,
                 "latest_verification": self._verification_records[-1].verified_at.isoformat()
                 if self._verification_records
                 else None,
@@ -590,6 +885,12 @@ class AssetExistenceEnforcer:
             self._verification_records = []
             self._physical_counts = []
             self._enabled = True
+            self._version += 1
+            self._audit_trail = []
+            if hasattr(self._asset_repo, "clear"):
+                self._asset_repo.clear()
+            if hasattr(self._inventory_repo, "clear"):
+                self._inventory_repo.clear()
 
 
 # === 4. SINGLETON ACCESSOR ===

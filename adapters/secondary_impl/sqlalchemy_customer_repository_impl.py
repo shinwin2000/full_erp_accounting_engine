@@ -39,7 +39,7 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
 
-from ports.primary.customer_supplier_repository_port import CustomerRepositoryPort
+from ports.primary.customer_repository_port import CustomerRepositoryPort
 
 logger = logging.getLogger(__name__)
 

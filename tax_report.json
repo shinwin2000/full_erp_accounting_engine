@@ -1,9 +1,9 @@
 {
   "version": "3.0.0",
-  "timestamp": "2026-07-01T01:57:43.870443+00:00",
-  "score": 96,
+  "timestamp": "2026-07-03T05:25:52.815229+00:00",
+  "score": 100,
   "passed": true,
-  "scan_time": 0.39099999999962165,
+  "scan_time": 0.062000000005355105,
   "files_scanned": 12,
   "calculators_found": 11,
   "calculators": [
@@ -176,12 +176,11 @@
       "has_validate": true,
       "has_get_rate": true,
       "uses_decimal": true,
-      "hardcoded_rates": [
-        "dict default_rate=20% of gross income"
-      ],
+      "hardcoded_rates": [],
       "methods": [
         "__new__",
         "__init__",
+        "_get_default_rate",
         "calculate",
         "_calculate_full",
         "calculate_dividend",
@@ -272,12 +271,12 @@
       "has_validate": true,
       "has_get_rate": true,
       "uses_decimal": true,
-      "hardcoded_rates": [
-        "dict annual_corporate=1,000,000"
-      ],
+      "hardcoded_rates": [],
       "methods": [
         "__new__",
         "__init__",
+        "_get_penalty_interest_rate",
+        "_get_late_filing_fine",
         "calculate_penalty",
         "get_interest_rate",
         "calculate_late_payment_interest",
@@ -324,44 +323,6 @@
     }
   ],
   "violations": [
-    {
-      "severity": "WARNING",
-      "file": "E:\\full_erp_accounting_engine\\policy_engine\\tax_indonesia\\pph_26_calculator.py",
-      "line": 0,
-      "message": "Hardcoded rate in pph_26_calculator: dict default_rate=20% of gross income (prefer configuration-based rates)",
-      "detail": "Move rates to configuration (YAML, DB, or dynamic registry) for maintainability.",
-      "rca": {
-        "severity": "MEDIUM",
-        "root_cause": "ValueError: Hardcoded rate in pph_26_calculator: dict default_rate=20% of gross income (prefer configuration-based rates)",
-        "evidence": [
-          "Pesan: Hardcoded rate in pph_26_calculator: dict default_rate=20% of gross income (prefer configuration-based rates)"
-        ],
-        "impact": [
-          "Validasi gagal — transaksi atau data tidak diproses."
-        ],
-        "suggested_fix": "Validasi nilai input sebelum memproses.",
-        "confidence": 0.5
-      }
-    },
-    {
-      "severity": "WARNING",
-      "file": "E:\\full_erp_accounting_engine\\policy_engine\\tax_indonesia\\penalty_interest_engine.py",
-      "line": 0,
-      "message": "Hardcoded rate in penalty_interest_engine: dict annual_corporate=1,000,000 (prefer configuration-based rates)",
-      "detail": "Move rates to configuration (YAML, DB, or dynamic registry) for maintainability.",
-      "rca": {
-        "severity": "MEDIUM",
-        "root_cause": "ValueError: Hardcoded rate in penalty_interest_engine: dict annual_corporate=1,000,000 (prefer configuration-based rates)",
-        "evidence": [
-          "Pesan: Hardcoded rate in penalty_interest_engine: dict annual_corporate=1,000,000 (prefer configuration-based rates)"
-        ],
-        "impact": [
-          "Validasi gagal — transaksi atau data tidak diproses."
-        ],
-        "suggested_fix": "Validasi nilai input sebelum memproses.",
-        "confidence": 0.5
-      }
-    },
     {
       "severity": "INFO",
       "file": "rate_registry_dynamic",

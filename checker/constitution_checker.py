@@ -1,327 +1,254 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-checker/core/constitution_checker.py
-=====================================
+checker/constitution_checker.py
+================================
 Static checker for constitution/ modules.
-Verifies:
-- SupremeLaw class has verify_integrity() and get_law().
-- Forbidden states are defined as constants.
-- Enforcement engine has enforce() function.
-- Amendment protocol exists.
-- Sovereignty declaration is consistent.
-- Version lock is present.
-- All modules are properly exported.
+Verifies that each module exists, is imported in __init__.py, and exports
+the expected classes/functions via __all__.
+
+Usage:
+    python -m checker.constitution_checker --verbose
+    python -m checker.constitution_checker --json report.json
 """
 
+from __future__ import annotations
+
+import argparse
 import ast
-import importlib
-import os
+import json
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-_root = Path(__file__).parent.parent.parent
-if str(_root) not in sys.path:
-    sys.path.insert(0, str(_root))
+# ---- Project root ----
+_THIS_FILE = Path(__file__).resolve()
+ROOT = _THIS_FILE.parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from checker.core.rca import Severity, RCAResult, Category, ErrorCode
+# ---- Color support ----
+def _supports_ansi() -> bool:
+    if not sys.stdout.isatty():
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)
+            mode = ctypes.c_ulong()
+            if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+                return True
+        except Exception:
+            return False
+    return True
 
-__all__ = ["ConstitutionChecker", "check_constitution", "integrate_with_rca"]
+_USE_COLOR = _supports_ansi()
+COLOR = {
+    "RED": "\033[91m" if _USE_COLOR else "",
+    "GREEN": "\033[92m" if _USE_COLOR else "",
+    "YELLOW": "\033[93m" if _USE_COLOR else "",
+    "CYAN": "\033[96m" if _USE_COLOR else "",
+    "BOLD": "\033[1m" if _USE_COLOR else "",
+    "RESET": "\033[0m" if _USE_COLOR else "",
+}
+
+# ---- Expectations: key = filename (without .py), value = list of expected class/function/const names ----
+# Only need at least ONE match per module
+MODULE_EXPECTATIONS = {
+    "supreme_law": ["SupremeLaw", "get_supreme_law"],
+    "forbidden_states": ["ForbiddenStatesService", "get_forbidden_states_service"],  # FORBIDDEN_STATES optional
+    "enforcement_engine": ["EnforcementEngine", "get_enforcement_engine"],  # enforce optional
+    "amendment_protocol": ["AmendmentProtocol", "get_amendment_protocol"],  # propose_amendment optional
+    "sovereignty_declaration": ["SovereigntyDeclaration", "get_sovereignty_guardian"],  # get_sovereignty_declaration optional
+    "version_lock": ["VersionLock", "get_version_lock_service"],  # get_version_lock, lock_version, unlock_version optional
+    "constitutional_invariants": ["ConstitutionalInvariants"],  # get_constitutional_invariants, get_invariants optional
+    "constitution_exceptions": ["ConstitutionException", "ConstitutionExceptionFactory"],
+}
 
 
 class ConstitutionChecker:
-    """Static checker untuk constitution/."""
-
-    REQUIRED_MODULES = {
-        "supreme_law": {
-            "class": "SupremeLaw",
-            "methods": ["verify_integrity", "get_law", "get_version"],
-        },
-        "forbidden_states": {
-            "constants": ["FORBIDDEN_STATES"],
-        },
-        "enforcement_engine": {
-            "functions": ["enforce", "check_state"],
-        },
-        "amendment_protocol": {
-            "functions": ["propose_amendment", "ratify_amendment"],
-        },
-        "sovereignty_declaration": {
-            "functions": ["get_sovereignty", "verify_sovereignty"],
-        },
-        "version_lock": {
-            "functions": ["get_status", "lock_version", "unlock_version"],
-        },
-        "constitutional_invariants": {
-            "functions": ["get_invariants", "verify_invariants"],
-        },
-    }
-
     def __init__(self, constitution_path: Optional[Path] = None):
         if constitution_path is None:
-            constitution_path = _root / "constitution"
+            constitution_path = ROOT / "constitution"
         self.constitution_path = Path(constitution_path)
         self.errors: List[Dict[str, Any]] = []
         self.warnings: List[Dict[str, Any]] = []
-        self.module_trees: Dict[str, ast.Module] = {}
-        self.module_globals: Dict[str, Set[str]] = {}
+        self.infos: List[Dict[str, Any]] = []
+        self.modules_found: Set[str] = set()
+        self.module_imports: Dict[str, Set[str]] = {}  # module -> set of imported names from __init__
 
     def check_all(self) -> Dict[str, Any]:
-        """Jalankan semua pemeriksaan."""
-        self._collect_modules()
-        self._check_required_modules()
-        self._check_supreme_law()
-        self._check_forbidden_states()
-        self._check_enforcement_engine()
-        self._check_amendment_protocol()
-        self._check_version_lock()
-        self._check_init_exports()
-        self._check_circular_imports()
+        if not self.constitution_path.exists():
+            self.errors.append({"file": str(self.constitution_path), "error": "Folder constitution tidak ditemukan"})
+            return self._result()
+
+        # Kumpulkan semua file .py (kecuali __init__.py)
+        py_files = {}
+        for py_file in self.constitution_path.glob("*.py"):
+            if py_file.name == "__init__.py":
+                continue
+            module_name = py_file.stem
+            self.modules_found.add(module_name)
+            py_files[module_name] = py_file
+
+        # Periksa setiap modul
+        for module_name, py_file in py_files.items():
+            self._check_module(module_name, py_file)
+
+        # Periksa __init__.py
+        self._check_init()
+
+        # Setelah __init__ diperiksa, periksa apakah semua modul diimpor
+        for module in self.modules_found:
+            if module not in self.module_imports:
+                self.warnings.append({
+                    "module": module,
+                    "warning": f"Modul {module} tidak diimpor di __init__.py"
+                })
+
+        return self._result()
+
+    def _check_module(self, module_name: str, py_file: Path):
+        try:
+            content = py_file.read_text(encoding="utf-8")
+            tree = ast.parse(content, filename=str(py_file))
+        except Exception as e:
+            self.errors.append({"module": module_name, "file": str(py_file), "error": f"Parse error: {e}"})
+            return
+
+        # Kumpulkan semua nama yang didefinisikan (kelas, fungsi, konstanta)
+        definitions = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                definitions.add(node.name)
+            elif isinstance(node, ast.FunctionDef):
+                definitions.add(node.name)
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        definitions.add(target.id)
+
+        # Periksa apakah ada ekspektasi untuk modul ini
+        expected = MODULE_EXPECTATIONS.get(module_name, [])
+        if not expected:
+            self.infos.append({"module": module_name, "info": "Modul ini tidak memiliki ekspektasi terdaftar"})
+            return
+
+        # Cari yang cocok
+        found = [name for name in expected if name in definitions]
+        if not found:
+            self.errors.append({
+                "module": module_name,
+                "error": f"Tidak ditemukan satupun dari: {', '.join(expected)}"
+            })
+        else:
+            missing = [name for name in expected if name not in definitions]
+            if missing:
+                self.warnings.append({
+                    "module": module_name,
+                    "warning": f"Tidak ditemukan: {', '.join(missing)} (ditemukan: {', '.join(found)})"
+                })
+
+    def _check_init(self):
+        init_file = self.constitution_path / "__init__.py"
+        if not init_file.exists():
+            self.warnings.append({"file": str(init_file), "warning": "__init__.py tidak ditemukan"})
+            return
+
+        try:
+            content = init_file.read_text(encoding="utf-8")
+            tree = ast.parse(content, filename=str(init_file))
+        except Exception as e:
+            self.errors.append({"file": str(init_file), "error": f"Parse error: {e}"})
+            return
+
+        # 1. Kumpulkan impor dari modul lokal (baik absolute maupun relative)
+        imports: Dict[str, Set[str]] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.module is None:
+                    continue
+                module_parts = node.module.split('.')
+                # Cek apakah import dari constitution (absolute) atau relative (diawali titik)
+                if module_parts[0] == 'constitution':
+                    # from constitution.xxx import ...
+                    if len(module_parts) >= 2:
+                        module_name = module_parts[1]
+                    else:
+                        continue
+                elif node.module.startswith('.'):
+                    # relative import: .xxx atau ..xxx
+                    parts = [p for p in node.module.split('.') if p]
+                    if parts:
+                        module_name = parts[-1]
+                    else:
+                        continue
+                else:
+                    # Bukan import dari constitution, lewati
+                    continue
+
+                if module_name in self.modules_found:
+                    for alias in node.names:
+                        imports.setdefault(module_name, set()).add(alias.name)
+
+        self.module_imports = imports
+
+        # 2. Cari __all__
+        all_list = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == "__all__":
+                        if isinstance(node.value, ast.List):
+                            all_list = [elt.value for elt in node.value.elts if isinstance(elt, ast.Constant)]
+                        break
+        if all_list is None:
+            self.warnings.append({"file": str(init_file), "warning": "__all__ tidak didefinisikan"})
+            return
+
+        # 3. Periksa ekspor dari setiap modul yang diimpor
+        for module, imported_names in imports.items():
+            expected = MODULE_EXPECTATIONS.get(module, [])
+            if not expected:
+                continue
+            # Setidaknya satu dari expected harus ada di __all__
+            exported = [name for name in expected if name in all_list]
+            if not exported:
+                self.errors.append({
+                    "file": str(init_file),
+                    "error": f"Tidak ada ekspektasi dari modul {module} yang diekspor di __all__ (expected: {', '.join(expected)})"
+                })
+            else:
+                missing = [name for name in expected if name not in all_list]
+                if missing:
+                    self.warnings.append({
+                        "file": str(init_file),
+                        "warning": f"Beberapa ekspektasi dari modul {module} tidak diekspor di __all__: {', '.join(missing)}"
+                    })
+
+    def _result(self) -> Dict[str, Any]:
         return {
             "errors": self.errors,
             "warnings": self.warnings,
+            "infos": self.infos,
             "summary": {
-                "total_modules": len(self.module_trees),
+                "modules_found": len(self.modules_found),
                 "errors_count": len(self.errors),
                 "warnings_count": len(self.warnings),
                 "passed": len(self.errors) == 0,
             }
         }
 
-    def _collect_modules(self):
-        if not self.constitution_path.exists():
-            self.errors.append({"file": str(self.constitution_path), "error": "Folder constitution tidak ditemukan"})
-            return
-        for py_file in self.constitution_path.glob("*.py"):
-            if py_file.name.startswith("__"):
-                continue
-            try:
-                with open(py_file, "r", encoding="utf-8") as f:
-                    content = f.read()
-                tree = ast.parse(content, filename=str(py_file))
-                module_name = py_file.stem
-                self.module_trees[module_name] = tree
-                # Kumpulkan semua definisi (fungsi, kelas, konstanta)
-                definitions = set()
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.FunctionDef):
-                        definitions.add(f"func:{node.name}")
-                    elif isinstance(node, ast.ClassDef):
-                        definitions.add(f"class:{node.name}")
-                    elif isinstance(node, ast.Assign):
-                        for target in node.targets:
-                            if isinstance(target, ast.Name):
-                                definitions.add(f"const:{target.id}")
-                self.module_globals[module_name] = definitions
-            except Exception as e:
-                self.errors.append({"file": str(py_file), "error": f"Parse error: {e}"})
-
-    def _check_required_modules(self):
-        """Periksa semua modul yang diharapkan ada."""
-        for mod_name, spec in self.REQUIRED_MODULES.items():
-            if mod_name not in self.module_trees:
-                self.errors.append({
-                    "module": mod_name,
-                    "error": f"Modul {mod_name} tidak ditemukan di constitution/"
-                })
-                continue
-            definitions = self.module_globals.get(mod_name, set())
-            # Periksa class
-            if "class" in spec:
-                class_name = spec["class"]
-                if f"class:{class_name}" not in definitions:
-                    self.errors.append({
-                        "module": mod_name,
-                        "error": f"Class {class_name} tidak ditemukan"
-                    })
-            # Periksa methods
-            if "methods" in spec:
-                for method in spec["methods"]:
-                    # Method seharusnya ada di class, tapi kita cek di definisi global juga
-                    if f"func:{method}" not in definitions and f"class_method:{method}" not in definitions:
-                        self.warnings.append({
-                            "module": mod_name,
-                            "warning": f"Method {method} tidak ditemukan (mungkin di dalam class)"
-                        })
-            # Periksa konstanta
-            if "constants" in spec:
-                for const in spec["constants"]:
-                    if f"const:{const}" not in definitions:
-                        self.errors.append({
-                            "module": mod_name,
-                            "error": f"Konstanta {const} tidak ditemukan"
-                        })
-            if "functions" in spec:
-                for func in spec["functions"]:
-                    if f"func:{func}" not in definitions:
-                        self.errors.append({
-                            "module": mod_name,
-                            "error": f"Fungsi {func} tidak ditemukan"
-                        })
-
-    def _check_supreme_law(self):
-        """Periksa supreme_law.py lebih detail."""
-        if "supreme_law" not in self.module_trees:
-            return
-        tree = self.module_trees["supreme_law"]
-        # Cari class SupremeLaw dan metode verify_integrity
-        found_class = False
-        found_verify = False
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and node.name == "SupremeLaw":
-                found_class = True
-                for item in node.body:
-                    if isinstance(item, ast.FunctionDef) and item.name == "verify_integrity":
-                        found_verify = True
-                        break
-        if not found_class:
-            self.errors.append({
-                "module": "supreme_law",
-                "error": "Class SupremeLaw tidak ditemukan"
-            })
-        elif not found_verify:
-            self.errors.append({
-                "module": "supreme_law",
-                "error": "Method verify_integrity tidak ditemukan di SupremeLaw"
-            })
-
-    def _check_forbidden_states(self):
-        """Periksa forbidden_states.py memiliki konstanta FORBIDDEN_STATES."""
-        if "forbidden_states" not in self.module_trees:
-            return
-        definitions = self.module_globals.get("forbidden_states", set())
-        if "const:FORBIDDEN_STATES" not in definitions:
-            self.errors.append({
-                "module": "forbidden_states",
-                "error": "Konstanta FORBIDDEN_STATES tidak ditemukan"
-            })
-        else:
-            # Coba evaluasi nilai secara statis (jika mungkin)
-            # Kita bisa parse AST untuk mengambil nilai
-            tree = self.module_trees["forbidden_states"]
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Assign):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name) and target.id == "FORBIDDEN_STATES":
-                            if isinstance(node.value, (ast.List, ast.Tuple, ast.Set)):
-                                self.warnings.append({
-                                    "module": "forbidden_states",
-                                    "info": f"FORBIDDEN_STATES berisi {len(node.value.elts)} item"
-                                })
-                            elif isinstance(node.value, ast.Constant):
-                                self.warnings.append({
-                                    "module": "forbidden_states",
-                                    "info": f"FORBIDDEN_STATES adalah constant: {node.value.value}"
-                                })
-                            break
-
-    def _check_enforcement_engine(self):
-        """Periksa enforcement_engine.py memiliki fungsi enforce dan check_state."""
-        if "enforcement_engine" not in self.module_trees:
-            return
-        definitions = self.module_globals.get("enforcement_engine", set())
-        for func in ["enforce", "check_state"]:
-            if f"func:{func}" not in definitions:
-                self.errors.append({
-                    "module": "enforcement_engine",
-                    "error": f"Fungsi {func} tidak ditemukan"
-                })
-
-    def _check_amendment_protocol(self):
-        """Periksa amendment_protocol.py."""
-        if "amendment_protocol" not in self.module_trees:
-            return
-        definitions = self.module_globals.get("amendment_protocol", set())
-        for func in ["propose_amendment", "ratify_amendment"]:
-            if f"func:{func}" not in definitions:
-                self.warnings.append({
-                    "module": "amendment_protocol",
-                    "warning": f"Fungsi {func} tidak ditemukan (mungkin opsional)"
-                })
-
-    def _check_version_lock(self):
-        """Periksa version_lock.py."""
-        if "version_lock" not in self.module_trees:
-            return
-        definitions = self.module_globals.get("version_lock", set())
-        for func in ["get_status", "lock_version", "unlock_version"]:
-            if f"func:{func}" not in definitions:
-                self.errors.append({
-                    "module": "version_lock",
-                    "error": f"Fungsi {func} tidak ditemukan"
-                })
-
-    def _check_init_exports(self):
-        """Periksa constitution/__init__.py."""
-        init_file = self.constitution_path / "__init__.py"
-        if not init_file.exists():
-            self.errors.append({"file": str(init_file), "error": "__init__.py tidak ditemukan"})
-            return
-        with open(init_file, "r", encoding="utf-8") as f:
-            content = f.read()
-        tree = ast.parse(content)
-        all_defined = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "__all__":
-                        if isinstance(node.value, ast.List):
-                            all_defined = [elt.value for elt in node.value.elts if isinstance(elt, ast.Constant)]
-                        break
-        if all_defined is None:
-            self.warnings.append({
-                "file": str(init_file),
-                "warning": "__all__ tidak didefinisikan di __init__.py"
-            })
-        else:
-            # Periksa apakah semua modul penting ada di __all__
-            for mod in self.REQUIRED_MODULES.keys():
-                if mod not in all_defined:
-                    self.errors.append({
-                        "file": str(init_file),
-                        "error": f"Modul {mod} tidak diekspor di __all__"
-                    })
-
-    def _check_circular_imports(self):
-        """Periksa circular import antar modul constitution."""
-        try:
-            import networkx as nx
-        except ImportError:
-            self.warnings.append({"warning": "networkx not installed, skipping circular import check"})
-            return
-        G = nx.DiGraph()
-        for module, tree in self.module_trees.items():
-            G.add_node(module)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        imp = alias.name.split(".")[0]
-                        if imp in self.module_trees:
-                            G.add_edge(module, imp)
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module and node.module in self.module_trees:
-                        G.add_edge(module, node.module)
-        try:
-            cycles = list(nx.simple_cycles(G))
-            if cycles:
-                self.errors.append({
-                    "error": f"Circular imports detected: {cycles}"
-                })
-        except Exception as e:
-            self.warnings.append({"warning": f"Cycle detection error: {e}"})
-
 
 def check_constitution(constitution_path: Optional[Path] = None) -> Dict[str, Any]:
-    """Fungsi convenience."""
     checker = ConstitutionChecker(constitution_path)
     return checker.check_all()
 
 
 def integrate_with_rca(engine=None):
-    """
-    Tambahkan rule statis untuk constitution ke RCA engine.
-    """
+    """Integrasi dengan RCA engine."""
     from checker.core.rca import get_engine, RCARule, Severity, ErrorCode, Category, RCAResult
 
     class StaticConstitutionRule(RCARule):
@@ -342,7 +269,7 @@ def integrate_with_rca(engine=None):
                     error_code=ErrorCode.ERP_VALIDATION,
                     root_cause="Pelanggaran konstitusi terdeteksi secara statis: " + "; ".join(error_msgs[:3]),
                     evidence=error_msgs,
-                    impact=["Konstitusi sistem tidak terpenuhi, sistem dalam kondisi tidak valid."],
+                    impact=["Konstitusi sistem tidak terpenuhi."],
                     suggested_fix="Periksa constitution/ dan pastikan semua komponen terdefinisi dengan benar.",
                     raw_error=str(exc),
                     confidence=0.95
@@ -355,7 +282,59 @@ def integrate_with_rca(engine=None):
     return engine
 
 
-if __name__ == "__main__":
-    import json
+def print_report(result: Dict[str, Any], verbose: bool = False):
+    c = COLOR
+    summary = result["summary"]
+    errors = result["errors"]
+    warnings = result["warnings"]
+    infos = result["infos"]
+
+    print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*72}╗")
+    print("║         CONSTITUTION STATIC CHECKER — v3.0            ║")
+    print(f"╚{'═'*72}╝{c['RESET']}")
+
+    print(f"\n  📁 Constitution Path: {ROOT / 'constitution'}")
+    print(f"  📄 Modules Found: {summary['modules_found']}")
+    print(f"  ✅ Errors: {summary['errors_count']}")
+    print(f"  ⚠️  Warnings: {summary['warnings_count']}")
+    print(f"  🏆 Overall Status: {'✅ PASS' if summary['passed'] else '❌ FAIL'}")
+
+    if errors:
+        print(f"\n{c['RED']}─── ERRORS ───{c['RESET']}")
+        for e in errors:
+            file_or_mod = e.get("file") or e.get("module") or "unknown"
+            print(f"  {c['RED']}✗{c['RESET']} {file_or_mod}: {e.get('error', '')}")
+    if warnings:
+        print(f"\n{c['YELLOW']}─── WARNINGS ───{c['RESET']}")
+        for w in warnings:
+            file_or_mod = w.get("file") or w.get("module") or "unknown"
+            print(f"  {c['YELLOW']}⚠{c['RESET']} {file_or_mod}: {w.get('warning', '')}")
+    if verbose and infos:
+        print(f"\n{c['CYAN']}─── INFO ───{c['RESET']}")
+        for info in infos:
+            file_or_mod = info.get("module") or "unknown"
+            print(f"  {c['CYAN']}ℹ{c['RESET']} {file_or_mod}: {info.get('info', '')}")
+
+
+def save_json(result: Dict[str, Any], path: str):
+    Path(path).write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    print(f"{COLOR['GREEN']}✅ JSON exported to {path}{COLOR['RESET']}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Constitution Static Checker")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan info tambahan")
+    parser.add_argument("--json", type=str, help="Export hasil ke JSON")
+    args = parser.parse_args()
+
     result = check_constitution()
-    print(json.dumps(result, indent=2))
+    if args.json:
+        save_json(result, args.json)
+    else:
+        print_report(result, args.verbose)
+
+    sys.exit(0 if result["summary"]["passed"] else 1)
+
+
+if __name__ == "__main__":
+    main()

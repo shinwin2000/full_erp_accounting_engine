@@ -8,6 +8,7 @@ Responsibility: Implementasi in-memory repository untuk buku besar (General Ledg
                arus kas (indirect method), perbandingan antar periode,
                dan audit trail.
 Audit: Setiap query balance dan laporan keuangan dicatat untuk audit trail.
+Perbaikan: Semua nilai moneter dikonversi ke str() untuk menghindari float().
 """
 
 from __future__ import annotations
@@ -48,7 +49,7 @@ class NormalBalance(Enum):
     CREDIT = "credit"
 
 
-# ==================== READ MODEL FOR QUERY (ditambahkan untuk memenuhi import) ====================
+# ==================== READ MODEL FOR QUERY ====================
 
 
 @dataclass
@@ -76,8 +77,8 @@ class LedgerEntryReadModel:
             "journal_id": str(self.journal_id),
             "account_id": str(self.account_id),
             "account_code": self.account_code,
-            "debit_amount": float(self.debit_amount),
-            "credit_amount": float(self.credit_amount),
+            "debit_amount": str(self.debit_amount),   # ← str, bukan float
+            "credit_amount": str(self.credit_amount), # ← str
             "posting_date": self.posting_date.isoformat(),
             "legal_entity_id": str(self.legal_entity_id),
             "cost_center": self.cost_center,
@@ -129,8 +130,8 @@ class LedgerEntry:
             "account_type": self.account_type.value,
             "normal_balance": self.normal_balance.value,
             "legal_entity_id": str(self.legal_entity_id),
-            "debit_amount": float(self.debit_amount),
-            "credit_amount": float(self.credit_amount),
+            "debit_amount": str(self.debit_amount),   # ← str
+            "credit_amount": str(self.credit_amount), # ← str
             "posting_date": self.posting_date.isoformat(),
             "fiscal_year": self.fiscal_year,
             "period": self.period,
@@ -165,10 +166,10 @@ class AccountBalance:
             "account_name": self.account_name,
             "account_type": self.account_type.value,
             "normal_balance": self.normal_balance.value,
-            "opening_balance": float(self.opening_balance),
-            "debit_movement": float(self.debit_movement),
-            "credit_movement": float(self.credit_movement),
-            "closing_balance": float(self.closing_balance),
+            "opening_balance": str(self.opening_balance),   # ← str
+            "debit_movement": str(self.debit_movement),     # ← str
+            "credit_movement": str(self.credit_movement),   # ← str
+            "closing_balance": str(self.closing_balance),   # ← str
         }
 
 
@@ -185,8 +186,8 @@ class TrialBalanceRow:
         return {
             "account_code": self.account_code,
             "account_name": self.account_name,
-            "debit_balance": float(self.debit_balance),
-            "credit_balance": float(self.credit_balance),
+            "debit_balance": str(self.debit_balance),   # ← str
+            "credit_balance": str(self.credit_balance), # ← str
         }
 
 
@@ -199,16 +200,16 @@ class FinancialStatementRow:
     current_period: Decimal
     previous_period: Decimal
     variance: Decimal
-    variance_percentage: float
+    variance_percentage: float   # non-monetary (persentase), boleh float
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "account_code": self.account_code,
             "account_name": self.account_name,
-            "current_period": float(self.current_period),
-            "previous_period": float(self.previous_period),
-            "variance": float(self.variance),
-            "variance_percentage": self.variance_percentage,
+            "current_period": str(self.current_period),   # ← str
+            "previous_period": str(self.previous_period), # ← str
+            "variance": str(self.variance),               # ← str
+            "variance_percentage": self.variance_percentage,  # tetap float
         }
 
 
@@ -517,9 +518,9 @@ class LedgerRepositoryPort:
 
         net_income = revenue_balance - expense_balance
         return {
-            "revenue_total": float(revenue_balance),
-            "expense_total": float(expense_balance),
-            "net_income": float(net_income),
+            "revenue_total": str(revenue_balance),           # ← str
+            "expense_total": str(expense_balance),           # ← str
+            "net_income": str(net_income),                   # ← str
             "revenue_details": [r.to_dict() for r in revenue_details],
             "expense_details": [e.to_dict() for e in expense_details],
         }
@@ -586,7 +587,7 @@ class LedgerRepositoryPort:
                     {
                         "account_code": code,
                         "account_name": data["name"],
-                        "balance": float(balance),
+                        "balance": str(balance),          # ← str
                     }
                 )
             elif acc_type == AccountType.LIABILITY:
@@ -596,7 +597,7 @@ class LedgerRepositoryPort:
                     {
                         "account_code": code,
                         "account_name": data["name"],
-                        "balance": float(balance),
+                        "balance": str(balance),          # ← str
                     }
                 )
             elif acc_type == AccountType.EQUITY:
@@ -606,7 +607,7 @@ class LedgerRepositoryPort:
                     {
                         "account_code": code,
                         "account_name": data["name"],
-                        "balance": float(balance),
+                        "balance": str(balance),          # ← str
                     }
                 )
             elif acc_type == AccountType.CONTRA_ASSET:
@@ -615,16 +616,16 @@ class LedgerRepositoryPort:
                     {
                         "account_code": code,
                         "account_name": data["name"] + " (kontra)",
-                        "balance": float(-net),
+                        "balance": str(-net),             # ← str
                     }
                 )
 
         return {
             "as_of_date": as_of_date.isoformat(),
-            "total_assets": float(asset_balance),
-            "total_liabilities": float(liability_balance),
-            "total_equity": float(equity_balance),
-            "liabilities_and_equity": float(liability_balance + equity_balance),
+            "total_assets": str(asset_balance),           # ← str
+            "total_liabilities": str(liability_balance),  # ← str
+            "total_equity": str(equity_balance),          # ← str
+            "liabilities_and_equity": str(liability_balance + equity_balance),  # ← str
             "asset_details": asset_details,
             "liability_details": liability_details,
             "equity_details": equity_details,
@@ -649,7 +650,7 @@ class LedgerRepositoryPort:
         )
 
         operating_activities = {
-            "net_income": net_income,
+            "net_income": str(net_income),
             "adjustments": [],
             "changes_in_assets": [],
             "changes_in_liabilities": [],
@@ -662,7 +663,7 @@ class LedgerRepositoryPort:
         operating_activities["adjustments"].append(
             {
                 "description": "Depreciation and amortization",
-                "amount": float(deprec_total),
+                "amount": str(deprec_total),          # ← str
             }
         )
         total_adjustment += deprec_total
@@ -672,7 +673,7 @@ class LedgerRepositoryPort:
         operating_activities["changes_in_assets"].append(
             {
                 "account": "Accounts Receivable",
-                "change": float(ar_change),
+                "change": str(ar_change),             # ← str
             }
         )
         total_adjustment += ar_change
@@ -684,7 +685,7 @@ class LedgerRepositoryPort:
         operating_activities["changes_in_assets"].append(
             {
                 "account": "Inventory",
-                "change": float(inv_change),
+                "change": str(inv_change),            # ← str
             }
         )
         total_adjustment += inv_change
@@ -694,7 +695,7 @@ class LedgerRepositoryPort:
         operating_activities["changes_in_liabilities"].append(
             {
                 "account": "Accounts Payable",
-                "change": float(ap_change),
+                "change": str(ap_change),             # ← str
             }
         )
         total_adjustment += ap_change
@@ -705,10 +706,10 @@ class LedgerRepositoryPort:
             "period": f"Q{math.ceil(period / 3)} {fiscal_year}"
             if period % 3 == 0
             else f"Month {period} {fiscal_year}",
-            "net_cash_operating": float(net_cash_operating),
-            "net_cash_investing": 0.0,
-            "net_cash_financing": 0.0,
-            "net_cash_increase": float(net_cash_operating),
+            "net_cash_operating": str(net_cash_operating),       # ← str
+            "net_cash_investing": "0",                            # ← str
+            "net_cash_financing": "0",                            # ← str
+            "net_cash_increase": str(net_cash_operating),        # ← str
             "operating_activities_details": operating_activities,
             "investing_activities_details": [],
             "financing_activities_details": [],
@@ -875,8 +876,8 @@ class LedgerRepositoryPort:
         unique_accounts = len(self._index_by_account)
         return {
             "total_entries": total_entries,
-            "total_debit": float(total_debit),
-            "total_credit": float(total_credit),
+            "total_debit": str(total_debit),       # ← str
+            "total_credit": str(total_credit),     # ← str
             "unique_journals": unique_journals,
             "unique_accounts": unique_accounts,
             "audit_log_size": len(self._audit_log),

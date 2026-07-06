@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -329,10 +330,134 @@ DEFAULT_REGULATORY_RULES: list[RegulatoryRule] = [
 ]
 
 
-# === 4. REGULATORY COMPLIANCE GUARD ===
+# ============================================================================
+# BASE REGULATORY COMPLIANCE GUARD (ABSTRACT)
+# ============================================================================
+
+class BaseRegulatoryComplianceGuard(ABC):
+    """Base contract untuk Regulatory Compliance Guard."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan guard."""
+        pass
+
+    @abstractmethod
+    def register_rule(self, rule: RegulatoryRule) -> None:
+        """Mendaftarkan aturan regulasi baru."""
+        pass
+
+    @abstractmethod
+    def get_rule(self, rule_id: str) -> RegulatoryRule | None:
+        """Mendapatkan aturan regulasi berdasarkan ID."""
+        pass
+
+    @abstractmethod
+    def get_all_rules(self, active_only: bool = True) -> list[RegulatoryRule]:
+        """Mendapatkan semua aturan regulasi."""
+        pass
+
+    @abstractmethod
+    def update_rule_status(self, rule_id: str, is_active: bool, updated_by: str) -> bool:
+        """Mengaktifkan/menonaktifkan aturan regulasi."""
+        pass
+
+    @abstractmethod
+    async def enforce(
+        self,
+        checks: list[tuple[str, dict[str, Any]]],
+        legal_entity_id: UUID | None = None,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, list[ComplianceViolation]]:
+        """Menjalankan serangkaian pemeriksaan regulasi."""
+        pass
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def get_violations(
+        self,
+        limit: int = 100,
+        domain: RegulatoryDomain | None = None,
+        unresolved_only: bool = False,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[ComplianceViolation]:
+        """Mendapatkan history pelanggaran regulasi."""
+        pass
+
+    @abstractmethod
+    def resolve_violation(
+        self,
+        violation_id: UUID,
+        resolved_by: str,
+        resolution_action: str,
+    ) -> ComplianceViolation | None:
+        """Menandai pelanggaran sebagai resolved."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Mendapatkan statistik kepatuhan regulasi."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset guard (untuk testing)."""
+        pass
+
+    # === Entity methods (wajib untuk semua guard) ===
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseRegulatoryComplianceGuard:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseRegulatoryComplianceGuard:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseRegulatoryComplianceGuard:
+        """Touch instance (increment version)."""
+        pass
 
 
-class RegulatoryComplianceGuard:
+# ============================================================================
+# REGULATORY COMPLIANCE GUARD (CONCRETE)
+# ============================================================================
+
+class RegulatoryComplianceGuard(BaseRegulatoryComplianceGuard):
     """
     Guard untuk kepatuhan regulasi.
 
@@ -352,10 +477,116 @@ class RegulatoryComplianceGuard:
         self._lock = threading.RLock()
         self._enabled = True
         self._report_violations_to_regulator = False  # Simulate sending reports
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        checks = context.get("checks")
+        if not checks:
+            errors.append("checks list is required")
+        elif not isinstance(checks, list):
+            errors.append("checks must be a list of tuples")
+        else:
+            for i, check in enumerate(checks):
+                if not isinstance(check, (tuple, list)) or len(check) != 2:
+                    errors.append(f"check[{i}] must be a tuple of (check_name, params)")
+                else:
+                    check_name, params = check
+                    if not check_name:
+                        errors.append(f"check[{i}] check_name is empty")
+                    if not isinstance(params, dict):
+                        errors.append(f"check[{i}] params must be a dict")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        if not self._rules:
+            errors.append("No rules registered")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        return {
+            "enabled": self._enabled,
+            "rules_count": len(self._rules),
+            "active_rules": len([r for r in self._rules.values() if r.is_active]),
+            "max_history": self._max_history,
+            "version": self._version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RegulatoryComplianceGuard:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> RegulatoryComplianceGuard:
+        """Clone instance."""
+        new_instance = RegulatoryComplianceGuard()
+        new_instance._enabled = self._enabled
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "violations_count": len(self._violations),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> RegulatoryComplianceGuard:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         """Mengaktifkan atau menonaktifkan guard."""
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Regulatory compliance guard enabled: {enabled}")
 
     def register_rule(self, rule: RegulatoryRule) -> None:
@@ -374,6 +605,7 @@ class RegulatoryComplianceGuard:
         rule = RegulatoryRule(**{**rule.__dict__, "cryptographic_hash": rule.compute_hash()})
         with self._lock:
             self._rules[rule.rule_id] = rule
+        self._record_audit("REGISTER_RULE", "system", {"rule_id": rule.rule_id})
         logger.info(f"Registered regulatory rule: {rule.rule_id}")
 
     def get_rule(self, rule_id: str) -> RegulatoryRule | None:
@@ -410,6 +642,7 @@ class RegulatoryComplianceGuard:
                     **{**new_rule.__dict__, "cryptographic_hash": new_rule.compute_hash()}
                 )
                 self._rules[rule_id] = new_rule
+                self._record_audit("UPDATE_RULE", updated_by, {"rule_id": rule_id, "is_active": is_active})
                 logger.info(
                     f"Regulatory rule {rule_id} active status set to {is_active} by {updated_by}"
                 )
@@ -471,8 +704,6 @@ class RegulatoryComplianceGuard:
                 logger.warning(
                     f"FX transaction {amount} {currency} exceeds reporting threshold {fx_reporting_threshold}. Reporting required."
                 )
-                # Optionally create a violation with lower severity
-                # For now, just log
 
         return True, None
 
@@ -600,8 +831,6 @@ class RegulatoryComplianceGuard:
                 # In production, would check if withholding was applied
                 # For now, just log and optionally raise warning
                 logger.info(f"Transaction {transaction_type} requires PPh 23 withholding")
-                # Could create a violation if withholding not applied
-                # For now, return True
 
         # Check PPh 26 for foreign parties
         rule_pph26 = self._rules.get("TAX_WITHHOLDING_PPH26")
@@ -1009,6 +1238,7 @@ class RegulatoryComplianceGuard:
                 if v.violation_id == violation_id and not v.is_resolved:
                     resolved = v.resolve(resolved_by, resolution_action)
                     self._violations[i] = resolved
+                    self._record_audit("RESOLVE_VIOLATION", resolved_by, {"violation_id": str(violation_id)})
                     logger.info(f"Compliance violation {violation_id} resolved by {resolved_by}")
                     return resolved
         return None
@@ -1022,6 +1252,7 @@ class RegulatoryComplianceGuard:
                 if v.violation_id == violation_id and not v.report_sent_to_regulator:
                     reported = v.mark_report_sent(reported_by)
                     self._violations[i] = reported
+                    self._record_audit("MARK_REPORTED", reported_by, {"violation_id": str(violation_id)})
                     logger.info(
                         f"Compliance violation {violation_id} marked as reported to regulator by {reported_by}"
                     )
@@ -1033,7 +1264,7 @@ class RegulatoryComplianceGuard:
         with self._lock:
             total = len(self._violations)
             if total == 0:
-                return {"total_violations": 0, "enabled": self._enabled}
+                return {"total_violations": 0, "enabled": self._enabled, "version": self._version}
 
             by_domain: dict[str, int] = {}
             by_severity: dict[str, int] = {}
@@ -1056,6 +1287,7 @@ class RegulatoryComplianceGuard:
                 "by_severity": by_severity,
                 "active_rules": len([r for r in self._rules.values() if r.is_active]),
                 "enabled": self._enabled,
+                "version": self._version,
                 "latest_violation": self._violations[-1].detected_at.isoformat()
                 if self._violations
                 else None,
@@ -1068,6 +1300,8 @@ class RegulatoryComplianceGuard:
             self._transaction_history = {}
             self._rules = {r.rule_id: r for r in DEFAULT_REGULATORY_RULES}
             self._enabled = True
+            self._version += 1
+            self._audit_trail = []
 
 
 # === 5. SINGLETON ACCESSOR ===

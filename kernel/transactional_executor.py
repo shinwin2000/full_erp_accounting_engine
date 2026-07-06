@@ -18,6 +18,7 @@ import asyncio
 import logging
 import random
 import time
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -315,8 +316,58 @@ class RetryableErrorDetector:
         return self
 
 
+# ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseTransactionalExecutor(ABC):
+    """
+    Base contract for Transactional Executor.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    async def execute_async(self, operation: Callable[[], T]) -> T:
+        """Execute async operation with transaction."""
+        pass
+
+    @abstractmethod
+    async def execute_transaction(
+        self,
+        uow_callback: Callable[[UnitOfWorkProtocol], T],
+        command_id: UUID | None = None,
+        idempotency_key: str | None = None,
+        isolation_level: str = "READ_COMMITTED",
+        timeout_seconds: int = 60,
+        max_retries: int | None = None,
+    ) -> ExecutionResult:
+        """Execute with full transaction support (retry, deadlock detection)."""
+        pass
+
+    @abstractmethod
+    async def execute_in_read_only(
+        self, uow_callback: Callable[[UnitOfWorkProtocol], T], timeout_seconds: int = 30
+    ) -> ExecutionResult:
+        """Execute in read-only transaction."""
+        pass
+
+    @abstractmethod
+    async def execute_in_serializable(
+        self,
+        uow_callback: Callable[[UnitOfWorkProtocol], T],
+        command_id: UUID | None = None,
+        timeout_seconds: int = 60,
+    ) -> ExecutionResult:
+        """Execute with SERIALIZABLE isolation level."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics about transactions."""
+        pass
+
+
 # === 5. TRANSACTIONAL EXECUTOR ===
-class TransactionalExecutor:
+class TransactionalExecutor(BaseTransactionalExecutor):
     _instance: TransactionalExecutor | None = None
     _lock = asyncio.Lock()
 

@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_legal_entity_router.py
@@ -24,14 +23,16 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
@@ -41,6 +42,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: Dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> Optional[Dict[str, Any]]:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now(timezone.utc) - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: Dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now(timezone.utc))
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -417,11 +464,19 @@ router = APIRouter(prefix="/legal-entities", tags=["Legal Entity"])
 )
 async def create_legal_entity(
     request: LegalEntityCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:create")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
     """Create a new legal entity."""
+    method_name = "create_legal_entity"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return LegalEntityResponseSchema(**cached)
+
     try:
         result = await service.create_legal_entity(
             legal_name=request.legal_name,
@@ -452,7 +507,7 @@ async def create_legal_entity(
             created_by=current_user.user_id,
         )
 
-        return LegalEntityResponseSchema(
+        response = LegalEntityResponseSchema(
             id=result.id,
             legal_name=result.legal_name,
             trade_name=result.trade_name,
@@ -490,6 +545,12 @@ async def create_legal_entity(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -776,11 +837,19 @@ async def get_legal_entity_by_registration(
 async def update_legal_entity(
     legal_entity_id: UUID,
     request: LegalEntityUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
     """Update legal entity information."""
+    method_name = "update_legal_entity"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return LegalEntityResponseSchema(**cached)
+
     try:
         result = await service.update_legal_entity(
             legal_entity_id=legal_entity_id,
@@ -804,7 +873,7 @@ async def update_legal_entity(
                 status_code=404, detail="Legal entity not found or cannot be updated"
             )
 
-        return LegalEntityResponseSchema(
+        response = LegalEntityResponseSchema(
             id=result.id,
             legal_name=result.legal_name,
             trade_name=result.trade_name,
@@ -842,6 +911,12 @@ async def update_legal_entity(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -858,11 +933,19 @@ async def update_legal_entity(
 async def deactivate_legal_entity(
     legal_entity_id: UUID,
     reason: str = Query("", description="Reason for deactivation"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> dict[str, Any]:
     """Deactivate a legal entity (soft delete)."""
+    method_name = "deactivate_legal_entity"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.deactivate_legal_entity(
             legal_entity_id, current_user.user_id, reason
@@ -871,12 +954,18 @@ async def deactivate_legal_entity(
         if not result:
             raise HTTPException(status_code=404, detail="Legal entity not found")
 
-        return {
+        response = {
             "legal_entity_id": str(legal_entity_id),
             "legal_name": result.legal_name,
             "status": result.status,
             "message": "Legal entity deactivated",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -892,18 +981,26 @@ async def deactivate_legal_entity(
 )
 async def activate_legal_entity(
     legal_entity_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
     """Activate a deactivated legal entity."""
+    method_name = "activate_legal_entity"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return LegalEntityResponseSchema(**cached)
+
     try:
         result = await service.activate_legal_entity(legal_entity_id, current_user.user_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Legal entity not found")
 
-        return LegalEntityResponseSchema(
+        response = LegalEntityResponseSchema(
             id=result.id,
             legal_name=result.legal_name,
             trade_name=result.trade_name,
@@ -941,6 +1038,12 @@ async def activate_legal_entity(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -957,18 +1060,26 @@ async def activate_legal_entity(
 async def lock_legal_entity(
     legal_entity_id: UUID,
     reason: str = Query("", description="Lock reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
     """Lock a legal entity to prevent modifications."""
+    method_name = "lock_legal_entity"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return LegalEntityResponseSchema(**cached)
+
     try:
         result = await service.lock_legal_entity(legal_entity_id, current_user.user_id, reason)
 
         if not result:
             raise HTTPException(status_code=404, detail="Legal entity not found")
 
-        return LegalEntityResponseSchema(
+        response = LegalEntityResponseSchema(
             id=result.id,
             legal_name=result.legal_name,
             trade_name=result.trade_name,
@@ -1006,6 +1117,12 @@ async def lock_legal_entity(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1021,18 +1138,26 @@ async def lock_legal_entity(
 )
 async def unlock_legal_entity(
     legal_entity_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> LegalEntityResponseSchema:
     """Unlock a locked legal entity."""
+    method_name = "unlock_legal_entity"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return LegalEntityResponseSchema(**cached)
+
     try:
         result = await service.unlock_legal_entity(legal_entity_id, current_user.user_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Legal entity not found")
 
-        return LegalEntityResponseSchema(
+        response = LegalEntityResponseSchema(
             id=result.id,
             legal_name=result.legal_name,
             trade_name=result.trade_name,
@@ -1070,6 +1195,12 @@ async def unlock_legal_entity(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1135,11 +1266,19 @@ async def get_tax_profile(
 async def update_tax_profile(
     legal_entity_id: UUID,
     request: TaxProfileSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> TaxProfileResponseSchema:
     """Update tax profile for a legal entity."""
+    method_name = "update_tax_profile"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return TaxProfileResponseSchema(**cached)
+
     try:
         result = await service.update_tax_profile(
             legal_entity_id=legal_entity_id,
@@ -1161,7 +1300,7 @@ async def update_tax_profile(
         if not result:
             raise HTTPException(status_code=404, detail="Legal entity not found")
 
-        return TaxProfileResponseSchema(
+        response = TaxProfileResponseSchema(
             legal_entity_id=result.legal_entity_id,
             tax_office=result.tax_office,
             tax_office_code=result.tax_office_code,
@@ -1180,6 +1319,12 @@ async def update_tax_profile(
             updated_by=result.updated_by,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1202,11 +1347,19 @@ async def update_tax_profile(
 async def create_branch(
     legal_entity_id: UUID,
     request: BranchCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> BranchResponseSchema:
     """Create a branch for a legal entity."""
+    method_name = "create_branch"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BranchResponseSchema(**cached)
+
     try:
         result = await service.create_branch(
             legal_entity_id=legal_entity_id,
@@ -1223,7 +1376,7 @@ async def create_branch(
             created_by=current_user.user_id,
         )
 
-        return BranchResponseSchema(
+        response = BranchResponseSchema(
             id=result.id,
             legal_entity_id=result.legal_entity_id,
             branch_code=result.branch_code,
@@ -1243,6 +1396,12 @@ async def create_branch(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1355,11 +1514,19 @@ async def update_branch(
     legal_entity_id: UUID,
     branch_id: UUID,
     request: BranchUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> BranchResponseSchema:
     """Update branch information."""
+    method_name = "update_branch"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BranchResponseSchema(**cached)
+
     try:
         result = await service.update_branch(
             branch_id=branch_id,
@@ -1379,7 +1546,7 @@ async def update_branch(
         if not result:
             raise HTTPException(status_code=404, detail="Branch not found")
 
-        return BranchResponseSchema(
+        response = BranchResponseSchema(
             id=result.id,
             legal_entity_id=result.legal_entity_id,
             branch_code=result.branch_code,
@@ -1399,6 +1566,12 @@ async def update_branch(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1416,11 +1589,19 @@ async def close_branch(
     legal_entity_id: UUID,
     branch_id: UUID,
     reason: str = Query("", description="Reason for closure"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> dict[str, Any]:
     """Close a branch (soft delete)."""
+    method_name = "close_branch"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.close_branch(
             branch_id, legal_entity_id, current_user.user_id, reason
@@ -1429,13 +1610,19 @@ async def close_branch(
         if not result:
             raise HTTPException(status_code=404, detail="Branch not found")
 
-        return {
+        response = {
             "branch_id": str(branch_id),
             "branch_code": result.branch_code,
             "branch_name": result.branch_name,
             "status": result.status,
             "message": "Branch closed",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1457,11 +1644,19 @@ async def close_branch(
 )
 async def create_consolidation_group(
     request: ConsolidationGroupCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:create")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> ConsolidationGroupResponseSchema:
     """Create a consolidation group."""
+    method_name = "create_consolidation_group"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ConsolidationGroupResponseSchema(**cached)
+
     try:
         result = await service.create_consolidation_group(
             group_code=request.group_code,
@@ -1474,7 +1669,7 @@ async def create_consolidation_group(
             created_by=current_user.user_id,
         )
 
-        return ConsolidationGroupResponseSchema(
+        response = ConsolidationGroupResponseSchema(
             id=result.id,
             group_code=result.group_code,
             group_name=result.group_name,
@@ -1491,6 +1686,12 @@ async def create_consolidation_group(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1589,11 +1790,19 @@ async def get_consolidation_group(
 async def update_consolidation_group(
     group_id: UUID,
     request: ConsolidationGroupCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> ConsolidationGroupResponseSchema:
     """Update consolidation group information."""
+    method_name = "update_consolidation_group"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ConsolidationGroupResponseSchema(**cached)
+
     try:
         result = await service.update_consolidation_group(
             group_id=group_id,
@@ -1609,7 +1818,7 @@ async def update_consolidation_group(
         if not result:
             raise HTTPException(status_code=404, detail="Consolidation group not found")
 
-        return ConsolidationGroupResponseSchema(
+        response = ConsolidationGroupResponseSchema(
             id=result.id,
             group_code=result.group_code,
             group_name=result.group_name,
@@ -1626,6 +1835,12 @@ async def update_consolidation_group(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1641,23 +1856,37 @@ async def update_consolidation_group(
 )
 async def deactivate_consolidation_group(
     group_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> dict[str, Any]:
     """Deactivate a consolidation group."""
+    method_name = "deactivate_consolidation_group"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.deactivate_consolidation_group(group_id, current_user.user_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Consolidation group not found")
 
-        return {
+        response = {
             "group_id": str(group_id),
             "group_code": result.group_code,
             "is_active": result.is_active,
             "message": "Consolidation group deactivated",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1674,24 +1903,38 @@ async def deactivate_consolidation_group(
 async def add_group_member(
     group_id: UUID,
     legal_entity_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> dict[str, Any]:
     """Add a legal entity to a consolidation group."""
+    method_name = "add_group_member"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.add_member_to_group(group_id, legal_entity_id, current_user.user_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Group or legal entity not found")
 
-        return {
+        response = {
             "group_id": str(group_id),
             "legal_entity_id": str(legal_entity_id),
             "legal_entity_name": result.legal_entity_name,
             "added": True,
             "message": "Member added to consolidation group",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1708,11 +1951,19 @@ async def add_group_member(
 async def remove_group_member(
     group_id: UUID,
     legal_entity_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("legal_entity:update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_legal_entity_service),
 ) -> dict[str, Any]:
     """Remove a legal entity from a consolidation group."""
+    method_name = "remove_group_member"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.remove_member_from_group(
             group_id, legal_entity_id, current_user.user_id
@@ -1721,13 +1972,19 @@ async def remove_group_member(
         if not result:
             raise HTTPException(status_code=404, detail="Group or legal entity not found")
 
-        return {
+        response = {
             "group_id": str(group_id),
             "legal_entity_id": str(legal_entity_id),
             "legal_entity_name": result.legal_entity_name,
             "removed": True,
             "message": "Member removed from consolidation group",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

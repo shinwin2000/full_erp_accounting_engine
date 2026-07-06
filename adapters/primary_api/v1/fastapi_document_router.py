@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_document_router.py
@@ -28,6 +27,7 @@ Method Standards (ERP):
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import mimetypes
 import os
@@ -42,6 +42,7 @@ from fastapi import (
     Depends,
     File,
     Form,
+    Header,
     HTTPException,
     Query,
     Request,
@@ -59,6 +60,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -275,9 +322,8 @@ class DocumentIntegrityResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_document_service(request: Request, ) -> Any:
+async def get_document_service(request: Request) -> Any:
     """Get Document Service instance."""
-
     from application.service_layer.service_document import DocumentService
 
     container = request.app.state.container
@@ -672,12 +718,20 @@ async def get_document_metadata(
 async def update_document_metadata(
     document_id: UUID,
     request: DocumentUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("document:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_document_service),
 ) -> DocumentResponseSchema:
     """Update document metadata (tags, description, entity link, etc.)."""
+    method_name = "update_document_metadata"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return DocumentResponseSchema(**cached)
+
     try:
         result = await service.update_document_metadata(
             document_id=document_id,
@@ -696,7 +750,7 @@ async def update_document_metadata(
         if not result:
             raise HTTPException(status_code=404, detail="Document not found or cannot be updated")
 
-        return DocumentResponseSchema(
+        response = DocumentResponseSchema(
             id=result.id,
             document_number=result.document_number,
             original_filename=result.original_filename,
@@ -730,6 +784,11 @@ async def update_document_metadata(
             version_of=result.version_of,
             notes=result.notes,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except HTTPException:
@@ -749,12 +808,20 @@ async def delete_document(
     document_id: UUID,
     reason: str = Query("", description="Deletion reason"),
     permanent: bool = Query(False, description="Permanent deletion"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("document:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_document_service),
 ) -> dict[str, Any]:
     """Delete a document (soft delete by default, can be restored)."""
+    method_name = "delete_document"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         if permanent:
             result = await service.permanent_delete_document(
@@ -770,13 +837,18 @@ async def delete_document(
         if not result:
             raise HTTPException(status_code=404, detail="Document not found")
 
-        return {
+        response = {
             "document_id": str(document_id),
             "document_number": result.document_number,
             "action": action,
             "status": result.status,
             "message": f"Document {action} successfully",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1183,12 +1255,20 @@ async def create_document_version(
     document_id: UUID,
     file: UploadFile = File(..., description="New version file"),
     notes: str = Form("", description="Version notes"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("document:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_document_service),
 ) -> DocumentResponseSchema:
     """Create a new version of an existing document."""
+    method_name = "create_document_version"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return DocumentResponseSchema(**cached)
+
     try:
         content = await file.read()
 
@@ -1215,7 +1295,7 @@ async def create_document_version(
         if not result:
             raise HTTPException(status_code=404, detail="Document not found")
 
-        return DocumentResponseSchema(
+        response = DocumentResponseSchema(
             id=result.id,
             document_number=result.document_number,
             original_filename=result.original_filename,
@@ -1249,6 +1329,11 @@ async def create_document_version(
             version_of=result.version_of,
             notes=result.notes,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except HTTPException:
         raise
     except ValueError as e:
@@ -1389,12 +1474,20 @@ async def bulk_delete_documents(
     document_ids: list[UUID] = Query(..., description="List of document IDs"),
     reason: str = Query("", description="Deletion reason"),
     permanent: bool = Query(False, description="Permanent deletion"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("document:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_document_service),
 ) -> dict[str, Any]:
     """Bulk delete multiple documents."""
+    method_name = "bulk_delete_documents"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.bulk_delete_documents(
             document_ids=document_ids,
@@ -1404,13 +1497,18 @@ async def bulk_delete_documents(
             deleted_by=current_user.user_id,
         )
 
-        return {
+        response = {
             "total": result.total,
             "deleted_count": result.deleted_count,
             "failed_count": result.failed_count,
             "failed_ids": [str(fid) for fid in result.failed_ids],
             "errors": result.errors,
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except Exception as e:
         logger.exception("Failed to bulk delete documents: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")

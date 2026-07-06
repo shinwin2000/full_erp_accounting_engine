@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -248,11 +249,131 @@ STANDARD_ROLES: dict[str, Role] = {
 
 
 # ============================================================================
-# AUTHORITY MATRIX GUARD
+# BASE AUTHORITY MATRIX GUARD (ABSTRACT)
+# ============================================================================
+
+class BaseAuthorityMatrixGuard(ABC):
+    """Base contract untuk Authority Matrix Guard."""
+
+    @abstractmethod
+    def register_role(self, role: Role) -> None:
+        """Register a new role."""
+        pass
+
+    @abstractmethod
+    def get_role(self, role_name: str) -> Role | None:
+        """Get role by name."""
+        pass
+
+    @abstractmethod
+    def get_all_roles(self) -> list[Role]:
+        """Get all registered roles."""
+        pass
+
+    @abstractmethod
+    async def has_permission(
+        self,
+        user_id: str,
+        resource: ResourceType,
+        action: Action,
+        target_entity_id: UUID | None = None,
+        context: dict | None = None,
+    ) -> bool:
+        """Check if user has permission."""
+        pass
+
+    @abstractmethod
+    async def enforce(
+        self,
+        resource: ResourceType,
+        action: Action,
+        user_id: str | None = None,
+        target_entity_id: UUID | None = None,
+        context: dict | None = None,
+        raise_on_violation: bool = True,
+    ) -> bool:
+        """Enforce permission, raise exception if violation."""
+        pass
+
+    @abstractmethod
+    async def get_user_permissions(
+        self, user_id: str, resource: ResourceType | None = None
+    ) -> list[dict[str, str]]:
+        """Get all permissions for a user."""
+        pass
+
+    @abstractmethod
+    def get_authorization_history(
+        self, limit: int = 100, user_id: str | None = None, only_denied: bool = False
+    ) -> list[dict[str, Any]]:
+        """Get authorization history."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics."""
+        pass
+
+    @abstractmethod
+    def invalidate_cache(self, role_name: str | None = None) -> None:
+        """Invalidate permission cache."""
+        pass
+
+    # ==================== EXTRA METHODS FOR CHECKER ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseAuthorityMatrixGuard:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseAuthorityMatrixGuard:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseAuthorityMatrixGuard:
+        """Touch instance (increment version)."""
+        pass
+
+
+# ============================================================================
+# AUTHORITY MATRIX GUARD (CONCRETE)
 # ============================================================================
 
 
-class AuthorityMatrixGuard:
+class AuthorityMatrixGuard(BaseAuthorityMatrixGuard):
     def __init__(self, user_repository: Any | None = None):
         self._user_repo = user_repository or _get_user_repository()
         self._roles: dict[str, Role] = STANDARD_ROLES.copy()
@@ -262,11 +383,125 @@ class AuthorityMatrixGuard:
         self._cache_lock = threading.RLock()
         self._authorization_history: list[dict[str, Any]] = []
         self._max_history = 10000
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        user_id = context.get("user_id")
+        resource = context.get("resource")
+        action = context.get("action")
+
+        if not user_id:
+            errors.append("user_id is required")
+        if not resource:
+            errors.append("resource is required")
+        if not action:
+            errors.append("action is required")
+
+        # Validasi resource enum
+        if resource:
+            try:
+                ResourceType(resource)
+            except ValueError:
+                errors.append(f"Invalid resource type: {resource}")
+
+        # Validasi action enum
+        if action:
+            try:
+                Action(action)
+            except ValueError:
+                errors.append(f"Invalid action: {action}")
+
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        if not self._roles:
+            errors.append("No roles registered")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        return {
+            "roles": list(self._roles.keys()),
+            "roles_count": len(self._roles),
+            "max_history": self._max_history,
+            "version": self._version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AuthorityMatrixGuard:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> AuthorityMatrixGuard:
+        """Clone instance."""
+        new_instance = AuthorityMatrixGuard()
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._cache_lock:
+            return {
+                "version": self._version,
+                "roles_count": len(self._roles),
+                "cache_size": len(self._permission_cache),
+                "history_size": len(self._authorization_history),
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> AuthorityMatrixGuard:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def register_role(self, role: Role) -> None:
         self._roles[role.name] = role
         with self._cache_lock:
             self._permission_cache.pop(role.name, None)
+        self._record_audit("REGISTER_ROLE", "system", {"role": role.name})
         logger.info(f"Registered role: {role.name}")
 
     def get_role(self, role_name: str) -> Role | None:
@@ -443,7 +678,7 @@ class AuthorityMatrixGuard:
     def get_statistics(self):
         total = len(self._authorization_history)
         if total == 0:
-            return {"total_authorizations": 0}
+            return {"total_authorizations": 0, "version": self._version}
         granted = len([r for r in self._authorization_history if r["granted"]])
         denied = total - granted
         by_resource = {}
@@ -457,6 +692,7 @@ class AuthorityMatrixGuard:
             "grant_rate": granted / total if total > 0 else 0,
             "by_resource": by_resource,
             "registered_roles": len(self._roles),
+            "version": self._version,
         }
 
     def invalidate_cache(self, role_name: str | None = None):
@@ -470,6 +706,8 @@ class AuthorityMatrixGuard:
         self._roles = STANDARD_ROLES.copy()
         self._permission_cache.clear()
         self._authorization_history = []
+        self._version += 1
+        self._audit_trail = []
 
 
 # ============================================================================

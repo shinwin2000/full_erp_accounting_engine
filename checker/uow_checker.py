@@ -3,19 +3,15 @@
 """
 uow_checker.py – Unit of Work Pattern Validator
 ================================================
-Versi   : 3.0.0
+Versi   : 4.2.0
 Standar : Big 4 Forensic Audit · ISO/IEC 25010 · SOX/ISA 315 Compliant
 
-Fitur:
-  - Scan UoW Port (interface) di ports/primary/
-  - Scan implementasi UoW di adapters/secondary_impl/
-  - Scan penggunaan UoW di use_cases & service_layer
-  - Deteksi bypass (repository method call tanpa UoW)
-  - Integrasi RCA engine (checker.core.rca)
-  - Parallel scanning, AST caching, progress bar
-  - Laporan JSON, CSV, HTML, SARIF
-  - Self-test terintegrasi
-  - CLI lengkap: --verbose, --json, --csv, --html, --sarif, --strict, --no-rca, --self-test, --exclude, --max-workers
+Perbaikan v4.2.0:
+  - Klasifikasi Write/Read lebih akurat: deteksi repository/session methods
+  - Deteksi CommandBus dispatch: dianggap write tapi UoW ditangani bus
+  - Service call write hanya jika method name jelas write (post, approve, close, etc.)
+  - Heuristic nama kelas hanya sebagai fallback
+  - Informasi tambahan: apakah use case menggunakan CommandBus
 """
 
 from __future__ import annotations
@@ -131,7 +127,7 @@ def _c(key: str) -> str:
     return COLOR.get(key, "")
 
 # ─── VERSION ──────────────────────────────────────────────────────────────────
-__version__ = "3.0.0"
+__version__ = "4.2.0"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 EXCLUDED_DIRS_DEFAULT = {
@@ -143,8 +139,27 @@ UOW_PORT_FILENAME = "unit_of_work_port.py"
 UOW_IMPL_PATTERNS = ("*unit_of_work*.py", "*uow*.py")
 UOW_CONTEXT_MANAGER_METHODS = {"__enter__", "__exit__", "__aenter__", "__aexit__"}
 UOW_REQUIRED_METHODS = {"begin", "commit", "rollback"}
-REPO_CALL_KEYWORDS = {"save", "add", "update", "delete", "persist", "remove", "flush"}
-SKIP_CLASS_PATTERNS = {"Factory", "Builder", "Provider", "Registry", "Error", "Exception", "Config", "Constants"}
+
+# Repository/session write methods (100% write)
+WRITE_REPO_METHODS = {
+    "add", "save", "update", "delete", "remove", "persist", "flush",
+    "merge", "create", "insert", "destroy", "purge", "bulk_insert", "bulk_update",
+    "bulk_delete", "commit", "rollback"
+}
+
+# Service method names that clearly write
+WRITE_SERVICE_METHODS = {
+    "post_journal", "approve_invoice", "reject_invoice", "close_period", "reopen_period",
+    "execute_payment", "create_invoice", "update_invoice", "delete_invoice", "record_payment",
+    "post", "approve", "reject", "close", "reopen", "submit",
+    "execute_payment_run", "generate_payment_run", "depreciate_assets",
+    "amortize_assets", "revalue", "impair", "dispose", "transfer",
+    "save", "update", "delete", "persist", "flush", "commit", "rollback"
+}
+
+REPO_INDICATORS = {"repo", "repository", "session", "adapter", "gateway", "client", "manager"}
+
+SKIP_CLASS_PATTERNS = {"Factory", "Builder", "Provider", "Registry", "Error", "Exception", "Config", "Constants", "Schema", "DTO"}
 
 # ─── DATA CLASSES ─────────────────────────────────────────────────────────────
 @dataclass
@@ -152,7 +167,7 @@ class Finding:
     severity: str  # ERROR, WARNING, INFO
     file: str
     line: int
-    category: str  # port, implementation, usage, bypass
+    category: str  # port, implementation, usage, bypass, read_write
     message: str
     detail: str = ""
     rca: Optional[Dict] = None
@@ -169,13 +184,31 @@ class Finding:
         }
 
 @dataclass
+class UseCaseSummary:
+    file: str
+    class_name: str
+    line: int
+    has_uow: bool
+    has_transactional_decorator: bool
+    has_direct_session_commit: bool
+    has_repository_calls: bool
+    has_service_write: bool
+    has_command_bus: bool
+    is_write: bool
+    violations: List[Finding] = field(default_factory=list)
+
+@dataclass
 class Report:
     findings: List[Finding] = field(default_factory=list)
+    use_case_summaries: List[UseCaseSummary] = field(default_factory=list)
     score: float = 100.0
     scan_time: float = 0.0
     total_files_scanned: int = 0
     total_uow_classes: int = 0
     total_use_cases_scanned: int = 0
+    use_cases_with_uow: int = 0
+    use_cases_without_uow: int = 0
+    use_cases_readonly: int = 0
 
     @property
     def error_count(self) -> int:
@@ -263,7 +296,6 @@ def _find_exit_method(node: ast.ClassDef) -> Optional[Union[ast.FunctionDef, ast
     return None
 
 def _analyze_exit_method(node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> Tuple[bool, bool, bool]:
-    """Return (has_commit, has_rollback, has_rollback_on_error)."""
     has_commit = False
     has_rollback = False
     has_rollback_on_error = False
@@ -273,7 +305,6 @@ def _analyze_exit_method(node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> 
             self.in_error_branch = False
 
         def visit_If(self, node):
-            # Detect error branch (checking exc_type, exc_val, or isinstance)
             test = node.test
             is_error_check = False
             if isinstance(test, ast.Name) and test.id in ("exc_type", "exc_val", "exc_tb"):
@@ -307,7 +338,6 @@ def _analyze_exit_method(node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> 
                     if self.in_error_branch:
                         nonlocal has_rollback_on_error
                         has_rollback_on_error = True
-                # Check self._transaction_manager.commit()
                 if isinstance(func.value, ast.Attribute):
                     if isinstance(func.value.value, ast.Name) and func.value.value.id == "self":
                         if func.value.attr in ("_transaction_manager", "_session", "_uow"):
@@ -317,7 +347,6 @@ def _analyze_exit_method(node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> 
                                 has_rollback = True
                                 if self.in_error_branch:
                                     has_rollback_on_error = True
-                    # self.commit() or self.rollback()
                     if isinstance(func.value, ast.Name) and func.value.id == "self":
                         if attr == "commit":
                             has_commit = True
@@ -334,25 +363,87 @@ def _analyze_exit_method(node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> 
     return has_commit, has_rollback, has_rollback_on_error
 
 def _is_factory_function(name: str) -> bool:
-    return name.startswith(("create_", "build_", "make_", "new_", "get_", "setup_"))
+    return name.startswith(("create_", "build_", "make_", "new_", "get_", "setup_", "__init__", "_init"))
 
-def _has_direct_repo_call(node: ast.AST) -> bool:
+def _has_repository_write(node: ast.AST) -> bool:
+    """Check if node contains any repository/session write method."""
     for sub in ast.walk(node):
         if isinstance(sub, ast.Call):
             if isinstance(sub.func, ast.Attribute):
                 attr = sub.func.attr.lower()
-                if attr in REPO_CALL_KEYWORDS:
+                if attr in WRITE_REPO_METHODS:
+                    # Check if called on repository/session object
                     if isinstance(sub.func.value, ast.Name):
                         obj = sub.func.value.id.lower()
-                        if "repo" in obj or "repository" in obj:
+                        if any(ind in obj for ind in REPO_INDICATORS):
                             return True
+                    if isinstance(sub.func.value, ast.Attribute):
+                        if isinstance(sub.func.value.value, ast.Name) and sub.func.value.value.id == "self":
+                            obj_attr = sub.func.value.attr.lower()
+                            if any(ind in obj_attr for ind in REPO_INDICATORS):
+                                return True
+    return False
+
+def _has_service_write(node: ast.AST) -> bool:
+    """Check if node contains service call with clearly write method name."""
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Call):
+            if isinstance(sub.func, ast.Attribute):
+                attr = sub.func.attr.lower()
+                if attr in WRITE_SERVICE_METHODS:
+                    # Check if called on service object
+                    if isinstance(sub.func.value, ast.Name):
+                        obj = sub.func.value.id.lower()
+                        if "service" in obj or "handler" in obj:
+                            return True
+                    if isinstance(sub.func.value, ast.Attribute):
+                        if isinstance(sub.func.value.value, ast.Name) and sub.func.value.value.id == "self":
+                            obj_attr = sub.func.value.attr.lower()
+                            if "service" in obj_attr or "handler" in obj_attr:
+                                return True
+    return False
+
+def _has_command_bus_dispatch(node: ast.AST) -> bool:
+    """Check if node dispatches to command bus (UoW handled by bus)."""
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Call):
+            if isinstance(sub.func, ast.Attribute):
+                attr = sub.func.attr.lower()
+                if attr in ("dispatch", "send", "execute", "publish"):
+                    if isinstance(sub.func.value, ast.Name):
+                        obj = sub.func.value.id.lower()
+                        if "command_bus" in obj or "bus" in obj:
+                            return True
+                    if isinstance(sub.func.value, ast.Attribute):
+                        if isinstance(sub.func.value.value, ast.Name) and sub.func.value.value.id == "self":
+                            obj_attr = sub.func.value.attr.lower()
+                            if "command_bus" in obj_attr or "bus" in obj_attr:
+                                return True
+    return False
+
+def _has_direct_session_commit(node: ast.AST) -> bool:
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Call):
+            if isinstance(sub.func, ast.Attribute):
+                attr = sub.func.attr.lower()
+                if attr == "commit":
+                    if isinstance(sub.func.value, ast.Name):
+                        obj = sub.func.value.id.lower()
+                        if obj in ("session", "db", "conn", "connection"):
+                            return True
+                    if isinstance(sub.func.value, ast.Attribute):
+                        if isinstance(sub.func.value.value, ast.Name):
+                            if sub.func.value.value.id.lower() in ("self", "db"):
+                                if sub.func.value.attr.lower() in ("session", "connection", "db"):
+                                    return True
     return False
 
 def _has_uow_usage(node: ast.AST) -> bool:
     for sub in ast.walk(node):
         if isinstance(sub, ast.With):
             for item in sub.items:
-                if "uow" in ast.unparse(item.context_expr).lower():
+                context_expr = ast.unparse(item.context_expr).lower()
+                if "uow" in context_expr or "unit_of_work" in context_expr:
                     return True
         if isinstance(sub, ast.Call):
             if isinstance(sub.func, ast.Attribute):
@@ -362,10 +453,8 @@ def _has_uow_usage(node: ast.AST) -> bool:
                         return True
                     if isinstance(sub.func.value, ast.Attribute):
                         if isinstance(sub.func.value.value, ast.Name) and sub.func.value.value.id == "self":
-                            if sub.func.value.attr == "_uow":
+                            if sub.func.value.attr in ("_uow", "uow"):
                                 return True
-    # Check decorator @transactional
-    # Not easy from AST without walking decorators, but we check in parent
     return False
 
 def _has_transactional_decorator(node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> bool:
@@ -379,6 +468,21 @@ def _has_transactional_decorator(node: Union[ast.FunctionDef, ast.AsyncFunctionD
                 return True
             if isinstance(dec.func, ast.Attribute) and dec.func.attr == "transactional":
                 return True
+    return False
+
+def _has_repository_calls(node: ast.AST) -> bool:
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Call):
+            if isinstance(sub.func, ast.Attribute):
+                if isinstance(sub.func.value, ast.Name):
+                    obj = sub.func.value.id.lower()
+                    if any(ind in obj for ind in REPO_INDICATORS):
+                        return True
+                if isinstance(sub.func.value, ast.Attribute):
+                    if isinstance(sub.func.value.value, ast.Name) and sub.func.value.value.id == "self":
+                        attr = sub.func.value.attr.lower()
+                        if any(ind in attr for ind in REPO_INDICATORS):
+                            return True
     return False
 
 # ─── CHECKER ──────────────────────────────────────────────────────────────────
@@ -635,118 +739,139 @@ class UoWChecker:
 
         return findings
 
-    # ─── USAGE CHECK ──────────────────────────────────────────────────────────
-    def check_usage(self) -> List[Finding]:
+    # ─── USE CASE ANALYSIS (enhanced) ──────────────────────────────────────
+    def analyze_use_cases(self) -> Tuple[List[Finding], List[UseCaseSummary]]:
         findings = []
-        target_dirs = [self.root / "application" / "use_cases", self.root / "application" / "service_layer"]
+        summaries = []
+        use_cases_dir = self.root / "application" / "use_cases"
+        if not use_cases_dir.exists():
+            return findings, summaries
 
-        for dir_path in target_dirs:
-            if not dir_path.exists():
+        for py_file in use_cases_dir.rglob("*.py"):
+            if self._should_skip_file(py_file):
                 continue
-            for py_file in dir_path.rglob("*.py"):
-                if self._should_skip_file(py_file):
-                    continue
-                rel = str(py_file.relative_to(self.root)).replace("\\", "/")
-                tree, err = _get_ast(py_file)
-                if err or tree is None:
-                    continue
-
-                for node in ast.walk(tree):
-                    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        continue
-                    if _is_factory_function(node.name):
-                        continue
-                    if not _has_direct_repo_call(node):
-                        continue
-
-                    uses_uow = (
-                        _has_transactional_decorator(node) or
-                        _has_uow_usage(node) or
-                        any(arg.arg in ("uow", "unit_of_work") for arg in node.args.args)
-                    )
-
-                    if not uses_uow:
-                        findings.append(Finding(
-                            severity="ERROR",
-                            file=rel,
-                            line=node.lineno,
-                            category="usage",
-                            message=f"Function '{node.name}' calls repository method without UoW",
-                            detail="Add @transactional decorator or use 'with uow:' context.",
-                            rca=self._generate_rca("Repository call without UoW", "ERROR", {"function": node.name}),
-                        ))
-
-        return findings
-
-    # ─── BYPASS CHECK ──────────────────────────────────────────────────────────
-    def check_bypass(self) -> List[Finding]:
-        findings = []
-        target_dirs = [self.root / "application" / "use_cases", self.root / "application" / "service_layer"]
-
-        for dir_path in target_dirs:
-            if not dir_path.exists():
+            rel = str(py_file.relative_to(self.root)).replace("\\", "/")
+            tree, err = _get_ast(py_file)
+            if err or tree is None:
                 continue
-            for py_file in dir_path.rglob("*.py"):
-                if self._should_skip_file(py_file):
+
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
                     continue
-                rel = str(py_file.relative_to(self.root)).replace("\\", "/")
-                tree, err = _get_ast(py_file)
-                if err or tree is None:
+                if _is_exception_class(node) or _is_factory_class(node):
+                    continue
+                methods = _get_methods(node)
+                if not any(m in {"execute", "handle", "__call__"} for m in methods):
                     continue
 
-                for node in ast.walk(tree):
-                    if not isinstance(node, ast.Call):
+                has_uow = False
+                has_tx_decorator = False
+                has_direct_commit = False
+                has_repo_calls = False
+                has_service_write = False
+                has_command_bus = False
+                is_write = False
+                class_violations = []
+
+                for item in node.body:
+                    if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         continue
-                    if not isinstance(node.func, ast.Attribute):
-                        continue
-                    attr = node.func.attr.lower()
-                    if attr not in REPO_CALL_KEYWORDS:
-                        continue
-                    if not isinstance(node.func.value, ast.Name):
-                        continue
-                    obj = node.func.value.id.lower()
-                    if "repo" not in obj and "repository" not in obj:
+                    if item.name not in ("execute", "handle", "__call__"):
                         continue
 
-                    # Find parent function
-                    parent_func = None
-                    for parent in ast.walk(tree):
-                        if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                            if node in ast.walk(parent):
-                                parent_func = parent
-                                break
-                    if parent_func is None:
-                        continue
-                    if _is_factory_function(parent_func.name):
-                        continue
+                    # Decorator
+                    if _has_transactional_decorator(item):
+                        has_tx_decorator = True
+                        has_uow = True
 
-                    uses_uow = (
-                        _has_transactional_decorator(parent_func) or
-                        _has_uow_usage(parent_func) or
-                        any(arg.arg in ("uow", "unit_of_work") for arg in parent_func.args.args)
-                    )
+                    # UoW usage
+                    if _has_uow_usage(item):
+                        has_uow = True
 
-                    if not uses_uow:
-                        findings.append(Finding(
-                            severity="WARNING" if not self.strict else "ERROR",
-                            file=rel,
-                            line=node.lineno,
-                            category="bypass",
-                            message=f"Repository call {node.func.attr}() without UoW in {parent_func.name}",
-                            detail="Use UoW for write operations to repository.",
-                            rca=self._generate_rca(f"Bypass UoW: {node.func.attr}", "WARNING", {"function": parent_func.name}),
-                        ))
+                    # Direct session commit
+                    if _has_direct_session_commit(item):
+                        has_direct_commit = True
 
-        return findings
+                    # Repository calls (may include read and write)
+                    if _has_repository_calls(item):
+                        has_repo_calls = True
+
+                    # Repository write (100% write)
+                    if _has_repository_write(item):
+                        is_write = True
+
+                    # Service write (clearly write methods)
+                    if _has_service_write(item):
+                        is_write = True
+                        has_service_write = True
+
+                    # Command bus dispatch (write, but UoW handled by bus)
+                    if _has_command_bus_dispatch(item):
+                        has_command_bus = True
+                        # Jika menggunakan command bus, anggap use case tidak perlu UoW sendiri
+                        # Tapi tetap tandai sebagai write
+                        is_write = True
+                        # UoW sudah ditangani oleh command bus, jadi tidak perlu violation
+                        # Kita tidak set has_uow, tapi kita akan bypass error untuk command bus.
+
+                # Jika hanya command bus dan tidak ada repository write/service write, kita anggap write tapi tidak perlu UoW
+                # Karena command bus yang menangani transaksi.
+                # Tapi kita tetap cek jika ada repository write tanpa UoW.
+
+                # Kasus: ada repository write tanpa UoW dan tanpa command bus
+                if is_write and (has_repo_calls or has_service_write) and not has_uow and not has_tx_decorator and not has_command_bus:
+                    # Jika ada repository write, harus ada UoW atau transactional decorator
+                    class_violations.append(Finding(
+                        severity="ERROR",
+                        file=rel,
+                        line=node.lineno,
+                        category="usage",
+                        message=f"Use case '{node.name}' does write operations without UoW",
+                        detail="Add @transactional decorator or use 'with self.uow:' context.",
+                        rca=self._generate_rca("Write without UoW", "ERROR", {"class": node.name}),
+                    ))
+
+                if has_direct_commit and not has_uow and not has_command_bus:
+                    class_violations.append(Finding(
+                        severity="ERROR",
+                        file=rel,
+                        line=node.lineno,
+                        category="bypass",
+                        message=f"Use case '{node.name}' calls session.commit() directly, bypassing UoW",
+                        detail="Use UoW.commit() instead of direct session commit.",
+                        rca=self._generate_rca("Direct session commit", "ERROR", {"class": node.name}),
+                    ))
+
+                # Jika write tapi hanya command bus, tidak perlu violation
+                if is_write and has_command_bus and not has_repo_calls and not has_service_write:
+                    # Command bus handles transaction, no violation
+                    pass
+
+                summary = UseCaseSummary(
+                    file=rel,
+                    class_name=node.name,
+                    line=node.lineno,
+                    has_uow=has_uow,
+                    has_transactional_decorator=has_tx_decorator,
+                    has_direct_session_commit=has_direct_commit,
+                    has_repository_calls=has_repo_calls,
+                    has_service_write=has_service_write,
+                    has_command_bus=has_command_bus,
+                    is_write=is_write,
+                    violations=class_violations,
+                )
+                summaries.append(summary)
+                findings.extend(class_violations)
+
+        return findings, summaries
 
     def scan(self, progress_callback: Optional[Callable] = None) -> Report:
         t0 = time.monotonic()
         report = Report()
 
-        # Collect files for progress
         all_files = []
         for d in [self.root / "ports" / "primary", self.root / "adapters" / "secondary_impl",
-                  self.root / "application" / "use_cases", self.root / "application" / "service_layer"]:
+                  self.root / "application" / "use_cases"]:
             if d.exists():
                 all_files.extend(d.rglob("*.py"))
         report.total_files_scanned = len(all_files)
@@ -754,12 +879,19 @@ class UoWChecker:
         findings = []
         findings.extend(self.check_port())
         findings.extend(self.check_implementation())
-        findings.extend(self.check_usage())
-        findings.extend(self.check_bypass())
+
+        use_case_findings, summaries = self.analyze_use_cases()
+        findings.extend(use_case_findings)
+        report.use_case_summaries = summaries
+        report.total_use_cases_scanned = len(summaries)
+        # Use cases with UoW: either has_uow or tx_decorator or command_bus (handled by bus)
+        report.use_cases_with_uow = sum(1 for s in summaries if s.is_write and (s.has_uow or s.has_transactional_decorator or s.has_command_bus))
+        # Use cases without UoW: write without any of the above
+        report.use_cases_without_uow = sum(1 for s in summaries if s.is_write and not s.has_uow and not s.has_transactional_decorator and not s.has_command_bus)
+        report.use_cases_readonly = sum(1 for s in summaries if not s.is_write)
 
         report.findings = findings
 
-        # Compute score
         errors = report.error_count
         warnings = report.warning_count
         score = 100.0 - errors * 10 - warnings * 2
@@ -778,11 +910,17 @@ def print_report(report: Report, checker: UoWChecker, verbose: bool = False, sho
     _safe_print("  📋 UoW Contract Standards:")
     _safe_print("    ✅ UoW Port defines begin/commit/rollback or context manager")
     _safe_print("    ✅ UoW Implementation has context manager or explicit commit/rollback")
-    _safe_print("    ✅ Use Cases use @transactional or 'with uow:' context")
-    _safe_print("    ✅ No direct repository calls bypassing UoW")
+    _safe_print("    ✅ Use Cases use @transactional or 'with uow:' context for writes")
+    _safe_print("    ✅ No direct repository write calls bypassing UoW")
+    _safe_print("    ✅ CommandBus dispatch considered UoW-aware")
+    _safe_print("    ✅ Read/Write awareness: read-only use cases don't need UoW")
 
     _safe_print(f"\n  📊 Summary:")
     _safe_print(f"    Files scanned    : {report.total_files_scanned}")
+    _safe_print(f"    Use Cases scanned: {report.total_use_cases_scanned}")
+    _safe_print(f"      ✅ With UoW    : {report.use_cases_with_uow}")
+    _safe_print(f"      ❌ Without UoW : {report.use_cases_without_uow}")
+    _safe_print(f"      📖 Read-only   : {report.use_cases_readonly}")
     _safe_print(f"    Findings         : {len(report.findings)}")
     _safe_print(f"    Errors (CRITICAL): {c['RED']}{report.error_count}{c['RESET']}")
     _safe_print(f"    Warnings (MEDIUM): {c['YELLOW']}{report.warning_count}{c['RESET']}")
@@ -826,6 +964,19 @@ def print_report(report: Report, checker: UoWChecker, verbose: bool = False, sho
     else:
         _safe_print(f"\n{c['GREEN']}✅ All UoW contracts satisfied!{c['RESET']}")
 
+    if report.use_case_summaries:
+        _safe_print(f"\n{c['CYAN']}─── USE CASE UoW USAGE ───{c['RESET']}")
+        for s in report.use_case_summaries:
+            if s.is_write and (s.has_uow or s.has_transactional_decorator or s.has_command_bus):
+                status = f"{c['GREEN']}✅ with UoW{c['RESET']}"
+            elif s.is_write and not s.has_uow and not s.has_transactional_decorator and not s.has_command_bus:
+                status = f"{c['RED']}❌ NO UoW{c['RESET']}"
+            elif not s.is_write:
+                status = f"{c['CYAN']}📖 read-only{c['RESET']}"
+            else:
+                status = f"{c['YELLOW']}⚠️ unknown{c['RESET']}"
+            _safe_print(f"  {s.class_name} @ {s.file}:{s.line} {status}")
+
     _safe_print(f"\n{c['CYAN']}{'─'*72}{c['RESET']}")
     if report.passed:
         _safe_print(f"  {c['GREEN']}✅ PASS — All UoW contracts satisfied.{c['RESET']}")
@@ -842,7 +993,27 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
             "passed": report.passed,
             "scan_time": report.scan_time,
             "total_files_scanned": report.total_files_scanned,
+            "total_use_cases_scanned": report.total_use_cases_scanned,
+            "use_cases_with_uow": report.use_cases_with_uow,
+            "use_cases_without_uow": report.use_cases_without_uow,
+            "use_cases_readonly": report.use_cases_readonly,
             "findings": [f.to_dict() for f in report.findings],
+            "use_case_summaries": [
+                {
+                    "file": s.file,
+                    "class": s.class_name,
+                    "line": s.line,
+                    "has_uow": s.has_uow,
+                    "has_transactional_decorator": s.has_transactional_decorator,
+                    "has_direct_session_commit": s.has_direct_session_commit,
+                    "has_repository_calls": s.has_repository_calls,
+                    "has_service_write": s.has_service_write,
+                    "has_command_bus": s.has_command_bus,
+                    "is_write": s.is_write,
+                    "violations": [v.to_dict() for v in s.violations],
+                }
+                for s in report.use_case_summaries
+            ],
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
@@ -963,54 +1134,50 @@ def self_test(verbose: bool = True) -> bool:
 
     if verbose: _safe_print(f"\nUoW Checker self-test v{__version__}…\n")
 
-    # Test _is_exception_class
+    # Test _has_repository_write
     code = """
-class MyError(Exception):
-    pass
+class MyUseCase:
+    def execute(self):
+        self.repo.save(data)
 """
     tree = ast.parse(code)
-    node = next((n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)), None)
-    if node:
-        check("_is_exception_class detects Exception", _is_exception_class(node))
+    func = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)), None)
+    if func:
+        check("_has_repository_write detects repo.save", _has_repository_write(func))
 
+    # Test _has_service_write
     code2 = """
-class MyFactory:
-    pass
+class MyUseCase:
+    def execute(self):
+        self.journal_service.post_journal(data)
 """
     tree2 = ast.parse(code2)
-    node2 = next((n for n in ast.walk(tree2) if isinstance(n, ast.ClassDef)), None)
-    if node2:
-        check("_is_factory_class detects Factory", _is_factory_class(node2))
+    func2 = next((n for n in ast.walk(tree2) if isinstance(n, ast.FunctionDef)), None)
+    if func2:
+        check("_has_service_write detects service.post_journal", _has_service_write(func2))
 
-    # Test _get_methods
+    # Test _has_command_bus_dispatch
     code3 = """
-class MyClass:
-    def method1(self): pass
-    async def method2(self): pass
+class MyUseCase:
+    def execute(self):
+        self.command_bus.dispatch(command)
 """
     tree3 = ast.parse(code3)
-    node3 = next((n for n in ast.walk(tree3) if isinstance(n, ast.ClassDef)), None)
-    if node3:
-        methods = _get_methods(node3)
-        check("_get_methods returns methods", "method1" in methods and "method2" in methods)
+    func3 = next((n for n in ast.walk(tree3) if isinstance(n, ast.FunctionDef)), None)
+    if func3:
+        check("_has_command_bus_dispatch detects command_bus.dispatch", _has_command_bus_dispatch(func3))
 
-    # Test _has_method
-    check("_has_method detects method", _has_method(node3, "method1"))
-    check("_has_method false for missing", not _has_method(node3, "missing"))
-
-    # Test _has_transactional_decorator
+    # Test _has_uow_usage
     code4 = """
-@transactional
-def my_func():
-    pass
+class MyUseCase:
+    def execute(self):
+        with self.uow:
+            self.repo.save(data)
 """
     tree4 = ast.parse(code4)
-    func = next((n for n in ast.walk(tree4) if isinstance(n, ast.FunctionDef)), None)
-    if func:
-        check("_has_transactional_decorator detects decorator", _has_transactional_decorator(func))
-
-    # Test RCA
-    check("RCA availability", True)
+    func4 = next((n for n in ast.walk(tree4) if isinstance(n, ast.FunctionDef)), None)
+    if func4:
+        check("_has_uow_usage detects with self.uow", _has_uow_usage(func4))
 
     if verbose: _safe_print(f"\nSelf-test: {passed} passed, {failed} failed {'✅' if failed==0 else '❌'}")
     return failed == 0

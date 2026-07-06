@@ -22,7 +22,7 @@ from application.dto_objects.ar_invoice_request import ARInvoiceCreateRequest
 from application.service_layer.service_ar import ARService
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
-from ports.primary.customer_supplier_repository_port import CustomerRepositoryPort
+from ports.primary.customer_repository_port import CustomerRepositoryPort
 
 if TYPE_CHECKING:
     from domain.customer_supplier_employee.customer_aggregate_root import CustomerAggregate

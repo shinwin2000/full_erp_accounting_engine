@@ -25,7 +25,9 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
 import importlib
+import json
 import logging
 import os
 from datetime import date, datetime
@@ -33,7 +35,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -45,6 +47,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -1130,7 +1178,7 @@ async def download_report(
         if report.status != ReportStatus.GENERATED.value:
             raise HTTPException(
                 status_code=400,
-                detail=f"Report not ready (status: {report.status})",  # nosec
+                detail=f"Report not ready (status: {report.status})",
             )
 
         if report.is_deleted:
@@ -1163,24 +1211,37 @@ async def download_report(
 )
 async def delete_report(
     report_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("report:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_report_service),
 ) -> dict[str, Any]:
     """Delete a report (soft delete)."""
+    method_name = "delete_report"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.delete_report(report_id, legal_entity_id, current_user.user_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Report not found")
 
-        return {
+        response = {
             "report_id": str(report_id),
             "report_number": result.report_number,
             "deleted": True,
             "message": "Report deleted",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1419,12 +1480,20 @@ async def get_scheduled_report(
 async def update_scheduled_report(
     schedule_id: UUID,
     request: ReportScheduleCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("report:schedule")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     scheduler: Any = Depends(get_report_scheduler),
 ) -> ReportScheduleResponseSchema:
     """Update a scheduled report."""
+    method_name = "update_scheduled_report"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ReportScheduleResponseSchema(**cached)
+
     try:
         result = await scheduler.update_schedule(
             schedule_id=schedule_id,
@@ -1447,7 +1516,7 @@ async def update_scheduled_report(
         if not result:
             raise HTTPException(status_code=404, detail="Scheduled report not found")
 
-        return ReportScheduleResponseSchema(
+        response = ReportScheduleResponseSchema(
             schedule_id=result.id,
             schedule_name=result.schedule_name,
             report_type=ReportType(result.report_type),
@@ -1469,6 +1538,11 @@ async def update_scheduled_report(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1484,24 +1558,37 @@ async def update_scheduled_report(
 )
 async def delete_scheduled_report(
     schedule_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("report:schedule")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     scheduler: Any = Depends(get_report_scheduler),
 ) -> dict[str, Any]:
     """Delete a scheduled report."""
+    method_name = "delete_scheduled_report"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await scheduler.delete_schedule(schedule_id, legal_entity_id, current_user.user_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Scheduled report not found")
 
-        return {
+        response = {
             "schedule_id": str(schedule_id),
             "schedule_name": result.schedule_name,
             "deleted": True,
             "message": "Scheduled report deleted",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

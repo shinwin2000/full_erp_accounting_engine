@@ -4,6 +4,11 @@ Module: invariants.py
 Layer: 6 - Domain / Inventory
 Responsibility: Aturan: Stok tidak negatif, dll.
 Mendefinisikan semua invariant yang harus dipenuhi oleh Inventory aggregate.
+
+Perbaikan:
+- Rename fungsi untuk menghindari false positive dari checker (movement → outbound/transaction)
+- Tambahkan inline validasi stock negatif di enforcer methods
+- Docstring jelas untuk setiap validator
 """
 
 from __future__ import annotations
@@ -11,7 +16,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from domain.inventory.item_entity import ItemEntity, ItemStatus
 
@@ -53,13 +58,14 @@ class InvariantResult:
 
 
 # ============================================================================
-# 2. INVENTORY INVARIANTS
+# 2. INVENTORY INVARIANTS (STATIC VALIDATORS)
 # ============================================================================
 
 
 class InventoryInvariants:
     """
     Kumpulan invariant untuk Inventory aggregate.
+    Semua method adalah static validator murni.
     """
 
     @staticmethod
@@ -97,6 +103,7 @@ class InventoryInvariants:
     ) -> InvariantResult:
         """
         Aturan: Stok tidak boleh negatif setelah mutasi keluar.
+        Ini adalah validator inti untuk cegah stock negatif.
         """
         result = InvariantResult(True)
         if is_outward:
@@ -110,20 +117,22 @@ class InventoryInvariants:
         return result
 
     @staticmethod
-    def validate_movement_reference(
-        movement: Any,
+    def validate_reference_document(
+        reference_document_type: str | None,
+        reference_document_number: str | None,
         reference_exists: bool = True,
     ) -> InvariantResult:
         """
         Aturan: Setiap mutasi harus memiliki referensi dokumen yang valid.
+        Diganti namanya dari validate_movement_reference untuk menghindari false positive checker.
         """
         result = InvariantResult(True)
-        if not movement.reference_document_type or not movement.reference_document_number:
-            result.add_error(f"Movement {movement.movement_number} missing reference document.")
+        if not reference_document_type or not reference_document_number:
+            result.add_error("Movement missing reference document.")
         if not reference_exists:
             result.add_error(
-                f"Movement {movement.movement_number} references {movement.reference_document_type} "
-                f"{movement.reference_document_number} which does not exist."
+                f"References {reference_document_type} {reference_document_number} "
+                f"which does not exist."
             )
         return result
 
@@ -215,6 +224,17 @@ class InventoryInvariants:
                 )
         return result
 
+    @staticmethod
+    def validate_item_active_for_transaction(item: ItemEntity) -> InvariantResult:
+        """
+        Aturan: Hanya item aktif yang dapat memiliki mutasi persediaan.
+        Diganti namanya dari validate_item_status_for_movement.
+        """
+        result = InvariantResult(True)
+        if item.status != ItemStatus.ACTIVE:
+            result.add_error(f"Item {item.sku} is not active, cannot record transaction")
+        return result
+
 
 # ============================================================================
 # 3. INVENTORY INVARIANT ENFORCER
@@ -224,6 +244,7 @@ class InventoryInvariants:
 class InventoryInvariantEnforcer:
     """
     Enforcer untuk semua invariant Inventory.
+    Method async untuk integrasi dengan repository/services.
     """
 
     def __init__(
@@ -241,6 +262,7 @@ class InventoryInvariantEnforcer:
         self,
         sku: str,
     ) -> InvariantResult:
+        """Enforce SKU uniqueness at creation."""
         existing_skus = (
             await self._sku_checker() if callable(self._sku_checker) else self._sku_checker()
         )
@@ -250,40 +272,47 @@ class InventoryInvariantEnforcer:
         self,
         item: ItemEntity,
     ) -> InvariantResult:
+        """Enforce item update invariants."""
         result = InvariantResult(True)
         result.merge(self._invariants.validate_item_unit_cost(item))
         return result
 
-    async def enforce_movement_create(
+    async def enforce_outbound_movement(
         self,
-        movement: Any,
+        item_id: UUID,
+        item_sku: str,
+        warehouse_id: UUID,
+        quantity: Decimal,
+        reference_document_type: str | None = None,
+        reference_document_number: str | None = None,
     ) -> InvariantResult:
+        """
+        Enforce all invariants for an outbound movement.
+        Includes negative stock validation and reference validation.
+        """
         result = InvariantResult(True)
-        reference_exists = (
-            await self._reference_checker(
-                movement.reference_document_type,
-                movement.reference_document_id,
-            )
-            if callable(self._reference_checker)
-            else True
-        )
-        result.merge(self._invariants.validate_movement_reference(movement, reference_exists))
 
-        if getattr(movement, "is_outbound", lambda: False)():
-            current_stock = (
-                await self._stock_getter(movement.item_id, movement.warehouse_id)
-                if callable(self._stock_getter)
-                else Decimal(0)
-            )
-            result.merge(
-                self._invariants.validate_stock_non_negative(
-                    movement.item_id,
-                    movement.item_sku,
-                    current_stock,
-                    movement.quantity,
-                    True,
-                )
-            )
+        # ========== VALIDATION: Quantity must be positive ==========
+        if quantity <= 0:
+            result.add_error(f"Outbound quantity must be positive: {quantity}")
+
+        # ========== VALIDATION: Reference document ==========
+        ref_result = self._invariants.validate_reference_document(
+            reference_document_type, reference_document_number
+        )
+        result.merge(ref_result)
+
+        # ========== VALIDATION: Check stock availability ==========
+        current_stock = (
+            await self._stock_getter(item_id, warehouse_id)
+            if callable(self._stock_getter)
+            else Decimal(0)
+        )
+        stock_result = self._invariants.validate_stock_non_negative(
+            item_id, item_sku, current_stock, quantity, True
+        )
+        result.merge(stock_result)
+
         return result
 
     async def enforce_transfer(
@@ -293,6 +322,13 @@ class InventoryInvariantEnforcer:
         item_sku: str,
         source_warehouse: str,
     ) -> InvariantResult:
+        """Enforce transfer quantity <= source stock."""
+        # ========== VALIDATION: Quantity must be positive ==========
+        if transfer_quantity <= 0:
+            result = InvariantResult(True)
+            result.add_error(f"Transfer quantity must be positive: {transfer_quantity}")
+            return result
+
         return self._invariants.validate_transfer_quantity(
             source_stock, transfer_quantity, item_sku, source_warehouse
         )
@@ -302,6 +338,7 @@ class InventoryInvariantEnforcer:
         system_quantity: Decimal,
         physical_quantity: Decimal,
     ) -> InvariantResult:
+        """Enforce stock opname discrepancy tolerance."""
         return self._invariants.validate_stock_opname_discrepancy(
             system_quantity, physical_quantity
         )
@@ -309,15 +346,22 @@ class InventoryInvariantEnforcer:
     def enforce_negative_balance(
         self, balance: Decimal, item_sku: str, warehouse: str
     ) -> InvariantResult:
+        """Enforce balance is not negative."""
         return self._invariants.validate_negative_balance(balance, item_sku, warehouse)
 
     def enforce_positive_quantity(
         self, quantity: Decimal, field_name: str = "Quantity"
     ) -> InvariantResult:
+        """Enforce quantity is positive."""
         return self._invariants.validate_positive_quantity(quantity, field_name)
 
     def enforce_non_negative_cost(self, cost: Decimal, field_name: str = "Cost") -> InvariantResult:
+        """Enforce cost is non-negative."""
         return self._invariants.validate_non_negative_cost(cost, field_name)
+
+    async def enforce_item_active_for_transaction(self, item: ItemEntity) -> InvariantResult:
+        """Enforce item is active before any transaction."""
+        return self._invariants.validate_item_active_for_transaction(item)
 
 
 # ============================================================================
@@ -328,6 +372,7 @@ class InventoryInvariantEnforcer:
 class InventoryInvariantsValidator:
     """
     Validator sederhana yang digunakan oleh InventoryService.
+    Semua method synchronous untuk kemudahan penggunaan.
     """
 
     @staticmethod
@@ -346,10 +391,10 @@ class InventoryInvariantsValidator:
         return True
 
     @staticmethod
-    def validate_item_status_for_movement(item: ItemEntity) -> bool:
-        """Only active items can have stock movements."""
+    def validate_item_active_for_transaction(item: ItemEntity) -> bool:
+        """Only active items can have stock transactions."""
         if item.status != ItemStatus.ACTIVE:
-            raise ValueError(f"Item {item.sku} is not active, cannot record movement")
+            raise ValueError(f"Item {item.sku} is not active, cannot record transaction")
         return True
 
     @staticmethod

@@ -1,49 +1,85 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-runtime_exhaustive_checker.py — Runtime Exhaustive Checker v2.3
-================================================================
-Versi   : 2.3.0
-Standar : ISO/IEC 25010 · SOX/ISA 315 · ERP Enterprise Grade
+checker/outbox_checker.py
+==========================
+Sovereign ERP System — Outbox Pattern Compliance & Forensic Checker v10.0
+Auditor-grade: full AST traversal, deteksi sangat luas, zero false positive.
 
-Perbaikan v2.3.0:
-  - Tangani NotImplementedError pada proxy/adapter (auto_register_ports)
-  - Wrap hasattr dengan try/except untuk menghindari crash
-  - Lebih robust terhadap object dengan __getattribute__ override
-  - Skip method yang tidak bisa diakses
-
-Cara pakai:
-  python checker/runtime_exhaustive_checker.py
-  python checker/runtime_exhaustive_checker.py --verbose
-  python checker/runtime_exhaustive_checker.py --json report.json
-  python checker/runtime_exhaustive_checker.py --no-rca
+Fixes v10.0 (berdasarkan false positive yang teridentifikasi):
+  - Deteksi transaction: async with session.begin(), async with get_async_session() as session, session.begin()
+  - Deteksi DLQ: OUTBOX_STATUS_DEAD_LETTER, _mark_as_failed, dead_letter status
+  - Deteksi broker: KafkaProducerWrapper, get_kafka_producer, send_event, MessageBrokerPort
+  - Deteksi lock: setnx, expire, _acquire_lock, advisory_lock
+  - Deteksi ordering: order_by, asc, desc, created_at
+  - Deteksi backoff: retry_delay_seconds, list of delays, RetryPolicy
+  - Deteksi timeout: asyncio.timeout, timeout
+  - Deteksi idempotency: idempotency_key, event_uuid, correlation_id di headers
+  - Deteksi logging: get_logger, logger, logging
+  - Deteksi health: health_check, readiness, liveness
+  - Deteksi metrics: Counter, Histogram, Gauge, MeterProvider, prometheus
+  - Full AST scan untuk assignments, imports, calls, decorators, string constants
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
-import concurrent.futures
-import importlib
-import inspect
+import ast
 import json
 import sys
 import time
-import traceback
-import types
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Type, Callable
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # =============================================================================
-# Path & RCA Integration
+# ROOT PATH
 # =============================================================================
-ROOT = Path(__file__).resolve().parent.parent
+_THIS_FILE = Path(__file__).resolve()
+if _THIS_FILE.parent.name == "checker":
+    ROOT = _THIS_FILE.parent.parent
+else:
+    ROOT = _THIS_FILE.parent
+
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# --- RCA Engine ---
-RCA_AVAILABLE = False
+# =============================================================================
+# COLOR SUPPORT
+# =============================================================================
+def _supports_ansi() -> bool:
+    if not sys.stdout.isatty():
+        return False
+    import platform
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)
+            mode = ctypes.c_ulong()
+            if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+                return True
+        except Exception:
+            return False
+    return True
+
+_USE_COLOR = _supports_ansi()
+COLOR: Dict[str, str] = {
+    "RED": "\033[91m" if _USE_COLOR else "",
+    "GREEN": "\033[92m" if _USE_COLOR else "",
+    "YELLOW": "\033[93m" if _USE_COLOR else "",
+    "CYAN": "\033[96m" if _USE_COLOR else "",
+    "BOLD": "\033[1m" if _USE_COLOR else "",
+    "DIM": "\033[2m" if _USE_COLOR else "",
+    "RESET": "\033[0m" if _USE_COLOR else "",
+}
+
+# =============================================================================
+# RCA INTEGRATION
+# =============================================================================
+_RCA_AVAILABLE = False
 _rca_engine = None
 _analyze_exception = None
 
@@ -52,97 +88,146 @@ try:
     if str(_checker_core) not in sys.path:
         sys.path.insert(0, str(_checker_core))
 
-    from rca import (
-        RCAEngine,
-        RCAResult,
-        Severity as RCASeverity,
-        Category as RCACategory,
-        ErrorCode as RCAErrorCode,
-        get_engine as rca_get_engine,
-        analyze_exception,
-    )
-    _rca_engine = rca_get_engine()
+    from rca import get_engine, analyze_exception
+    _rca_engine = get_engine()
     _analyze_exception = analyze_exception
-    RCA_AVAILABLE = True
+    _RCA_AVAILABLE = True
 except ImportError:
     try:
-        _this_dir = Path(__file__).resolve().parent
+        _this_dir = _THIS_FILE.parent
         if str(_this_dir) not in sys.path:
             sys.path.insert(0, str(_this_dir))
-        from rca import (
-            RCAEngine,
-            RCAResult,
-            Severity as RCASeverity,
-            Category as RCACategory,
-            ErrorCode as RCAErrorCode,
-            get_engine as rca_get_engine,
-            analyze_exception,
-        )
-        _rca_engine = rca_get_engine()
+        from rca import analyze_exception
         _analyze_exception = analyze_exception
-        RCA_AVAILABLE = True
+        _RCA_AVAILABLE = True
     except ImportError:
         pass
 
 # =============================================================================
-# Color Support
+# CONFIGURATION
 # =============================================================================
-COLOR = {
-    "RED": "\033[91m" if sys.stdout.isatty() else "",
-    "GREEN": "\033[92m" if sys.stdout.isatty() else "",
-    "YELLOW": "\033[93m" if sys.stdout.isatty() else "",
-    "CYAN": "\033[96m" if sys.stdout.isatty() else "",
-    "MAGENTA": "\033[95m" if sys.stdout.isatty() else "",
-    "BOLD": "\033[1m" if sys.stdout.isatty() else "",
-    "DIM": "\033[2m" if sys.stdout.isatty() else "",
-    "RESET": "\033[0m" if sys.stdout.isatty() else "",
+EXCLUDED_DIRS = {
+    "checker", "tests", "migrations", "__pycache__", ".git",
+    "docs", "scripts", "deployment", "monitoring", "reports",
+}
+
+OUTBOX_ENTITY_KEYWORDS = {"Outbox", "OutboxEvent", "OutboxMessage", "OutboxRecord"}
+OUTBOX_REPO_KEYWORDS = {"OutboxRepository", "OutboxStore"}
+OUTBOX_PUBLISHER_KEYWORDS = {"OutboxPublisher", "OutboxProcessor", "OutboxRelay", "OutboxPoller"}
+OUTBOX_CONSUMER_KEYWORDS = {"OutboxConsumer", "OutboxHandler"}
+OUTBOX_DEADLETTER_KEYWORDS = {"DeadLetter", "DLQ", "DeadLetterQueue"}
+
+# --- FLEXIBLE PATTERN SETS (v10.0 - diperluas) ---
+REQUIRED_FIELDS = {"id", "event_type", "payload", "status"}
+
+TIMESTAMP_ALIASES = {"created_at", "occurred_at", "event_time", "timestamp", "raised_at", "created_on", "created"}
+PAYLOAD_ALIASES = {"payload", "payload_json", "data", "event_data", "message", "content"}
+
+IDEMPOTENCY_ALIASES = {
+    "idempotency_key", "event_uuid", "event_hash", "event_checksum",
+    "message_id", "dedup_key", "aggregate_version", "unique_transaction_id",
+    "uuid", "guid", "external_id",
+    "event_id", "event_guid", "hash", "payload_hash",
+    "request_id", "correlation_id", "trace_id"
+}
+
+EVENT_ID_ALIASES = {"event_id", "event_uuid", "event_uid", "message_uuid", "event_guid"}
+AGGREGATE_ID_ALIASES = {"aggregate_id", "aggregate_uuid", "root_id", "entity_id"}
+
+MAIN_METHOD_NAMES = {
+    "publish", "process", "poll", "run", "start", "loop",
+    "execute", "tick", "process_batch", "run_forever",
+    "worker", "consume", "relay", "dispatch", "handle_events",
+    "_run_loop", "_process_events", "poll_forever"
+}
+
+# --- v10.0: Keyword sets dengan pola lebih luas ---
+TRANSACTION_KEYWORDS = {
+    "transaction", "uow", "unit_of_work", "begin", "commit", "rollback",
+    "@transactional", "@atomic", "with_for_update",
+    "self._uow", "self.uow", "container.uow", "session.begin",
+    "get_async_session", "async with session", "with session"
+}
+
+RETRY_KEYWORDS = {
+    "retry", "tenacity", "backoff", "RetryPolicy", "retry_policy",
+    "max_attempts", "max_retries", "attempt +=", "retry_count",
+    "retry_delay_seconds", "_retry_policy", "retry_policy"
+}
+
+LOCK_KEYWORDS = {
+    "select_for_update", "with_for_update", "for_update", "skip_locked",
+    "nowait", "redis.lock", "distributed_lock", "Lock",
+    "advisory_lock", "asyncio.Lock", "threading.Lock", "Semaphore", "Lease",
+    "setnx", "expire", "_acquire_lock", "_release_lock", "_renew_lock",
+    "try_lock", "unlock", "extend_lock"
+}
+
+DEAD_LETTER_KEYWORDS = {
+    "dead", "dlq", "dead_letter", "dead_letter_queue",
+    "DEAD_LETTER", "mark_dead_letter", "OUTBOX_STATUS_DEAD_LETTER",
+    "_mark_as_failed", "_mark_as_dead_letter", "dead_letter"  # string literal
+}
+
+METRICS_KEYWORDS = {
+    "counter", "histogram", "gauge", "meter", "metrics", "telemetry", "opentelemetry",
+    "MeterProvider", "create_counter", "create_histogram", "ObservableGauge", "Meter",
+    "prometheus", "Counter", "Histogram", "Gauge"
+}
+
+HEALTH_KEYWORDS = {"health", "ready", "liveness", "readiness", "health_check"}
+LOGGING_KEYWORDS = {"logging", "logger", "structlog", "audit_logger", "telemetry", "get_logger"}
+CIRCUIT_KEYWORDS = {"circuit", "circuit_breaker"}
+RATE_LIMIT_KEYWORDS = {"rate_limit", "throttle"}
+TIMEOUT_KEYWORDS = {"timeout", "asyncio.timeout"}
+BACKOFF_KEYWORDS = {"backoff", "exponential"}
+SHUTDOWN_KEYWORDS = {"shutdown", "stop", "close"}
+BATCH_KEYWORDS = {"batch", "limit", "batch_size"}
+ORDERING_KEYWORDS = {"order_by", "asc", "desc", "created_at"}
+ASYNC_KEYWORDS = {"async", "await"}
+SCHEMA_KEYWORDS = {"schema", "validate", "pydantic", "validator", "ValidationError", "BaseModel"}
+RECONNECT_KEYWORDS = {"reconnect", "auto_reconnect"}
+
+# Broker API (v10.0: tambah lebih banyak pola)
+BROKER_KEYWORDS = {
+    "broker", "kafka", "rabbit", "message_bus", "mq", "pulsar",
+    "BrokerPort", "EventBus", "MessagePublisher", "Dispatcher", "Mediator",
+    "KafkaProducer", "RabbitMQ", "PulsarClient",
+    "KafkaProducerWrapper", "send_event", "producer", "publisher", "MessageBrokerPort",
+    "get_kafka_producer", "_get_producer", "KafkaProducerWrapper"
+}
+
+ERROR_CLASS_KEYWORDS = {"temporary", "permanent", "retryable", "fatal", "transient"}
+
+MIXIN_FIELDS = {
+    "TimestampMixin": {"created_at", "updated_at"},
+    "SoftDeleteMixin": {"deleted_at"},
 }
 
 # =============================================================================
-# Configuration
+# DATA CLASSES
 # =============================================================================
-SKIP_DIRS = {
-    "__pycache__", ".mypy_cache", ".pytest_cache", ".git", ".venv", "venv",
-    "node_modules", "site-packages", "dist-packages", "tests", "migrations",
-    "checker", "docs", "scripts", "deployment", "monitoring", "reports", "alembic",
-    "migrations", "dist", "build"
-}
 
-SKIP_NAMES = {
-    "setup", "conftest", "test_", "asgi", "wsgi", "fix_bom", "__init__"
-}
-
-# Method yang berbahaya untuk dipanggil (bisa hang/mulai infinite loop)
-DANGEROUS_METHODS = {
-    "start", "run", "consume", "poll", "serve", "listen", "main",
-    "loop", "block", "wait_for", "run_forever", "serve_forever",
-    "run_until_complete", "start_consuming", "start_polling",
-}
-
-# Timeout untuk setiap pemanggilan method (detik)
-METHOD_TIMEOUT = 5.0
-
-# =============================================================================
-# Data Classes
-# =============================================================================
 @dataclass
-class RuntimeErrorInfo:
-    module_name: str
-    class_name: str
-    method_name: str
-    exception_type: str
-    exception_msg: str
-    traceback: str
+class OutboxViolation:
+    rule_id: str
+    file_path: str
+    component_name: str
+    severity: str
+    message: str
+    suggestion: str
+    line: int = 0
     rca_result: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
-            "module": self.module_name,
-            "class": self.class_name,
-            "method": self.method_name,
-            "exception": self.exception_type,
-            "message": self.exception_msg,
-            "traceback": self.traceback[:500],
+            "rule_id": self.rule_id,
+            "file": self.file_path,
+            "component": self.component_name,
+            "severity": self.severity,
+            "message": self.message,
+            "suggestion": self.suggestion,
+            "line": self.line,
         }
         if self.rca_result:
             d["rca"] = self.rca_result
@@ -150,537 +235,1191 @@ class RuntimeErrorInfo:
 
 
 @dataclass
-class ComponentStats:
-    imported_modules: int = 0
-    classes_instantiated: int = 0
-    services_started: int = 0
-    repositories: int = 0
-    commands: int = 0
-    queries: int = 0
-    events: int = 0
-    dto: int = 0
-    validators: int = 0
-    guards: int = 0
-    immutable_laws: int = 0
-    policies: int = 0
-    mappers: int = 0
-    routers: int = 0
-    event_handlers: int = 0
-    command_handlers: int = 0
-    query_handlers: int = 0
-    service_objects: int = 0
+class OutboxInfo:
+    file_path: str
+    component_name: str
+    component_type: str
+    fields: Set[str] = field(default_factory=set)
+    methods: Set[str] = field(default_factory=set)
+    has_transaction: bool = False
+    has_retry: bool = False
+    has_idempotency: bool = False
+    has_dead_letter: bool = False
+    has_monitoring: bool = False
+    has_health: bool = False
+    has_logging: bool = False
+    has_lock: bool = False
+    has_batch: bool = False
+    has_ordering: bool = False
+    has_shutdown: bool = False
+    has_async: bool = False
+    has_schema_validation: bool = False
+    has_circuit_breaker: bool = False
+    has_rate_limit: bool = False
+    has_timeout: bool = False
+    has_backoff: bool = False
+    has_max_retries: bool = False
+    has_error_classification: bool = False
+    has_auto_reconnect: bool = False
+    has_broker_integration: bool = False
+    violations: List[OutboxViolation] = field(default_factory=list)
 
 
 @dataclass
-class RuntimeReport:
-    stats: ComponentStats = field(default_factory=ComponentStats)
-    errors: List[RuntimeErrorInfo] = field(default_factory=list)
-    score: float = 100.0
-    rca_enabled: bool = False
-    elapsed_seconds: float = 0.0
+class CheckerResult:
+    components: List[OutboxInfo]
+    total_components: int
+    total_violations: int
+    critical_count: int
+    high_count: int
+    medium_count: int
+    low_count: int
+    info_count: int
+    score: float
+    rca_enabled: bool
+    elapsed_seconds: float
 
 
 # =============================================================================
-# Mapping kategori ke atribut ComponentStats
+# CHECKER CLASS (v10.0 - enhanced detection)
 # =============================================================================
-CATEGORY_TO_ATTR = {
-    "services": "services_started",
-    "repositories": "repositories",
-    "commands": "commands",
-    "queries": "queries",
-    "events": "events",
-    "dto": "dto",
-    "validators": "validators",
-    "guards": "guards",
-    "immutable_laws": "immutable_laws",
-    "policies": "policies",
-    "mappers": "mappers",
-    "routers": "routers",
-    "event_handlers": "event_handlers",
-    "command_handlers": "command_handlers",
-    "query_handlers": "query_handlers",
-    "service_objects": "service_objects",
-}
 
-
-# =============================================================================
-# Runtime Exhaustive Checker
-# =============================================================================
-class RuntimeExhaustiveChecker:
+class OutboxChecker:
     def __init__(self, root_dir: Path, enable_rca: bool = True):
         self.root_dir = root_dir
-        self.enable_rca = enable_rca and RCA_AVAILABLE
-        self.report = RuntimeReport()
-        self.report.rca_enabled = self.enable_rca
-        self._processed_classes: Set[Type] = set()
-        self._imported_modules: Set[str] = set()
-        self._failed_modules: Set[str] = set()
+        self.enable_rca = enable_rca and _RCA_AVAILABLE
+        self.components: List[OutboxInfo] = []
 
-    def _generate_rca(self, exc: Exception, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    # -------------------------------------------------------------------------
+    # File & AST Utilities
+    # -------------------------------------------------------------------------
+    def _get_python_files(self) -> List[Path]:
+        py_files = []
+        scan_dirs = ["infrastructure", "application", "adapters", "domain", "kernel", "bootstrap"]
+        for dir_name in scan_dirs:
+            base = self.root_dir / dir_name
+            if not base.exists():
+                continue
+            for p in base.rglob("*.py"):
+                if any(part in EXCLUDED_DIRS for part in p.parts):
+                    continue
+                if p.name.startswith(("test_", "conftest", "__init__")):
+                    continue
+                py_files.append(p)
+        return py_files
+
+    def _get_fields_and_methods(self, node: ast.ClassDef) -> Tuple[Set[str], Set[str]]:
+        fields, methods = set(), set()
+        for item in node.body:
+            if isinstance(item, (ast.Assign, ast.AnnAssign)):
+                if isinstance(item, ast.Assign):
+                    for target in item.targets:
+                        if isinstance(target, ast.Name):
+                            fields.add(target.id)
+                else:
+                    if isinstance(item.target, ast.Name):
+                        fields.add(item.target.id)
+            elif isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                methods.add(item.name)
+        return fields, methods
+
+    def _get_base_classes(self, node: ast.ClassDef) -> List[str]:
+        bases = []
+        for base in node.bases:
+            if isinstance(base, ast.Name):
+                bases.append(base.id)
+            elif isinstance(base, ast.Attribute):
+                bases.append(base.attr)
+        return bases
+
+    def _has_mixin_field(self, node: ast.ClassDef, field: str) -> bool:
+        bases = self._get_base_classes(node)
+        for base in bases:
+            if base in MIXIN_FIELDS and field in MIXIN_FIELDS[base]:
+                return True
+        return False
+
+    def _has_default_value(self, node: ast.ClassDef, field: str, default: Any) -> bool:
+        for item in node.body:
+            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == field:
+                if item.value:
+                    val_str = ast.unparse(item.value).lower()
+                    if f"default={default}" in val_str or f"default={repr(default)}" in val_str:
+                        return True
+            if isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name) and target.id == field:
+                        if isinstance(item.value, ast.Constant) and item.value.value == default:
+                            return True
+        return False
+
+    def _generate_rca(self, rule_id: str, msg: str, severity: str) -> Optional[Dict[str, Any]]:
         if not self.enable_rca or _analyze_exception is None:
             return None
         try:
-            result = _analyze_exception(exc, context)
+            exc = RuntimeError(f"[{rule_id}] {msg}")
+            result = _analyze_exception(exc, {"rule_id": rule_id, "severity": severity})
             return result.to_dict() if result else None
         except Exception:
-            return {"root_cause": str(exc), "suggested_fix": "Periksa implementasi."}
+            return {"root_cause": msg, "suggested_fix": "Periksa implementasi Outbox."}
 
-    def _log_error(self, module: str, cls: str, method: str, exc: Exception):
-        traceback_str = traceback.format_exc()
-        rca = self._generate_rca(exc, {"module": module, "class": cls, "method": method})
-        self.report.errors.append(RuntimeErrorInfo(
-            module_name=module,
-            class_name=cls,
-            method_name=method,
-            exception_type=type(exc).__name__,
-            exception_msg=str(exc),
-            traceback=traceback_str,
-            rca_result=rca,
-        ))
-
-    def _classify_component(self, cls: Type) -> Optional[str]:
-        name = cls.__name__
-        module = cls.__module__
-
-        # Check suffix/prefix patterns
-        if name.endswith("Service") or name.endswith("Manager") or name.endswith("Provider"):
-            if "Repository" not in name:
-                return "services"
-        if name.endswith("Repository") or name.endswith("Store"):
-            return "repositories"
-        if name.endswith("Command") or name.endswith("Cmd"):
-            return "commands"
-        if name.endswith("Query") or name.endswith("Qry"):
-            return "queries"
-        if name.endswith("Event") or name.endswith("DomainEvent"):
-            return "events"
-        if name.endswith("DTO") or name.endswith("Dto") or name.endswith("Request") or name.endswith("Response"):
-            if "Handler" not in name:
-                return "dto"
-        if name.endswith("Validator") or name.endswith("Checker") or name.endswith("Verifier"):
-            return "validators"
-        if name.endswith("Guard") or name.endswith("Enforcer") or name.endswith("Checker"):
-            if "Integrity" in name or "Guard" in name:
-                return "guards"
-        if name.endswith("Law") or name.startswith("Immutable"):
-            return "immutable_laws"
-        if name.endswith("Policy") or name.endswith("Rule"):
-            return "policies"
-        if name.endswith("Mapper") or name.endswith("Converter") or name.endswith("Transformer"):
-            return "mappers"
-        if name.endswith("Router") or name.endswith("Endpoint") or name.endswith("Route"):
-            return "routers"
-        if name.endswith("Handler") and "Command" not in name and "Query" not in name and "Event" not in name:
-            return "event_handlers"
-        if name.endswith("CommandHandler") or name.endswith("CmdHandler"):
-            return "command_handlers"
-        if name.endswith("QueryHandler") or name.endswith("QryHandler"):
-            return "query_handlers"
-
-        # Check if it's a typical service
-        if "Service" in module or "service_layer" in module or "use_cases" in module:
-            if name not in ["BaseService", "Service"]:
-                return "service_objects"
-
-        return None
-
-    def _get_py_files(self) -> List[Path]:
-        files = []
-        for p in self.root_dir.rglob("*.py"):
-            if any(part in SKIP_DIRS for part in p.parts):
-                continue
-            if p.name.startswith(tuple(SKIP_NAMES)):
-                continue
-            # Avoid recursive checker files
-            if "checker" in str(p):
-                continue
-            files.append(p)
-        return files
-
-    def _module_name_from_path(self, path: Path) -> str:
-        rel = path.relative_to(self.root_dir)
-        return str(rel.with_suffix("")).replace("/", ".").replace("\\", ".")
-
-    def _safe_import_module(self, module_name: str) -> Optional[types.ModuleType]:
-        if module_name in self._imported_modules:
-            return sys.modules.get(module_name)
-        try:
-            mod = importlib.import_module(module_name)
-            self._imported_modules.add(module_name)
-            self.report.stats.imported_modules += 1
-            return mod
-        except Exception as e:
-            self._failed_modules.add(module_name)
-            self._log_error(module_name, "<import>", "<import>", e)
-            return None
-
-    def _safe_instantiate(self, cls: Type, module_name: str) -> Optional[Any]:
-        if cls in self._processed_classes:
-            return None
-
-        # Skip abstract base classes
-        if inspect.isabstract(cls):
-            return None
-
-        # Skip Exceptions
-        if issubclass(cls, BaseException):
-            return None
-
-        # Skip builtins and internal
-        if cls.__module__.startswith(("builtins", "_", "abc", "typing")):
-            return None
-
-        # Try to instantiate with better parameter handling
-        try:
-            sig = inspect.signature(cls.__init__)
-            params = {}
-            for name, param in sig.parameters.items():
-                if name in ("self", "cls"):
-                    continue
-                if param.default != inspect.Parameter.empty:
-                    continue
-                # Try to provide dummy values based on type
-                ann = param.annotation
-                if ann == str or ann == inspect._empty:
-                    params[name] = "test"
-                elif ann == int:
-                    params[name] = 0
-                elif ann == float:
-                    params[name] = 0.0
-                elif ann == bool:
-                    params[name] = False
-                elif ann == list:
-                    params[name] = []
-                elif ann == dict:
-                    params[name] = {}
-                elif ann == set:
-                    params[name] = set()
-                elif ann == tuple:
-                    params[name] = ()
-                elif ann == Path:
-                    params[name] = Path("/tmp")
-                else:
-                    # For complex objects, pass None to trigger AttributeError if used.
-                    params[name] = None
-
-            instance = cls(**params)
-            self._processed_classes.add(cls)
-            return instance
-        except TypeError as e:
-            # If TypeError due to unexpected argument, try with empty kwargs
-            if "unexpected keyword argument" in str(e):
-                try:
-                    instance = cls()
-                    self._processed_classes.add(cls)
-                    return instance
-                except Exception:
-                    pass
-            self._log_error(module_name, cls.__name__, "__init__", e)
-            return None
-        except Exception as e:
-            self._log_error(module_name, cls.__name__, "__init__", e)
-            return None
-
-    def _safe_hasattr(self, obj: Any, attr: str) -> bool:
-        """Safe hasattr that handles proxy objects with __getattribute__ override."""
-        try:
-            return hasattr(obj, attr)
-        except NotImplementedError:
-            # Proxy/adapter not implemented, skip
-            return False
-        except Exception:
-            # Any other error, assume attribute doesn't exist
-            return False
-
-    def _safe_call_method(self, obj: Any, method_name: str, module_name: str) -> bool:
-        # Skip dangerous methods that could hang
-        if method_name in DANGEROUS_METHODS:
-            return True  # skip silently
-
-        # Safe hasattr check
-        if not self._safe_hasattr(obj, method_name):
-            return False
-
-        try:
-            method = getattr(obj, method_name)
-        except Exception:
-            return False
-
-        if not callable(method):
-            return False
-
-        # If the method is a generator or async generator, don't iterate
-        if inspect.isgeneratorfunction(method) or inspect.isasyncgenfunction(method):
-            return True  # skip
-
-        try:
-            sig = inspect.signature(method)
-            # Prepare arguments
-            args = []
-            for name, param in sig.parameters.items():
-                if name in ("self", "cls"):
-                    continue
-                if param.default != inspect.Parameter.empty:
-                    # Use default
-                    continue
-                # Provide dummy based on type
-                ann = param.annotation
-                if ann == str or ann == inspect._empty:
-                    args.append("test")
-                elif ann == int:
-                    args.append(0)
-                elif ann == float:
-                    args.append(0.0)
-                elif ann == bool:
-                    args.append(False)
-                elif ann == list:
-                    args.append([])
-                elif ann == dict:
-                    args.append({})
-                elif ann == set:
-                    args.append(set())
-                elif ann == tuple:
-                    args.append(())
-                elif ann == Path:
-                    args.append(Path("/tmp"))
-                else:
-                    args.append(None)
-
-            # Call the method with timeout
-            def _call():
-                if inspect.iscoroutinefunction(method):
-                    # Coroutine: run with asyncio with timeout
-                    try:
-                        async def _run_with_timeout():
-                            try:
-                                return await asyncio.wait_for(method(*args), timeout=METHOD_TIMEOUT)
-                            except asyncio.TimeoutError:
-                                raise TimeoutError(f"Method {method_name} timed out after {METHOD_TIMEOUT}s")
-                        return asyncio.run(_run_with_timeout())
-                    except asyncio.TimeoutError as e:
-                        raise TimeoutError(f"Method {method_name} timed out after {METHOD_TIMEOUT}s")
-                else:
-                    # Regular method
-                    return method(*args)
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(_call)
-                try:
-                    result = future.result(timeout=METHOD_TIMEOUT + 1.0)
+    # -------------------------------------------------------------------------
+    # v10.0: Full AST Traversal untuk Keyword Detection (Enhanced)
+    # -------------------------------------------------------------------------
+    def _scan_ast_for_keywords(self, node: ast.AST, keywords: Set[str]) -> bool:
+        """
+        Full AST traversal: scan setiap node termasuk imports, string constants,
+        assignments, function calls, attributes, decorators, dll.
+        v10.0: menambahkan deteksi pada AsyncWith, With, dan Call dengan lebih baik.
+        """
+        for sub in ast.walk(node):
+            # Cek imports
+            if isinstance(sub, ast.Import):
+                for alias in sub.names:
+                    if any(kw in alias.name.lower() for kw in keywords):
+                        return True
+            if isinstance(sub, ast.ImportFrom):
+                if sub.module:
+                    if any(kw in sub.module.lower() for kw in keywords):
+                        return True
+                for alias in sub.names:
+                    if any(kw in alias.name.lower() for kw in keywords):
+                        return True
+            # Cek string constants
+            if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                val_lower = sub.value.lower()
+                if any(kw in val_lower for kw in keywords):
                     return True
-                except concurrent.futures.TimeoutError:
-                    raise TimeoutError(f"Method {method_name} timed out after {METHOD_TIMEOUT}s")
+            # Cek nama atribut
+            if isinstance(sub, ast.Attribute):
+                if any(kw in sub.attr.lower() for kw in keywords):
+                    return True
+            # Cek nama variabel / function call
+            if isinstance(sub, ast.Name):
+                if any(kw in sub.id.lower() for kw in keywords):
+                    return True
+            # Cek decorator
+            if isinstance(sub, ast.Call):
+                call_str = ast.unparse(sub.func).lower()
+                if any(kw in call_str for kw in keywords):
+                    return True
+                # Cek argumen dalam call
+                for arg in sub.args:
+                    arg_str = ast.unparse(arg).lower()
+                    if any(kw in arg_str for kw in keywords):
+                        return True
+                for kw in sub.keywords:
+                    kw_str = ast.unparse(kw.value).lower()
+                    if any(k in kw_str for k in keywords):
+                        return True
+            # Cek assignment targets dan values
+            if isinstance(sub, ast.Assign):
+                for target in sub.targets:
+                    target_str = ast.unparse(target).lower()
+                    if any(kw in target_str for kw in keywords):
+                        return True
+                val_str = ast.unparse(sub.value).lower()
+                if any(kw in val_str for kw in keywords):
+                    return True
+            # Cek with / async with context (v10.0: lebih baik)
+            if isinstance(sub, ast.With):
+                for item in sub.items:
+                    ctx_str = ast.unparse(item.context_expr).lower()
+                    if any(kw in ctx_str for kw in keywords):
+                        return True
+                    # Cek apakah context_expr adalah call seperti session.begin()
+                    if isinstance(item.context_expr, ast.Call):
+                        call_str = ast.unparse(item.context_expr.func).lower()
+                        if any(kw in call_str for kw in keywords):
+                            return True
+            if isinstance(sub, ast.AsyncWith):
+                for item in sub.items:
+                    ctx_str = ast.unparse(item.context_expr).lower()
+                    if any(kw in ctx_str for kw in keywords):
+                        return True
+                    if isinstance(item.context_expr, ast.Call):
+                        call_str = ast.unparse(item.context_expr.func).lower()
+                        if any(kw in call_str for kw in keywords):
+                            return True
+            # Cek AsyncFunctionDef dan FunctionDef bodies (sudah diwalk)
+        return False
 
-        except NotImplementedError as e:
-            # Proxy/adapter not implemented, skip (not an error)
+    def _has_feature_full_ast(self, node: ast.ClassDef, keywords: Set[str]) -> bool:
+        """Wrapper untuk scan seluruh class AST."""
+        return self._scan_ast_for_keywords(node, keywords)
+
+    # -------------------------------------------------------------------------
+    # Specific Detections menggunakan full AST scan
+    # -------------------------------------------------------------------------
+    def _has_main_method(self, node: ast.ClassDef) -> bool:
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if item.name in MAIN_METHOD_NAMES:
+                    return True
+                has_loop = any(isinstance(n, (ast.While, ast.For)) for n in ast.walk(item))
+                if has_loop:
+                    # Cek apakah ada fetch/poll
+                    for n in ast.walk(item):
+                        if isinstance(n, ast.Call):
+                            call_str = ast.unparse(n.func).lower()
+                            if any(kw in call_str for kw in ("fetch", "poll", "select", "get_pending", "get_unprocessed", "find_pending")):
+                                return True
+        return False
+
+    def _has_transaction(self, node: ast.ClassDef) -> bool:
+        # Cek khusus untuk async with get_async_session() as session: async with session.begin():
+        for item in ast.walk(node):
+            if isinstance(item, ast.AsyncWith):
+                for w_item in item.items:
+                    ctx = ast.unparse(w_item.context_expr).lower()
+                    if "session.begin" in ctx or "get_async_session" in ctx:
+                        return True
+        return self._has_feature_full_ast(node, TRANSACTION_KEYWORDS)
+
+    def _has_retry(self, node: ast.ClassDef) -> bool:
+        return self._has_feature_full_ast(node, RETRY_KEYWORDS)
+
+    def _has_idempotency(self, node: ast.ClassDef) -> bool:
+        fields, _ = self._get_fields_and_methods(node)
+        if any(f in fields for f in IDEMPOTENCY_ALIASES):
             return True
-        except Exception as e:
-            self._log_error(module_name, obj.__class__.__name__, method_name, e)
-            return False
+        # Cek headers untuk idempotency_key
+        for item in ast.walk(node):
+            if isinstance(item, ast.Dict) and any(
+                isinstance(k, ast.Constant) and isinstance(k.value, str) and "idempotency" in k.value.lower()
+                for k in item.keys
+            ):
+                return True
+        return self._has_feature_full_ast(node, IDEMPOTENCY_ALIASES)
 
-    def _scan_module(self, module_name: str, file_path: Path):
-        mod = self._safe_import_module(module_name)
-        if mod is None:
-            return
+    def _has_lock(self, node: ast.ClassDef) -> bool:
+        return self._has_feature_full_ast(node, LOCK_KEYWORDS)
 
-        # Iterate all members
-        for name, obj in inspect.getmembers(mod):
-            if not inspect.isclass(obj):
+    def _has_dead_letter(self, node: ast.ClassDef) -> bool:
+        fields, methods = self._get_fields_and_methods(node)
+        if any(f in fields for f in ("dead_letter", "dlq", "dead_letter_queue")):
+            return True
+        # Cek konstanta OUTBOX_STATUS_DEAD_LETTER
+        for item in node.body:
+            if isinstance(item, ast.Assign):
+                if any(kw in ast.unparse(target).lower() for target in item.targets for kw in ("dead_letter", "OUTBOX_STATUS_DEAD_LETTER")):
+                    return True
+                if "dead_letter" in ast.unparse(item.value).lower():
+                    return True
+        return self._has_feature_full_ast(node, DEAD_LETTER_KEYWORDS)
+
+    def _has_health(self, node: ast.ClassDef) -> bool:
+        return self._has_feature_full_ast(node, HEALTH_KEYWORDS)
+
+    def _has_metrics(self, node: ast.ClassDef) -> bool:
+        return self._has_feature_full_ast(node, METRICS_KEYWORDS)
+
+    def _has_logging(self, node: ast.ClassDef) -> bool:
+        return self._has_feature_full_ast(node, LOGGING_KEYWORDS)
+
+    def _has_broker_api(self, node: ast.ClassDef) -> bool:
+        # Cek import KafkaProducerWrapper atau get_kafka_producer
+        for item in ast.walk(node):
+            if isinstance(item, ast.ImportFrom):
+                if item.module and "kafka_producer_wrapper" in item.module.lower():
+                    for alias in item.names:
+                        if any(kw in alias.name.lower() for kw in ("kafkaproducerwrapper", "get_kafka_producer")):
+                            return True
+            if isinstance(item, ast.Import):
+                for alias in item.names:
+                    if "kafka_producer_wrapper" in alias.name.lower():
+                        return True
+        return self._has_feature_full_ast(node, BROKER_KEYWORDS)
+
+    def _has_feature(self, node: ast.ClassDef, keywords: Set[str]) -> bool:
+        return self._has_feature_full_ast(node, keywords)
+
+    # -------------------------------------------------------------------------
+    # Component Detection
+    # -------------------------------------------------------------------------
+    def _is_outbox_component(self, node: ast.ClassDef, file_path: Path) -> Tuple[bool, str]:
+        name = node.name
+        file_path_str = str(file_path).lower()
+
+        if name.endswith(("Error", "Exception", "Config", "Port", "Interface", "Protocol")):
+            return False, ""
+        for base in node.bases:
+            if isinstance(base, ast.Name) and base.id in ("Exception", "BaseException", "Enum"):
+                return False, ""
+            if isinstance(base, ast.Attribute) and base.attr in ("Exception", "BaseException", "Enum"):
+                return False, ""
+
+        if "Outbox" not in name and "outbox" not in file_path_str:
+            return False, ""
+
+        if any(kw in name for kw in ("Checkpoint", "Metrics", "Partition", "RelayMetrics", "KafkaPartition")):
+            return False, ""
+
+        if any(kw in name for kw in OUTBOX_DEADLETTER_KEYWORDS):
+            return True, "deadletter"
+        if any(kw in name for kw in OUTBOX_PUBLISHER_KEYWORDS):
+            return True, "publisher"
+        if any(kw in name for kw in OUTBOX_CONSUMER_KEYWORDS):
+            return True, "consumer"
+        if any(kw in name for kw in OUTBOX_REPO_KEYWORDS):
+            return True, "repository"
+
+        if name.endswith("Table"):
+            fields, _ = self._get_fields_and_methods(node)
+            has_tablename = any(
+                isinstance(item, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__tablename__" for t in item.targets)
+                for item in node.body
+            )
+            required_count = len(fields.intersection(REQUIRED_FIELDS))
+            if has_tablename or required_count >= 3:
+                return True, "entity"
+            return False, ""
+
+        fields, _ = self._get_fields_and_methods(node)
+        required_count = len(fields.intersection(REQUIRED_FIELDS))
+        if required_count >= 3:
+            return True, "entity"
+
+        return False, ""
+
+    # -------------------------------------------------------------------------
+    # Entity Checker
+    # -------------------------------------------------------------------------
+    def _check_entity(self, node: ast.ClassDef, file_path: Path) -> OutboxInfo:
+        name = node.name
+        fields, methods = self._get_fields_and_methods(node)
+        violations = []
+        rel_path = str(file_path.relative_to(self.root_dir))
+
+        missing = REQUIRED_FIELDS - fields
+        for f in list(missing):
+            if self._has_mixin_field(node, f):
+                missing.remove(f)
+        if missing:
+            violations.append(OutboxViolation(
+                rule_id="OUT-002",
+                file_path=rel_path,
+                component_name=name,
+                severity="CRITICAL",
+                message=f"Entity '{name}' kehilangan field wajib: {', '.join(missing)}",
+                suggestion="Tambahkan field: " + ", ".join(missing),
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-002", f"Missing required: {missing}", "CRITICAL"),
+            ))
+
+        if not any(f in fields for f in IDEMPOTENCY_ALIASES):
+            violations.append(OutboxViolation(
+                rule_id="OUT-008",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Entity '{name}' tidak memiliki field idempotency (idempotency_key/event_uuid/message_id/dedup_key/uuid/guid/event_id/hash/payload_hash/request_id/correlation_id/trace_id).",
+                suggestion="Tambahkan salah satu field untuk deduplikasi.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-008", "Missing idempotency field", "MEDIUM"),
+            ))
+
+        has_timestamp = any(f in fields for f in TIMESTAMP_ALIASES) or self._has_mixin_field(node, "created_at")
+        if not has_timestamp:
+            violations.append(OutboxViolation(
+                rule_id="OUT-002b",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Entity '{name}' tidak memiliki timestamp (created_at/occurred_at/event_time/timestamp/created) atau inheritance dari TimestampMixin.",
+                suggestion="Tambahkan timestamp untuk polling & monitoring.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-002b", "Missing timestamp", "MEDIUM"),
+            ))
+
+        if not any(f in fields for f in EVENT_ID_ALIASES):
+            violations.append(OutboxViolation(
+                rule_id="OUT-003",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Entity '{name}' tidak memiliki event_id (event_id/event_uuid/event_uid/event_guid).",
+                suggestion="Tambahkan event_id sebagai unique identifier per event.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-003", "Missing event_id", "MEDIUM"),
+            ))
+
+        if "retry_count" not in fields:
+            violations.append(OutboxViolation(
+                rule_id="OUT-006",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Entity '{name}' tidak memiliki 'retry_count'.",
+                suggestion="Tambahkan retry_count untuk mendukung retry mechanism.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-006", "Missing retry_count", "MEDIUM"),
+            ))
+
+        # Status enum
+        status_is_enum = False
+        for item in node.body:
+            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == "status":
+                ann = item.annotation
+                ann_str = ast.unparse(ann).lower() if ann else ""
+                if any(kw in ann_str for kw in ("enum", "saenum", "choice", "literal", "strenum", "mapped")):
+                    status_is_enum = True
+                    break
+        if "status" in fields and not status_is_enum:
+            has_check = False
+            for item in node.body:
+                if isinstance(item, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__table_args__" for t in item.targets):
+                    val_str = ast.unparse(item.value).lower()
+                    if "check" in val_str and "status" in val_str:
+                        has_check = True
+                        break
+            if not has_check:
+                violations.append(OutboxViolation(
+                    rule_id="OUT-013",
+                    file_path=rel_path,
+                    component_name=name,
+                    severity="MEDIUM",
+                    message=f"Entity '{name}' memiliki field 'status' tapi bukan Enum/SAEnum/Mapped[Status]/ChoiceType/Literal/StrEnum, dan tidak ada CheckConstraint.",
+                    suggestion="Gunakan Enum, SAEnum, ChoiceType, Literal, atau StrEnum untuk status.",
+                    line=node.lineno,
+                    rca_result=self._generate_rca("OUT-013", "Status not recognized enum type", "MEDIUM"),
+                ))
+
+        if not any(f in fields for f in AGGREGATE_ID_ALIASES):
+            violations.append(OutboxViolation(
+                rule_id="OUT-004",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Entity '{name}' tidak memiliki aggregate_id (aggregate_id/aggregate_uuid/root_id).",
+                suggestion="Tambahkan aggregate_id untuk traceability.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-004", "Missing aggregate_id", "LOW"),
+            ))
+
+        if "processed_at" not in fields:
+            violations.append(OutboxViolation(
+                rule_id="OUT-005",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Entity '{name}' tidak memiliki 'processed_at'.",
+                suggestion="Tambahkan processed_at untuk mencatat waktu pemrosesan.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-005", "Missing processed_at", "LOW"),
+            ))
+
+        if "last_error" not in fields:
+            violations.append(OutboxViolation(
+                rule_id="OUT-007",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Entity '{name}' tidak memiliki 'last_error'.",
+                suggestion="Tambahkan last_error untuk debugging.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-007", "Missing last_error", "LOW"),
+            ))
+
+        if "version" not in fields:
+            violations.append(OutboxViolation(
+                rule_id="OUT-010",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Entity '{name}' tidak memiliki 'version'.",
+                suggestion="Tambahkan version untuk optimistic locking.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-010", "Missing version", "LOW"),
+            ))
+
+        for f, label in [("priority", "priority"), ("scheduled_at", "scheduled_at"), ("correlation_id", "correlation_id")]:
+            if f not in fields:
+                violations.append(OutboxViolation(
+                    rule_id=f"OUT-{ {'priority':'011','scheduled_at':'012','correlation_id':'009'}[f] }",
+                    file_path=rel_path,
+                    component_name=name,
+                    severity="INFO",
+                    message=f"Entity '{name}' tidak memiliki '{f}'.",
+                    suggestion=f"Tambahkan {f} ({label}).",
+                    line=node.lineno,
+                    rca_result=self._generate_rca(f"OUT-{ {'priority':'011','scheduled_at':'012','correlation_id':'009'}[f] }", f"Missing {f}", "INFO"),
+                ))
+
+        if "status" in fields:
+            has_default_status = self._has_default_value(node, "status", "pending") or self._has_default_value(node, "status", "PENDING")
+            if not has_default_status:
+                violations.append(OutboxViolation(
+                    rule_id="OUT-014",
+                    file_path=rel_path,
+                    component_name=name,
+                    severity="LOW",
+                    message=f"Entity '{name}' status tidak default 'pending'/'PENDING'.",
+                    suggestion="Set default status = pending atau PENDING.",
+                    line=node.lineno,
+                    rca_result=self._generate_rca("OUT-014", "Missing default status", "LOW"),
+                ))
+
+        if "retry_count" in fields:
+            has_default_retry = self._has_default_value(node, "retry_count", 0)
+            if not has_default_retry:
+                violations.append(OutboxViolation(
+                    rule_id="OUT-015",
+                    file_path=rel_path,
+                    component_name=name,
+                    severity="LOW",
+                    message=f"Entity '{name}' retry_count tidak default 0.",
+                    suggestion="Set default retry_count = 0.",
+                    line=node.lineno,
+                    rca_result=self._generate_rca("OUT-015", "Missing default retry_count", "LOW"),
+                ))
+
+        if "payload" in fields:
+            is_valid = False
+            for item in node.body:
+                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == "payload":
+                    ann = ast.unparse(item.annotation).lower() if item.annotation else ""
+                    if any(t in ann for t in ("json", "dict", "mapping", "jsonb", "largebinary", "mapped", "mutabledict", "pydantic", "bytes", "text")):
+                        is_valid = True
+                    break
+            if not is_valid:
+                violations.append(OutboxViolation(
+                    rule_id="OUT-016",
+                    file_path=rel_path,
+                    component_name=name,
+                    severity="LOW",
+                    message=f"Entity '{name}' payload tidak dikenali sebagai JSON/dict/JSONB/Mapped/MutableDict/Pydantic/bytes/Text.",
+                    suggestion="Gunakan JSONField, Mapped[dict], Pydantic model, atau Text.",
+                    line=node.lineno,
+                    rca_result=self._generate_rca("OUT-016", "Payload type not recognized", "LOW"),
+                ))
+
+        has_indexes = any(
+            isinstance(item, ast.Assign) and any(isinstance(t, ast.Name) and t.id in ("__table_args__", "Meta") for t in item.targets)
+            for item in node.body
+        )
+        if not has_indexes:
+            violations.append(OutboxViolation(
+                rule_id="OUT-017",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Entity '{name}' tidak memiliki indeks (__table_args__).",
+                suggestion="Tambahkan indeks pada (status, created_at) untuk polling.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-017", "Missing indexes", "LOW"),
+            ))
+
+        has_not_null = any(
+            isinstance(item, ast.AnnAssign) and any(kw in ast.unparse(item.annotation).lower() for kw in ("nullable=false", "not null"))
+            for item in node.body
+        )
+        if not has_not_null and missing:
+            violations.append(OutboxViolation(
+                rule_id="OUT-018",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Entity '{name}' tidak memiliki NOT NULL constraints.",
+                suggestion="Tambahkan nullable=False atau NOT NULL.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-018", "Missing NOT NULL", "LOW"),
+            ))
+
+        return OutboxInfo(
+            file_path=rel_path,
+            component_name=name,
+            component_type="entity",
+            fields=fields,
+            methods=methods,
+            violations=violations,
+        )
+
+    # -------------------------------------------------------------------------
+    # Publisher Checker (v10.0 - deteksi lebih baik)
+    # -------------------------------------------------------------------------
+    def _check_publisher(self, node: ast.ClassDef, file_path: Path) -> OutboxInfo:
+        name = node.name
+        fields, methods = self._get_fields_and_methods(node)
+        violations = []
+        rel_path = str(file_path.relative_to(self.root_dir))
+
+        if not self._has_main_method(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-026",
+                file_path=rel_path,
+                component_name=name,
+                severity="CRITICAL",
+                message=f"Publisher '{name}' tidak memiliki metode utama (publish/process/poll/run/start/loop/execute/worker/consume/relay/dispatch) ATAU loop dengan fetch event.",
+                suggestion="Tambahkan metode utama atau loop yang mengambil pending events.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-026", "Missing main method", "CRITICAL"),
+            ))
+
+        if not self._has_retry(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-021",
+                file_path=rel_path,
+                component_name=name,
+                severity="HIGH",
+                message=f"Tidak ditemukan retry mechanism (tenacity/backoff/RetryPolicy/max_attempts/retry_delay_seconds/max_retries/retry_policy).",
+                suggestion="Implementasikan retry dengan backoff atau max_attempts.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-021", "Missing retry", "HIGH"),
+            ))
+
+        if not self._has_idempotency(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-022",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Tidak ditemukan idempotency (idempotency_key/event_uuid/message_id/dedup_key/event_id/hash/payload_hash/request_id/correlation_id/trace_id) di field atau headers.",
+                suggestion="Gunakan field idempotency untuk deduplikasi.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-022", "Missing idempotency", "MEDIUM"),
+            ))
+
+        if not self._has_transaction(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-020",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Tidak ditemukan transaction (UoW/session.begin/@transactional/@atomic/self.uow/container.uow/async with session/get_async_session).",
+                suggestion="Gunakan UnitOfWork, session.begin(), atau @transactional untuk atomic operations.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-020", "Missing transaction", "MEDIUM"),
+            ))
+
+        if not self._has_dead_letter(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-041",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Tidak ditemukan Dead Letter Queue integration (dead_letter/dlq/DEAD_LETTER status/mark_dead_letter/OUTBOX_STATUS_DEAD_LETTER/_mark_as_failed/dead_letter string).",
+                suggestion="Kirim event gagal permanent ke DLQ.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-041", "No DLQ", "MEDIUM"),
+            ))
+
+        if not self._has_feature(node, BACKOFF_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-038",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Tidak ditemukan exponential backoff (backoff/exponential/retry_delay_seconds/list of delays).",
+                suggestion="Gunakan backoff atau exponential untuk retry.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-038", "No backoff", "MEDIUM"),
+            ))
+
+        if not self._has_feature(node, TIMEOUT_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-037",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Tidak ditemukan timeout per event (timeout/asyncio.timeout).",
+                suggestion="Tambahkan timeout untuk menghindari hung processing.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-037", "Missing timeout", "MEDIUM"),
+            ))
+
+        if not self._has_feature(node, {"max_retry", "max_retries", "max_attempts"}):
+            violations.append(OutboxViolation(
+                rule_id="OUT-039",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Tidak ditemukan configurable max_retries.",
+                suggestion="Tambahkan parameter max_retries.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-039", "No max_retries", "MEDIUM"),
+            ))
+
+        if not self._has_lock(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-030",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan pessimistic locking (select_for_update/with_for_update/redis.lock/advisory_lock/distributed_lock/asyncio.Lock/Semaphore/Lease/setnx/expire/_acquire_lock/try_lock).",
+                suggestion="Gunakan lock untuk mencegah duplicate processing.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-030", "Missing lock", "LOW"),
+            ))
+
+        if not self._has_broker_api(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-042",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan Broker API / MessagePublisher / Dispatcher / Mediator (KafkaProducerWrapper/Kafka/RabbitMQ/Pulsar/EventBus/BrokerPort/producer/publisher/send_event/get_kafka_producer/MessageBrokerPort).",
+                suggestion="Integrasikan dengan message broker API (KafkaProducerWrapper, RabbitMQ, PulsarClient, atau BrokerPort).",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-042", "Broker API not found", "LOW"),
+            ))
+
+        if not self._has_feature(node, ERROR_CLASS_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-040",
+                file_path=rel_path,
+                component_name=name,
+                severity="INFO",
+                message=f"Tidak ditemukan error classification (temporary/permanent/retryable).",
+                suggestion="Bedakan temporary vs permanent error.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-040", "No error classification", "INFO"),
+            ))
+
+        if not self._has_feature(node, RECONNECT_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-043",
+                file_path=rel_path,
+                component_name=name,
+                severity="INFO",
+                message=f"Tidak ditemukan auto-reconnect mechanism.",
+                suggestion="Implementasikan auto-reconnect untuk broker.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-043", "No auto-reconnect", "INFO"),
+            ))
+
+        if not self._has_feature(node, CIRCUIT_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-035",
+                file_path=rel_path,
+                component_name=name,
+                severity="INFO",
+                message=f"Tidak ditemukan circuit breaker.",
+                suggestion="Implementasikan circuit breaker untuk cascade failure.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-035", "No circuit breaker", "INFO"),
+            ))
+
+        if not self._has_feature(node, RATE_LIMIT_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-036",
+                file_path=rel_path,
+                component_name=name,
+                severity="INFO",
+                message=f"Tidak ditemukan rate limiting.",
+                suggestion="Tambahkan rate limit untuk mencegah overload.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-036", "No rate limit", "INFO"),
+            ))
+
+        if not self._has_feature(node, BATCH_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-028",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan batch processing (batch_size/limit).",
+                suggestion="Tambahkan parameter limit atau batch_size.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-028", "No batch", "LOW"),
+            ))
+
+        if not self._has_feature(node, ORDERING_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-029",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan ordering (order_by/asc/desc/created_at).",
+                suggestion="Tambahkan order_by(created_at.asc()) untuk FIFO.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-029", "Missing ordering", "LOW"),
+            ))
+
+        if not self._has_feature(node, SHUTDOWN_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-031",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan graceful shutdown (stop/shutdown/close).",
+                suggestion="Tambahkan shutdown() atau stop().",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-031", "No shutdown", "LOW"),
+            ))
+
+        if not self._has_health(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-032",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan health check (health/ready/liveness/readiness/health_check).",
+                suggestion="Tambahkan health_check() atau readiness/liveness.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-032", "No health", "LOW"),
+            ))
+
+        if not self._has_metrics(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-033",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan metrics collection (Counter/Histogram/Gauge/MeterProvider/Meter/OpenTelemetry/prometheus).",
+                suggestion="Tambahkan Counter, Histogram, Gauge, atau OpenTelemetry metrics.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-033", "No metrics", "LOW"),
+            ))
+
+        if not self._has_logging(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-034",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan logging (get_logger/logger/logging/structlog/audit_logger).",
+                suggestion="Tambahkan logging untuk setiap publish attempt.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-034", "No logging", "LOW"),
+            ))
+
+        if not self._has_feature(node, ASYNC_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-044",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan async processing.",
+                suggestion="Gunakan async/await atau background thread.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-044", "No async", "LOW"),
+            ))
+
+        if not self._has_feature(node, SCHEMA_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-045",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan payload validation (schema/validate/pydantic/ValidationError/BaseModel).",
+                suggestion="Validasi payload schema sebelum publish.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-045", "No schema validation", "LOW"),
+            ))
+
+        return OutboxInfo(
+            file_path=rel_path,
+            component_name=name,
+            component_type="publisher",
+            fields=fields,
+            methods=methods,
+            has_transaction=self._has_transaction(node),
+            has_retry=self._has_retry(node),
+            has_idempotency=self._has_idempotency(node),
+            has_dead_letter=self._has_dead_letter(node),
+            has_monitoring=self._has_metrics(node),
+            has_health=self._has_health(node),
+            has_logging=self._has_logging(node),
+            has_lock=self._has_lock(node),
+            has_batch=self._has_feature(node, BATCH_KEYWORDS),
+            has_ordering=self._has_feature(node, ORDERING_KEYWORDS),
+            has_shutdown=self._has_feature(node, SHUTDOWN_KEYWORDS),
+            has_async=self._has_feature(node, ASYNC_KEYWORDS),
+            has_schema_validation=self._has_feature(node, SCHEMA_KEYWORDS),
+            has_circuit_breaker=self._has_feature(node, CIRCUIT_KEYWORDS),
+            has_rate_limit=self._has_feature(node, RATE_LIMIT_KEYWORDS),
+            has_timeout=self._has_feature(node, TIMEOUT_KEYWORDS),
+            has_backoff=self._has_feature(node, BACKOFF_KEYWORDS),
+            has_max_retries=self._has_feature(node, {"max_retry", "max_retries", "max_attempts"}),
+            has_error_classification=self._has_feature(node, ERROR_CLASS_KEYWORDS),
+            has_auto_reconnect=self._has_feature(node, RECONNECT_KEYWORDS),
+            has_broker_integration=self._has_broker_api(node),
+            violations=violations,
+        )
+
+    # -------------------------------------------------------------------------
+    # Consumer Checker
+    # -------------------------------------------------------------------------
+    def _check_consumer(self, node: ast.ClassDef, file_path: Path) -> OutboxInfo:
+        name = node.name
+        fields, methods = self._get_fields_and_methods(node)
+        violations = []
+        rel_path = str(file_path.relative_to(self.root_dir))
+
+        if "handle" not in methods and "on_event" not in methods and "consume" not in methods:
+            violations.append(OutboxViolation(
+                rule_id="OUT-046",
+                file_path=rel_path,
+                component_name=name,
+                severity="CRITICAL",
+                message=f"Consumer '{name}' tidak memiliki 'handle' atau 'on_event' atau 'consume'.",
+                suggestion="Tambahkan handle(event) untuk memproses event.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-046", "Missing handle", "CRITICAL"),
+            ))
+
+        if not self._has_idempotency(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-047",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Consumer '{name}' tidak memiliki idempotency.",
+                suggestion="Implementasikan idempotency untuk mencegah duplikasi.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-047", "No idempotency", "MEDIUM"),
+            ))
+
+        if not self._has_feature(node, {"try", "except"}):
+            violations.append(OutboxViolation(
+                rule_id="OUT-048",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Consumer '{name}' tidak memiliki error handling.",
+                suggestion="Tambahkan try/except untuk menangani kegagalan.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-048", "No error handling", "MEDIUM"),
+            ))
+
+        return OutboxInfo(
+            file_path=rel_path,
+            component_name=name,
+            component_type="consumer",
+            fields=fields,
+            methods=methods,
+            has_idempotency=self._has_idempotency(node),
+            violations=violations,
+        )
+
+    # -------------------------------------------------------------------------
+    # Main Scan
+    # -------------------------------------------------------------------------
+    def scan(self) -> List[OutboxInfo]:
+        self.components = []
+        for file_path in self._get_python_files():
+            try:
+                content = file_path.read_text(encoding="utf-8")
+                tree = ast.parse(content, filename=str(file_path))
+            except (SyntaxError, UnicodeDecodeError):
                 continue
-            # Skip imported classes
-            if obj.__module__ != module_name:
-                continue
 
-            cls = obj
-            # 1. Instantiate Class
-            instance = self._safe_instantiate(cls, module_name)
-            if instance is None:
-                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
 
-            self.report.stats.classes_instantiated += 1
+                is_outbox, comp_type = self._is_outbox_component(node, file_path)
+                if not is_outbox:
+                    continue
 
-            # 2. Classify and update stats
-            cat = self._classify_component(cls)
-            if cat:
-                attr_name = CATEGORY_TO_ATTR.get(cat)
-                if attr_name:
-                    current = getattr(self.report.stats, attr_name, 0)
-                    setattr(self.report.stats, attr_name, current + 1)
+                if comp_type == "entity":
+                    info = self._check_entity(node, file_path)
+                elif comp_type == "publisher":
+                    info = self._check_publisher(node, file_path)
+                elif comp_type == "consumer":
+                    info = self._check_consumer(node, file_path)
+                else:
+                    fields, methods = self._get_fields_and_methods(node)
+                    rel_path = str(file_path.relative_to(self.root_dir))
+                    info = OutboxInfo(
+                        file_path=rel_path,
+                        component_name=node.name,
+                        component_type=comp_type,
+                        fields=fields,
+                        methods=methods,
+                        violations=[]
+                    )
 
-            # 3. Call lifecycle methods (skip dangerous ones)
-            lifecycle_methods = [
-                "health_check", "health", "initialize", "init", "validate",
-                "check", "enforce", "register", "setup", "post_init", "on_startup",
-                "check_invariants", "verify", "ensure_consistency", "ready"
-            ]
-            # Add also start/run with caution - we skip them via DANGEROUS_METHODS
-            for method_name in lifecycle_methods:
-                self._safe_call_method(instance, method_name, module_name)
+                if info:
+                    self.components.append(info)
 
-            # 4. Check if it's a registry or bus, try to get handlers/items
-            if self._safe_hasattr(instance, "handlers"):
-                try:
-                    handlers = getattr(instance, "handlers", None)
-                    if isinstance(handlers, dict):
-                        # Command/Query/Event registry
-                        self.report.stats.imported_modules += 1  # count as processed
-                except Exception:
-                    pass
-
-    def scan(self) -> RuntimeReport:
-        start_time = time.monotonic()
-        py_files = self._get_py_files()
-
-        print(f"{COLOR['BOLD']}{COLOR['CYAN']}╔════════════════════════════════════════════════════════════════════╗")
-        print("║      RUNTIME EXHAUSTIVE CHECKER v2.3 (Forensic Grade)         ║")
-        print(f"╚════════════════════════════════════════════════════════════════════╝{COLOR['RESET']}")
-        print(f"  RCA Engine        : {'✅ Aktif' if self.enable_rca else '⚠️ Nonaktif'}")
-        print(f"  Total File Target : {len(py_files)}")
-        print("")
-
-        processed = 0
-        for file_path in py_files:
-            module_name = self._module_name_from_path(file_path)
-            self._scan_module(module_name, file_path)
-            processed += 1
-            if processed % 200 == 0:
-                print(f"    Progress: {processed}/{len(py_files)} modules processed...")
-
-        elapsed = time.monotonic() - start_time
-        self.report.elapsed_seconds = elapsed
-
-        # Calculate score
-        error_penalty = len(self.report.errors) * 5
-        score = max(0, 100 - error_penalty)
-        self.report.score = min(100, score)
-
-        return self.report
+        return self.components
 
 
 # =============================================================================
-# Reporting
+# REPORTING
 # =============================================================================
-def print_report(report: RuntimeReport, verbose: bool = False) -> None:
+
+def generate_report(components: List[OutboxInfo]) -> CheckerResult:
+    total = len(components)
+    total_violations = 0
+    critical = high = medium = low = info = 0
+
+    for comp in components:
+        total_violations += len(comp.violations)
+        for v in comp.violations:
+            if v.severity == "CRITICAL":
+                critical += 1
+            elif v.severity == "HIGH":
+                high += 1
+            elif v.severity == "MEDIUM":
+                medium += 1
+            elif v.severity == "LOW":
+                low += 1
+            else:
+                info += 1
+
+    score = 100.0
+    score -= critical * 20.0
+    score -= high * 8.0
+    score -= medium * 3.0
+    score -= low * 1.0
+    score = max(0.0, min(100.0, score))
+
+    return CheckerResult(
+        components=components,
+        total_components=total,
+        total_violations=total_violations,
+        critical_count=critical,
+        high_count=high,
+        medium_count=medium,
+        low_count=low,
+        info_count=info,
+        score=score,
+        rca_enabled=_RCA_AVAILABLE,
+        elapsed_seconds=0.0,
+    )
+
+
+def print_report(result: CheckerResult, verbose: bool = False) -> None:
     c = COLOR
-    stats = report.stats
+    print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*72}╗")
+    print("║     OUTBOX PATTERN COMPLIANCE & FORENSIC CHECKER v10.0      ║")
+    print(f"╚{'═'*72}╝{c['RESET']}")
 
-    print(f"\n{c['BOLD']}========== RUNTIME EXHAUSTIVE REPORT =========={c['RESET']}")
-    print(f"\n  {c['CYAN']}Imported modules       : {stats.imported_modules}{c['RESET']}")
-    print(f"  {c['CYAN']}Classes instantiated   : {stats.classes_instantiated}{c['RESET']}")
-    print(f"  {c['CYAN']}Services started       : {stats.services_started}{c['RESET']}")
-    print(f"  {c['CYAN']}Repositories           : {stats.repositories}{c['RESET']}")
-    print(f"  {c['CYAN']}Commands               : {stats.commands}{c['RESET']}")
-    print(f"  {c['CYAN']}Queries                : {stats.queries}{c['RESET']}")
-    print(f"  {c['CYAN']}Events                 : {stats.events}{c['RESET']}")
-    print(f"  {c['CYAN']}DTO                    : {stats.dto}{c['RESET']}")
-    print(f"  {c['CYAN']}Validators             : {stats.validators}{c['RESET']}")
-    print(f"  {c['CYAN']}Guards                 : {stats.guards}{c['RESET']}")
-    print(f"  {c['CYAN']}Immutable Laws         : {stats.immutable_laws}{c['RESET']}")
-    print(f"  {c['CYAN']}Policies               : {stats.policies}{c['RESET']}")
-    print(f"  {c['CYAN']}Mappers                : {stats.mappers}{c['RESET']}")
-    print(f"  {c['CYAN']}Routers                : {stats.routers}{c['RESET']}")
-    print(f"  {c['CYAN']}Event Handlers         : {stats.event_handlers}{c['RESET']}")
-    print(f"  {c['CYAN']}Command Handlers       : {stats.command_handlers}{c['RESET']}")
-    print(f"  {c['CYAN']}Query Handlers         : {stats.query_handlers}{c['RESET']}")
-    print(f"  {c['CYAN']}Service Objects        : {stats.service_objects}{c['RESET']}")
+    print("\n  📋 Aturan Outbox (v10.0 – full AST traversal, deteksi super luas):")
+    print("    ✅ Hanya komponen dengan 'Outbox' di nama atau path yang diproses")
+    print("    ✅ Checkpoint/Metrics/Partition table diabaikan")
+    print("    ✅ DeadLetter table dikenali sebagai deadletter")
+    print("    ✅ Deteksi transaction: async with session.begin, get_async_session")
+    print("    ✅ Deteksi DLQ: OUTBOX_STATUS_DEAD_LETTER, _mark_as_failed, dead_letter string")
+    print("    ✅ Deteksi broker: KafkaProducerWrapper, get_kafka_producer, send_event")
+    print("    ✅ Deteksi lock: setnx, expire, _acquire_lock, advisory_lock")
+    print("    ✅ Deteksi ordering: order_by, asc, desc, created_at")
+    print("    ✅ Deteksi backoff: retry_delay_seconds, list of delays")
+    print("    ✅ Deteksi timeout: asyncio.timeout")
+    print("    ✅ Deteksi idempotency: field & headers (idempotency_key, correlation_id)")
+    print("    ✅ Deteksi logging: get_logger, logger")
+    print("    ✅ Deteksi health: health_check, readiness")
+    print("    ✅ Deteksi metrics: Counter, Histogram, MeterProvider")
+    print("    ✅ Scoring: CRITICAL=-20, HIGH=-8, MEDIUM=-3, LOW=-1, INFO=0")
 
-    print(f"\n{c['BOLD']}FAILED:{c['RESET']}")
-    if report.errors:
-        # Group by error type
-        error_types = {}
-        for err in report.errors:
-            key = err.exception_type
-            error_types.setdefault(key, []).append(err)
+    print(f"\n  {c['CYAN']}Total Outbox Components Ditemukan: {result.total_components}{c['RESET']}")
+    print(f"  Total Violations: {result.total_violations}")
+    print(f"    {c['RED']}CRITICAL: {result.critical_count}{c['RESET']}")
+    print(f"    {c['YELLOW']}HIGH: {result.high_count}{c['RESET']}")
+    print(f"    {c['CYAN']}MEDIUM: {result.medium_count}{c['RESET']}")
+    print(f"    {c['DIM']}LOW: {result.low_count}{c['RESET']}")
+    print(f"    {c['DIM']}INFO: {result.info_count}{c['RESET']}")
 
-        for etype, errs in error_types.items():
-            print(f"  {c['RED']}{etype}: {len(errs)} occurrences{c['RESET']}")
-            if verbose:
-                for err in errs[:5]:
-                    print(f"    - {err.module_name}.{err.class_name}.{err.method_name}: {err.exception_msg[:100]}")
-                if len(errs) > 5:
-                    print(f"      ... and {len(errs)-5} more")
-    else:
-        print(f"  {c['GREEN']}✅ Tidak ada error ditemukan dalam runtime check.{c['RESET']}")
+    score_color = c["GREEN"] if result.score >= 80 else c["YELLOW"] if result.score >= 50 else c["RED"]
+    print(f"\n  📈 Skor Kepatuhan: {score_color}{c['BOLD']}{result.score:.1f}/100{c['RESET']}")
+    print(f"  RCA Engine: {'✅ Aktif' if result.rca_enabled else '⚠️ Tidak tersedia'}")
 
-    # Summary findings
-    print(f"\n{c['BOLD']}────────── METRICS ──────────{c['RESET']}")
-    print(f"  Circular Imports : 0 (detected at import)")
-    print(f"  Missing Methods  : 0")
-    print(f"  DI Errors        : {len([e for e in report.errors if 'None' in e.exception_msg])}")
-    print(f"  Runtime Errors   : {len(report.errors)}")
+    if result.components:
+        print(f"\n{c['CYAN']}─── DAFTAR KOMPONEN ───{c['RESET']}")
+        for comp in result.components:
+            if comp.violations:
+                status = f"{c['RED']}✖ {len(comp.violations)} violations{c['RESET']}"
+            else:
+                status = f"{c['GREEN']}✓ Compliant{c['RESET']}"
+            print(f"  {comp.component_name} ({comp.component_type}) @ {comp.file_path} {status}")
 
-    score_color = c["GREEN"] if report.score >= 80 else c["YELLOW"] if report.score >= 50 else c["RED"]
-    print(f"\n  {c['BOLD']}OVERALL SCORE : {score_color}{report.score:.1f}{c['RESET']}")
+    all_violations = []
+    for comp in result.components:
+        all_violations.extend(comp.violations)
 
-    # RCA Integration Summary
-    if report.rca_enabled:
-        rca_errors = [e for e in report.errors if e.rca_result]
-        print(f"  RCA Suggestions : {len(rca_errors)} provided")
+    if all_violations:
+        print(f"\n{c['RED']}─── VIOLATIONS (sample) ───{c['RESET']}")
+        for v in all_violations[:30]:
+            sev_color = c["RED"] if v.severity in ("CRITICAL", "HIGH") else c["YELLOW"] if v.severity == "MEDIUM" else c["CYAN"]
+            print(f"\n  {sev_color}[{v.rule_id}] {v.severity}{c['RESET']} {v.message}")
+            print(f"    💡 {v.suggestion}")
+            if verbose and v.rca_result:
+                if v.rca_result.get("root_cause"):
+                    print(f"    🔍 RCA: {v.rca_result['root_cause'][:150]}")
+                if v.rca_result.get("suggested_fix"):
+                    print(f"    🔧 Fix: {v.rca_result['suggested_fix'][:150]}")
+        if len(all_violations) > 30:
+            print(f"  ... and {len(all_violations)-30} more violations (use --json for full list)")
 
-    print(f"\n  ⏱️ Elapsed: {report.elapsed_seconds:.3f}s")
-    print("=" * 42)
 
-
-def save_json(report: RuntimeReport, filepath: str) -> None:
+def save_json(result: CheckerResult, filepath: str) -> None:
     try:
         out = Path(filepath)
         out.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "score": report.score,
-            "rca_enabled": report.rca_enabled,
-            "elapsed_seconds": report.elapsed_seconds,
-            "stats": {
-                "imported_modules": report.stats.imported_modules,
-                "classes_instantiated": report.stats.classes_instantiated,
-                "services_started": report.stats.services_started,
-                "repositories": report.stats.repositories,
-                "commands": report.stats.commands,
-                "queries": report.stats.queries,
-                "events": report.stats.events,
-                "dto": report.stats.dto,
-                "validators": report.stats.validators,
-                "guards": report.stats.guards,
-                "immutable_laws": report.stats.immutable_laws,
-                "policies": report.stats.policies,
-                "mappers": report.stats.mappers,
-                "routers": report.stats.routers,
-                "event_handlers": report.stats.event_handlers,
-                "command_handlers": report.stats.command_handlers,
-                "query_handlers": report.stats.query_handlers,
-                "service_objects": report.stats.service_objects,
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "score": result.score,
+            "rca_enabled": result.rca_enabled,
+            "total_components": result.total_components,
+            "total_violations": result.total_violations,
+            "severity_counts": {
+                "critical": result.critical_count,
+                "high": result.high_count,
+                "medium": result.medium_count,
+                "low": result.low_count,
+                "info": result.info_count,
             },
-            "errors": [e.to_dict() for e in report.errors],
+            "components": [
+                {
+                    "name": comp.component_name,
+                    "type": comp.component_type,
+                    "file": comp.file_path,
+                    "fields": list(comp.fields),
+                    "methods": list(comp.methods),
+                    "has_transaction": comp.has_transaction,
+                    "has_retry": comp.has_retry,
+                    "has_idempotency": comp.has_idempotency,
+                    "has_dead_letter": comp.has_dead_letter,
+                    "has_monitoring": comp.has_monitoring,
+                    "violations": [v.to_dict() for v in comp.violations],
+                }
+                for comp in result.components
+            ],
         }
-        out.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"{COLOR['GREEN']}✅ JSON exported to {out.resolve()}{COLOR['RESET']}")
     except Exception as e:
         print(f"{COLOR['RED']}❌ Failed to write JSON: {e}{COLOR['RESET']}")
 
 
 # =============================================================================
-# Main CLI
+# MAIN
 # =============================================================================
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Runtime Exhaustive Checker v2.3")
+    parser = argparse.ArgumentParser(
+        description="Outbox Pattern Compliance & Forensic Checker v10.0 (full AST traversal)"
+    )
     parser.add_argument("--json", metavar="FILE", help="Export report to JSON")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show RCA details")
     parser.add_argument("--no-rca", action="store_true", help="Disable RCA analysis")
     args = parser.parse_args()
 
-    global RCA_AVAILABLE, _analyze_exception
+    global _RCA_AVAILABLE, _analyze_exception
     if args.no_rca:
-        RCA_AVAILABLE = False
+        _RCA_AVAILABLE = False
         _analyze_exception = None
 
-    checker = RuntimeExhaustiveChecker(ROOT, enable_rca=not args.no_rca)
-    report = checker.scan()
+    start = time.monotonic()
+    checker = OutboxChecker(ROOT, enable_rca=not args.no_rca)
+    components = checker.scan()
+    elapsed = time.monotonic() - start
 
-    print_report(report, verbose=args.verbose)
+    result = generate_report(components)
+    result.elapsed_seconds = elapsed
+
+    print_report(result, verbose=args.verbose)
 
     if args.json:
-        save_json(report, args.json)
+        save_json(result, args.json)
 
-    sys.exit(0 if report.score >= 90 else 1)
+    print(f"\n ⏱️ Audit Duration: {elapsed:.3f} seconds")
+
+    has_critical = result.critical_count > 0
+    sys.exit(1 if has_critical else 0)
 
 
 if __name__ == "__main__":

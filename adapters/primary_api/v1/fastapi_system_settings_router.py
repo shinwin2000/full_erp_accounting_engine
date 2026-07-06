@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_system_settings_router.py
@@ -9,6 +8,8 @@ Responsibility: REST API endpoint untuk system settings.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 from datetime import datetime
@@ -16,7 +17,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status, Header
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
@@ -27,6 +28,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -501,8 +548,7 @@ class SettingSchemaSchema(BaseModel):
 # ============================================================================
 
 
-async def get_settings_service(request: Request, ) -> Any:
-
+async def get_settings_service(request: Request) -> Any:
     from application.service_layer.service_system_settings import SystemSettingsService
 
     container = request.app.state.container
@@ -530,11 +576,19 @@ router = APIRouter(prefix="/settings", tags=["System Settings"])
 )
 async def create_setting(
     request: SettingCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("settings:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_settings_service),
 ) -> SettingResponseSchema:
+    method_name = "create_setting"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SettingResponseSchema(**cached)
+
     try:
         target_legal_entity_id = (
             legal_entity_id if request.scope == SettingScope.LEGAL_ENTITY else None
@@ -561,7 +615,7 @@ async def create_setting(
             created_by=current_user.user_id,
         )
 
-        return SettingResponseSchema(
+        response = SettingResponseSchema(
             id=result.id,
             key=result.key,
             value=result.value,
@@ -591,6 +645,11 @@ async def create_setting(
             updated_by=result.updated_by,
             updated_by_name=result.updated_by_name,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except PermissionError as e:
@@ -617,7 +676,7 @@ async def get_setting(
         if not setting:
             raise HTTPException(
                 status_code=404,
-                detail=f"Setting '{key}' not found",  # nosec
+                detail=f"Setting '{key}' not found",
             )
         return SettingResponseSchema(
             id=setting.id,
@@ -725,11 +784,19 @@ async def update_setting(
     key: str,
     request: SettingUpdateSchema,
     reason: str = Query("", description="Reason for update"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("settings:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_settings_service),
 ) -> SettingResponseSchema:
+    method_name = "update_setting"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SettingResponseSchema(**cached)
+
     try:
         result = await service.update_setting(
             key=key,
@@ -752,9 +819,9 @@ async def update_setting(
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail=f"Setting '{key}' not found",  # nosec
+                detail=f"Setting '{key}' not found",
             )
-        return SettingResponseSchema(
+        response = SettingResponseSchema(
             id=result.id,
             key=result.key,
             value=result.value,
@@ -784,6 +851,11 @@ async def update_setting(
             updated_by=result.updated_by,
             updated_by_name=result.updated_by_name,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except PermissionError as e:
@@ -802,11 +874,19 @@ async def update_setting(
 async def deactivate_setting(
     key: str,
     reason: str = Query("", description="Reason for deactivation"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("settings:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_settings_service),
 ) -> dict[str, Any]:
+    method_name = "deactivate_setting"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.deactivate_setting(
             key, legal_entity_id, current_user.user_id, reason
@@ -814,13 +894,16 @@ async def deactivate_setting(
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail=f"Setting '{key}' not found",  # nosec
+                detail=f"Setting '{key}' not found",
             )
-        return {
+        response = {
             "key": key,
             "deactivated": True,
-            "message": f"Setting '{key}' deactivated",  # nosec
+            "message": f"Setting '{key}' deactivated",
         }
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except PermissionError as e:
@@ -838,19 +921,27 @@ async def deactivate_setting(
 )
 async def activate_setting(
     key: str,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("settings:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_settings_service),
 ) -> SettingResponseSchema:
+    method_name = "activate_setting"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SettingResponseSchema(**cached)
+
     try:
         result = await service.activate_setting(key, legal_entity_id, current_user.user_id)
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail=f"Setting '{key}' not found",  # nosec
+                detail=f"Setting '{key}' not found",
             )
-        return SettingResponseSchema(
+        response = SettingResponseSchema(
             id=result.id,
             key=result.key,
             value=result.value,
@@ -880,6 +971,9 @@ async def activate_setting(
             updated_by=result.updated_by,
             updated_by_name=result.updated_by_name,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -896,19 +990,27 @@ async def activate_setting(
 async def reset_setting(
     key: str,
     reason: str = Query("", description="Reason for reset"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("settings:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_settings_service),
 ) -> SettingResponseSchema:
+    method_name = "reset_setting"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SettingResponseSchema(**cached)
+
     try:
         result = await service.reset_to_default(key, legal_entity_id, current_user.user_id, reason)
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail=f"Setting '{key}' not found or no default",  # nosec
+                detail=f"Setting '{key}' not found or no default",
             )
-        return SettingResponseSchema(
+        response = SettingResponseSchema(
             id=result.id,
             key=result.key,
             value=result.value,
@@ -938,6 +1040,9 @@ async def reset_setting(
             updated_by=result.updated_by,
             updated_by_name=result.updated_by_name,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -959,11 +1064,19 @@ async def reset_setting(
 async def bulk_update_settings(
     request: SettingBulkUpdateSchema,
     reason: str = Query("", description="Reason for bulk update"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("settings:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_settings_service),
 ) -> dict[str, Any]:
+    method_name = "bulk_update_settings"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         if request.dry_run:
             result = await service.validate_bulk_update(request.settings, legal_entity_id)
@@ -971,13 +1084,16 @@ async def bulk_update_settings(
             result = await service.bulk_update_settings(
                 request.settings, legal_entity_id, reason, current_user.user_id
             )
-        return {
+        response = {
             "success_count": result.success_count,
             "failed_count": result.failed_count,
             "failed_keys": result.failed_keys,
             "errors": result.errors,
             "dry_run": request.dry_run,
         }
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+        return response
     except Exception as e:
         logger.exception("Failed to bulk update settings: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -992,21 +1108,32 @@ async def bulk_update_settings(
 async def bulk_reset_settings(
     keys: list[str] = Body(...),
     reason: str = Body(""),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("settings:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_settings_service),
 ) -> dict[str, Any]:
+    method_name = "bulk_reset_settings"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.bulk_reset_settings(
             keys, legal_entity_id, reason, current_user.user_id
         )
-        return {
+        response = {
             "success_count": result.success_count,
             "failed_count": result.failed_count,
             "failed_keys": result.failed_keys,
             "errors": result.errors,
         }
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+        return response
     except Exception as e:
         logger.exception("Failed to bulk reset settings: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1048,22 +1175,33 @@ async def export_settings(
 )
 async def import_settings(
     request: SettingImportSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("settings:import")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_settings_service),
 ) -> dict[str, Any]:
+    method_name = "import_settings"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.import_settings(
             legal_entity_id, request.data, request.format, request.mode, current_user.user_id
         )
-        return {
+        response = {
             "success": result.success,
             "imported_count": result.imported_count,
             "updated_count": result.updated_count,
             "skipped_count": result.skipped_count,
             "errors": result.errors,
         }
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1260,19 +1398,27 @@ async def get_settings_audit_trail(
 async def lock_setting(
     key: str,
     reason: str = Query("", description="Lock reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("settings:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_settings_service),
 ) -> SettingResponseSchema:
+    method_name = "lock_setting"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SettingResponseSchema(**cached)
+
     try:
         result = await service.lock_setting(key, legal_entity_id, current_user.user_id, reason)
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail=f"Setting '{key}' not found",  # nosec
+                detail=f"Setting '{key}' not found",
             )
-        return SettingResponseSchema(
+        response = SettingResponseSchema(
             id=result.id,
             key=result.key,
             value=result.value,
@@ -1302,6 +1448,9 @@ async def lock_setting(
             updated_by=result.updated_by,
             updated_by_name=result.updated_by_name,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except PermissionError as e:
@@ -1320,19 +1469,27 @@ async def lock_setting(
 async def unlock_setting(
     key: str,
     reason: str = Query("", description="Unlock reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("settings:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_settings_service),
 ) -> SettingResponseSchema:
+    method_name = "unlock_setting"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SettingResponseSchema(**cached)
+
     try:
         result = await service.unlock_setting(key, legal_entity_id, current_user.user_id, reason)
         if not result:
             raise HTTPException(
                 status_code=404,
-                detail=f"Setting '{key}' not found",  # nosec
+                detail=f"Setting '{key}' not found",
             )
-        return SettingResponseSchema(
+        response = SettingResponseSchema(
             id=result.id,
             key=result.key,
             value=result.value,
@@ -1362,6 +1519,9 @@ async def unlock_setting(
             updated_by=result.updated_by,
             updated_by_name=result.updated_by_name,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

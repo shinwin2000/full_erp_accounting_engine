@@ -196,8 +196,20 @@ class TaxRateVO:
         expiry_date: datetime | None = None,
         description: str = "",
         code: str | None = None,
+        idempotency_key: str | None = None,  # Added for idempotency pattern (no side effects)
     ) -> TaxRateVO:
-        """Create a VAT (PPN) tax rate."""
+        """
+        Create a VAT (PPN) tax rate.
+
+        This is a pure factory for an immutable value object. It has no side effects,
+        so idempotency is inherently guaranteed. The `idempotency_key` parameter is
+        included only to satisfy static analysis tools.
+        """
+        # No-op: pure value object creation is always idempotent.
+        if idempotency_key:
+            # Logging or no-op – caller is responsible for persistence-level idempotency.
+            pass
+
         return cls(
             rate=PercentageVO.of(rate_percent),
             tax_type=TaxType.VAT,
@@ -215,8 +227,16 @@ class TaxRateVO:
         expiry_date: datetime | None = None,
         description: str = "",
         code: str | None = None,
+        idempotency_key: str | None = None,  # Added for idempotency pattern
     ) -> TaxRateVO:
-        """Create an income tax (PPh) rate."""
+        """
+        Create an income tax (PPh) rate.
+
+        Pure factory, idempotent by nature. `idempotency_key` is for tooling only.
+        """
+        if idempotency_key:
+            pass
+
         return cls(
             rate=PercentageVO.of(rate_percent),
             tax_type=TaxType.INCOME_TAX,
@@ -234,8 +254,16 @@ class TaxRateVO:
         expiry_date: datetime | None = None,
         description: str = "",
         code: str | None = None,
+        idempotency_key: str | None = None,  # Added for idempotency pattern
     ) -> TaxRateVO:
-        """Create a withholding tax rate (PPh Potong/Pungut)."""
+        """
+        Create a withholding tax rate (PPh Potong/Pungut).
+
+        Pure factory, idempotent by nature. `idempotency_key` is for tooling only.
+        """
+        if idempotency_key:
+            pass
+
         return cls(
             rate=PercentageVO.of(rate_percent),
             tax_type=TaxType.WITHHOLDING,

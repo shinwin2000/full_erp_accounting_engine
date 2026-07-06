@@ -3,23 +3,13 @@
 """
 checker/query_checker.py – Query Handler / Query Bus Compliance Checker
 ========================================================================
-Versi   : 3.0.0
+Versi   : 4.2.0
 Standar : Big 4 Forensic Audit · ISO/IEC 25010 · SOX/ISA 315 Compliant
 
-Fitur:
-  - Deteksi kelas Query / QueryHandler (naming, decorator, inheritance)
-  - Validasi kontrak Query Handler: execute/handle/fetch/get
-  - Deteksi type hints (parameter & return)
-  - Deteksi dependency injection (__init__)
-  - Deteksi error handling (try/except)
-  - Deteksi caching (opsional)
-  - Deteksi logging (opsional)
-  - Filter false positive: Schema, DTO, Response, Request, Error, Exception, Policy, Registry, Middleware
-  - Integrasi RCA engine (checker.core.rca)
-  - Parallel scanning, AST caching, progress bar
-  - Laporan JSON, CSV, HTML, SARIF
-  - Self-test terintegrasi
-  - CLI: --verbose, --json, --csv, --html, --sarif, --strict, --no-rca, --self-test, --exclude, --max-workers
+Perbaikan v4.2.0:
+  - Query object (berakhiran Query) TIDAK dianggap sebagai Query Handler
+  - Hanya class dengan nama mengandung "QueryHandler" atau decorator @query_handler atau inherit BaseQueryHandler
+  - False positive turun drastis
 """
 
 from __future__ import annotations
@@ -135,7 +125,7 @@ def _c(key: str) -> str:
     return COLOR.get(key, "")
 
 # ─── VERSION ──────────────────────────────────────────────────────────────────
-__version__ = "3.0.0"
+__version__ = "4.2.0"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 EXCLUDED_DIRS_DEFAULT = {
@@ -144,15 +134,30 @@ EXCLUDED_DIRS_DEFAULT = {
     "venv", ".venv", "node_modules", "dist", "build",
 }
 
-QUERY_KEYWORDS = {"Query", "QueryHandler", "QueryBus", "QueryExecutor", "QueryService"}
-BASE_QUERY_NAMES = {"BaseQuery", "BaseQueryHandler", "QueryHandlerBase"}
+# Hanya deteksi QueryHandler, bukan Query object
+QUERY_HANDLER_KEYWORDS = {"QueryHandler", "QueryExecutor", "QueryService"}
+BASE_QUERY_HANDLER_NAMES = {"BaseQueryHandler", "QueryHandlerBase"}
 EXECUTE_METHODS = {"execute", "handle", "__call__", "process", "run", "fetch", "get", "find", "select"}
-CACHE_KEYWORDS = {"cache", "cached", "ttl", "redis", "memcached", "cache_key"}
+
+# False positive filters
 SKIP_CLASS_PATTERNS = {
     "Schema", "DTO", "Dto", "Response", "Request", "Error", "Exception",
-    "Policy", "Registry", "Middleware", "Command", "Event", "Factory", "Builder",
+    "Policy", "Registry", "Middleware", "Factory", "Builder",
+    "Repository", "RepositoryPort", "Port", "Adapter", "Client", "Store", "Cache",
+    "Service", "Manager", "Provider", "Config", "Settings", "Entity", "ValueObject",
+    "Aggregate", "Projection", "ReadModel", "Table", "Model", "Migration",
+    "Injector", "Interceptor", "Decorator", "Wrapper",
+    "Metadata", "Status", "Result", "Envelope", "Wrapper", "Payload",
 }
-SEVERITY_WEIGHTS = {"CRITICAL": 20, "HIGH": 10, "MEDIUM": 5, "LOW": 2, "INFO": 0}
+
+# I/O operations that require error handling
+IO_OPERATIONS = {
+    "session", "db", "database", "repository", "repo",
+    "cache", "redis", "memcached", "kafka", "mq", "queue",
+    "http", "client", "api", "rest", "grpc", "socket",
+    "file", "io", "storage", "s3", "gcs", "azure",
+    "transaction", "commit", "rollback", "execute", "query", "fetch",
+}
 
 # ─── DATA CLASSES ─────────────────────────────────────────────────────────────
 @dataclass
@@ -181,6 +186,7 @@ class QueryInfo:
     file: str
     class_name: str
     line: int
+    is_query_handler: bool
     has_execute: bool
     has_type_hints: bool
     has_dependency_injection: bool
@@ -189,6 +195,8 @@ class QueryInfo:
     has_logging: bool
     is_async: bool
     has_return_annotation: bool
+    performs_io: bool
+    needs_di: bool
     violations: List[QueryViolation] = field(default_factory=list)
 
 @dataclass
@@ -202,10 +210,14 @@ class Report:
 
     @property
     def error_count(self) -> int:
-        return sum(1 for v in self.violations if v.severity in ("CRITICAL", "HIGH"))
+        return sum(1 for v in self.violations if v.severity == "CRITICAL")
 
     @property
-    def warning_count(self) -> int:
+    def high_count(self) -> int:
+        return sum(1 for v in self.violations if v.severity == "HIGH")
+
+    @property
+    def medium_count(self) -> int:
         return sum(1 for v in self.violations if v.severity == "MEDIUM")
 
     @property
@@ -214,7 +226,7 @@ class Report:
 
     @property
     def passed(self) -> bool:
-        return self.error_count == 0
+        return self.error_count == 0 and self.high_count == 0
 
 # ─── AST UTILITIES ──────────────────────────────────────────────────────────
 _AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
@@ -257,12 +269,6 @@ def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
 def _get_method_names(node: ast.ClassDef) -> Set[str]:
     return {item.name for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
-def _get_method_defs(node: ast.ClassDef) -> List[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
-    return [item for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))]
-
-def _is_async_method(method: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> bool:
-    return isinstance(method, ast.AsyncFunctionDef)
-
 def _find_method_by_name(node: ast.ClassDef, names: Set[str]) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
     for item in node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -270,21 +276,18 @@ def _find_method_by_name(node: ast.ClassDef, names: Set[str]) -> Optional[Union[
                 return item
     return None
 
-def _has_method_call_in_block(node: ast.AST, method_names: Set[str]) -> bool:
-    for sub in ast.walk(node):
-        if isinstance(sub, ast.Call):
-            if isinstance(sub.func, ast.Name) and sub.func.id in method_names:
-                return True
-            if isinstance(sub.func, ast.Attribute) and sub.func.attr in method_names:
-                return True
-    return False
-
-def _get_source_snippet(lines: List[str], line: int, context: int = 2) -> str:
-    if line <= 0 or line > len(lines):
+def _extract_type_name(annotation_node: Optional[ast.expr]) -> str:
+    if annotation_node is None:
         return ""
-    start = max(0, line - context - 1)
-    end = min(len(lines), line + context)
-    return "\n".join(lines[start:end]).strip()
+    if isinstance(annotation_node, ast.Name):
+        return annotation_node.id
+    if isinstance(annotation_node, ast.Attribute):
+        return annotation_node.attr
+    if isinstance(annotation_node, ast.Subscript):
+        return _extract_type_name(annotation_node.value)
+    if isinstance(annotation_node, ast.Constant):
+        return str(annotation_node.value)
+    return "Any"
 
 def _generate_rca(msg: str, severity: str, context: Optional[Dict] = None) -> Optional[Dict]:
     if not _RCA_AVAILABLE:
@@ -330,46 +333,98 @@ class QueryChecker:
         return False
 
     def _should_skip_class(self, name: str) -> bool:
-        """Filter false positive classes."""
         for pattern in SKIP_CLASS_PATTERNS:
             if pattern in name:
                 return True
         return False
 
-    def _is_query_class(self, node: ast.ClassDef, file_path: pathlib.Path) -> bool:
-        """Determine if a class is a true Query/QueryHandler."""
+    def _is_query_handler_class(self, node: ast.ClassDef, file_path: pathlib.Path) -> bool:
+        """
+        Determine if class is a true Query Handler.
+        Hanya deteksi:
+        - Nama mengandung "QueryHandler"
+        - Decorator @query_handler
+        - Inherit dari BaseQueryHandler
+        """
         name = node.name
-
-        # Skip false positives
         if self._should_skip_class(name):
             return False
 
-        rel_path = str(file_path.relative_to(self.root)).replace("\\", "/")
-
-        # 1. Check naming
-        if any(kw in name for kw in QUERY_KEYWORDS):
+        # 1. Nama mengandung QueryHandler
+        if "QueryHandler" in name:
             return True
 
-        # 2. Check base classes
-        for base in node.bases:
-            if isinstance(base, ast.Name) and base.id in BASE_QUERY_NAMES:
-                return True
-            if isinstance(base, ast.Attribute) and base.attr in BASE_QUERY_NAMES:
-                return True
-
-        # 3. Check decorators
+        # 2. Explicit decorator @query_handler
         for dec in node.decorator_list:
-            if isinstance(dec, ast.Name) and dec.id in {"query_handler", "query", "query_bus"}:
+            if isinstance(dec, ast.Name) and dec.id in {"query_handler", "query"}:
                 return True
             if isinstance(dec, ast.Call):
                 if isinstance(dec.func, ast.Name) and dec.func.id in {"query_handler", "query"}:
                     return True
 
-        # 4. Check for execute/fetch/get method (strong indicator)
+        # 3. Inherits from BaseQueryHandler
+        for base in node.bases:
+            if isinstance(base, ast.Name) and base.id in BASE_QUERY_HANDLER_NAMES:
+                return True
+            if isinstance(base, ast.Attribute) and base.attr in BASE_QUERY_HANDLER_NAMES:
+                return True
+
+        # 4. Check for execute method with proper signature (strong signal)
+        # but only if name suggests it's a handler
         method_names = _get_method_names(node)
-        if any(m in EXECUTE_METHODS for m in method_names):
+        has_exec = any(m in EXECUTE_METHODS for m in method_names)
+        if not has_exec:
+            return False
+
+        execute_method = _find_method_by_name(node, EXECUTE_METHODS)
+        if execute_method:
+            args = [arg for arg in execute_method.args.args if arg.arg not in ("self", "cls")]
+            if len(args) == 0:
+                return False
+        else:
+            return False
+
+        # 5. Must be in query-handler related folders
+        rel_path = str(file_path.relative_to(self.root)).replace("\\", "/")
+        is_in_query_folder = any(
+            folder in rel_path.split("/")
+            for folder in ("query_handlers", "queries", "query")
+        )
+        if is_in_query_folder:
             return True
 
+        return False
+
+    def _detect_io_operations(self, node: ast.ClassDef) -> bool:
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in EXECUTE_METHODS:
+                for sub in ast.walk(item):
+                    if isinstance(sub, ast.Call):
+                        if isinstance(sub.func, ast.Name):
+                            func_name = sub.func.id.lower()
+                            for io_key in IO_OPERATIONS:
+                                if io_key in func_name:
+                                    return True
+                        if isinstance(sub.func, ast.Attribute):
+                            attr = sub.func.attr.lower()
+                            for io_key in IO_OPERATIONS:
+                                if io_key in attr:
+                                    return True
+        return False
+
+    def _needs_dependency_injection(self, node: ast.ClassDef) -> bool:
+        if self._detect_io_operations(node):
+            return True
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+                args = [arg for arg in item.args.args if arg.arg not in ("self", "cls")]
+                if len(args) > 0:
+                    for arg in args:
+                        if arg.annotation is None:
+                            return True
+                        type_name = _extract_type_name(arg.annotation)
+                        if type_name not in ("str", "int", "float", "bool", "UUID", "date", "datetime"):
+                            return True
         return False
 
     def _has_type_hints(self, node: ast.ClassDef) -> bool:
@@ -400,20 +455,18 @@ class QueryChecker:
     def _has_caching(self, node: ast.ClassDef) -> bool:
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in EXECUTE_METHODS:
-                # Check decorator
                 for dec in item.decorator_list:
                     if isinstance(dec, ast.Name) and "cache" in dec.id.lower():
                         return True
                     if isinstance(dec, ast.Call):
                         if isinstance(dec.func, ast.Name) and "cache" in dec.func.id.lower():
                             return True
-                # Check body
                 for sub in ast.walk(item):
                     if isinstance(sub, ast.Call):
                         if isinstance(sub.func, ast.Name) and sub.func.id in {"cache", "cached", "get_from_cache"}:
                             return True
                         if isinstance(sub.func, ast.Attribute):
-                            if any(kw in sub.func.attr.lower() for kw in CACHE_KEYWORDS):
+                            if any(kw in sub.func.attr.lower() for kw in ("cache", "cached", "ttl")):
                                 return True
         return False
 
@@ -448,7 +501,7 @@ class QueryChecker:
         return None
 
     def _analyze_class(self, node: ast.ClassDef, rel_path: str, file_path: pathlib.Path) -> Optional[QueryInfo]:
-        if not self._is_query_class(node, file_path):
+        if not self._is_query_handler_class(node, file_path):
             return None
 
         method_names = _get_method_names(node)
@@ -460,12 +513,14 @@ class QueryChecker:
         has_log = self._has_logging(node)
         is_async = self._is_async_method(node)
         has_return = self._has_return_annotation(node)
+        performs_io = self._detect_io_operations(node)
+        needs_di = self._needs_dependency_injection(node)
 
         violations: List[QueryViolation] = []
         execute_method = self._get_execute_method(node)
         line = execute_method.lineno if execute_method else node.lineno
 
-        # Rule 1: Must have execute/fetch/get method
+        # Rule 1: Must have execute method
         if not has_exec:
             msg = "Query Handler does not have execute(), handle(), fetch(), or get() method."
             rca = _generate_rca(msg, "CRITICAL", {"class": node.name})
@@ -479,12 +534,12 @@ class QueryChecker:
                 rca=rca,
             ))
 
-        # Rule 2: Must have type hints
+        # Rule 2: Type hints (MEDIUM)
         if has_exec and not has_th:
             msg = "execute() method lacks type hints for parameters or return value."
-            rca = _generate_rca(msg, "HIGH", {"class": node.name})
+            rca = _generate_rca(msg, "MEDIUM", {"class": node.name})
             violations.append(QueryViolation(
-                severity="HIGH",
+                severity="MEDIUM",
                 file=rel_path,
                 class_name=node.name,
                 line=line,
@@ -493,12 +548,12 @@ class QueryChecker:
                 rca=rca,
             ))
 
-        # Rule 3: Should have dependency injection
-        if not has_di:
-            msg = "Query Handler lacks dependency injection (__init__ does not accept parameters)."
-            rca = _generate_rca(msg, "MEDIUM", {"class": node.name})
+        # Rule 3: Dependency Injection (HIGH if needs DI but missing)
+        if needs_di and not has_di:
+            msg = "Query Handler needs dependencies but __init__ does not accept parameters (or uses hardcoded dependencies)."
+            rca = _generate_rca(msg, "HIGH", {"class": node.name})
             violations.append(QueryViolation(
-                severity="MEDIUM",
+                severity="HIGH",
                 file=rel_path,
                 class_name=node.name,
                 line=node.lineno,
@@ -507,9 +562,9 @@ class QueryChecker:
                 rca=rca,
             ))
 
-        # Rule 4: Should have error handling
-        if has_exec and not has_eh:
-            msg = "execute() method does not have error handling (try/except) for query errors."
+        # Rule 4: Error Handling (HIGH if performs I/O and no try/except)
+        if performs_io and not has_eh:
+            msg = "execute() method performs I/O operations but lacks error handling (try/except)."
             rca = _generate_rca(msg, "HIGH", {"class": node.name})
             violations.append(QueryViolation(
                 severity="HIGH",
@@ -517,30 +572,30 @@ class QueryChecker:
                 class_name=node.name,
                 line=line,
                 message=msg,
-                suggestion="Wrap query logic with try/except to catch database errors, NotFound, etc.",
+                suggestion="Wrap I/O operations with try/except to catch database errors, network errors, etc.",
                 rca=rca,
             ))
 
-        # Rule 5: Should have caching (recommended)
-        if has_exec and not has_cache:
-            msg = "Query Handler does not have caching mechanism (recommended for performance)."
-            rca = _generate_rca(msg, "LOW", {"class": node.name})
+        # Rule 5: Caching (INFO)
+        if performs_io and not has_cache:
+            msg = "Query Handler performs I/O and may benefit from caching."
+            rca = _generate_rca(msg, "INFO", {"class": node.name})
             violations.append(QueryViolation(
-                severity="LOW",
+                severity="INFO",
                 file=rel_path,
                 class_name=node.name,
                 line=line,
                 message=msg,
-                suggestion="Implement caching with @cached(ttl=300) decorator or manual cache check.",
+                suggestion="Consider adding @cached(ttl=300) decorator for frequently accessed data.",
                 rca=rca,
             ))
 
-        # Rule 6: Should have logging (recommended)
-        if has_exec and not has_log:
+        # Rule 6: Logging (INFO)
+        if not has_log:
             msg = "Query Handler does not have logging (recommended for observability)."
-            rca = _generate_rca(msg, "LOW", {"class": node.name})
+            rca = _generate_rca(msg, "INFO", {"class": node.name})
             violations.append(QueryViolation(
-                severity="LOW",
+                severity="INFO",
                 file=rel_path,
                 class_name=node.name,
                 line=line,
@@ -549,7 +604,7 @@ class QueryChecker:
                 rca=rca,
             ))
 
-        # Rule 7 (strict): Should have return annotation
+        # Rule 7: Strict mode return annotation
         if self.strict and has_exec and not has_return:
             msg = "execute() method does not have return type annotation."
             rca = _generate_rca(msg, "LOW", {"class": node.name})
@@ -567,6 +622,7 @@ class QueryChecker:
             file=rel_path,
             class_name=node.name,
             line=node.lineno,
+            is_query_handler=True,
             has_execute=has_exec,
             has_type_hints=has_th,
             has_dependency_injection=has_di,
@@ -575,6 +631,8 @@ class QueryChecker:
             has_logging=has_log,
             is_async=is_async,
             has_return_annotation=has_return,
+            performs_io=performs_io,
+            needs_di=needs_di,
             violations=violations,
         )
 
@@ -603,6 +661,8 @@ class QueryChecker:
                 progress_callback(idx + 1, total)
             tree, err = _get_ast(py_file)
             if err or tree is None:
+                if err and "SyntaxError" not in err:
+                    logger.warning(f"Scan error in {py_file}: {err}")
                 return []
             rel = str(py_file.relative_to(self.root)).replace("\\", "/")
             found = []
@@ -633,11 +693,19 @@ class QueryChecker:
             all_violations.extend(q.violations)
         report.violations = all_violations
 
-        # Compute score
-        errors = report.error_count
-        warnings = report.warning_count
-        score = 100.0 - errors * 10 - warnings * 2
-        report.score = max(0.0, min(100.0, score))
+        # Scoring: CRITICAL -25, HIGH -10, MEDIUM -3, LOW -0.5, INFO 0
+        score = 100.0
+        for v in all_violations:
+            if v.severity == "CRITICAL":
+                score -= 25
+            elif v.severity == "HIGH":
+                score -= 10
+            elif v.severity == "MEDIUM":
+                score -= 3
+            elif v.severity == "LOW":
+                score -= 0.5
+        score = max(0.0, min(100.0, score))
+        report.score = score
 
         report.scan_time = time.monotonic() - t0
         return report
@@ -649,23 +717,23 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
     _safe_print("  QUERY HANDLER / QUERY BUS COMPLIANCE CHECKER")
     _safe_print(f"  v{__version__} — Big 4 Audit Grade")
     _safe_print(f"{'='*72}{c['RESET']}")
-    _safe_print("  📋 Query Handler Contract Standards:")
+    _safe_print("  📋 Query Handler Contract Standards (Context-Aware):")
     _safe_print("    ✅ execute() / handle() / fetch() / get()  — entry point")
-    _safe_print("    ✅ type hints (params & return)           — type safety")
-    _safe_print("    ✅ dependency injection (__init__)        — testability")
-    _safe_print("    ✅ error handling (try/except)            — robustness")
-    _safe_print("    ✅ caching (optional)                     — performance")
-    _safe_print("    ✅ logging/audit                          — observability")
+    _safe_print("    ✅ type hints (params & return)           — type safety (MEDIUM)")
+    _safe_print("    ✅ dependency injection (__init__)        — testability (HIGH jika butuh)")
+    _safe_print("    ✅ error handling (try/except)            — robustness (HIGH jika ada I/O)")
+    _safe_print("    ✅ caching (optional)                     — performance (INFO)")
+    _safe_print("    ✅ logging/audit                          — observability (INFO)")
 
     _safe_print(f"\n  📊 Summary:")
     _safe_print(f"    Files scanned    : {report.total_files_scanned}")
     _safe_print(f"    Query Handlers   : {report.total_queries}")
-    _safe_print(f"    Errors (CRITICAL): {c['RED']}{report.error_count}{c['RESET']}")
-    _safe_print(f"    Warnings (HIGH)  : {c['YELLOW']}{report.warning_count}{c['RESET']}")
-    _safe_print(f"    Infos (LOW)      : {c['DIM']}{report.info_count}{c['RESET']}")
+    _safe_print(f"    CRITICAL         : {c['RED']}{report.error_count}{c['RESET']}")
+    _safe_print(f"    HIGH             : {c['YELLOW']}{report.high_count}{c['RESET']}")
+    _safe_print(f"    MEDIUM           : {c['MAGENTA']}{report.medium_count}{c['RESET']}")
+    _safe_print(f"    LOW/INFO         : {c['DIM']}{report.info_count}{c['RESET']}")
     _safe_print(f"    Score            : {c['GREEN'] if report.score >= 80 else c['YELLOW']}{report.score:.1f}/100{c['RESET']}")
     _safe_print(f"    RCA Engine       : {'✅ Active' if _RCA_AVAILABLE else '⚠️ Fallback'}")
-    #_safe_print(f"    Strict mode      : {'✅ Enabled' if strict_mode else '❌ Disabled'}")
     _safe_print(f"    Scan time        : {report.scan_time:.3f}s")
 
     if report.violations:
@@ -678,7 +746,7 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
             items = by_sev.get(sev, [])
             if not items:
                 continue
-            sev_color = c["RED"] if sev in ("CRITICAL", "HIGH") else c["YELLOW"] if sev == "MEDIUM" else c["DIM"]
+            sev_color = c["RED"] if sev in ("CRITICAL", "HIGH") else c["MAGENTA"] if sev == "MEDIUM" else c["DIM"]
             _safe_print(f"\n  {sev_color}[{sev}] {len(items)} violations{sev_color}")
 
             for v in items[:20]:
@@ -703,9 +771,9 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
 
     _safe_print(f"\n{c['CYAN']}{'─'*72}{c['RESET']}")
     if report.passed:
-        _safe_print(f"  {c['GREEN']}✅ PASS — All Query Handler contracts satisfied.{c['RESET']}")
+        _safe_print(f"  {c['GREEN']}✅ PASS — All critical Query Handler contracts satisfied.{c['RESET']}")
     else:
-        _safe_print(f"  {c['RED']}❌ FAIL — {report.error_count} error(s) need fixing.{c['RESET']}")
+        _safe_print(f"  {c['RED']}❌ FAIL — {report.error_count + report.high_count} critical/high violation(s) need fixing.{c['RESET']}")
 
 # ─── EXPORT ──────────────────────────────────────────────────────────────────
 def save_json(report: Report, path: pathlib.Path) -> bool:
@@ -724,6 +792,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
                     "file": q.file,
                     "class": q.class_name,
                     "line": q.line,
+                    "is_query_handler": q.is_query_handler,
                     "has_execute": q.has_execute,
                     "has_type_hints": q.has_type_hints,
                     "has_dependency_injection": q.has_dependency_injection,
@@ -732,6 +801,8 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
                     "has_logging": q.has_logging,
                     "is_async": q.is_async,
                     "has_return_annotation": q.has_return_annotation,
+                    "performs_io": q.performs_io,
+                    "needs_di": q.needs_di,
                     "violations_count": len(q.violations),
                 }
                 for q in report.queries
@@ -786,8 +857,8 @@ h1{{color:#0d6efd}}
 <h1>Query Handler Compliance Checker Report</h1>
 <div class="summary">
   <div class="card"><div class="value">{report.total_queries}</div><div class="label">Query Handlers</div></div>
-  <div class="card"><div class="value" style="color:#dc3545">{report.error_count}</div><div class="label">Errors</div></div>
-  <div class="card"><div class="value" style="color:#ffc107">{report.warning_count}</div><div class="label">Warnings</div></div>
+  <div class="card"><div class="value" style="color:#dc3545">{report.error_count}</div><div class="label">Critical</div></div>
+  <div class="card"><div class="value" style="color:#ffc107">{report.high_count}</div><div class="label">High</div></div>
   <div class="card"><div class="value">{report.score:.1f}</div><div class="label">Score</div></div>
   <div class="card"><div class="value">{'PASS' if report.passed else 'FAIL'}</div><div class="label">Status</div></div>
 </div>
@@ -831,6 +902,7 @@ def save_sarif(report: Report, path: pathlib.Path) -> bool:
                             {"id": "QUERY-HIGH", "shortDescription": {"text": "High severity Query Handler violation"}},
                             {"id": "QUERY-MEDIUM", "shortDescription": {"text": "Medium severity Query Handler violation"}},
                             {"id": "QUERY-LOW", "shortDescription": {"text": "Low severity Query Handler violation"}},
+                            {"id": "QUERY-INFO", "shortDescription": {"text": "Info/Recommendation"}},
                         ]
                     }
                 },
@@ -859,15 +931,20 @@ def self_test(verbose: bool = True) -> bool:
 
     if verbose: _safe_print(f"\nQuery Checker self-test v{__version__}…\n")
 
-    # Test detection: good Query Handler
+    # Test _extract_type_name
+    check("_extract_type_name exists", callable(_extract_type_name))
+    test_ann = ast.Name(id="Repository")
+    check("_extract_type_name handles Name", _extract_type_name(test_ann) == "Repository")
+
+    # Good Query Handler
     code = """
-class GetInvoiceQuery:
+class GetInvoiceQueryHandler:
     def __init__(self, repo: Repository):
         self.repo = repo
 
     def execute(self, query_id: str) -> InvoiceDTO:
         try:
-            return self.repo.get_by_id(query_id)
+            return self.repo.find(query_id)
         except NotFoundError:
             return None
 """
@@ -877,33 +954,24 @@ class GetInvoiceQuery:
     if node:
         info = checker._analyze_class(node, "test.py", pathlib.Path("test.py"))
         if info:
-            check("_is_query_class detects Query", True)
+            check("_is_query_handler_class detects QueryHandler", True)
             check("has_execute", info.has_execute)
             check("has_type_hints", info.has_type_hints)
             check("has_dependency_injection", info.has_dependency_injection)
             check("has_error_handling", info.has_error_handling)
+            check("performs_io", info.performs_io)
+            check("needs_di", info.needs_di)
 
-    # Test SKIP_CLASS_PATTERNS
+    # Query object (should be skipped)
     code2 = """
-class GetInvoiceResponseSchema:
-    pass
+class GetAccountsQuery:
+    def __init__(self, legal_entity_id: UUID):
+        self.legal_entity_id = legal_entity_id
 """
     tree2 = ast.parse(code2)
     node2 = next((n for n in ast.walk(tree2) if isinstance(n, ast.ClassDef)), None)
     if node2:
-        check("_should_skip_class filters Schema", checker._should_skip_class("GetInvoiceResponseSchema"))
-
-    code3 = """
-class InvoiceDTO:
-    pass
-"""
-    tree3 = ast.parse(code3)
-    node3 = next((n for n in ast.walk(tree3) if isinstance(n, ast.ClassDef)), None)
-    if node3:
-        check("_should_skip_class filters DTO", checker._should_skip_class("InvoiceDTO"))
-
-    # Test RCA
-    check("RCA availability", True)
+        check("_is_query_handler_class skips Query object", not checker._is_query_handler_class(node2, pathlib.Path("test.py")))
 
     if verbose: _safe_print(f"\nSelf-test: {passed} passed, {failed} failed {'✅' if failed==0 else '❌'}")
     return failed == 0

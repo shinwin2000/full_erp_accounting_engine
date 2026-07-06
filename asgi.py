@@ -191,7 +191,7 @@ except ImportError as exc:
 
 # Import infrastruktur (wajib)
 try:
-    from bootstrap.dependency_container.ioc_container import build_container
+    from bootstrap.dependency_container.container_bootstrap import build_container  # <-- PERUBAHAN DI SINI
     from infrastructure.caching.redis_manager import close as close_redis
     from infrastructure.caching.redis_manager import get_redis_client
     from infrastructure.database.session_factory_sqlalchemy import create_session_factory, dispose

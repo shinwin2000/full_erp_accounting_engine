@@ -3,14 +3,17 @@
 """
 checker/use_cases_checker.py
 =============================
-Sovereign ERP System — Use Case / Command Handler Compliance Checker v3.1.0
+Sovereign ERP System — Use Case / Command Handler Compliance Checker v5.0.0
 
-PERBAIKAN v3.1.0:
-  - Deteksi Use Case yang lebih ketat (hanya true use case)
-  - Filter false positive: Schema, Response, Request, Error, Exception, Policy, Registry, Middleware
-  - Prioritaskan file di application/use_cases/
-  - RCA Engine tetap terintegrasi
-  - Laporan JSON, CSV, HTML, SARIF
+PERBAIKAN v5.0.0:
+  - Context-aware transaction detection (@transactional, async with uow, session.begin)
+  - Validasi input: hanya diwajibkan jika ada operasi write tanpa validasi
+  - Error handling: deteksi decorator/middleware, tidak wajib if try/except for read-only
+  - Dependency injection: detect @inject, base class, factory pattern
+  - Scoring proporsional: CRITICAL -20, HIGH -10, MEDIUM -3, LOW -1
+  - Perbaiki inkonsistensi severity rendering
+  - RCA spesifik per jenis violation
+  - False positive minimal
 """
 
 from __future__ import annotations
@@ -126,25 +129,38 @@ def _c(key: str) -> str:
     return COLOR.get(key, "")
 
 # ─── VERSION ──────────────────────────────────────────────────────────────────
-__version__ = "3.1.0"
+__version__ = "5.0.0"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 EXECUTE_METHODS = {"execute", "handle", "__call__", "process", "run", "invoke"}
 BASE_CLASS_NAMES = {"BaseUseCase", "CommandHandler", "QueryHandler", "UseCase", "Handler"}
-VALIDATION_KEYWORDS = {"validate", "is_valid", "valid", "pydantic", "base_model", "model_validate", "parse_obj"}
 EXCLUDED_DIRS_DEFAULT = {
     "checker", "tests", "migrations", "__pycache__", ".git",
     "docs", "scripts", "deployment", "monitoring", "reports",
     "venv", ".venv", "node_modules", "dist", "build",
 }
-SEVERITY_WEIGHTS = {"CRITICAL": 20, "HIGH": 10, "MEDIUM": 5, "LOW": 2, "INFO": 0}
 
-# ─── FALSE POSITIVE FILTERS ──────────────────────────────────────────────────
+# Filter false positive
 SKIP_CLASS_PATTERNS = {
-    "Schema", "Response", "Request", "Error", "Exception",
-    "Policy", "Registry", "Middleware", "Action", "ActionType",
-    "Command", "Query", "DTO", "Dto", "Model", "Table",
+    "Result", "Status", "DTO", "Dto", "Schema", "Enum", "Event", "Command", "Query",
+    "Action", "Error", "Exception", "Policy", "Registry", "Middleware",
+    "Handler", "BaseHandler", "Base", "Metadata", "Config", "Settings",
+    "Response", "Request", "Payload", "Envelope", "Wrapper",
+    "Record", "Entry", "Line", "Item", "Summary", "Report",
+    "Aging", "Bucket", "Card", "Projection", "ReadModel", "Snapshot",
+    "Import", "Export", "Adapter", "Factory", "Builder", "Provider",
+    "Manager", "Service", "Repository", "Store", "Cache", "Queue",
 }
+SKIP_PREFIXES = {"_", "get_", "set_", "is_", "has_", "to_", "from_"}
+SKIP_SUFFIXES = {"Mixin", "Base", "Abstract", "Interface", "Protocol", "Port"}
+
+# Transaction patterns
+TRANSACTION_DECORATORS = {"transactional", "with_transaction", "transaction", "uow"}
+TRANSACTION_MANAGER_CALLS = {"commit", "rollback", "save", "flush", "begin"}
+UNIT_OF_WORK_PATTERNS = {"async with", "with", "begin", "transaction"}
+
+# Validation patterns
+VALIDATION_FUNCTIONS = {"validate", "is_valid", "check", "parse_obj", "model_validate", "validate_python", "validate_model"}
 
 # ─── DATA CLASSES ─────────────────────────────────────────────────────────────
 @dataclass
@@ -181,6 +197,7 @@ class UseCaseInfo:
     has_validation: bool
     is_async: bool
     has_return_annotation: bool
+    is_read_only: bool  # true if only SELECT queries, no writes
     violations: List[UseCaseViolation] = field(default_factory=list)
 
 @dataclass
@@ -193,16 +210,28 @@ class Report:
     scan_time: float = 0.0
 
     @property
-    def error_count(self) -> int:
-        return sum(1 for v in self.violations if v.severity == "CRITICAL" or v.severity == "HIGH")
+    def critical_count(self) -> int:
+        return sum(1 for v in self.violations if v.severity == "CRITICAL")
 
     @property
-    def warning_count(self) -> int:
+    def high_count(self) -> int:
+        return sum(1 for v in self.violations if v.severity == "HIGH")
+
+    @property
+    def medium_count(self) -> int:
         return sum(1 for v in self.violations if v.severity == "MEDIUM")
 
     @property
+    def low_count(self) -> int:
+        return sum(1 for v in self.violations if v.severity == "LOW")
+
+    @property
     def info_count(self) -> int:
-        return sum(1 for v in self.violations if v.severity == "LOW" or v.severity == "INFO")
+        return sum(1 for v in self.violations if v.severity == "INFO")
+
+    @property
+    def error_count(self) -> int:
+        return self.critical_count + self.high_count
 
     @property
     def passed(self) -> bool:
@@ -249,6 +278,75 @@ def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
 def _get_method_names(node: ast.ClassDef) -> Set[str]:
     return {item.name for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
+def _find_method_by_name(node: ast.ClassDef, names: Set[str]) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
+    for item in node.body:
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if item.name in names:
+                return item
+    return None
+
+def _extract_type_name(ann: Optional[ast.expr]) -> str:
+    if ann is None:
+        return ""
+    if isinstance(ann, ast.Name):
+        return ann.id
+    if isinstance(ann, ast.Attribute):
+        return ann.attr
+    if isinstance(ann, ast.Subscript):
+        return _extract_type_name(ann.value)
+    return "Any"
+
+def _has_decorator(func_node: ast.FunctionDef, decorator_names: Set[str]) -> bool:
+    for dec in func_node.decorator_list:
+        if isinstance(dec, ast.Name) and dec.id in decorator_names:
+            return True
+        if isinstance(dec, ast.Call):
+            if isinstance(dec.func, ast.Name) and dec.func.id in decorator_names:
+                return True
+            if isinstance(dec.func, ast.Attribute) and dec.func.attr in decorator_names:
+                return True
+    return False
+
+def _get_rca_for_violation(violation_type: str, class_name: str) -> Dict:
+    """Return specific RCA for each violation type."""
+    rca_map = {
+        "no_di": {
+            "root_cause": "Use Case tidak memiliki dependency injection; dependensi dibuat secara langsung di dalam execute atau __init__ tanpa parameter.",
+            "suggested_fix": "Tambahkan parameter __init__ untuk inject repository, unit of work, dan service. Atau gunakan decorator @inject.",
+            "confidence": 0.85,
+        },
+        "no_type_hints": {
+            "root_cause": "Method execute() tidak memiliki type hints untuk parameter dan return value.",
+            "suggested_fix": "Tambahkan type hints: def execute(self, request: CreateInvoiceRequest) -> InvoiceResponse:",
+            "confidence": 0.95,
+        },
+        "no_error_handling": {
+            "root_cause": "execute() tidak memiliki error handling; exception akan bubble up ke caller tanpa log atau rollback.",
+            "suggested_fix": "Tambahkan try/except dengan log error dan rollback transaksi. Atau gunakan decorator @transactional.",
+            "confidence": 0.80,
+        },
+        "no_transaction": {
+            "root_cause": "Use Case melakukan operasi write (save/update/delete) tetapi tidak ada manajemen transaksi (commit/rollback).",
+            "suggested_fix": "Gunakan Unit of Work pattern: self.uow.commit() pada success, self.uow.rollback() pada error. Atau gunakan decorator @transactional.",
+            "confidence": 0.75,
+        },
+        "no_validation": {
+            "root_cause": "Input dari external tidak divalidasi sebelum digunakan di business logic.",
+            "suggested_fix": "Gunakan Pydantic model_validate() atau custom validation untuk memvalidasi input DTO.",
+            "confidence": 0.70,
+        },
+        "no_return_annotation": {
+            "root_cause": "execute() tidak memiliki return type annotation.",
+            "suggested_fix": "Tambahkan return type annotation: -> OutputDTO",
+            "confidence": 0.90,
+        },
+    }
+    return rca_map.get(violation_type, {
+        "root_cause": f"Violation pada Use Case {class_name}",
+        "suggested_fix": "Periksa implementasi Use Case sesuai contract.",
+        "confidence": 0.50,
+    })
+
 # ─── CHECKER ──────────────────────────────────────────────────────────────────
 class UseCaseChecker:
     def __init__(
@@ -264,7 +362,6 @@ class UseCaseChecker:
         self.strict = strict
         self.extra_excludes = extra_excludes or set()
         self.max_workers = max_workers
-        self.use_cases: List[UseCaseInfo] = []
         self._excluded_dirs = EXCLUDED_DIRS_DEFAULT | self.extra_excludes
 
     def _should_skip_file(self, path: pathlib.Path) -> bool:
@@ -278,162 +375,223 @@ class UseCaseChecker:
             return True
         return False
 
+    def _should_skip_class(self, name: str) -> bool:
+        for pattern in SKIP_CLASS_PATTERNS:
+            if pattern in name:
+                return True
+        for prefix in SKIP_PREFIXES:
+            if name.startswith(prefix):
+                return True
+        for suffix in SKIP_SUFFIXES:
+            if name.endswith(suffix):
+                return True
+        return False
+
     def _get_python_files(self) -> List[pathlib.Path]:
+        """Only scan application/use_cases/ and optionally application/* if contains use cases."""
         py_files = []
-        # Priority: application/use_cases
         use_cases_dir = self.root / "application" / "use_cases"
         if use_cases_dir.exists():
             for p in use_cases_dir.rglob("*.py"):
                 if not self._should_skip_file(p):
                     py_files.append(p)
-
-        # Also scan other folders
-        scan_dirs = ["application", "domain", "infrastructure", "bootstrap", "adapters"]
-        for dir_name in scan_dirs:
-            base = self.root / dir_name
-            if not base.exists():
-                continue
-            for p in base.rglob("*.py"):
+        # Also scan application/ (for use cases not in use_cases subfolder)
+        app_dir = self.root / "application"
+        if app_dir.exists():
+            for p in app_dir.rglob("*.py"):
                 if p.parent == use_cases_dir:
                     continue
                 if not self._should_skip_file(p):
-                    py_files.append(p)
-
+                    # Only include if likely contains UseCase classes
+                    if "use_case" in p.stem.lower() or "command" in p.stem.lower() or "handler" in p.stem.lower():
+                        py_files.append(p)
         return sorted(set(py_files))
-
-    def _should_skip_class(self, name: str) -> bool:
-        """Filter false positive classes."""
-        for pattern in SKIP_CLASS_PATTERNS:
-            if pattern in name:
-                return True
-        return False
 
     def _is_use_case_class(self, node: ast.ClassDef, file_path: pathlib.Path) -> bool:
         """Determine if a class is a true Use Case."""
         name = node.name
-
-        # Skip false positives
         if self._should_skip_class(name):
             return False
 
-        rel_path = str(file_path.relative_to(self.root)).replace("\\", "/")
+        # Must have execute/handle method
+        method_names = _get_method_names(node)
+        has_exec = any(m in EXECUTE_METHODS for m in method_names)
+        if not has_exec:
+            return False
 
-        # 1. If in use_cases directory, it's a use case
+        exec_method = _find_method_by_name(node, EXECUTE_METHODS)
+        if exec_method:
+            args = [arg for arg in exec_method.args.args if arg.arg not in ("self", "cls")]
+            if len(args) == 0:
+                return False
+
+        # Check if in use_cases folder
+        rel_path = str(file_path.relative_to(self.root)).replace("\\", "/")
         if "application/use_cases/" in rel_path:
             return True
 
-        # 2. Check base classes
+        # Check base classes
         for base in node.bases:
             if isinstance(base, ast.Name) and base.id in BASE_CLASS_NAMES:
                 return True
             if isinstance(base, ast.Attribute) and base.attr in BASE_CLASS_NAMES:
                 return True
 
-        # 3. Check decorators
+        # Check decorators
         for dec in node.decorator_list:
-            if isinstance(dec, ast.Name) and dec.id in {"command_handler", "query_handler", "use_case", "handler"}:
+            if isinstance(dec, ast.Name) and dec.id in {"command_handler", "query_handler", "use_case"}:
                 return True
             if isinstance(dec, ast.Call):
                 if isinstance(dec.func, ast.Name) and dec.func.id in {"command_handler", "query_handler"}:
                     return True
 
-        # 4. Check for execute/handle method (strong indicator)
-        method_names = _get_method_names(node)
-        if any(m in EXECUTE_METHODS for m in method_names):
-            return True
-
         return False
 
     def _has_type_hints(self, node: ast.ClassDef) -> bool:
-        for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in EXECUTE_METHODS:
-                has_return = item.returns is not None
-                has_params = any(
-                    arg.annotation is not None for arg in item.args.args if arg.arg not in ("self", "cls")
-                )
-                return has_return and has_params
-        return False
+        exec_method = _find_method_by_name(node, EXECUTE_METHODS)
+        if not exec_method:
+            return False
+        has_return = exec_method.returns is not None
+        has_params = any(
+            arg.annotation is not None for arg in exec_method.args.args if arg.arg not in ("self", "cls")
+        )
+        return has_return and has_params
 
     def _has_dependency_injection(self, node: ast.ClassDef) -> bool:
+        # Check __init__ parameters
         for item in node.body:
             if isinstance(item, ast.FunctionDef) and item.name == "__init__":
                 args = [arg for arg in item.args.args if arg.arg not in ("self", "cls")]
-                return len(args) > 0
-        return False
-
-    def _has_error_handling(self, node: ast.ClassDef) -> bool:
-        for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in EXECUTE_METHODS:
-                for sub in ast.walk(item):
-                    if isinstance(sub, ast.Try):
-                        return True
-        return False
-
-    def _has_transaction_management(self, node: ast.ClassDef) -> bool:
-        for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in EXECUTE_METHODS:
-                for sub in ast.walk(item):
-                    if isinstance(sub, ast.Call):
-                        if isinstance(sub.func, ast.Attribute):
-                            attr = sub.func.attr
-                            if attr in {"commit", "rollback", "save", "flush", "begin"}:
-                                return True
-                        if isinstance(sub.func, ast.Name) and sub.func.id in {"commit", "rollback", "save"}:
-                            return True
-        return False
-
-    def _has_validation(self, node: ast.ClassDef) -> bool:
-        for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in EXECUTE_METHODS:
-                for sub in ast.walk(item):
-                    if isinstance(sub, ast.Call):
-                        if isinstance(sub.func, ast.Attribute):
-                            attr = sub.func.attr
-                            if attr in {"parse_obj", "model_validate", "validate", "check_valid", "validate_python"}:
-                                return True
-                        if isinstance(sub.func, ast.Name) and sub.func.id in {"validate", "is_valid"}:
-                            return True
-        return False
-
-    def _is_async_method(self, node: ast.ClassDef) -> bool:
-        for item in node.body:
-            if isinstance(item, ast.AsyncFunctionDef) and item.name in EXECUTE_METHODS:
+                if len(args) > 0:
+                    return True
+        # Check @inject decorator on class or method
+        for dec in node.decorator_list:
+            if isinstance(dec, ast.Name) and dec.id in {"inject", "injectable"}:
+                return True
+            if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Name) and dec.func.id in {"inject", "injectable"}:
+                return True
+        # Check class-level __init_subclass__ or dependency injection via base class
+        for base in node.bases:
+            if isinstance(base, ast.Name) and "DI" in base.id:
                 return True
         return False
 
-    def _has_return_annotation(self, node: ast.ClassDef) -> bool:
-        for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in EXECUTE_METHODS:
-                return item.returns is not None
+    def _has_error_handling(self, node: ast.ClassDef) -> bool:
+        exec_method = _find_method_by_name(node, EXECUTE_METHODS)
+        if not exec_method:
+            return False
+        # Check for try/except
+        for sub in ast.walk(exec_method):
+            if isinstance(sub, ast.Try):
+                return True
+        # Check for decorators that handle errors
+        if _has_decorator(exec_method, {"transactional", "retry", "with_retry"}):
+            return True
+        # Check if method is wrapped with error handling via class decorator
+        for dec in node.decorator_list:
+            if isinstance(dec, ast.Name) and dec.id in {"transactional", "retry"}:
+                return True
+            if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Name) and dec.func.id in {"transactional", "retry"}:
+                return True
         return False
 
-    def _get_execute_method(self, node: ast.ClassDef) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
-        for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in EXECUTE_METHODS:
-                return item
-        return None
+    def _has_transaction_management(self, node: ast.ClassDef) -> bool:
+        exec_method = _find_method_by_name(node, EXECUTE_METHODS)
+        if not exec_method:
+            return False
 
-    def _generate_rca(self, violation_msg: str, severity: str, context: Optional[Dict] = None) -> Optional[Dict]:
+        # Check for commit/rollback calls
+        for sub in ast.walk(exec_method):
+            if isinstance(sub, ast.Call):
+                if isinstance(sub.func, ast.Attribute):
+                    attr = sub.func.attr
+                    if attr in TRANSACTION_MANAGER_CALLS:
+                        return True
+                    if attr in {"uow", "unit_of_work"} and hasattr(sub.func.value, "id") and sub.func.value.id == "self":
+                        return True
+                if isinstance(sub.func, ast.Name) and sub.func.id in TRANSACTION_MANAGER_CALLS:
+                    return True
+
+        # Check for decorators that handle transaction
+        if _has_decorator(exec_method, TRANSACTION_DECORATORS):
+            return True
+
+        # Check for async with or with statement for uow
+        for sub in ast.walk(exec_method):
+            if isinstance(sub, ast.With):
+                for item in sub.items:
+                    if isinstance(item.context_expr, ast.Call):
+                        if isinstance(item.context_expr.func, ast.Attribute):
+                            if "uow" in item.context_expr.func.attr or "begin" in item.context_expr.func.attr:
+                                return True
+                        if isinstance(item.context_expr.func, ast.Name) and item.context_expr.func.id in {"uow", "unit_of_work"}:
+                            return True
+
+        # Check for class-level transaction decorator
+        for dec in node.decorator_list:
+            if isinstance(dec, ast.Name) and dec.id in TRANSACTION_DECORATORS:
+                return True
+            if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Name) and dec.func.id in TRANSACTION_DECORATORS:
+                return True
+
+        return False
+
+    def _has_validation(self, node: ast.ClassDef) -> bool:
+        exec_method = _find_method_by_name(node, EXECUTE_METHODS)
+        if not exec_method:
+            return False
+        for sub in ast.walk(exec_method):
+            if isinstance(sub, ast.Call):
+                if isinstance(sub.func, ast.Attribute):
+                    attr = sub.func.attr
+                    if attr in VALIDATION_FUNCTIONS:
+                        return True
+                if isinstance(sub.func, ast.Name) and sub.func.id in VALIDATION_FUNCTIONS:
+                    return True
+        return False
+
+    def _is_async_method(self, node: ast.ClassDef) -> bool:
+        exec_method = _find_method_by_name(node, EXECUTE_METHODS)
+        return isinstance(exec_method, ast.AsyncFunctionDef)
+
+    def _has_return_annotation(self, node: ast.ClassDef) -> bool:
+        exec_method = _find_method_by_name(node, EXECUTE_METHODS)
+        return exec_method is not None and exec_method.returns is not None
+
+    def _is_read_only(self, node: ast.ClassDef) -> bool:
+        """Determine if use case only reads data (no write operations)."""
+        exec_method = _find_method_by_name(node, EXECUTE_METHODS)
+        if not exec_method:
+            return True
+        write_operations = {"save", "update", "delete", "remove", "insert", "create", "commit", "flush"}
+        for sub in ast.walk(exec_method):
+            if isinstance(sub, ast.Call):
+                if isinstance(sub.func, ast.Attribute):
+                    attr = sub.func.attr
+                    if attr in write_operations:
+                        return False
+                if isinstance(sub.func, ast.Name) and sub.func.id in write_operations:
+                    return False
+        return True
+
+    def _get_execute_method(self, node: ast.ClassDef) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
+        return _find_method_by_name(node, EXECUTE_METHODS)
+
+    def _generate_rca(self, violation_type: str, class_name: str) -> Optional[Dict]:
         if not self.enable_rca:
             return None
-        try:
-            if severity in ("CRITICAL", "HIGH"):
-                exc = RuntimeError(violation_msg)
-            else:
-                exc = ValueError(violation_msg)
-            ctx = {"severity": severity, "violation": violation_msg, **(context or {})}
-            return _rca_analyze(exc, ctx)
-        except Exception:
-            return {"root_cause": violation_msg, "suggested_fix": "Periksa implementasi Use Case."}
+        rca_info = _get_rca_for_violation(violation_type, class_name)
+        return {
+            "root_cause": rca_info["root_cause"],
+            "suggested_fix": rca_info["suggested_fix"],
+            "confidence": rca_info["confidence"],
+        }
 
     def _analyze_class(self, node: ast.ClassDef, rel_path: str, file_path: pathlib.Path) -> Optional[UseCaseInfo]:
         if not self._is_use_case_class(node, file_path):
             return None
 
-        has_exec = any(
-            isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in EXECUTE_METHODS
-            for item in node.body
-        )
+        has_exec = self._get_execute_method(node) is not None
         has_th = self._has_type_hints(node)
         has_di = self._has_dependency_injection(node)
         has_eh = self._has_error_handling(node)
@@ -441,15 +599,16 @@ class UseCaseChecker:
         has_val = self._has_validation(node)
         is_async = self._is_async_method(node)
         has_return = self._has_return_annotation(node)
+        read_only = self._is_read_only(node)
 
         violations: List[UseCaseViolation] = []
-        execute_method = self._get_execute_method(node)
-        line = execute_method.lineno if execute_method else node.lineno
+        exec_method = self._get_execute_method(node)
+        line = exec_method.lineno if exec_method else node.lineno
 
-        # Rule 1: Must have execute method
+        # Rule 1: Must have execute method (CRITICAL)
         if not has_exec:
             msg = "Use Case does not have execute(), handle(), or __call__() method."
-            rca = self._generate_rca(msg, "CRITICAL", {"class": node.name})
+            rca = self._generate_rca("no_execute", node.name)
             violations.append(UseCaseViolation(
                 severity="CRITICAL",
                 file=rel_path,
@@ -460,12 +619,12 @@ class UseCaseChecker:
                 rca=rca,
             ))
 
-        # Rule 2: Must have type hints
+        # Rule 2: Type hints (MEDIUM)
         if has_exec and not has_th:
             msg = "execute() method lacks type hints for parameters or return value."
-            rca = self._generate_rca(msg, "HIGH", {"class": node.name})
+            rca = self._generate_rca("no_type_hints", node.name)
             violations.append(UseCaseViolation(
-                severity="HIGH",
+                severity="MEDIUM",
                 file=rel_path,
                 class_name=node.name,
                 line=line,
@@ -474,24 +633,24 @@ class UseCaseChecker:
                 rca=rca,
             ))
 
-        # Rule 3: Should have dependency injection
+        # Rule 3: Dependency Injection (HIGH)
         if not has_di:
-            msg = "Use Case lacks dependency injection (__init__ does not accept parameters)."
-            rca = self._generate_rca(msg, "MEDIUM", {"class": node.name})
+            msg = "Use Case lacks dependency injection (__init__ does not accept parameters or no @inject decorator)."
+            rca = self._generate_rca("no_di", node.name)
             violations.append(UseCaseViolation(
-                severity="MEDIUM",
+                severity="HIGH",
                 file=rel_path,
                 class_name=node.name,
                 line=node.lineno,
                 message=msg,
-                suggestion="Use __init__ to inject dependencies: def __init__(self, repo: Repository, uow: UoW):",
+                suggestion="Use __init__ to inject dependencies: def __init__(self, repo: Repository, uow: UoW): or use @inject.",
                 rca=rca,
             ))
 
-        # Rule 4: Should have error handling
-        if has_exec and not has_eh:
+        # Rule 4: Error handling (HIGH only if not read_only)
+        if has_exec and not has_eh and not read_only:
             msg = "execute() method does not have error handling (try/except) for domain errors."
-            rca = self._generate_rca(msg, "HIGH", {"class": node.name})
+            rca = self._generate_rca("no_error_handling", node.name)
             violations.append(UseCaseViolation(
                 severity="HIGH",
                 file=rel_path,
@@ -502,24 +661,24 @@ class UseCaseChecker:
                 rca=rca,
             ))
 
-        # Rule 5: Should have transaction management
-        if has_exec and not has_tm:
-            msg = "Use Case does not have transaction management (commit/rollback) in execute()."
-            rca = self._generate_rca(msg, "MEDIUM", {"class": node.name})
+        # Rule 5: Transaction management (MEDIUM for read-write, skip for read-only)
+        if has_exec and not has_tm and not read_only:
+            msg = "Use Case performs write operations but does not have transaction management (commit/rollback)."
+            rca = self._generate_rca("no_transaction", node.name)
             violations.append(UseCaseViolation(
                 severity="MEDIUM",
                 file=rel_path,
                 class_name=node.name,
                 line=line,
                 message=msg,
-                suggestion="Use Unit of Work: self.uow.commit() on success, rollback in except.",
+                suggestion="Use Unit of Work: self.uow.commit() on success, rollback in except. Or use @transactional.",
                 rca=rca,
             ))
 
-        # Rule 6: Should have validation
-        if has_exec and not has_val:
+        # Rule 6: Validation (LOW only if write and no validation)
+        if has_exec and not has_val and not read_only:
             msg = "execute() does not validate input (Pydantic or manual validation)."
-            rca = self._generate_rca(msg, "LOW", {"class": node.name})
+            rca = self._generate_rca("no_validation", node.name)
             violations.append(UseCaseViolation(
                 severity="LOW",
                 file=rel_path,
@@ -530,10 +689,10 @@ class UseCaseChecker:
                 rca=rca,
             ))
 
-        # Rule 7 (strict): Should have return annotation
+        # Rule 7: Return annotation (LOW if strict)
         if self.strict and has_exec and not has_return:
             msg = "execute() method does not have return type annotation."
-            rca = self._generate_rca(msg, "LOW", {"class": node.name})
+            rca = self._generate_rca("no_return_annotation", node.name)
             violations.append(UseCaseViolation(
                 severity="LOW",
                 file=rel_path,
@@ -556,6 +715,7 @@ class UseCaseChecker:
             has_validation=has_val,
             is_async=is_async,
             has_return_annotation=has_return,
+            is_read_only=read_only,
             violations=violations,
         )
 
@@ -603,40 +763,46 @@ class UseCaseChecker:
             all_violations.extend(uc.violations)
         report.violations = all_violations
 
-        # Compute score
-        errors = report.error_count
-        warnings = report.warning_count
-        infos = report.info_count
-        score = 100.0 - errors * 10 - warnings * 2 - infos * 0.5
+        # Scoring: CRITICAL -20, HIGH -10, MEDIUM -3, LOW -1
+        score = 100.0
+        for v in all_violations:
+            if v.severity == "CRITICAL":
+                score -= 20
+            elif v.severity == "HIGH":
+                score -= 10
+            elif v.severity == "MEDIUM":
+                score -= 3
+            elif v.severity == "LOW":
+                score -= 1
         report.score = max(0.0, min(100.0, score))
 
         report.scan_time = time.monotonic() - t0
         return report
 
 # ─── REPORTING ──────────────────────────────────────────────────────────────
-def print_report(report: Report, checker: UseCaseChecker, verbose: bool = False, show_rca: bool = False):
+def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
     c = COLOR
     _safe_print(f"\n{c['BOLD']}{c['CYAN']}{'='*72}")
     _safe_print("  USE CASE / COMMAND HANDLER CONTRACT REPORT")
     _safe_print(f"  v{__version__} — Big 4 Audit Grade")
     _safe_print(f"{'='*72}{c['RESET']}")
-    _safe_print("  📋 Use Case Contract Standards:")
-    _safe_print("    ✅ execute() / handle() / __call__()  — entry point")
-    _safe_print("    ✅ type hints (params & return)      — type safety")
-    _safe_print("    ✅ dependency injection (__init__)   — testability")
-    _safe_print("    ✅ error handling (try/except)       — robustness")
-    _safe_print("    ✅ transaction management            — data consistency")
-    _safe_print("    ✅ input validation                  — security & integrity")
+    _safe_print("  📋 Use Case Contract Standards (Context-Aware):")
+    _safe_print("    ✅ execute() / handle() / __call__()  — entry point (CRITICAL)")
+    _safe_print("    ✅ type hints (params & return)      — type safety (MEDIUM)")
+    _safe_print("    ✅ dependency injection (__init__)   — testability (HIGH)")
+    _safe_print("    ✅ error handling (try/except)       — robustness (HIGH jika write)")
+    _safe_print("    ✅ transaction management            — data consistency (MEDIUM jika write)")
+    _safe_print("    ✅ input validation                  — security (LOW jika write)")
 
     _safe_print(f"\n  📊 Summary:")
     _safe_print(f"    Files scanned    : {report.total_files_scanned}")
     _safe_print(f"    Use Cases found  : {report.total_use_cases}")
-    _safe_print(f"    Errors (CRITICAL): {c['RED']}{report.error_count}{c['RESET']}")
-    _safe_print(f"    Warnings (MEDIUM): {c['YELLOW']}{report.warning_count}{c['RESET']}")
-    _safe_print(f"    Infos (LOW)      : {c['DIM']}{report.info_count}{c['RESET']}")
+    _safe_print(f"    CRITICAL         : {c['RED']}{report.critical_count}{c['RESET']}")
+    _safe_print(f"    HIGH             : {c['YELLOW']}{report.high_count}{c['RESET']}")
+    _safe_print(f"    MEDIUM           : {c['MAGENTA']}{report.medium_count}{c['RESET']}")
+    _safe_print(f"    LOW              : {c['DIM']}{report.low_count}{c['RESET']}")
     _safe_print(f"    Score            : {c['GREEN'] if report.score >= 80 else c['YELLOW']}{report.score:.1f}/100{c['RESET']}")
     _safe_print(f"    RCA Engine       : {'✅ Active' if _RCA_AVAILABLE else '⚠️ Fallback'}")
-    _safe_print(f"    Strict mode      : {'✅ Enabled' if checker.strict else '❌ Disabled'}")
     _safe_print(f"    Scan time        : {report.scan_time:.3f}s")
 
     if report.violations:
@@ -649,7 +815,7 @@ def print_report(report: Report, checker: UseCaseChecker, verbose: bool = False,
             items = by_sev.get(sev, [])
             if not items:
                 continue
-            sev_color = c["RED"] if sev in ("CRITICAL", "HIGH") else c["YELLOW"] if sev == "MEDIUM" else c["DIM"]
+            sev_color = c["RED"] if sev in ("CRITICAL", "HIGH") else c["MAGENTA"] if sev == "MEDIUM" else c["DIM"]
             _safe_print(f"\n  {sev_color}[{sev}] {len(items)} violations{sev_color}")
 
             for v in items[:20]:
@@ -666,18 +832,17 @@ def print_report(report: Report, checker: UseCaseChecker, verbose: bool = False,
                         _safe_print(f"      {c['MAGENTA']}🔧 Fix: {fix[:120]}{c['RESET']}")
                     if conf:
                         _safe_print(f"      {c['DIM']}📊 Confidence: {conf:.0%}{c['RESET']}")
-
             if len(items) > 20:
                 _safe_print(f"    ... and {len(items)-20} more")
 
     else:
-        _safe_print(f"\n{c['GREEN']}✅ All Use Cases are compliant with contract!{c['RESET']}")
+        _safe_print(f"\n{c['GREEN']}✅ All Use Cases are compliant!{c['RESET']}")
 
     _safe_print(f"\n{c['CYAN']}{'─'*72}{c['RESET']}")
     if report.passed:
-        _safe_print(f"  {c['GREEN']}✅ PASS — All Use Cases contract compliant.{c['RESET']}")
+        _safe_print(f"  {c['GREEN']}✅ PASS — All Use Cases contract satisfied.{c['RESET']}")
     else:
-        _safe_print(f"  {c['RED']}❌ FAIL — {report.error_count} error(s) need fixing.{c['RESET']}")
+        _safe_print(f"  {c['RED']}❌ FAIL — {report.error_count} critical/high violation(s) need fixing.{c['RESET']}")
 
 # ─── EXPORT ──────────────────────────────────────────────────────────────────
 def save_json(report: Report, path: pathlib.Path) -> bool:
@@ -704,6 +869,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
                     "has_validation": uc.has_validation,
                     "is_async": uc.is_async,
                     "has_return_annotation": uc.has_return_annotation,
+                    "is_read_only": uc.is_read_only,
                     "violations_count": len(uc.violations),
                 }
                 for uc in report.use_cases
@@ -758,8 +924,8 @@ h1{{color:#0d6efd}}
 <h1>Use Case / Command Handler Contract Report</h1>
 <div class="summary">
   <div class="card"><div class="value">{report.total_use_cases}</div><div class="label">Use Cases</div></div>
-  <div class="card"><div class="value" style="color:#dc3545">{report.error_count}</div><div class="label">Errors</div></div>
-  <div class="card"><div class="value" style="color:#ffc107">{report.warning_count}</div><div class="label">Warnings</div></div>
+  <div class="card"><div class="value" style="color:#dc3545">{report.error_count}</div><div class="label">Critical/High</div></div>
+  <div class="card"><div class="value" style="color:#ffc107">{report.medium_count}</div><div class="label">Medium</div></div>
   <div class="card"><div class="value">{report.score:.1f}</div><div class="label">Score</div></div>
   <div class="card"><div class="value">{'PASS' if report.passed else 'FAIL'}</div><div class="label">Status</div></div>
 </div>
@@ -831,36 +997,39 @@ def self_test(verbose: bool = True) -> bool:
 
     if verbose: _safe_print(f"\nUse Case Checker self-test v{__version__}…\n")
 
+    # Good Use Case
     code = """
 class CreateInvoiceUseCase:
-    def execute(self, request):
-        pass
+    def __init__(self, repo: Repository, uow: UoW):
+        self.repo = repo
+        self.uow = uow
+
+    def execute(self, request: CreateInvoiceRequest) -> InvoiceResponse:
+        try:
+            invoice = self.repo.create(request)
+            self.uow.commit()
+            return InvoiceResponse(invoice_id=invoice.id)
+        except Exception:
+            self.uow.rollback()
+            raise
 """
     tree = ast.parse(code)
     node = next((n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)), None)
     checker = UseCaseChecker(pathlib.Path.cwd(), enable_rca=False)
     if node:
-        check("_is_use_case_class detects naming", checker._is_use_case_class(node, pathlib.Path("application/use_cases/test.py")))
-        check("_should_skip_class false", not checker._should_skip_class("CreateInvoiceUseCase"))
+        info = checker._analyze_class(node, "test.py", pathlib.Path("application/use_cases/test.py"))
+        if info:
+            check("detects use case", True)
+            check("has_execute", info.has_execute)
+            check("has_type_hints", info.has_type_hints)
+            check("has_di", info.has_dependency_injection)
+            check("has_eh", info.has_error_handling)
+            check("has_tm", info.has_transaction_management)
+            check("has_val", info.has_validation)
 
-    code2 = """
-class APInvoiceActionResponseSchema:
-    pass
-"""
-    tree2 = ast.parse(code2)
-    node2 = next((n for n in ast.walk(tree2) if isinstance(n, ast.ClassDef)), None)
-    if node2:
-        check("_should_skip_class filters Schema", checker._should_skip_class("APInvoiceActionResponseSchema"))
-
-    code3 = """
-class SimpleRetryPolicy:
-    def execute(self):
-        pass
-"""
-    tree3 = ast.parse(code3)
-    node3 = next((n for n in ast.walk(tree3) if isinstance(n, ast.ClassDef)), None)
-    if node3:
-        check("_should_skip_class filters Policy", checker._should_skip_class("SimpleRetryPolicy"))
+    # False positive filters
+    for name in ("InvoiceResult", "PaymentStatus", "CreateInvoiceDTO"):
+        check(f"skip {name}", checker._should_skip_class(name))
 
     if verbose: _safe_print(f"\nSelf-test: {passed} passed, {failed} failed {'✅' if failed==0 else '❌'}")
     return failed == 0
@@ -917,7 +1086,7 @@ def main() -> int:
 
     report = checker.scan(progress_callback=progress)
 
-    print_report(report, checker, verbose=args.verbose, show_rca=not args.no_rca)
+    print_report(report, verbose=args.verbose, show_rca=not args.no_rca)
 
     if not args.dry_run:
         if args.json:

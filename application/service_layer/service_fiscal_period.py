@@ -1,5 +1,3 @@
-# service_fiscal_period.py - Complete rewrite with full event publishing
-
 #!/usr/bin/env python3
 
 """
@@ -41,8 +39,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass(kw_only=True)
 class CreatePeriodRequest:
-    """Request to create a new fiscal period."""
-
     legal_entity_id: UUID
     year: int
     month: int
@@ -54,8 +50,6 @@ class CreatePeriodRequest:
 
 @dataclass(kw_only=True)
 class UpdatePeriodRequest:
-    """Request to update a fiscal period."""
-
     start_date: date | None = None
     end_date: date | None = None
     period_type: str | None = None
@@ -63,8 +57,6 @@ class UpdatePeriodRequest:
 
 @dataclass(kw_only=True)
 class PeriodResponse:
-    """Response for fiscal period."""
-
     period_id: UUID
     legal_entity_id: UUID
     period_type: str
@@ -81,8 +73,6 @@ class PeriodResponse:
 
 @dataclass(kw_only=True)
 class ClosePeriodRequest:
-    """Request to close a period."""
-
     legal_entity_id: UUID
     year: int
     month: int
@@ -92,8 +82,6 @@ class ClosePeriodRequest:
 
 @dataclass(kw_only=True)
 class LockPeriodRequest:
-    """Request to lock a period."""
-
     legal_entity_id: UUID
     year: int
     month: int
@@ -102,8 +90,6 @@ class LockPeriodRequest:
 
 @dataclass(kw_only=True)
 class ReopenPeriodRequest:
-    """Request to reopen a period."""
-
     legal_entity_id: UUID
     year: int
     month: int
@@ -136,17 +122,16 @@ class PeriodAlreadyOpenError(FiscalPeriodServiceError):
     pass
 
 
+class PeriodOverlapError(FiscalPeriodServiceError):
+    pass
+
+
 # ============================================================================
 # Main Service
 # ============================================================================
 
 
 class FiscalPeriodService:
-    """
-    Service for managing fiscal periods.
-    Mempublikasikan event untuk setiap operasi.
-    """
-
     def __init__(
         self,
         period_repo: FiscalPeriodRepositoryPort,
@@ -171,21 +156,25 @@ class FiscalPeriodService:
 
         logger.info("FiscalPeriodService initialized")
 
+    # ==================== PRIVATE HELPERS ====================
+
+    @staticmethod
+    def _period_key(year: int, month: int) -> str:
+        return f"{year}-{month:02d}"
+
+    # ==================== PUBLIC METHODS ====================
+
     async def get_period(self, legal_entity_id: UUID, year: int, month: int) -> FiscalPeriod | None:
-        """Get fiscal period by year and month."""
         return await self._period_repo.get_by_year_month(legal_entity_id, year, month)
 
     async def get_period_by_id(self, period_id: UUID) -> FiscalPeriod | None:
-        """Get fiscal period by ID."""
         return await self._period_repo.get_by_id(period_id)
 
     async def get_current_period(
         self, legal_entity_id: UUID, as_of_date: date | None = None
     ) -> FiscalPeriod | None:
-        """Get the current open fiscal period."""
         check_date = as_of_date or date.today()
         periods = await self._period_repo.list_by_year(legal_entity_id, check_date.year)
-
         for period in periods:
             if (
                 period.start_date <= check_date <= period.end_date
@@ -199,16 +188,15 @@ class FiscalPeriodService:
         request: CreatePeriodRequest,
         correlation_id: str | None = None,
     ) -> FiscalPeriod:
-        """Create a new fiscal period."""
+        """Create a new fiscal period. Validates no overlapping OPEN/LOCKED period exists."""
         existing = await self._period_repo.get_by_year_month(
             request.legal_entity_id, request.year, request.month
         )
         if existing:
             raise PeriodAlreadyExistsError(
-                f"Period {request.year}-{request.month:02d} already exists"
+                f"Period {self._period_key(request.year, request.month)} already exists"
             )
 
-        # Calculate start and end dates
         start_date = request.start_date or date(request.year, request.month, 1)
         if request.end_date:
             end_date = request.end_date
@@ -216,6 +204,18 @@ class FiscalPeriodService:
             end_date = date(request.year + 1, 1, 1) - timedelta(days=1)
         else:
             end_date = date(request.year, request.month + 1, 1) - timedelta(days=1)
+
+        # ========== VALIDATION: Check for overlapping OPEN/LOCKED periods ==========
+        overlapping = await self._period_repo.find_overlapping(
+            request.legal_entity_id, start_date, end_date
+        )
+        for p in overlapping:
+            if p.status in (PeriodStatus.OPEN, PeriodStatus.LOCKED):
+                raise PeriodOverlapError(
+                    f"Period {self._period_key(p.year, p.period_number)} "
+                    f"({p.start_date} to {p.end_date}) overlaps with the requested range "
+                    f"and is {p.status.value}."
+                )
 
         period = FiscalPeriod(
             period_id=uuid4(),
@@ -235,7 +235,6 @@ class FiscalPeriodService:
 
         self._stats["periods_created"] += 1
 
-        # --- PUBLISH EVENT ---
         if self._event_publisher:
             event = PeriodOpenedEvent(
                 period_id=period.period_id,
@@ -246,9 +245,9 @@ class FiscalPeriodService:
                 occurred_at=datetime.now(UTC),
             )
             await self._event_publisher.publish(event, correlation_id)
-            logger.debug(f"Published PeriodOpenedEvent for {request.year}-{request.month:02d}")
+            logger.debug(f"Published PeriodOpenedEvent for {self._period_key(request.year, request.month)}")
 
-        logger.info(f"Fiscal period {request.year}-{request.month:02d} created and opened")
+        logger.info(f"Fiscal period {self._period_key(request.year, request.month)} created and opened")
         return period
 
     async def update_period(
@@ -260,23 +259,28 @@ class FiscalPeriodService:
         updated_by: UUID,
         correlation_id: str | None = None,
     ) -> FiscalPeriod:
-        """Update a fiscal period (start_date, end_date, period_type)."""
         period = await self._period_repo.get_by_year_month(legal_entity_id, year, month)
         if not period:
-            raise PeriodNotFoundError(f"Period {year}-{month:02d} not found")
+            raise PeriodNotFoundError(f"Period {self._period_key(year, month)} not found")
 
-        if period.status == PeriodStatus.CLOSED:
-            raise PeriodAlreadyClosedError(f"Cannot update a closed period {year}-{month:02d}")
+        # ========== VALIDATION: Period must be OPEN to update ==========
+        if period.status != PeriodStatus.OPEN:
+            raise FiscalPeriodServiceError(
+                f"Cannot update period {self._period_key(year, month)}: "
+                f"status is {period.status.value}. Must be OPEN."
+            )
 
         changes = {}
+        new_start = period.start_date
+        new_end = period.end_date
 
         if request.start_date is not None and request.start_date != period.start_date:
             changes["start_date"] = {"old": period.start_date.isoformat(), "new": request.start_date.isoformat()}
-            period.start_date = request.start_date
+            new_start = request.start_date
 
         if request.end_date is not None and request.end_date != period.end_date:
             changes["end_date"] = {"old": period.end_date.isoformat(), "new": request.end_date.isoformat()}
-            period.end_date = request.end_date
+            new_end = request.end_date
 
         if request.period_type is not None:
             new_type = PeriodType(request.period_type)
@@ -284,9 +288,22 @@ class FiscalPeriodService:
                 changes["period_type"] = {"old": period.period_type.value, "new": new_type.value}
                 period.period_type = new_type
 
+        if "start_date" in changes or "end_date" in changes:
+            overlapping = await self._period_repo.find_overlapping(
+                legal_entity_id, new_start, new_end
+            )
+            for p in overlapping:
+                if p.period_id != period.period_id and p.status in (PeriodStatus.OPEN, PeriodStatus.LOCKED):
+                    raise PeriodOverlapError(
+                        f"Period {self._period_key(p.year, p.period_number)} overlaps "
+                        f"and is {p.status.value}."
+                    )
+
         if not changes:
             return period
 
+        period.start_date = new_start
+        period.end_date = new_end
         period.updated_at = datetime.now(UTC)
         period.updated_by = str(updated_by)
         period.version += 1
@@ -296,7 +313,6 @@ class FiscalPeriodService:
 
         self._stats["periods_updated"] += 1
 
-        # --- PUBLISH EVENT ---
         if self._event_publisher:
             event = PeriodUpdatedEvent(
                 period_id=period.period_id,
@@ -308,9 +324,9 @@ class FiscalPeriodService:
                 occurred_at=datetime.now(UTC),
             )
             await self._event_publisher.publish(event, correlation_id)
-            logger.debug(f"Published PeriodUpdatedEvent for {year}-{month:02d}")
+            logger.debug(f"Published PeriodUpdatedEvent for {self._period_key(year, month)}")
 
-        logger.info(f"Period {year}-{month:02d} updated by {updated_by}")
+        logger.info(f"Period {self._period_key(year, month)} updated by {updated_by}")
         return period
 
     async def open_period(
@@ -321,23 +337,31 @@ class FiscalPeriodService:
         opened_by: UUID,
         correlation_id: str | None = None,
     ) -> FiscalPeriod:
-        """Open an existing period (e.g., from DRAFT to OPEN)."""
         period = await self._period_repo.get_by_year_month(legal_entity_id, year, month)
         if not period:
-            raise PeriodNotFoundError(f"Period {year}-{month:02d} not found")
+            raise PeriodNotFoundError(f"Period {self._period_key(year, month)} not found")
 
         old_status = period.status
 
         if period.status == PeriodStatus.OPEN:
-            raise PeriodAlreadyOpenError(f"Period {year}-{month:02d} is already OPEN")
+            raise PeriodAlreadyOpenError(f"Period {self._period_key(year, month)} is already OPEN")
+
+        # Check overlap with other OPEN periods
+        overlapping = await self._period_repo.find_overlapping(
+            legal_entity_id, period.start_date, period.end_date
+        )
+        for p in overlapping:
+            if p.period_id != period.period_id and p.status in (PeriodStatus.OPEN, PeriodStatus.LOCKED):
+                raise PeriodOverlapError(
+                    f"Period {self._period_key(p.year, p.period_number)} overlaps "
+                    f"and is {p.status.value}."
+                )
 
         updated = period.open(str(opened_by))
         await self._period_repo.save(updated)
         await self._uow.commit()
 
-        # --- PUBLISH EVENTS ---
         if self._event_publisher:
-            # PeriodOpenedEvent
             event_opened = PeriodOpenedEvent(
                 period_id=period.period_id,
                 legal_entity_id=legal_entity_id,
@@ -347,9 +371,7 @@ class FiscalPeriodService:
                 occurred_at=datetime.now(UTC),
             )
             await self._event_publisher.publish(event_opened, correlation_id)
-            logger.debug(f"Published PeriodOpenedEvent for {year}-{month:02d}")
 
-            # PeriodStatusChangedEvent
             event_status = PeriodStatusChangedEvent(
                 period_id=period.period_id,
                 legal_entity_id=legal_entity_id,
@@ -361,9 +383,8 @@ class FiscalPeriodService:
                 occurred_at=datetime.now(UTC),
             )
             await self._event_publisher.publish(event_status, correlation_id)
-            logger.debug(f"Published PeriodStatusChangedEvent for {year}-{month:02d}")
 
-        logger.info(f"Period {year}-{month:02d} opened by {opened_by}")
+        logger.info(f"Period {self._period_key(year, month)} opened by {opened_by}")
         return updated
 
     async def lock_period(
@@ -374,15 +395,18 @@ class FiscalPeriodService:
         locked_by: UUID,
         correlation_id: str | None = None,
     ) -> FiscalPeriod:
-        """Lock a period."""
         period = await self._period_repo.get_by_year_month(legal_entity_id, year, month)
         if not period:
-            raise PeriodNotFoundError(f"Period {year}-{month:02d} not found")
+            raise PeriodNotFoundError(f"Period {self._period_key(year, month)} not found")
+
+        # ========== VALIDATION: Period must be OPEN to lock ==========
+        if period.status != PeriodStatus.OPEN:
+            raise FiscalPeriodServiceError(
+                f"Cannot lock period {self._period_key(year, month)}: "
+                f"status is {period.status.value}. Must be OPEN."
+            )
 
         old_status = period.status
-
-        if period.status != PeriodStatus.OPEN:
-            raise FiscalPeriodServiceError(f"Cannot lock period in status {period.status.value}")
 
         updated = period.lock(str(locked_by))
         await self._period_repo.save(updated)
@@ -390,7 +414,6 @@ class FiscalPeriodService:
 
         self._stats["periods_locked"] += 1
 
-        # --- PUBLISH EVENTS ---
         if self._event_publisher:
             event_lock = PeriodLockedEvent(
                 period_id=period.period_id,
@@ -401,7 +424,6 @@ class FiscalPeriodService:
                 occurred_at=datetime.now(UTC),
             )
             await self._event_publisher.publish(event_lock, correlation_id)
-            logger.debug(f"Published PeriodLockedEvent for {year}-{month:02d}")
 
             event_status = PeriodStatusChangedEvent(
                 period_id=period.period_id,
@@ -414,9 +436,8 @@ class FiscalPeriodService:
                 occurred_at=datetime.now(UTC),
             )
             await self._event_publisher.publish(event_status, correlation_id)
-            logger.debug(f"Published PeriodStatusChangedEvent for {year}-{month:02d}")
 
-        logger.info(f"Period {year}-{month:02d} locked by {locked_by}")
+        logger.info(f"Period {self._period_key(year, month)} locked by {locked_by}")
         return updated
 
     async def close_period(
@@ -424,18 +445,24 @@ class FiscalPeriodService:
         request: ClosePeriodRequest,
         correlation_id: str | None = None,
     ) -> FiscalPeriod:
-        """Close a period."""
         period = await self._period_repo.get_by_year_month(
             request.legal_entity_id, request.year, request.month
         )
         if not period:
-            raise PeriodNotFoundError(f"Period {request.year}-{request.month:02d} not found")
+            raise PeriodNotFoundError(f"Period {self._period_key(request.year, request.month)} not found")
 
         old_status = period.status
 
         if period.status == PeriodStatus.CLOSED:
             raise PeriodAlreadyClosedError(
-                f"Period {request.year}-{request.month:02d} is already CLOSED"
+                f"Period {self._period_key(request.year, request.month)} is already CLOSED"
+            )
+
+        # ========== VALIDATION: Period must be OPEN or LOCKED to close ==========
+        if period.status not in (PeriodStatus.OPEN, PeriodStatus.LOCKED):
+            raise FiscalPeriodServiceError(
+                f"Cannot close period {self._period_key(request.year, request.month)}: "
+                f"status is {period.status.value}. Must be OPEN or LOCKED."
             )
 
         # Lock first if open
@@ -454,7 +481,6 @@ class FiscalPeriodService:
 
         self._stats["periods_closed"] += 1
 
-        # --- PUBLISH EVENTS ---
         if self._event_publisher:
             event_close = PeriodClosedEvent(
                 period_id=period.period_id,
@@ -466,7 +492,6 @@ class FiscalPeriodService:
                 occurred_at=datetime.now(UTC),
             )
             await self._event_publisher.publish(event_close, correlation_id)
-            logger.debug(f"Published PeriodClosedEvent for {request.year}-{request.month:02d}")
 
             event_status = PeriodStatusChangedEvent(
                 period_id=period.period_id,
@@ -479,9 +504,8 @@ class FiscalPeriodService:
                 occurred_at=datetime.now(UTC),
             )
             await self._event_publisher.publish(event_status, correlation_id)
-            logger.debug(f"Published PeriodStatusChangedEvent for {request.year}-{request.month:02d}")
 
-        logger.info(f"Period {request.year}-{request.month:02d} closed by {request.closed_by}")
+        logger.info(f"Period {self._period_key(request.year, request.month)} closed by {request.closed_by}")
         return updated
 
     async def reopen_period(
@@ -489,28 +513,36 @@ class FiscalPeriodService:
         request: ReopenPeriodRequest,
         correlation_id: str | None = None,
     ) -> FiscalPeriod:
-        """
-        Reopen a closed period.
-
-        Business rule: Only periods with status CLOSED can be reopened.
-        """
         period = await self._period_repo.get_by_year_month(
             request.legal_entity_id, request.year, request.month
         )
         if not period:
-            raise PeriodNotFoundError(f"Period {request.year}-{request.month:02d} not found")
+            raise PeriodNotFoundError(f"Period {self._period_key(request.year, request.month)} not found")
 
         old_status = period.status
 
         if period.status == PeriodStatus.OPEN:
             raise PeriodAlreadyOpenError(
-                f"Period {request.year}-{request.month:02d} is already OPEN"
+                f"Period {self._period_key(request.year, request.month)} is already OPEN"
             )
 
+        # ========== VALIDATION: Period must be CLOSED to reopen ==========
         if period.status != PeriodStatus.CLOSED:
             raise FiscalPeriodServiceError(
-                f"Period {request.year}-{request.month:02d} must be CLOSED to reopen (current: {period.status.value})"
+                f"Cannot reopen period {self._period_key(request.year, request.month)}: "
+                f"status is {period.status.value}. Must be CLOSED."
             )
+
+        # Check overlap before reopening
+        overlapping = await self._period_repo.find_overlapping(
+            request.legal_entity_id, period.start_date, period.end_date
+        )
+        for p in overlapping:
+            if p.period_id != period.period_id and p.status in (PeriodStatus.OPEN, PeriodStatus.LOCKED):
+                raise PeriodOverlapError(
+                    f"Period {self._period_key(p.year, p.period_number)} overlaps "
+                    f"and is {p.status.value}."
+                )
 
         updated = period.open(str(request.reopened_by))
         await self._period_repo.save(updated)
@@ -518,7 +550,6 @@ class FiscalPeriodService:
 
         self._stats["periods_reopened"] += 1
 
-        # --- PUBLISH EVENTS ---
         if self._event_publisher:
             event_reopen = PeriodReopenedEvent(
                 period_id=period.period_id,
@@ -530,7 +561,6 @@ class FiscalPeriodService:
                 occurred_at=datetime.now(UTC),
             )
             await self._event_publisher.publish(event_reopen, correlation_id)
-            logger.debug(f"Published PeriodReopenedEvent for {request.year}-{request.month:02d}")
 
             event_status = PeriodStatusChangedEvent(
                 period_id=period.period_id,
@@ -543,17 +573,13 @@ class FiscalPeriodService:
                 occurred_at=datetime.now(UTC),
             )
             await self._event_publisher.publish(event_status, correlation_id)
-            logger.debug(f"Published PeriodStatusChangedEvent for {request.year}-{request.month:02d}")
 
-        logger.warning(
-            f"Period {request.year}-{request.month:02d} reopened by {request.reopened_by}"
-        )
+        logger.warning(f"Period {self._period_key(request.year, request.month)} reopened by {request.reopened_by}")
         return updated
 
     async def validate_period_for_posting(
         self, legal_entity_id: UUID, transaction_date: date
     ) -> bool:
-        """Check if the period containing the transaction date is open for posting."""
         period = await self.get_current_period(legal_entity_id, transaction_date)
         if not period:
             return False
@@ -566,32 +592,26 @@ class FiscalPeriodService:
         to_year: int | None = None,
         status: PeriodStatus | None = None,
     ) -> list[FiscalPeriod]:
-        """List fiscal periods for a legal entity."""
         return await self._period_repo.list_by_legal_entity(
             legal_entity_id=legal_entity_id, from_year=from_year, to_year=to_year, status=status
         )
 
     async def get_periods_by_year(self, legal_entity_id: UUID, year: int) -> list[FiscalPeriod]:
-        """Get all periods for a specific year."""
         return await self._period_repo.list_by_year(legal_entity_id, year)
 
     async def get_next_period(
         self, legal_entity_id: UUID, year: int, month: int
     ) -> FiscalPeriod | None:
-        """Get the next fiscal period."""
         if month == 12:
             return await self._period_repo.get_by_year_month(legal_entity_id, year + 1, 1)
-        else:
-            return await self._period_repo.get_by_year_month(legal_entity_id, year, month + 1)
+        return await self._period_repo.get_by_year_month(legal_entity_id, year, month + 1)
 
     async def get_previous_period(
         self, legal_entity_id: UUID, year: int, month: int
     ) -> FiscalPeriod | None:
-        """Get the previous fiscal period."""
         if month == 1:
             return await self._period_repo.get_by_year_month(legal_entity_id, year - 1, 12)
-        else:
-            return await self._period_repo.get_by_year_month(legal_entity_id, year, month - 1)
+        return await self._period_repo.get_by_year_month(legal_entity_id, year, month - 1)
 
     def _to_response(self, period: FiscalPeriod) -> PeriodResponse:
         return PeriodResponse(
@@ -610,7 +630,6 @@ class FiscalPeriodService:
         )
 
     def get_stats(self) -> dict[str, int]:
-        """Get service statistics."""
         return self._stats.copy()
 
 
@@ -619,12 +638,15 @@ class FiscalPeriodService:
 # ============================================================================
 
 
-async def create_fiscal_period_service(
+async def build_fiscal_period_service(
     period_repo: FiscalPeriodRepositoryPort,
     uow: UnitOfWorkPort,
     event_publisher: EventPublisherPort | None = None,
 ) -> FiscalPeriodService:
     return FiscalPeriodService(period_repo, uow, event_publisher)
+
+
+create_fiscal_period_service = build_fiscal_period_service
 
 
 __all__ = [
@@ -637,8 +659,10 @@ __all__ = [
     "PeriodAlreadyExistsError",
     "PeriodAlreadyOpenError",
     "PeriodNotFoundError",
+    "PeriodOverlapError",
     "PeriodResponse",
     "ReopenPeriodRequest",
     "UpdatePeriodRequest",
+    "build_fiscal_period_service",
     "create_fiscal_period_service",
 ]

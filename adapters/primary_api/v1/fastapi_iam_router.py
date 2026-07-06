@@ -28,13 +28,15 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
@@ -45,6 +47,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: Dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> Optional[Dict[str, Any]]:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now(timezone.utc) - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: Dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now(timezone.utc))
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -470,12 +518,20 @@ def info() -> dict[str, str]:
 )
 async def create_user(
     request: UserCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:user_create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_iam_service),
 ) -> UserResponseSchema:
     """Create a new user."""
+    method_name = "create_user"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return UserResponseSchema(**cached)
+
     try:
         result = await service.create_user(
             username=request.username,
@@ -497,7 +553,7 @@ async def create_user(
         # FIX: Jangan log password
         logger.info(f"User created: {request.username}")
 
-        return UserResponseSchema(
+        response = UserResponseSchema(
             id=result.id,
             username=result.username,
             email=result.email,
@@ -522,6 +578,12 @@ async def create_user(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -702,11 +764,19 @@ async def get_user_by_username(
 async def update_user(
     user_id: UUID,
     request: UserUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:user_update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_iam_service),
 ) -> UserResponseSchema:
     """Update user information."""
+    method_name = "update_user"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return UserResponseSchema(**cached)
+
     try:
         result = await service.update_user(
             user_id=user_id,
@@ -727,7 +797,7 @@ async def update_user(
 
         logger.info(f"User updated: {user_id}")
 
-        return UserResponseSchema(
+        response = UserResponseSchema(
             id=result.id,
             username=result.username,
             email=result.email,
@@ -752,6 +822,12 @@ async def update_user(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -769,11 +845,19 @@ async def deactivate_user(
     user_id: UUID,
     permanent: bool = Query(False, description="Permanent deletion"),
     reason: str = Query("", description="Reason for deactivation"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:user_delete")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_iam_service),
 ) -> dict[str, Any]:
     """Deactivate or delete a user."""
+    method_name = "deactivate_user"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         if permanent:
             result = await service.delete_user(user_id, current_user.user_id, reason)
@@ -787,13 +871,19 @@ async def deactivate_user(
 
         logger.info(f"User {action}: {user_id}")
 
-        return {
+        response = {
             "user_id": str(user_id),
             "username": result.username,
             "action": action,
             "status": result.status,
             "message": f"User {action} successfully",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -809,11 +899,19 @@ async def deactivate_user(
 )
 async def activate_user(
     user_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:user_update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_iam_service),
 ) -> UserResponseSchema:
     """Activate a deactivated user."""
+    method_name = "activate_user"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return UserResponseSchema(**cached)
+
     try:
         result = await service.activate_user(user_id, current_user.user_id)
 
@@ -822,7 +920,7 @@ async def activate_user(
 
         logger.info(f"User activated: {user_id}")
 
-        return UserResponseSchema(
+        response = UserResponseSchema(
             id=result.id,
             username=result.username,
             email=result.email,
@@ -847,6 +945,12 @@ async def activate_user(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -866,11 +970,19 @@ async def lock_user(
     duration_minutes: int = Query(
         DEFAULT_LOCKOUT_DURATION_MINUTES, ge=1, le=1440, description="Lock duration in minutes"
     ),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:user_lock")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_iam_service),
 ) -> UserResponseSchema:
     """Lock a user account."""
+    method_name = "lock_user"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return UserResponseSchema(**cached)
+
     try:
         result = await service.lock_user(
             user_id=user_id,
@@ -884,7 +996,7 @@ async def lock_user(
 
         logger.info(f"User locked: {user_id}")
 
-        return UserResponseSchema(
+        response = UserResponseSchema(
             id=result.id,
             username=result.username,
             email=result.email,
@@ -909,6 +1021,12 @@ async def lock_user(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -924,11 +1042,19 @@ async def lock_user(
 )
 async def unlock_user(
     user_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:user_lock")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_iam_service),
 ) -> UserResponseSchema:
     """Unlock a locked user account."""
+    method_name = "unlock_user"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return UserResponseSchema(**cached)
+
     try:
         result = await service.unlock_user(user_id, current_user.user_id)
 
@@ -937,7 +1063,7 @@ async def unlock_user(
 
         logger.info(f"User unlocked: {user_id}")
 
-        return UserResponseSchema(
+        response = UserResponseSchema(
             id=result.id,
             username=result.username,
             email=result.email,
@@ -962,6 +1088,12 @@ async def unlock_user(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -983,11 +1115,19 @@ async def unlock_user(
 )
 async def create_role(
     request: RoleCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_create")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_iam_service),
 ) -> RoleResponseSchema:
     """Create a new role."""
+    method_name = "create_role"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return RoleResponseSchema(**cached)
+
     try:
         result = await service.create_role(
             name=request.name,
@@ -999,7 +1139,7 @@ async def create_role(
 
         logger.info(f"Role created: {request.name}")
 
-        return RoleResponseSchema(
+        response = RoleResponseSchema(
             id=result.id,
             name=result.name,
             description=result.description,
@@ -1015,6 +1155,12 @@ async def create_role(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1115,11 +1261,19 @@ async def get_role(
 async def update_role(
     role_id: UUID,
     request: RoleUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_update")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_iam_service),
 ) -> RoleResponseSchema:
     """Update role information."""
+    method_name = "update_role"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return RoleResponseSchema(**cached)
+
     try:
         result = await service.update_role(
             role_id=role_id,
@@ -1134,7 +1288,7 @@ async def update_role(
 
         logger.info(f"Role updated: {role_id}")
 
-        return RoleResponseSchema(
+        response = RoleResponseSchema(
             id=result.id,
             name=result.name,
             description=result.description,
@@ -1150,6 +1304,12 @@ async def update_role(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1165,11 +1325,19 @@ async def update_role(
 )
 async def delete_role(
     role_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_delete")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_iam_service),
 ) -> dict[str, Any]:
     """Delete a role (cannot delete system roles or roles assigned to users)."""
+    method_name = "delete_role"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.delete_role(role_id, current_user.user_id)
 
@@ -1178,12 +1346,18 @@ async def delete_role(
 
         logger.info(f"Role deleted: {role_id}")
 
-        return {
+        response = {
             "role_id": str(role_id),
             "name": result.name,
             "deleted": True,
             "message": "Role deleted successfully",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1205,11 +1379,20 @@ async def delete_role(
 async def assign_roles_to_user(
     user_id: UUID,
     request: UserRoleAssignSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_assign")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_iam_service),
 ) -> list[RoleResponseSchema]:
     """Assign multiple roles to a user."""
+    method_name = "assign_roles_to_user"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            # cached is list of dicts
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return [RoleResponseSchema(**item) for item in cached]
+
     try:
         roles = await service.assign_roles_to_user(
             user_id=user_id,
@@ -1219,7 +1402,7 @@ async def assign_roles_to_user(
 
         logger.info(f"Roles assigned to user: {user_id}")
 
-        return [
+        response = [
             RoleResponseSchema(
                 id=r.id,
                 name=r.name,
@@ -1238,6 +1421,15 @@ async def assign_roles_to_user(
             )
             for r in roles
         ]
+
+        if idempotency_key:
+            # Convert list to dict for caching
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"items": [r.model_dump() for r in response]}
+            )
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1293,11 +1485,19 @@ async def get_user_roles(
 async def remove_role_from_user(
     user_id: UUID,
     role_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_assign")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_iam_service),
 ) -> dict[str, Any]:
     """Remove a role from a user."""
+    method_name = "remove_role_from_user"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.remove_role_from_user(user_id, role_id, current_user.user_id)
 
@@ -1306,13 +1506,19 @@ async def remove_role_from_user(
 
         logger.info(f"Role removed from user: {user_id}")
 
-        return {
+        response = {
             "user_id": str(user_id),
             "role_id": str(role_id),
             "role_name": result.name,
             "removed": True,
             "message": "Role removed from user",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1366,11 +1572,19 @@ async def list_permissions(
 async def assign_permissions_to_role(
     role_id: UUID,
     request: RolePermissionAssignSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_assign")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_iam_service),
 ) -> list[PermissionResponseSchema]:
     """Assign multiple permissions to a role."""
+    method_name = "assign_permissions_to_role"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return [PermissionResponseSchema(**item) for item in cached]
+
     try:
         permissions = await service.assign_permissions_to_role(
             role_id=role_id,
@@ -1380,7 +1594,7 @@ async def assign_permissions_to_role(
 
         logger.info(f"Permissions assigned to role: {role_id}")
 
-        return [
+        response = [
             PermissionResponseSchema(
                 id=p.id,
                 name=p.name,
@@ -1392,6 +1606,14 @@ async def assign_permissions_to_role(
             )
             for p in permissions
         ]
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"items": [r.model_dump() for r in response]}
+            )
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1440,11 +1662,19 @@ async def get_role_permissions(
 async def remove_permission_from_role(
     role_id: UUID,
     permission_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("iam:role_assign")),
     current_user: TokenPayload = Depends(get_current_user),
     service: Any = Depends(get_iam_service),
 ) -> dict[str, Any]:
     """Remove a permission from a role."""
+    method_name = "remove_permission_from_role"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.remove_permission_from_role(
             role_id, permission_id, current_user.user_id
@@ -1455,13 +1685,19 @@ async def remove_permission_from_role(
 
         logger.info(f"Permission removed from role: {role_id}")
 
-        return {
+        response = {
             "role_id": str(role_id),
             "permission_id": str(permission_id),
             "permission_name": result.name,
             "removed": True,
             "message": "Permission removed from role",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

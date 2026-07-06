@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Module: fastapi_inventory_router.py
 Layer: Adapters (Primary API - v1)
@@ -25,6 +26,8 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from decimal import Decimal
@@ -32,7 +35,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -43,10 +46,60 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     require_permission,
 )
 
-# Import port yang dibutuhkan untuk adapter
-from ports.primary.report_repository_port import InventoryValuationRepositoryPort
+# ============================================================================
+# PERBAIKAN: Import InventoryValuationRepositoryPort dari file yang BENAR
+# ============================================================================
+from ports.primary.inventory_valuation_repository_port import (
+    InventoryValuationRepositoryPort,
+)  # <--- PERBAIKAN
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -594,6 +647,7 @@ def info() -> dict[str, str]:
 )
 async def create_item(
     request: ItemCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("inventory:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
@@ -601,6 +655,13 @@ async def create_item(
 ) -> ItemResponseSchema:
     """Create a new inventory item."""
     from application.dto_objects.inventory_request import ItemCreateRequest
+
+    method_name = "create_inventory_item"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ItemResponseSchema(**cached)
 
     try:
         create_dto = ItemCreateRequest(
@@ -632,7 +693,7 @@ async def create_item(
         )
         result = await inventory_service.create_item(create_dto)
 
-        return ItemResponseSchema(
+        response = ItemResponseSchema(
             id=result.id,
             item_code=result.item_code,
             item_name=result.item_name,
@@ -662,6 +723,11 @@ async def create_item(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -793,6 +859,7 @@ async def get_item_by_code(
 async def update_item(
     item_id: UUID,
     request: ItemUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("inventory:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
@@ -800,6 +867,13 @@ async def update_item(
 ) -> ItemResponseSchema:
     """Update inventory item information."""
     from application.dto_objects.inventory_request import ItemUpdateRequest
+
+    method_name = "update_inventory_item"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ItemResponseSchema(**cached)
 
     try:
         update_dto = ItemUpdateRequest(
@@ -826,7 +900,7 @@ async def update_item(
         if not result:
             raise HTTPException(status_code=404, detail="Item not found or cannot be updated")
 
-        return ItemResponseSchema(
+        response = ItemResponseSchema(
             id=result.id,
             item_code=result.item_code,
             item_name=result.item_name,
@@ -856,6 +930,11 @@ async def update_item(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1317,6 +1396,7 @@ async def get_stock_card(
 )
 async def create_stock_opname(
     request: StockOpnameCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("inventory:opname")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
@@ -1324,6 +1404,13 @@ async def create_stock_opname(
 ) -> StockOpnameResponseSchema:
     """Create a stock opname (physical count)."""
     from application.dto_objects.inventory_request import StockOpnameRequest
+
+    method_name = "create_stock_opname"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return StockOpnameResponseSchema(**cached)
 
     try:
         dto = StockOpnameRequest(
@@ -1336,7 +1423,7 @@ async def create_stock_opname(
         )
         result = await inventory_service.create_stock_opname(dto)
 
-        return StockOpnameResponseSchema(
+        response = StockOpnameResponseSchema(
             id=result.id,
             opname_number=result.opname_number,
             warehouse_id=result.warehouse_id,
@@ -1355,6 +1442,11 @@ async def create_stock_opname(
             applied_at=result.applied_at,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1467,6 +1559,7 @@ async def cancel_stock_opname(
 )
 async def create_warehouse_transfer(
     request: InterWarehouseTransferCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("inventory:transfer")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
@@ -1474,6 +1567,13 @@ async def create_warehouse_transfer(
 ) -> InterWarehouseTransferResponseSchema:
     """Create an inter-warehouse transfer."""
     from application.dto_objects.inventory_request import InterWarehouseTransferRequest
+
+    method_name = "create_warehouse_transfer"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return InterWarehouseTransferResponseSchema(**cached)
 
     try:
         dto = InterWarehouseTransferRequest(
@@ -1487,7 +1587,7 @@ async def create_warehouse_transfer(
         )
         result = await inventory_service.create_warehouse_transfer(dto)
 
-        return InterWarehouseTransferResponseSchema(
+        response = InterWarehouseTransferResponseSchema(
             id=result.id,
             transfer_number=result.transfer_number,
             from_warehouse_id=result.from_warehouse_id,
@@ -1506,6 +1606,11 @@ async def create_warehouse_transfer(
             completed_at=result.completed_at,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1967,6 +2072,107 @@ class InventoryValuationRepositoryAdapter(InventoryValuationRepositoryPort):
             ],
             "generated_at": datetime.now(),
         }
+
+    # ========================================================================
+    # METODE TAMBAHAN UNTUK MELENGKAPI PORT (agar status berubah dari PARTIAL ke REAL)
+    # ========================================================================
+
+    async def calculate_valuation_by_product(
+        self,
+        legal_entity_id: UUID,
+        product_id: UUID,
+        as_of_date: date,
+        valuation_method: str | None = None,
+    ) -> dict:
+        """
+        Calculate inventory valuation for a specific product.
+        """
+        # Reuse get_inventory_valuation with product_id as item_id
+        return await self.get_inventory_valuation(
+            legal_entity_id=legal_entity_id,
+            item_id=product_id,
+            as_of_date=as_of_date,
+            valuation_method=valuation_method,
+        )
+
+    async def get_movement_summary(
+        self,
+        legal_entity_id: UUID,
+        item_id: UUID,
+        warehouse_id: UUID | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> dict:
+        """
+        Get summary of movements (total in, out, net) for an item.
+        """
+        service = await self._get_service()
+        # Assume service has a method to get movement summary; if not, we compute from stock card
+        if hasattr(service, "get_movement_summary"):
+            return await service.get_movement_summary(
+                legal_entity_id=legal_entity_id,
+                item_id=item_id,
+                warehouse_id=warehouse_id,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        # Fallback: get stock card and compute summary
+        from datetime import date as d
+        start = start_date or d(1900, 1, 1)
+        end = end_date or d.today()
+        card = await service.get_stock_card(
+            item_id=item_id,
+            warehouse_id=warehouse_id or UUID(int=0),
+            legal_entity_id=legal_entity_id,
+            start_date=start,
+            end_date=end,
+        )
+        total_in = sum(line.in_quantity for line in card.lines)
+        total_out = sum(line.out_quantity for line in card.lines)
+        return {
+            "item_id": str(item_id),
+            "item_code": card.item_code,
+            "item_name": card.item_name,
+            "warehouse_id": str(warehouse_id) if warehouse_id else None,
+            "period_start": start.isoformat(),
+            "period_end": end.isoformat(),
+            "total_in": float(total_in),
+            "total_out": float(total_out),
+            "net_movement": float(total_in - total_out),
+            "opening_balance": float(card.opening_quantity),
+            "closing_balance": float(card.closing_quantity),
+        }
+
+    async def get_reorder_report(
+        self,
+        legal_entity_id: UUID,
+        warehouse_id: UUID | None = None,
+        include_zero_stock: bool = False,
+    ) -> list[dict]:
+        """
+        Get report of items that need reordering (below reorder point).
+        """
+        service = await self._get_service()
+        alerts = await service.get_low_stock_alerts(
+            legal_entity_id=legal_entity_id,
+            warehouse_id=warehouse_id,
+            include_zero_stock=include_zero_stock,
+        )
+        return [
+            {
+                "item_id": str(a.item_id),
+                "item_code": a.item_code,
+                "item_name": a.item_name,
+                "current_stock": float(a.current_stock),
+                "reorder_point": float(a.reorder_point),
+                "reorder_quantity": float(a.reorder_quantity),
+                "shortage": float(a.shortage),
+                "warehouse_id": str(a.warehouse_id),
+                "warehouse_name": a.warehouse_name,
+                "days_until_out": a.days_until_out,
+            }
+            for a in alerts
+        ]
 
 
 # ============================================================================

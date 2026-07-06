@@ -19,6 +19,7 @@ import functools
 import logging
 import threading
 import time
+from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -125,8 +126,56 @@ def _get_metric_collector():
     return _FallbackMetricCollector()
 
 
+# ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseMetricCollector(ABC):
+    """
+    Base contract for Metric Collector.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    def define_metric(
+        self, name: str, metric_type: MetricType, help_text: str, labels: list[str] | None = None
+    ) -> None:
+        """Define a new metric."""
+        pass
+
+    @abstractmethod
+    def increment_counter(
+        self, name: str, labels: dict[str, str] | None = None, value: int = 1
+    ) -> None:
+        """Increment a counter metric."""
+        pass
+
+    @abstractmethod
+    def set_gauge(
+        self, name: str, metric_value: Decimal, labels: dict[str, str] | None = None
+    ) -> None:
+        """Set a gauge metric."""
+        pass
+
+    @abstractmethod
+    def record_histogram(
+        self, name: str, metric_value: Decimal, labels: dict[str, str] | None = None
+    ) -> None:
+        """Record a histogram metric."""
+        pass
+
+    @abstractmethod
+    def reset_all(self) -> None:
+        """Reset all metrics."""
+        pass
+
+    @abstractmethod
+    def get_stats_summary(self) -> dict[str, Any]:
+        """Get summary statistics of all metrics."""
+        pass
+
+
 # === 3. METRIC COLLECTOR ===
-class MetricCollector:
+class MetricCollector(BaseMetricCollector):
     """
     Singleton collector for kernel metrics.
     Metrics are non-monetary: counts, durations, etc.

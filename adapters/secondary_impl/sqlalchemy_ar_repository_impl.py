@@ -667,7 +667,18 @@ class SQLAlchemyARRepository(ARRepositoryPort):
         except Exception as e:
             raise ARRepositoryError(f"Failed to find overdue invoices: {e}") from e
 
-    # ===== NEW: get_outstanding_balance (sesuai port) =====
+    # ===== NEW: find_invoices_by_customer (sesuai port) =====
+    async def find_invoices_by_customer(self, customer_id: UUID, legal_entity_id: UUID | None = None) -> list[ARInvoiceAggregate]:
+        """
+        Cari semua invoice untuk customer tertentu.
+        Method ini adalah implementasi dari kontrak ARRepositoryPort.
+        Jika legal_entity_id tidak diberikan, akan menggunakan nilai dari self._get_legal_entity_id().
+        """
+        if legal_entity_id is None:
+            legal_entity_id = self._get_legal_entity_id()
+        return await self.find_by_customer(customer_id, legal_entity_id)
+
+    # ===== NEW: get_outstanding_balance =====
     async def get_outstanding_balance(self, customer_id: UUID, as_of_date: date) -> Decimal:
         """Get outstanding balance for a customer as of a specific date."""
         legal_entity_id = self._get_legal_entity_id()

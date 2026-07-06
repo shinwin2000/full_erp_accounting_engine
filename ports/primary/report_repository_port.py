@@ -4,7 +4,7 @@ Module: report_repository_port.py
 Layer: Ports (Primary)
 Responsibility: Mendefinisikan interface repository untuk read models pelaporan keuangan.
                Setiap repository sesuai dengan jenis laporan (trial balance, laba rugi,
-               neraca, arus kas, buku besar, aging report, inventory valuation).
+               neraca, arus kas, buku besar, aging report).
 """
 
 from __future__ import annotations
@@ -211,12 +211,10 @@ class AgingReportRepositoryPort(ABC):
         pass
 
 
-class InventoryValuationRepositoryPort(ABC):
-    @abstractmethod
-    async def get_inventory_valuation(
-        self, legal_entity_id: UUID, as_of_date: date, item_id: UUID | None = None
-    ) -> dict[str, Any]:
-        pass
+# ============================================================================
+# HAPUS InventoryValuationRepositoryPort — sudah ada di
+# inventory_valuation_repository_port.py
+# ============================================================================
 
 
 # ============================================================================
@@ -266,7 +264,7 @@ __all__ = [
     "IncomeStatementDataDTO",
     "IncomeStatementLineDTO",
     "IncomeStatementRepositoryPort",
-    "InventoryValuationRepositoryPort",
+    # "InventoryValuationRepositoryPort",  # Dihapus — sudah ada di file terpisah
     "ReportRepositoryPort",
     "TrialBalanceRepositoryPort",
     "TrialBalanceRowDTO",

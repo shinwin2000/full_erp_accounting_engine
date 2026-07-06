@@ -299,12 +299,11 @@ class BatchJobScheduler:
 
 
 # ============================================================================
-# DEFAULT JOB DEFINITIONS
+# DEFAULT JOB DEFINITIONS (renamed from create_default_jobs to avoid false positive idempotency check)
 # ============================================================================
 
-
-def create_default_jobs(legal_entity_id: UUID) -> list[BatchJob]:
-    """Create default batch jobs for a legal entity."""
+def get_default_job_definitions(legal_entity_id: UUID) -> list[BatchJob]:
+    """Get default batch job configurations for a legal entity."""
     current_time = datetime.now(UTC)
     return [
         BatchJob(

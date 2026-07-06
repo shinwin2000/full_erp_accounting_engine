@@ -19,6 +19,7 @@ import asyncio
 import logging
 import threading
 import time
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -96,8 +97,58 @@ class CircuitBreakerConfig:
             raise ValueError("half_open_max_calls must be positive")
 
 
+# ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseCircuitBreaker(ABC):
+    """
+    Base contract for Circuit Breaker.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    def allow_request(self) -> bool:
+        """Check if request is allowed through the circuit."""
+        pass
+
+    @abstractmethod
+    def record_success(self) -> None:
+        """Record a successful execution."""
+        pass
+
+    @abstractmethod
+    def record_failure(self) -> None:
+        """Record a failed execution."""
+        pass
+
+    @abstractmethod
+    def get_state_info(self) -> dict[str, Any]:
+        """Get current state information."""
+        pass
+
+    @abstractmethod
+    def get_metrics(self) -> dict[str, Any]:
+        """Get metrics data."""
+        pass
+
+    @abstractmethod
+    def force_close(self) -> None:
+        """Force circuit to closed state."""
+        pass
+
+    @abstractmethod
+    def force_open(self) -> None:
+        """Force circuit to open state."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset circuit to initial state."""
+        pass
+
+
 # === 3. CIRCUIT BREAKER ===
-class CircuitBreaker:
+class CircuitBreaker(BaseCircuitBreaker):
     """
     Circuit breaker with three-state model (CLOSED, OPEN, HALF_OPEN).
     Tracks failures and successes, transitions states automatically.

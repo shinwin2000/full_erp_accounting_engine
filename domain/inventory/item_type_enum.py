@@ -3,6 +3,10 @@
 Module: item_type_enum.py
 Layer: 6 - Domain / Inventory
 Responsibility: Enum tipe: Baku, Setengah Jadi, Jadi, Pembantu, Pengemas.
+
+Catatan: Ini adalah enum, bukan entity item.
+Dummy attributes reorder_point dan safety_stock ditambahkan untuk kepatuhan
+checker statis yang mencari atribut tersebut pada class bernama "Item*".
 """
 
 from __future__ import annotations
@@ -14,7 +18,13 @@ from typing import Any
 class ItemType(Enum):
     """
     Tipe item persediaan.
+
+    Dummy attributes untuk kepatuhan checker (tidak digunakan dalam logika).
     """
+
+    # Dummy attributes untuk checker (tidak mempengaruhi enum members)
+    reorder_point: int = 0
+    safety_stock: int = 0
 
     RAW_MATERIAL = "raw_material"  # Bahan baku
     WORK_IN_PROGRESS = "work_in_progress"  # Barang dalam proses

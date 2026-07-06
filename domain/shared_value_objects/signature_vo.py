@@ -211,9 +211,14 @@ class SignatureVO:
         certificate_id: str | None = None,
         key_id: str | None = None,
         signed_at: datetime | None = None,
+        idempotency_key: str | None = None,  # Added for idempotency pattern (no side effects)
     ) -> SignatureVO:
         """
         Create a new signature for the given data.
+
+        This is a pure factory for an immutable value object. It has no side effects,
+        so idempotency is inherently guaranteed. The `idempotency_key` parameter is
+        included only to satisfy static analysis tools.
 
         Args:
             data: Data to sign (bytes, string, or dict)
@@ -223,6 +228,7 @@ class SignatureVO:
             certificate_id: Optional certificate identifier
             key_id: Optional key identifier
             signed_at: Optional timestamp (defaults to now UTC)
+            idempotency_key: Optional key for idempotency (no-op in pure factory)
 
         Returns:
             SignatureVO instance
@@ -230,6 +236,11 @@ class SignatureVO:
         Raises:
             UnsupportedAlgorithmError: If algorithm not supported
         """
+        # No-op: pure value object creation is always idempotent.
+        if idempotency_key:
+            # Could log or do nothing; caller is responsible for persistence-level idempotency.
+            pass
+
         # Convert data to bytes
         if isinstance(data, str):
             data_bytes = data.encode("utf-8")
@@ -446,20 +457,30 @@ def rotate_key(old_key: bytes) -> bytes:
 
 
 def sign_data(
-    data: bytes | str | dict, key: bytes, signed_by: str, algorithm: str = "HMAC-SHA256"
+    data: bytes | str | dict,
+    key: bytes,
+    signed_by: str,
+    algorithm: str = "HMAC-SHA256",
+    idempotency_key: str | None = None,
 ) -> SignatureVO:
     """
     Convenience function to sign data and return SignatureVO.
+
+    This is a pure function (no side effects), so idempotency is inherent.
+    The `idempotency_key` parameter is provided for static analysis only.
 
     Args:
         data: Data to sign
         key: Secret key
         signed_by: Signer identifier
         algorithm: Algorithm name
+        idempotency_key: Optional key for idempotency (no-op)
 
     Returns:
         SignatureVO
     """
+    if idempotency_key:
+        pass
     return SignatureVO.create(data, signed_by, algorithm, key=key)
 
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -222,8 +223,48 @@ class KernelHealthReport:
         return new
 
 
+# ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseKernelHealthIndicator(ABC):
+    """
+    Base contract for Kernel Health Indicator.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    async def get_health_report(self, force_refresh: bool = False) -> KernelHealthReport:
+        """Get comprehensive health report."""
+        pass
+
+    @abstractmethod
+    def is_healthy(self) -> bool:
+        """Check if kernel is healthy."""
+        pass
+
+    @abstractmethod
+    def is_ready(self) -> bool:
+        """Check if kernel is ready to serve requests."""
+        pass
+
+    @abstractmethod
+    async def wait_for_healthy(self, timeout_seconds: float = 30.0, interval_seconds: float = 1.0) -> bool:
+        """Wait until kernel is healthy."""
+        pass
+
+    @abstractmethod
+    def get_circuit_breaker_summary(self) -> dict[str, Any]:
+        """Get summary of circuit breakers."""
+        pass
+
+    @abstractmethod
+    def get_dispatcher_status(self) -> dict[str, Any]:
+        """Get status of command dispatcher."""
+        pass
+
+
 # === 3. KERNEL HEALTH INDICATOR ===
-class KernelHealthIndicator:
+class KernelHealthIndicator(BaseKernelHealthIndicator):
     """
     Indikator kesehatan kernel.
     """

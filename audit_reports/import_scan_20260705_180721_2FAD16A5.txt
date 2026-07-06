@@ -1,0 +1,64 @@
+================================================================================
+  SovereignImportValidator v3.0.0
+  Audit Standard : ISO/IEC 25010 | SOC 2 Type II | ISAE 3402
+  Scan ID        : 2FAD16A5
+  Timestamp (UTC): 2026-07-05T11:06:58.168259Z
+  Host           : LAPTOP-88FVUOBB
+  Python         : 3.12.7
+  Platform       : Windows-11-10.0.26200-SP0
+  Git Commit     : unknown (unknown)
+  Project Root   : E:\full_erp_accounting_engine
+================================================================================
+
+── RINGKASAN ──────────────────────────────────────────────────────────────────
+  Total Modul    : 1078
+  Berhasil       : 1072
+  Gagal          : 6
+  Warning        : 0
+  Durasi         : 1590533.26 detik
+  Pass Rate      : 99.4%
+  Status         : ❌ GAGAL
+
+── RINGKASAN PER LAYER ─────────────────────────────────────────────────────────
+  ❌ Core Domain                     308/313 (98.4%)
+  ✅ Port Interface                  57/57 (100.0%)
+  ✅ Application Service             253/253 (100.0%)
+  ❌ Infrastructure                  428/429 (99.8%)
+  ✅ Composition Root                26/26 (100.0%)
+
+── ❌ MODUL GAGAL (6) ───────────────────────────────────────────────
+  [CRITICAL] domain/inventory/invariants
+         Module : domain.inventory.invariants
+         Error  : SyntaxError: SyntaxError di baris 1: invalid non-printable character U+FEFF
+         RCA     : Unhandled SyntaxError: SyntaxError di baris 1: invalid non-printable character U+FEFF
+         💡 Fix   : Tambahkan rule analisis spesifik atau periksa logika program.
+
+  [CRITICAL] domain/inventory/movement_entity
+         Module : domain.inventory.movement_entity
+         Error  : SyntaxError: SyntaxError di baris 1: invalid non-printable character U+FEFF
+         RCA     : Unhandled SyntaxError: SyntaxError di baris 1: invalid non-printable character U+FEFF
+         💡 Fix   : Tambahkan rule analisis spesifik atau periksa logika program.
+
+  [FATAL] kernel/guards/async_guards/anti_money_laundering
+         Module : kernel.guards.async_guards.anti_money_laundering
+         Error  : ImportError: cannot import name 'get_anti_money_laundering_engine' from 'kernel.guards.async_guards.anti_money_laundering' (E:\full_e
+         RCA     : Transaksi ditandai sebagai mencurigakan oleh sistem AML.
+         💡 Fix   : Transaksi diblokir oleh kernel/guards/async_guards/anti_money_laundering.py. Review di compliance/aml_risk_scorer.py dan
+
+  [FATAL] kernel/guards/async_guards/fraud_pattern_detector
+         Module : kernel.guards.async_guards.fraud_pattern_detector
+         Error  : ImportError: cannot import name 'get_anti_money_laundering_engine' from 'kernel.guards.async_guards.anti_money_laundering' (E:\full_e
+         RCA     : Transaksi ditandai sebagai mencurigakan oleh sistem AML.
+         💡 Fix   : Transaksi diblokir oleh kernel/guards/async_guards/anti_money_laundering.py. Review di compliance/aml_risk_scorer.py dan
+
+  [CRITICAL] kernel/guards/balance_checker
+         Module : kernel.guards.balance_checker
+         Error  : SyntaxError: SyntaxError di baris 784: '[' was never closed
+         RCA     : Unhandled SyntaxError: SyntaxError di baris 784: '[' was never closed
+         💡 Fix   : Tambahkan rule analisis spesifik atau periksa logika program.
+
+  [FATAL] adapters/primary_api/batch_job_scheduler_adapter
+         Module : adapters.primary_api.batch_job_scheduler_adapter
+         Error  : TypeError: Can't instantiate abstract class RetryPolicy without an implementation for abstract method 'get_statistics'
+         RCA     : ImportError: Can't instantiate abstract class RetryPolicy without an implementation for abstract method 'get_statistics'
+         💡 Fix   : Periksa nama modul dan pastikan semua dependensi terinstal.

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """
 Module: reality_to_accounting_mapper.py
 Layer: 5 - Reality, Intent, Causality / Reality
@@ -6,11 +8,6 @@ Responsibility: Memetakan event ekonomi ke entri akuntansi (double-entry).
                 Menerjemahkan economic events ke dalam jurnal akuntansi
                 dengan debit dan kredit yang sesuai berdasarkan chart of accounts,
                 kebijakan akuntansi, dan aturan PSAK/IFRS.
-
-Dependencies:
-- standard library (logging, decimal, typing, hashlib, json, threading, datetime)
-- reality.economic_event_immutable (EconomicEvent, EconomicEventType)
-- domain.shared_value_objects.money_vo (Money)
 
 Architecture Note:
 - Bersih dari dependensi langsung maupun dinamis ke layer Infrastructure/Adapters.
@@ -33,24 +30,40 @@ from domain.reality.economic_event_immutable import EconomicEvent, EconomicEvent
 logger = logging.getLogger(__name__)
 
 
+# === SAFE CONVERSION HELPERS ===
+
+ZERO = Decimal("0")
+VAT_RATE = Decimal("0.11")
+EPSILON = Decimal("0.01")  # toleransi ketidakseimbangan
+
+
+def _safe_decimal(value: Any, default: Decimal = ZERO) -> Decimal:
+    """Safely convert to Decimal."""
+    if value is None:
+        return default
+    if isinstance(value, Decimal):
+        return value
+    try:
+        return Decimal(str(value))
+    except (ValueError, TypeError):
+        return default
+
+
 # === 0. CUSTOM EXCEPTIONS ===
 
 
 class AccountingMapperError(Exception):
     """Base exception untuk semua kesalahan operational pada RealityToAccountingMapper."""
-
     pass
 
 
 class MappingNotFoundError(AccountingMapperError):
     """Dilemparkan ketika economic event tidak dapat dicocokkan dengan aturan jurnal mana pun."""
-
     pass
 
 
 class MappingImbalanceError(AccountingMapperError):
     """Dilemparkan jika total debit tidak seimbang (balance) dengan total kredit."""
-
     pass
 
 
@@ -169,6 +182,7 @@ class MappedJournal:
         return hashlib.sha3_256(content.encode()).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert MappedJournal to dictionary representation."""
         return {
             "journal_id": str(self.journal_id),
             "journal_number": self.journal_number,
@@ -213,7 +227,6 @@ class RealityToAccountingMapper:
         self, account_repo: Any | None = None, policy_interpreter: Any | None = None
     ) -> None:
         if getattr(self, "_initialized", False):
-            # Izinkan pembaruan dependensi jika dilewatkan ulang pada instance eksis
             if account_repo is not None:
                 self._account_repo = account_repo
             if policy_interpreter is not None:
@@ -274,7 +287,7 @@ class RealityToAccountingMapper:
         total_debit = sum(l.amount for l in lines if l.side == "DEBIT")
         total_credit = sum(l.amount for l in lines if l.side == "CREDIT")
 
-        if abs(total_debit - total_credit) > Decimal("0.01"):
+        if abs(total_debit - total_credit) > EPSILON:
             raise MappingImbalanceError(
                 f"Ketidakseimbangan nilai terdeteksi pada pemetaan jurnal! "
                 f"Total Debit: {total_debit}, Total Kredit: {total_credit}. "
@@ -296,7 +309,6 @@ class RealityToAccountingMapper:
         )
         journal.cryptographic_hash = journal.compute_hash()
 
-        # Pencatatan jejak audit history internal
         self._mapping_history.append(
             {
                 "event_id": str(event.event_id),
@@ -316,7 +328,6 @@ class RealityToAccountingMapper:
     ) -> AccountingMapping | None:
         """Mengevaluasi rule engine dinamis atau fallback ke static mapping internal."""
 
-        # Memprioritaskan peninjauan dari Policy Engine dinamis
         policy_context = {
             "event_type": event.event_type.name,
             "amount": str(event.amount.amount) if event.amount else "0",
@@ -374,9 +385,8 @@ class RealityToAccountingMapper:
     async def _map_sale_of_goods(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
-        vat_rate = Decimal("0.11")
-        vat_amount = amount * vat_rate
+        amount = event.amount.amount if event.amount else ZERO
+        vat_amount = amount * VAT_RATE
 
         debit_account = "1.2.01" if event.metadata.get("payment_method") == "CASH" else "1.1.01"
 
@@ -394,9 +404,8 @@ class RealityToAccountingMapper:
     async def _map_sale_of_services(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
-        vat_rate = Decimal("0.11")
-        vat_amount = amount * vat_rate
+        amount = event.amount.amount if event.amount else ZERO
+        vat_amount = amount * VAT_RATE
 
         debit_account = "1.2.01" if event.metadata.get("payment_method") == "CASH" else "1.1.01"
 
@@ -414,9 +423,8 @@ class RealityToAccountingMapper:
     async def _map_purchase_of_goods(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
-        vat_rate = Decimal("0.11")
-        vat_amount = amount * vat_rate
+        amount = event.amount.amount if event.amount else ZERO
+        vat_amount = amount * VAT_RATE
 
         credit_account = "1.2.01" if event.metadata.get("payment_method") == "CASH" else "2.1.01"
 
@@ -434,7 +442,7 @@ class RealityToAccountingMapper:
     async def _map_purchase_of_services(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         credit_account = "1.2.01" if event.metadata.get("payment_method") == "CASH" else "2.1.01"
 
         desc_lower = event.description.lower()
@@ -456,7 +464,7 @@ class RealityToAccountingMapper:
     async def _map_salary_expense(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         return AccountingMapping(
             debit_accounts=[("5.1.02", amount)],  # Salary Expense
             credit_accounts=[("1.2.01", amount)],  # Cash
@@ -468,7 +476,7 @@ class RealityToAccountingMapper:
     async def _map_rent_expense(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         return AccountingMapping(
             debit_accounts=[("5.1.03", amount)],  # Rent Expense
             credit_accounts=[("1.2.01", amount)],  # Cash
@@ -480,7 +488,7 @@ class RealityToAccountingMapper:
     async def _map_utility_expense(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         return AccountingMapping(
             debit_accounts=[("5.1.09", amount)],  # General Expense (Utility fallback)
             credit_accounts=[("1.2.01", amount)],  # Cash
@@ -492,7 +500,7 @@ class RealityToAccountingMapper:
     async def _map_tax_expense(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         credit_account = "2.2.01" if event.metadata.get("tax_type") == "VAT" else "2.3.01"
         return AccountingMapping(
             debit_accounts=[("5.1.06", amount)],  # Tax Expense
@@ -505,7 +513,7 @@ class RealityToAccountingMapper:
     async def _map_interest_expense(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         return AccountingMapping(
             debit_accounts=[("5.1.05", amount)],  # Interest Expense
             credit_accounts=[("1.2.01", amount)],  # Cash
@@ -517,7 +525,7 @@ class RealityToAccountingMapper:
     async def _map_cash_receipt(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         credit_account = "1.1.01" if event.metadata.get("applied_to_invoice") else "4.1.01"
         return AccountingMapping(
             debit_accounts=[("1.2.01", amount)],  # Cash in Bank
@@ -530,7 +538,7 @@ class RealityToAccountingMapper:
     async def _map_cash_disbursement(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         debit_account = "2.1.01" if event.metadata.get("applied_to_bill") else "5.1.09"
         return AccountingMapping(
             debit_accounts=[(debit_account, amount)],
@@ -543,7 +551,7 @@ class RealityToAccountingMapper:
     async def _map_asset_acquisition(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         debit_account = "1.5.01" if event.metadata.get("asset_type") == "INTANGIBLE" else "1.4.01"
         return AccountingMapping(
             debit_accounts=[(debit_account, amount)],
@@ -556,8 +564,8 @@ class RealityToAccountingMapper:
     async def _map_asset_disposal(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
-        book_value = event.metadata.get("book_value", Decimal(0))
+        amount = event.amount.amount if event.amount else ZERO
+        book_value = event.metadata.get("book_value", ZERO)
         gain_loss = amount - book_value
 
         debits = [("1.2.01", amount)]
@@ -579,7 +587,7 @@ class RealityToAccountingMapper:
     async def _map_asset_depreciation(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         return AccountingMapping(
             debit_accounts=[("5.1.04", amount)],  # Depreciation Expense
             credit_accounts=[("1.4.02", amount)],  # Accumulated Depreciation
@@ -591,7 +599,7 @@ class RealityToAccountingMapper:
     async def _map_asset_impairment(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         return AccountingMapping(
             debit_accounts=[("5.1.07", amount)],  # Bad Debt / Impairment Expense
             credit_accounts=[("1.4.01", amount)],  # Reduce Asset Direct
@@ -603,7 +611,7 @@ class RealityToAccountingMapper:
     async def _map_inventory_receipt(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         return AccountingMapping(
             debit_accounts=[("1.3.01", amount)],  # Inventory
             credit_accounts=[("2.1.01", amount)],  # Accounts Payable
@@ -615,7 +623,7 @@ class RealityToAccountingMapper:
     async def _map_inventory_issue(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         return AccountingMapping(
             debit_accounts=[("5.1.01", amount)],  # Cost of Goods Sold
             credit_accounts=[("1.3.01", amount)],  # Inventory
@@ -627,7 +635,7 @@ class RealityToAccountingMapper:
     async def _map_loan_drawdown(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         return AccountingMapping(
             debit_accounts=[("1.2.01", amount)],  # Cash in Bank
             credit_accounts=[("2.4.01", amount)],  # Loan Payable
@@ -639,8 +647,8 @@ class RealityToAccountingMapper:
     async def _map_loan_repayment(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        principal = event.amount.amount if event.amount else Decimal(0)
-        interest = event.metadata.get("interest", Decimal(0))
+        principal = event.amount.amount if event.amount else ZERO
+        interest = event.metadata.get("interest", ZERO)
         total = principal + interest
 
         debits = [("2.4.01", principal)]
@@ -658,7 +666,7 @@ class RealityToAccountingMapper:
     async def _map_capital_contribution(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         return AccountingMapping(
             debit_accounts=[("1.2.01", amount)],  # Cash in Bank
             credit_accounts=[("3.1.01", amount)],  # Share Capital
@@ -670,7 +678,7 @@ class RealityToAccountingMapper:
     async def _map_capital_withdrawal(
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
-        amount = event.amount.amount if event.amount else Decimal(0)
+        amount = event.amount.amount if event.amount else ZERO
         return AccountingMapping(
             debit_accounts=[("3.1.01", amount)],  # Share Capital
             credit_accounts=[("1.2.01", amount)],  # Cash
@@ -683,8 +691,8 @@ class RealityToAccountingMapper:
         self, event: EconomicEvent, legal_entity_id: UUID
     ) -> AccountingMapping:
         return AccountingMapping(
-            debit_accounts=[("4.1.01", Decimal("0.00"))],  # Balanced structural placeholder
-            credit_accounts=[("3.2.01", Decimal("0.00"))],
+            debit_accounts=[("4.1.01", ZERO)],
+            credit_accounts=[("3.2.01", ZERO)],
             description=f"Period close: {event.description}",
             reference=event.source_document_ref or "",
             journal_type="CLOSING",

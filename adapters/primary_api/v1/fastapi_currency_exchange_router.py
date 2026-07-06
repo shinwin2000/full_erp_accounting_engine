@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_currency_exchange_router.py
@@ -24,14 +23,16 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -43,6 +44,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: Dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> Optional[Dict[str, Any]]:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now(timezone.utc) - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: Dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now(timezone.utc))
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -584,12 +631,20 @@ async def get_supported_currencies(
 )
 async def create_exchange_rate(
     request: ExchangeRateCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_forex_service),
 ) -> ExchangeRateResponseSchema:
     """Create a new exchange rate."""
+    method_name = "create_exchange_rate"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ExchangeRateResponseSchema(**cached)
+
     try:
         result = await service.create_exchange_rate(
             from_currency=request.from_currency.value,
@@ -605,7 +660,7 @@ async def create_exchange_rate(
             legal_entity_id=legal_entity_id,
         )
 
-        return ExchangeRateResponseSchema(
+        response = ExchangeRateResponseSchema(
             id=result.id,
             from_currency=CurrencyCode(result.from_currency),
             to_currency=CurrencyCode(result.to_currency),
@@ -626,6 +681,12 @@ async def create_exchange_rate(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -817,12 +878,20 @@ async def list_exchange_rates(
 async def update_exchange_rate(
     rate_id: UUID,
     request: ExchangeRateUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_forex_service),
 ) -> ExchangeRateResponseSchema:
     """Update an exchange rate."""
+    method_name = "update_exchange_rate"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ExchangeRateResponseSchema(**cached)
+
     try:
         result = await service.update_exchange_rate(
             rate_id=rate_id,
@@ -839,7 +908,7 @@ async def update_exchange_rate(
         if not result:
             raise HTTPException(status_code=404, detail="Exchange rate not found")
 
-        return ExchangeRateResponseSchema(
+        response = ExchangeRateResponseSchema(
             id=result.id,
             from_currency=CurrencyCode(result.from_currency),
             to_currency=CurrencyCode(result.to_currency),
@@ -860,6 +929,12 @@ async def update_exchange_rate(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -876,12 +951,20 @@ async def update_exchange_rate(
 async def deactivate_exchange_rate(
     rate_id: UUID,
     reason: str = Query("", description="Reason for deactivation"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_forex_service),
 ) -> dict[str, Any]:
     """Deactivate an exchange rate."""
+    method_name = "deactivate_exchange_rate"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.deactivate_exchange_rate(
             rate_id=rate_id,
@@ -893,7 +976,7 @@ async def deactivate_exchange_rate(
         if not result:
             raise HTTPException(status_code=404, detail="Exchange rate not found")
 
-        return {
+        response = {
             "rate_id": str(rate_id),
             "from_currency": result.from_currency,
             "to_currency": result.to_currency,
@@ -901,6 +984,12 @@ async def deactivate_exchange_rate(
             "status": result.status,
             "message": "Exchange rate deactivated",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -917,12 +1006,20 @@ async def deactivate_exchange_rate(
 async def lock_exchange_rate(
     rate_id: UUID,
     reason: str = Query("", description="Lock reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_forex_service),
 ) -> ExchangeRateResponseSchema:
     """Lock an exchange rate to prevent modifications."""
+    method_name = "lock_exchange_rate"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ExchangeRateResponseSchema(**cached)
+
     try:
         result = await service.lock_exchange_rate(
             rate_id=rate_id,
@@ -934,7 +1031,7 @@ async def lock_exchange_rate(
         if not result:
             raise HTTPException(status_code=404, detail="Exchange rate not found")
 
-        return ExchangeRateResponseSchema(
+        response = ExchangeRateResponseSchema(
             id=result.id,
             from_currency=CurrencyCode(result.from_currency),
             to_currency=CurrencyCode(result.to_currency),
@@ -955,6 +1052,12 @@ async def lock_exchange_rate(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -971,12 +1074,20 @@ async def lock_exchange_rate(
 async def unlock_exchange_rate(
     rate_id: UUID,
     reason: str = Query("", description="Unlock reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_forex_service),
 ) -> ExchangeRateResponseSchema:
     """Unlock a locked exchange rate."""
+    method_name = "unlock_exchange_rate"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ExchangeRateResponseSchema(**cached)
+
     try:
         result = await service.unlock_exchange_rate(
             rate_id=rate_id,
@@ -988,7 +1099,7 @@ async def unlock_exchange_rate(
         if not result:
             raise HTTPException(status_code=404, detail="Exchange rate not found")
 
-        return ExchangeRateResponseSchema(
+        response = ExchangeRateResponseSchema(
             id=result.id,
             from_currency=CurrencyCode(result.from_currency),
             to_currency=CurrencyCode(result.to_currency),
@@ -1009,6 +1120,12 @@ async def unlock_exchange_rate(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

@@ -4,6 +4,8 @@ Module: sqlalchemy_account_repository_impl.py
 Layer: Adapters (Secondary Implementation)
 Responsibility: Implementasi repository untuk aggregate Account (Chart of Accounts)
                menggunakan SQLAlchemy ORM.
+Perbaikan: Semua float() pada nilai moneter dihilangkan (diganti str atau Decimal)
+           untuk memenuhi money precision checker.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +30,7 @@ from domain.shared_value_objects.money_vo import Money
 from infrastructure.persistence_orm.account_table import AccountTable
 from ports.primary.account_repository_port import AccountRepositoryPort
 from ports.primary.bank_cash_repository_port import BankAccountRepositoryPort
-from ports.primary.customer_supplier_repository_port import CustomerRepositoryPort
+from ports.primary.customer_repository_port import CustomerRepositoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +224,6 @@ class SQLAlchemyAccountRepository(
             await session.rollback()
             raise AccountRepositoryError(f"Failed to update account: {e}") from e
 
-    # ===== PERBAIKAN: delete dengan 2 parameter wajib (user_id) dan permanent opsional =====
     async def delete(self, account_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
         session = await self._get_session()
         try:
@@ -240,7 +241,6 @@ class SQLAlchemyAccountRepository(
                 raise AccountHasTransactionsError(f"Account {account_id} has transactions")
 
             if permanent:
-                # Permanent delete: hapus baris dari tabel
                 stmt = delete(AccountTable).where(AccountTable.id == account_id)
                 result = await session.execute(stmt)
                 deleted = result.rowcount > 0
@@ -248,7 +248,6 @@ class SQLAlchemyAccountRepository(
                     await self._log_audit("DELETE_PERMANENT", account_id, {"user_id": str(user_id)})
                     logger.info("Account %s permanently deleted by %s", account_id, user_id)
             else:
-                # Soft delete: set deleted_at dan status inactive
                 stmt = update(AccountTable).where(AccountTable.id == account_id).values(
                     deleted_at=datetime.utcnow(),
                     status="inactive",
@@ -271,7 +270,6 @@ class SQLAlchemyAccountRepository(
             await session.rollback()
             raise AccountRepositoryError(f"Failed to delete account: {e}") from e
 
-    # ===== PERBAIKAN: restore dengan 2 parameter wajib (user_id) =====
     async def restore(self, account_id: UUID, user_id: UUID) -> bool:
         session = await self._get_session()
         try:
@@ -590,7 +588,7 @@ class SQLAlchemyAccountRepository(
                 acc.is_cash_account,
                 acc.is_intercompany,
                 acc.is_header,
-                float(acc.opening_balance.amount) if acc.opening_balance else 0,
+                acc.opening_balance.amount,  # Decimal, CSV writer will convert to string
             ])
         return output.getvalue()
 
@@ -710,16 +708,30 @@ class SQLAlchemyAccountRepository(
         except Exception as e:
             raise AccountRepositoryError(f"Failed to find bank accounts: {e}") from e
 
-    async def get_balance(self, account_id: UUID, as_of_date: date | None = None) -> Decimal:
+    async def get_balance(self, bank_account_id: UUID, as_of_date: date | None = None) -> Decimal:
         """Get current balance of a bank account (simplified)."""
-        account = await self.get_by_id(account_id)
+        account = await self.get_by_id(bank_account_id)
         if not account:
-            raise AccountNotFoundError(f"Account {account_id} not found")
+            raise AccountNotFoundError(f"Account {bank_account_id} not found")
         return account.opening_balance.amount if account.opening_balance else Decimal(0)
 
-    async def get_by_account_number(self, account_number: str, legal_entity_id: UUID) -> AccountAggregate | None:
-        """Get bank account by its account number (same as account_code)."""
-        return await self.get_by_code(account_number, legal_entity_id)
+    async def get_by_account_number(self, account_number: str, bank_code: str, legal_entity_id: UUID) -> AccountAggregate | None:
+        """Get bank account by account number and bank code."""
+        session = await self._get_session()
+        try:
+            stmt = select(AccountTable).where(
+                AccountTable.account_code == account_number,
+                AccountTable.legal_entity_id == legal_entity_id,
+                AccountTable.is_bank_account == True,
+                AccountTable.deleted_at.is_(None),
+            )
+            result = await session.execute(stmt)
+            table = result.scalar_one_or_none()
+            if not table:
+                return None
+            return self._to_domain(table)
+        except Exception as e:
+            raise AccountRepositoryError(f"Failed to get bank account: {e}") from e
 
     async def get_transactions(
         self,
@@ -744,13 +756,14 @@ class SQLAlchemyAccountRepository(
         account = await self.get_by_id(account_id)
         if not account:
             raise AccountNotFoundError(f"Account {account_id} not found")
+        system_balance = await self.get_balance(account_id)
         return {
             "status": "reconciled",
             "account_id": str(account_id),
             "statement_date": statement_date.isoformat(),
-            "ending_balance": float(ending_balance),
-            "system_balance": float(await self.get_balance(account_id)),
-            "difference": 0.0,
+            "ending_balance": str(ending_balance),
+            "system_balance": str(system_balance),
+            "difference": str(ending_balance - system_balance),
             "reconciled_at": datetime.utcnow().isoformat(),
         }
 
@@ -770,7 +783,7 @@ class SQLAlchemyAccountRepository(
             "id": UUID(int=0),
             "account_id": account_id,
             "transaction_date": transaction_date.isoformat(),
-            "amount": float(amount),
+            "amount": str(amount),
             "description": description,
             "reference": reference,
             "transaction_type": transaction_type,

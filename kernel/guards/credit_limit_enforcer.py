@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -276,10 +277,134 @@ class CreditLimitInfo:
         }
 
 
-# === 3. CREDIT LIMIT ENFORCER ===
+# ============================================================================
+# BASE CREDIT LIMIT ENFORCER (ABSTRACT)
+# ============================================================================
+
+class BaseCreditLimitEnforcer(ABC):
+    """Base contract untuk Credit Limit Enforcer."""
+
+    @abstractmethod
+    def set_thresholds(
+        self,
+        warning_percentage: Decimal,
+        block_percentage: Decimal,
+        overdue_penalty_percentage: Decimal | None = None,
+    ) -> None:
+        """Set threshold persentase untuk warning dan block."""
+        pass
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan enforcer."""
+        pass
+
+    @abstractmethod
+    async def check_credit_limit(
+        self,
+        customer_id: UUID,
+        invoice_amount: Decimal,
+        legal_entity_id: UUID | None = None,
+        currency: str = "IDR",
+        include_overdue_penalty: bool = True,
+    ) -> CreditLimitInfo:
+        """Memeriksa batas kredit pelanggan."""
+        pass
+
+    @abstractmethod
+    async def check_multiple_invoices(
+        self,
+        customer_id: UUID,
+        invoice_amounts: list[Decimal],
+        legal_entity_id: UUID | None = None,
+        currency: str = "IDR",
+    ) -> tuple[bool, list[CreditLimitInfo]]:
+        """Memeriksa batas kredit untuk multiple faktur secara sequential."""
+        pass
+
+    @abstractmethod
+    async def enforce(
+        self,
+        customer_id: UUID,
+        invoice_amount: Decimal,
+        legal_entity_id: UUID | None = None,
+        bypass_warning: bool = False,
+        raise_on_violation: bool = True,
+        user_id: str | None = None,
+    ) -> CreditLimitInfo:
+        """Menegakkan batas kredit, raise exception jika diblokir."""
+        pass
+
+    @abstractmethod
+    def get_check_history(
+        self,
+        limit: int = 100,
+        customer_id: UUID | None = None,
+        only_violations: bool = False,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[CreditLimitInfo]:
+        """Mendapatkan history pemeriksaan credit limit."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Mendapatkan statistik credit limit enforcer."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset history (untuk testing)."""
+        pass
+
+    # === Entity methods (wajib untuk semua guard) ===
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> CreditLimitEnforcer:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> CreditLimitEnforcer:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> CreditLimitEnforcer:
+        """Touch instance (increment version)."""
+        pass
 
 
-class CreditLimitEnforcer:
+# ============================================================================
+# CREDIT LIMIT ENFORCER (CONCRETE)
+# ============================================================================
+
+class CreditLimitEnforcer(BaseCreditLimitEnforcer):
     """
     Guard untuk menegakkan batas kredit pelanggan.
 
@@ -302,7 +427,116 @@ class CreditLimitEnforcer:
         self._max_history = 10000
         self._lock = threading.RLock()
         self._enabled = True
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
 
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        customer_id = context.get("customer_id")
+        invoice_amount = context.get("invoice_amount")
+        if not customer_id:
+            errors.append("customer_id is required")
+        if invoice_amount is None:
+            errors.append("invoice_amount is required")
+        else:
+            try:
+                amount = Decimal(str(invoice_amount))
+                if amount <= 0:
+                    errors.append("invoice_amount must be positive")
+            except Exception:
+                errors.append("invoice_amount must be a valid number")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._warning_threshold_percentage < 0 or self._warning_threshold_percentage > 100:
+            errors.append("warning_threshold_percentage must be between 0 and 100")
+        if self._block_threshold_percentage < 0 or self._block_threshold_percentage > 100:
+            errors.append("block_threshold_percentage must be between 0 and 100")
+        if self._overdue_penalty_percentage < 0 or self._overdue_penalty_percentage > 100:
+            errors.append("overdue_penalty_percentage must be between 0 and 100")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        return {
+            "warning_threshold_percentage": str(self._warning_threshold_percentage),
+            "block_threshold_percentage": str(self._block_threshold_percentage),
+            "overdue_penalty_percentage": str(self._overdue_penalty_percentage),
+            "max_history": self._max_history,
+            "enabled": self._enabled,
+            "version": self._version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CreditLimitEnforcer:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._warning_threshold_percentage = Decimal(str(data.get("warning_threshold_percentage", 85)))
+        instance._block_threshold_percentage = Decimal(str(data.get("block_threshold_percentage", 100)))
+        instance._overdue_penalty_percentage = Decimal(str(data.get("overdue_penalty_percentage", 10)))
+        instance._max_history = data.get("max_history", 10000)
+        instance._enabled = data.get("enabled", True)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> CreditLimitEnforcer:
+        """Clone instance."""
+        new_instance = CreditLimitEnforcer()
+        new_instance._warning_threshold_percentage = self._warning_threshold_percentage
+        new_instance._block_threshold_percentage = self._block_threshold_percentage
+        new_instance._overdue_penalty_percentage = self._overdue_penalty_percentage
+        new_instance._max_history = self._max_history
+        new_instance._enabled = self._enabled
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "history_count": len(self._check_history),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> CreditLimitEnforcer:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
     def set_thresholds(
         self,
         warning_percentage: Decimal,
@@ -334,19 +568,7 @@ class CreditLimitEnforcer:
         currency: str = "IDR",
         include_overdue_penalty: bool = True,
     ) -> CreditLimitInfo:
-        """
-        Memeriksa batas kredit pelanggan.
-
-        Args:
-            customer_id: ID pelanggan
-            invoice_amount: Jumlah faktur
-            legal_entity_id: Entitas hukum (opsional)
-            currency: Mata uang (default IDR)
-            include_overdue_penalty: Apakah memasukkan penalti overdue
-
-        Returns:
-            CreditLimitInfo
-        """
+        """Memeriksa batas kredit pelanggan."""
         if not self._enabled:
             return CreditLimitInfo(
                 check_id=uuid4(),
@@ -542,12 +764,7 @@ class CreditLimitEnforcer:
         legal_entity_id: UUID | None = None,
         currency: str = "IDR",
     ) -> tuple[bool, list[CreditLimitInfo]]:
-        """
-        Memeriksa batas kredit untuk multiple faktur secara sequential.
-
-        Returns:
-            (is_allowed_for_all, list_of_results)
-        """
+        """Memeriksa batas kredit untuk multiple faktur secara sequential."""
         if legal_entity_id is None:
             legal_entity_id = get_current_legal_entity()
 
@@ -657,23 +874,7 @@ class CreditLimitEnforcer:
         raise_on_violation: bool = True,
         user_id: str | None = None,
     ) -> CreditLimitInfo:
-        """
-        Menegakkan batas kredit, raise exception jika diblokir.
-
-        Args:
-            customer_id: ID pelanggan
-            invoice_amount: Jumlah faktur
-            legal_entity_id: Entitas hukum
-            bypass_warning: Jika True, warning dianggap allow
-            raise_on_violation: Raise exception jika violation
-            user_id: User ID (untuk audit)
-
-        Returns:
-            CreditLimitInfo
-
-        Raises:
-            CreditLimitEnforcerError: Jika credit limit exceeded atau perlu approval
-        """
+        """Menegakkan batas kredit, raise exception jika diblokir."""
         result = await self.check_credit_limit(customer_id, invoice_amount, legal_entity_id)
 
         if raise_on_violation:
@@ -731,7 +932,7 @@ class CreditLimitEnforcer:
         with self._lock:
             total = len(self._check_history)
             if total == 0:
-                return {"total_checks": 0, "enabled": self._enabled}
+                return {"total_checks": 0, "enabled": self._enabled, "version": self._version}
 
             blocks = len([r for r in self._check_history if r.action == CreditCheckAction.BLOCK])
             warnings = len([r for r in self._check_history if r.action == CreditCheckAction.WARN])
@@ -758,6 +959,7 @@ class CreditLimitEnforcer:
                 "block_threshold_percentage": str(self._block_threshold_percentage),
                 "overdue_penalty_percentage": str(self._overdue_penalty_percentage),
                 "enabled": self._enabled,
+                "version": self._version,
                 "latest_check": self._check_history[-1].timestamp.isoformat()
                 if self._check_history
                 else None,

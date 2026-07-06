@@ -29,6 +29,8 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -36,7 +38,9 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from domain.shared_value_objects.enums import TransactionType
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -48,6 +52,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -67,22 +117,6 @@ class TaxType(str, Enum):
     PPH_4_2 = "pph4_2"
     PPH_BADAN = "pph_badan"
     PPH_FINAL = "pph_final"
-
-
-class TransactionType(str, Enum):
-    """Jenis transaksi untuk perhitungan pajak."""
-
-    SALES = "sales"
-    PURCHASE = "purchase"
-    SALARY = "salary"
-    DIVIDEND = "dividend"
-    INTEREST = "interest"
-    ROYALTY = "royalty"
-    SERVICE = "service"
-    RENT = "rent"
-    IMPORT = "import"
-    EXPORT = "export"
-    CONSTRUCTION = "construction"
 
 
 class FakturStatus(str, Enum):
@@ -573,18 +607,16 @@ class TaxFilingStatusSchema(BaseModel):
 # ============================================================================
 
 
-async def get_tax_service(request: Request, ) -> Any:
+async def get_tax_service(request: Request) -> Any:
     """Get Tax Service instance."""
-
     from application.service_layer.service_tax import TaxService
 
     container = request.app.state.container
     return container.resolve(TaxService)
 
 
-async def get_coretax_service(request: Request, ) -> Any:
+async def get_coretax_service(request: Request) -> Any:
     """Get Coretax Service instance."""
-
     from application.service_layer.service_coretax import CoretaxService
 
     container = request.app.state.container
@@ -593,7 +625,6 @@ async def get_coretax_service(request: Request, ) -> Any:
 
 async def get_coretax_bulk_use_case() -> Any:
     """Get Coretax Bulk Submission Use Case instance."""
-
     from application.use_cases.coretax_bulk_submission import CoretaxBulkSubmissionUseCase
 
     container = request.app.state.container
@@ -692,12 +723,20 @@ async def calculate_tax(
 )
 async def create_faktur_pajak(
     request: FakturPajakCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("tax:create_faktur")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coretax_service: Any = Depends(get_coretax_service),
 ) -> FakturPajakResponseSchema:
     """Create and submit tax invoice to Coretax."""
+    method_name = "create_faktur_pajak"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return FakturPajakResponseSchema(**cached)
+
     try:
         result = await coretax_service.create_faktur_pajak(
             legal_entity_id=legal_entity_id,
@@ -716,7 +755,7 @@ async def create_faktur_pajak(
             created_by=current_user.user_id,
         )
 
-        return FakturPajakResponseSchema(
+        response = FakturPajakResponseSchema(
             id=result.id,
             faktur_number=result.faktur_number,
             nsfp=result.nsfp,
@@ -739,6 +778,11 @@ async def create_faktur_pajak(
             created_by=result.created_by,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -862,12 +906,20 @@ async def get_faktur_pajak(
 async def cancel_faktur_pajak(
     faktur_id: UUID,
     reason: str = Query(..., min_length=5, description="Cancellation reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("tax:cancel_faktur")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coretax_service: Any = Depends(get_coretax_service),
 ) -> dict[str, Any]:
     """Cancel a tax invoice (void)."""
+    method_name = "cancel_faktur_pajak"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await coretax_service.cancel_faktur_pajak(
             faktur_id=faktur_id,
@@ -879,12 +931,17 @@ async def cancel_faktur_pajak(
         if not result:
             raise HTTPException(status_code=404, detail="Faktur not found or cannot be cancelled")
 
-        return {
+        response = {
             "faktur_id": str(faktur_id),
             "faktur_number": result.faktur_number,
             "status": result.status,
             "message": "Faktur cancelled successfully",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -906,12 +963,20 @@ async def cancel_faktur_pajak(
 )
 async def request_nsfp(
     request: NSFPRequestSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("tax:nsfp")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coretax_service: Any = Depends(get_coretax_service),
 ) -> NSFPResponseSchema:
     """Request NSFP from DJP Coretax."""
+    method_name = "request_nsfp"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return NSFPResponseSchema(**cached)
+
     try:
         result = await coretax_service.request_nsfp(
             legal_entity_id=legal_entity_id,
@@ -921,7 +986,7 @@ async def request_nsfp(
             requested_by=current_user.user_id,
         )
 
-        return NSFPResponseSchema(
+        response = NSFPResponseSchema(
             request_id=result.request_id,
             tahun=result.tahun,
             bulan=result.bulan,
@@ -930,6 +995,11 @@ async def request_nsfp(
             remaining_quota=result.remaining_quota,
             requested_at=result.requested_at,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -984,11 +1054,19 @@ async def get_nsfp_quota(
 )
 async def validate_ntpn(
     request: NTPNValidationSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("tax:validate_ntpn")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coretax_service: Any = Depends(get_coretax_service),
 ) -> NTPNValidationResponseSchema:
     """Validate NTPN (payment confirmation) with DJP Coretax."""
+    method_name = "validate_ntpn"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return NTPNValidationResponseSchema(**cached)
+
     try:
         result = await coretax_service.validate_ntpn(
             legal_entity_id=legal_entity_id,
@@ -999,7 +1077,7 @@ async def validate_ntpn(
             tax_type=request.tax_type,
         )
 
-        return NTPNValidationResponseSchema(
+        response = NTPNValidationResponseSchema(
             ntpn=result.ntpn,
             is_valid=result.is_valid,
             validation_message=result.message,
@@ -1011,6 +1089,11 @@ async def validate_ntpn(
             period=result.period,
             validated_at=result.validated_at,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1032,12 +1115,20 @@ async def validate_ntpn(
 )
 async def submit_spt_ppn(
     request: SPTMasaPPNCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("tax:submit_spt")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coretax_service: Any = Depends(get_coretax_service),
 ) -> CoretaxSubmissionResponseSchema:
     """Submit SPT Masa PPN to Coretax."""
+    method_name = "submit_spt_ppn"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return CoretaxSubmissionResponseSchema(**cached)
+
     try:
         result = await coretax_service.submit_spt_ppn(
             legal_entity_id=legal_entity_id,
@@ -1053,7 +1144,7 @@ async def submit_spt_ppn(
             submitted_by=current_user.user_id,
         )
 
-        return CoretaxSubmissionResponseSchema(
+        response = CoretaxSubmissionResponseSchema(
             submission_id=result.id,
             submission_type="spt_ppn",
             reference_number=f"SPT-{request.tahun_pajak}-{request.masa_pajak:02d}",
@@ -1064,6 +1155,11 @@ async def submit_spt_ppn(
             created_at=result.created_at,
             submitted_at=result.submitted_at,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1085,12 +1181,20 @@ async def submit_spt_ppn(
 )
 async def submit_spt_pph21(
     request: SPTMasaPPH21CreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("tax:submit_spt")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coretax_service: Any = Depends(get_coretax_service),
 ) -> CoretaxSubmissionResponseSchema:
     """Submit SPT Masa PPh 21 to Coretax."""
+    method_name = "submit_spt_pph21"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return CoretaxSubmissionResponseSchema(**cached)
+
     try:
         result = await coretax_service.submit_spt_pph21(
             legal_entity_id=legal_entity_id,
@@ -1103,7 +1207,7 @@ async def submit_spt_pph21(
             submitted_by=current_user.user_id,
         )
 
-        return CoretaxSubmissionResponseSchema(
+        response = CoretaxSubmissionResponseSchema(
             submission_id=result.id,
             submission_type="spt_pph21",
             reference_number=f"SPT21-{request.tahun_pajak}-{request.masa_pajak:02d}",
@@ -1114,6 +1218,11 @@ async def submit_spt_pph21(
             created_at=result.created_at,
             submitted_at=result.submitted_at,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1135,12 +1244,20 @@ async def submit_spt_pph21(
 )
 async def submit_spt_pph23(
     request: SPTMasaPPH23CreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("tax:submit_spt")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coretax_service: Any = Depends(get_coretax_service),
 ) -> CoretaxSubmissionResponseSchema:
     """Submit SPT Masa PPh 23/26 to Coretax."""
+    method_name = "submit_spt_pph23"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return CoretaxSubmissionResponseSchema(**cached)
+
     try:
         result = await coretax_service.submit_spt_pph23(
             legal_entity_id=legal_entity_id,
@@ -1155,7 +1272,7 @@ async def submit_spt_pph23(
             submitted_by=current_user.user_id,
         )
 
-        return CoretaxSubmissionResponseSchema(
+        response = CoretaxSubmissionResponseSchema(
             submission_id=result.id,
             submission_type=f"spt_pph{request.jenis_pajak}",
             reference_number=f"SPT{request.jenis_pajak}-{request.tahun_pajak}-{request.masa_pajak:02d}",
@@ -1166,6 +1283,11 @@ async def submit_spt_pph23(
             created_at=result.created_at,
             submitted_at=result.submitted_at,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1187,12 +1309,20 @@ async def submit_spt_pph23(
 )
 async def submit_spt_tahunan_badan(
     request: SPTTahunanBadanCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("tax:submit_spt")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coretax_service: Any = Depends(get_coretax_service),
 ) -> CoretaxSubmissionResponseSchema:
     """Submit Annual Corporate Income Tax Return to Coretax."""
+    method_name = "submit_spt_tahunan_badan"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return CoretaxSubmissionResponseSchema(**cached)
+
     try:
         result = await coretax_service.submit_spt_tahunan_badan(
             legal_entity_id=legal_entity_id,
@@ -1209,7 +1339,7 @@ async def submit_spt_tahunan_badan(
             submitted_by=current_user.user_id,
         )
 
-        return CoretaxSubmissionResponseSchema(
+        response = CoretaxSubmissionResponseSchema(
             submission_id=result.id,
             submission_type="spt_tahunan_badan",
             reference_number=f"SPT-B-{request.tahun_pajak}",
@@ -1220,6 +1350,11 @@ async def submit_spt_tahunan_badan(
             created_at=result.created_at,
             submitted_at=result.submitted_at,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1241,12 +1376,20 @@ async def submit_spt_tahunan_badan(
 )
 async def create_e_bupot(
     request: EBupotCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("tax:create_bupot")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coretax_service: Any = Depends(get_coretax_service),
 ) -> EBupotResponseSchema:
     """Create and submit e-Bupot PPh 23/26 to Coretax."""
+    method_name = "create_e_bupot"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return EBupotResponseSchema(**cached)
+
     try:
         result = await coretax_service.create_e_bupot(
             legal_entity_id=legal_entity_id,
@@ -1266,7 +1409,7 @@ async def create_e_bupot(
             created_by=current_user.user_id,
         )
 
-        return EBupotResponseSchema(
+        response = EBupotResponseSchema(
             id=result.id,
             bupot_number=result.bupot_number,
             official_number=result.official_number,
@@ -1277,6 +1420,11 @@ async def create_e_bupot(
             approved_at=result.approved_at,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1330,6 +1478,58 @@ async def list_e_bupot(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.post(
+    "/e-bupot/{bupot_id}/cancel",
+    response_model=dict[str, Any],
+    summary="Cancel e-Bupot",
+    operation_id="cancel_e_bupot",
+)
+async def cancel_e_bupot(
+    bupot_id: UUID,
+    reason: str = Query(..., min_length=5, description="Cancellation reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    _permission: None = Depends(require_permission("tax:cancel_bupot")),
+    current_user: TokenPayload = Depends(get_current_user),
+    legal_entity_id: UUID = Depends(get_current_legal_entity),
+    coretax_service: Any = Depends(get_coretax_service),
+) -> dict[str, Any]:
+    """Cancel an e-Bupot."""
+    method_name = "cancel_e_bupot"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
+    try:
+        result = await coretax_service.cancel_e_bupot(
+            bupot_id=bupot_id,
+            legal_entity_id=legal_entity_id,
+            reason=reason,
+            cancelled_by=current_user.user_id,
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="e-Bupot not found or cannot be cancelled")
+
+        response = {
+            "bupot_id": str(bupot_id),
+            "bupot_number": result.bupot_number,
+            "status": result.status,
+            "message": "e-Bupot cancelled successfully",
+        }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to cancel e-Bupot: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 # ----------------------------------------------------------------------------
 # E-METERAI
 # ----------------------------------------------------------------------------
@@ -1343,11 +1543,19 @@ async def list_e_bupot(
 )
 async def validate_e_meterai(
     request: EMeteraiValidateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("tax:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coretax_service: Any = Depends(get_coretax_service),
 ) -> dict[str, Any]:
     """Validate e-Meterai with Coretax."""
+    method_name = "validate_e_meterai"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await coretax_service.validate_e_meterai(
             legal_entity_id=legal_entity_id,
@@ -1355,7 +1563,7 @@ async def validate_e_meterai(
             document_id=request.document_id,
         )
 
-        return {
+        response = {
             "meterai_code": (request.meterai_code[:8] + "..." + request.meterai_code[-4:]
                              if request.meterai_code else None),
             "is_valid": result.is_valid,
@@ -1365,6 +1573,11 @@ async def validate_e_meterai(
             "used_on_document": result.used_on_document,
             "message": result.message,
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1381,12 +1594,20 @@ async def validate_e_meterai(
 )
 async def purchase_e_meterai(
     request: EMeteraiPurchaseSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("tax:purchase_meterai")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coretax_service: Any = Depends(get_coretax_service),
 ) -> dict[str, Any]:
     """Purchase e-Meterai from DJP Coretax."""
+    method_name = "purchase_e_meterai"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await coretax_service.purchase_e_meterai(
             legal_entity_id=legal_entity_id,
@@ -1396,7 +1617,7 @@ async def purchase_e_meterai(
             purchased_by=current_user.user_id,
         )
 
-        return {
+        response = {
             "purchase_id": str(result.purchase_id),
             "transaction_id": result.transaction_id,
             "quantity": result.quantity,
@@ -1405,6 +1626,11 @@ async def purchase_e_meterai(
             "status": result.status,
             "purchased_at": result.purchased_at.isoformat(),
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1425,12 +1651,20 @@ async def purchase_e_meterai(
 )
 async def bulk_submit_faktur(
     faktur_ids: list[UUID] = Body(..., description="List of faktur IDs"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("tax:bulk_submit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     bulk_use_case: Any = Depends(get_coretax_bulk_use_case),
 ) -> dict[str, Any]:
     """Bulk submit multiple tax invoices to Coretax."""
+    method_name = "bulk_submit_faktur"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await bulk_use_case.submit_faktur_batch(
             faktur_ids=faktur_ids,
@@ -1438,7 +1672,7 @@ async def bulk_submit_faktur(
             submitted_by=current_user.user_id,
         )
 
-        return {
+        response = {
             "batch_id": str(result.batch_id),
             "total_submitted": result.total_submitted,
             "success_count": result.success_count,
@@ -1446,6 +1680,11 @@ async def bulk_submit_faktur(
             "failed_ids": [str(fid) for fid in result.failed_ids],
             "errors": result.errors,
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except Exception as e:
         logger.exception("Failed to bulk submit faktur: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")

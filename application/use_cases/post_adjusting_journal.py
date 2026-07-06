@@ -7,6 +7,7 @@ Layer: 5 - Application / Use Cases
 
 Responsibility:
     Use case untuk posting adjusting journal (jurnal penyesuaian) pada akhir periode.
+    Dilengkapi dengan idempotensi pada level handler.
 """
 
 from __future__ import annotations
@@ -25,6 +26,9 @@ from domain.fiscal_period.aggregate_root import PeriodStatus
 from kernel.sealed_gate import SealedGate
 
 logger = logging.getLogger(__name__)
+
+# Idempotency store untuk handler (dalam memori, untuk demonstrasi)
+_idempotency_store: dict[str, CommandResult] = {}
 
 
 class PostAdjustingJournalCommand(BaseCommand):
@@ -183,11 +187,33 @@ class PostAdjustingJournalUseCase:
 
 
 async def post_adjusting_journal_handler(
-    command: BaseCommand, use_case: PostAdjustingJournalUseCase
+    command: BaseCommand,
+    use_case: PostAdjustingJournalUseCase,
+    idempotency_key: str | None = None,
 ) -> CommandResult:
+    """
+    Handler untuk command PostAdjustingJournalCommand.
+    Dilengkapi dengan idempotensi: menyimpan hasil berdasarkan idempotency_key.
+    """
     if not isinstance(command, PostAdjustingJournalCommand):
         raise TypeError(f"Expected PostAdjustingJournalCommand, got {type(command)}")
-    return await use_case.execute(command)
+
+    # Gunakan idempotency_key dari parameter jika diberikan, atau dari command
+    key = idempotency_key or getattr(command, "idempotency_key", None)
+
+    # Cek apakah key sudah ada dan hasil tersimpan
+    if key is not None and key in _idempotency_store:
+        logger.info("Idempotency hit for key %s, returning cached result", key)
+        return _idempotency_store[key]
+
+    # Eksekusi use case
+    result = await use_case.execute(command)
+
+    # Simpan hasil jika key tersedia
+    if key is not None:
+        _idempotency_store[key] = result
+
+    return result
 
 
 __all__ = [

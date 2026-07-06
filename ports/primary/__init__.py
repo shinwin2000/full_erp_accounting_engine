@@ -12,7 +12,8 @@ from .ap_repository_port import APRepositoryPort
 from .ar_repository_port import ARRepositoryPort
 from .bank_cash_repository_port import BankAccountRepositoryPort, CashBookRepositoryPort
 from .bank_statement_import_port import BankStatementImportPort
-from .customer_supplier_repository_port import CustomerRepositoryPort, SupplierRepositoryPort
+from .customer_repository_port import CustomerRepositoryPort
+from .supplier_repository_port import SupplierRepositoryPort
 from .employee_repository_port import EmployeeRepositoryPort
 from .encryption_key_vault_port import EncryptionKeyVaultPort
 from .event_publisher_port import EventPublisherPort

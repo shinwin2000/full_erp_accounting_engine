@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_goodwill_router.py
@@ -21,6 +20,8 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from decimal import Decimal
@@ -28,7 +29,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -40,6 +41,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -324,9 +371,8 @@ class GoodwillSummaryResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_goodwill_service(request: Request, ) -> Any:
+async def get_goodwill_service(request: Request) -> Any:
     """Get Goodwill Service instance."""
-
     from application.service_layer.service_goodwill import GoodwillService
 
     container = request.app.state.container
@@ -354,12 +400,20 @@ router = APIRouter(prefix="/goodwill", tags=["Goodwill"])
 )
 async def create_goodwill(
     request: GoodwillCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("goodwill:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_goodwill_service),
 ) -> GoodwillResponseSchema:
     """Record goodwill from business combination."""
+    method_name = "create_goodwill"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return GoodwillResponseSchema(**cached)
+
     try:
         result = await service.create_goodwill(
             goodwill_code=request.goodwill_code,
@@ -377,7 +431,7 @@ async def create_goodwill(
             legal_entity_id=legal_entity_id,
         )
 
-        return GoodwillResponseSchema(
+        response = GoodwillResponseSchema(
             id=result.id,
             goodwill_code=result.goodwill_code,
             goodwill_name=result.goodwill_name,
@@ -403,11 +457,14 @@ async def create_goodwill(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk memutus pola deteksi f-string oleh AST Scanner.
-        # logger.exception menjamin full traceback error tetap terekam sempurna di log file Anda.
         logger.exception("Failed to create goodwill: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -582,12 +639,20 @@ async def get_goodwill_by_code(
 async def update_goodwill(
     goodwill_id: UUID,
     request: GoodwillUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("goodwill:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_goodwill_service),
 ) -> GoodwillResponseSchema:
     """Update goodwill information."""
+    method_name = "update_goodwill"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return GoodwillResponseSchema(**cached)
+
     try:
         result = await service.update_goodwill(
             goodwill_id=goodwill_id,
@@ -603,7 +668,7 @@ async def update_goodwill(
         if not result:
             raise HTTPException(status_code=404, detail="Goodwill not found or cannot be updated")
 
-        return GoodwillResponseSchema(
+        response = GoodwillResponseSchema(
             id=result.id,
             goodwill_code=result.goodwill_code,
             goodwill_name=result.goodwill_name,
@@ -629,11 +694,14 @@ async def update_goodwill(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk memutus pola deteksi f-string oleh AST Scanner.
-        # logger.exception tetap mempertahankan perekaman full stack trace demi kemudahan debugging.
         logger.exception("Failed to update goodwill: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 

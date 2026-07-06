@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# Code quality fix: removed any placeholder 'XXX' markers.
 """
 Module: coretax_format_validator.py
 Layer: 4 - Kernel / Guards
@@ -16,6 +15,7 @@ import hashlib
 import logging
 import re
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -247,11 +247,153 @@ class CoretaxFormatValidator:
 
 
 # ============================================================================
-# CORETAX FORMAT GUARD
+# BASE CORETAX FORMAT GUARD (ABSTRACT)
+# ============================================================================
+
+class BaseCoretaxFormatGuard(ABC):
+    """Base contract untuk Coretax Format Guard."""
+
+    @abstractmethod
+    async def validate_efaktur_data(
+        self,
+        npwp_penjual: str,
+        npwp_pembeli: str,
+        kode_faktur: str,
+        nomor_faktur: str,
+        dpp: float,
+        ppn: float,
+        masa_pajak: str,
+        tahun_pajak: str,
+        user_id: str | None = None,
+    ) -> tuple[bool, list[CoretaxValidationResult]]:
+        """Validate e-Faktur data."""
+        pass
+
+    @abstractmethod
+    async def validate_ebupot_data(
+        self,
+        npwp_pemotong: str,
+        npwp_penerima: str,
+        bukti_type: str,
+        tarif: float,
+        dasar_pemotongan: float,
+        pph_terutang: float,
+        masa_pajak: str,
+        user_id: str | None = None,
+    ) -> tuple[bool, list[CoretaxValidationResult]]:
+        """Validate e-Bupot data."""
+        pass
+
+    @abstractmethod
+    async def validate_spt_submission(
+        self,
+        spt_type: str,
+        npwp: str,
+        masa_pajak: str,
+        tahun_pajak: str,
+        total_ppn: float | None = None,
+        total_pph: float | None = None,
+        user_id: str | None = None,
+    ) -> tuple[bool, list[CoretaxValidationResult]]:
+        """Validate SPT submission data."""
+        pass
+
+    @abstractmethod
+    async def enforce_efaktur(
+        self, raise_on_violation: bool = True, **kwargs
+    ) -> tuple[bool, list[CoretaxValidationResult]]:
+        """Enforce e-Faktur validation."""
+        pass
+
+    @abstractmethod
+    async def enforce_ebupot(
+        self, raise_on_violation: bool = True, **kwargs
+    ) -> tuple[bool, list[CoretaxValidationResult]]:
+        """Enforce e-Bupot validation."""
+        pass
+
+    @abstractmethod
+    async def enforce_spt(
+        self, raise_on_violation: bool = True, **kwargs
+    ) -> tuple[bool, list[CoretaxValidationResult]]:
+        """Enforce SPT validation."""
+        pass
+
+    @abstractmethod
+    def get_validation_history(
+        self,
+        limit: int = 100,
+        document_type: CoretaxDocumentType | None = None,
+        only_invalid: bool = False,
+    ) -> list[CoretaxValidationResult]:
+        """Get validation history."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics about validations."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseCoretaxFormatGuard:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseCoretaxFormatGuard:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseCoretaxFormatGuard:
+        """Touch instance (increment version)."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset state."""
+        pass
+
+
+# ============================================================================
+# CORETAX FORMAT GUARD (CONCRETE)
 # ============================================================================
 
 
-class CoretaxFormatGuard:
+class CoretaxFormatGuard(BaseCoretaxFormatGuard):
     _instance: CoretaxFormatGuard | None = None
     _lock = threading.Lock()
 
@@ -270,6 +412,118 @@ class CoretaxFormatGuard:
         self._validation_history: list[CoretaxValidationResult] = []
         self._max_history = 10000
         self._history_lock = threading.RLock()
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        document_type = context.get("document_type")
+        data = context.get("data")
+
+        if not document_type:
+            errors.append("document_type is required")
+        elif document_type not in ["efaktur", "ebupot", "spt"]:
+            errors.append("document_type must be one of: efaktur, ebupot, spt")
+
+        if data is None:
+            errors.append("data is required")
+        elif not isinstance(data, dict):
+            errors.append("data must be a dict")
+        else:
+            if document_type == "efaktur":
+                required = ["npwp_penjual", "npwp_pembeli", "kode_faktur", "nomor_faktur", "dpp", "ppn", "masa_pajak", "tahun_pajak"]
+                for field in required:
+                    if field not in data:
+                        errors.append(f"efaktur data missing field: {field}")
+            elif document_type == "ebupot":
+                required = ["npwp_pemotong", "npwp_penerima", "bukti_type", "tarif", "dasar_pemotongan", "pph_terutang", "masa_pajak"]
+                for field in required:
+                    if field not in data:
+                        errors.append(f"ebupot data missing field: {field}")
+            elif document_type == "spt":
+                required = ["spt_type", "npwp", "masa_pajak", "tahun_pajak"]
+                for field in required:
+                    if field not in data:
+                        errors.append(f"spt data missing field: {field}")
+
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        return {
+            "validation_history_count": len(self._validation_history),
+            "max_history": self._max_history,
+            "version": self._version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CoretaxFormatGuard:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> CoretaxFormatGuard:
+        """Clone instance."""
+        new_instance = CoretaxFormatGuard()
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._history_lock:
+            return {
+                "version": self._version,
+                "history_count": len(self._validation_history),
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> CoretaxFormatGuard:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     async def validate_efaktur_data(
         self,
@@ -677,7 +931,7 @@ class CoretaxFormatGuard:
         with self._history_lock:
             total = len(self._validation_history)
             if total == 0:
-                return {"total_validations": 0}
+                return {"total_validations": 0, "version": self._version}
             invalid = len([r for r in self._validation_history if not r.is_valid])
             by_severity = {}
             by_document = {}
@@ -694,11 +948,14 @@ class CoretaxFormatGuard:
                 "latest_validation": self._validation_history[-1].timestamp.isoformat()
                 if self._validation_history
                 else None,
+                "version": self._version,
             }
 
     def reset(self) -> None:
         with self._history_lock:
             self._validation_history = []
+            self._version += 1
+            self._audit_trail = []
 
 
 # ============================================================================

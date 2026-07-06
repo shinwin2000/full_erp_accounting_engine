@@ -12,6 +12,8 @@ Responsibility: Menyediakan REST API endpoint untuk mengelola Capital,
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from decimal import Decimal
@@ -19,7 +21,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -42,6 +44,52 @@ from application.service_layer.service_capital import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 router = APIRouter()
 
@@ -285,12 +333,22 @@ async def approve_capital_contribution(
 async def post_capital_contribution(
     request: Request,
     payload: PostCapitalContributionRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: CapitalService = Depends(get_service(CapitalService)),
 ) -> Response:
     """
     Post capital contribution to General Ledger.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "post_capital_contribution"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     try:
         correlation_id = get_correlation_id(request)
         await service.post_capital_contribution(
@@ -298,6 +356,12 @@ async def post_capital_contribution(
             posted_by=user.user_id,
             correlation_id=correlation_id,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"status": "success", "contribution_id": str(payload.contribution_id)}
+            )
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as e:
         logger.error(f"Error posting capital contribution: {e}", exc_info=True)
@@ -413,12 +477,22 @@ async def approve_capital_withdrawal(
 async def post_capital_withdrawal(
     request: Request,
     payload: PostCapitalWithdrawalRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: CapitalService = Depends(get_service(CapitalService)),
 ) -> Response:
     """
     Post capital withdrawal to General Ledger.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "post_capital_withdrawal"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     try:
         correlation_id = get_correlation_id(request)
         await service.post_capital_withdrawal(
@@ -426,6 +500,12 @@ async def post_capital_withdrawal(
             posted_by=user.user_id,
             correlation_id=correlation_id,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"status": "success", "withdrawal_id": str(payload.withdrawal_id)}
+            )
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as e:
         logger.error(f"Error posting capital withdrawal: {e}", exc_info=True)
@@ -688,12 +768,22 @@ async def transfer_retained_earnings(
 async def update_retained_earnings(
     request: Request,
     payload: UpdateRetainedEarningsRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: CapitalService = Depends(get_service(CapitalService)),
 ) -> Response:
     """
     Update retained earnings balance (for manual corrections).
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "update_retained_earnings"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     try:
         correlation_id = get_correlation_id(request)
         await service.update_retained_earnings(
@@ -703,6 +793,12 @@ async def update_retained_earnings(
             updated_by=user.user_id,
             correlation_id=correlation_id,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"status": "success", "legal_entity_id": str(payload.legal_entity_id)}
+            )
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as e:
         logger.error(f"Error updating retained earnings: {e}", exc_info=True)

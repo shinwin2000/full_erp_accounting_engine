@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -315,10 +316,143 @@ class TemporalConsistencyValidator:
         return TemporalViolationSeverity.MEDIUM
 
 
-# === 4. TEMPORAL CONSISTENCY GUARD ===
+# ============================================================================
+# BASE TEMPORAL CONSISTENCY GUARD (ABSTRACT)
+# ============================================================================
+
+class BaseTemporalConsistencyGuard(ABC):
+    """Base contract untuk Temporal Consistency Guard."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan guard."""
+        pass
+
+    @abstractmethod
+    def set_strict_mode(self, strict: bool = True) -> None:
+        """Set strict mode."""
+        pass
+
+    @abstractmethod
+    def configure(
+        self,
+        max_future_days: int | None = None,
+        max_backdate_days: int | None = None,
+        max_clock_skew_seconds: int | None = None,
+    ) -> None:
+        """Konfigurasi batasan temporal."""
+        pass
+
+    @abstractmethod
+    async def enforce_transaction_timing(
+        self,
+        transaction_date: datetime,
+        legal_entity_id: UUID,
+        transaction_id: UUID,
+        is_adjustment: bool = False,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, TemporalViolation | None]:
+        """Menegakkan konsistensi temporal untuk transaksi."""
+        pass
+
+    @abstractmethod
+    async def enforce_batch_timing(
+        self,
+        transaction_dates: list[datetime],
+        legal_entity_id: UUID,
+        batch_id: UUID,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, list[TemporalViolation]]:
+        """Menegakkan konsistensi temporal untuk batch transaksi."""
+        pass
+
+    @abstractmethod
+    def get_violations(
+        self,
+        limit: int = 100,
+        legal_entity_id: UUID | None = None,
+        violation_type: str | None = None,
+        min_severity: TemporalViolationSeverity | None = None,
+        unresolved_only: bool = False,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[TemporalViolation]:
+        """Mendapatkan history pelanggaran."""
+        pass
+
+    @abstractmethod
+    def resolve_violation(
+        self, violation_id: UUID, resolved_by: str, action: str = "reviewed"
+    ) -> TemporalViolation | None:
+        """Menandai pelanggaran sebagai resolved."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Mendapatkan statistik."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset guard state."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseTemporalConsistencyGuard:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseTemporalConsistencyGuard:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseTemporalConsistencyGuard:
+        """Touch instance (increment version)."""
+        pass
 
 
-class TemporalConsistencyGuard:
+# ============================================================================
+# TEMPORAL CONSISTENCY GUARD (CONCRETE)
+# ============================================================================
+
+class TemporalConsistencyGuard(BaseTemporalConsistencyGuard):
     """
     Guard untuk konsistensi temporal.
 
@@ -337,15 +471,138 @@ class TemporalConsistencyGuard:
         self._max_clock_skew_seconds = TemporalConsistencyValidator.MAX_CLOCK_SKEW_SECONDS
         self._enabled = True
         self._strict_mode = True  # Jika True, backdate > max_backdate_days akan ditolak
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        transaction_date = context.get("transaction_date")
+        legal_entity_id = context.get("legal_entity_id")
+        transaction_id = context.get("transaction_id")
+        is_adjustment = context.get("is_adjustment", False)
+
+        if not transaction_date:
+            errors.append("transaction_date is required")
+        else:
+            try:
+                if isinstance(transaction_date, str):
+                    datetime.fromisoformat(transaction_date)
+                elif not isinstance(transaction_date, datetime):
+                    errors.append("transaction_date must be a datetime or ISO string")
+            except ValueError:
+                errors.append("transaction_date must be a valid ISO format date")
+        if not legal_entity_id:
+            errors.append("legal_entity_id is required")
+        if not transaction_id:
+            errors.append("transaction_id is required")
+        if not isinstance(is_adjustment, bool):
+            errors.append("is_adjustment must be a boolean")
+
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_future_days <= 0:
+            errors.append("max_future_days must be positive")
+        if self._max_backdate_days <= 0:
+            errors.append("max_backdate_days must be positive")
+        if self._max_clock_skew_seconds <= 0:
+            errors.append("max_clock_skew_seconds must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        return {
+            "enabled": self._enabled,
+            "strict_mode": self._strict_mode,
+            "max_future_days": self._max_future_days,
+            "max_backdate_days": self._max_backdate_days,
+            "max_clock_skew_seconds": self._max_clock_skew_seconds,
+            "version": self._version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TemporalConsistencyGuard:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._strict_mode = data.get("strict_mode", True)
+        instance._max_future_days = data.get("max_future_days", TemporalConsistencyValidator.MAX_FUTURE_DAYS)
+        instance._max_backdate_days = data.get("max_backdate_days", TemporalConsistencyValidator.MAX_BACKDATE_DAYS)
+        instance._max_clock_skew_seconds = data.get("max_clock_skew_seconds", TemporalConsistencyValidator.MAX_CLOCK_SKEW_SECONDS)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> TemporalConsistencyGuard:
+        """Clone instance."""
+        new_instance = TemporalConsistencyGuard()
+        new_instance._enabled = self._enabled
+        new_instance._strict_mode = self._strict_mode
+        new_instance._max_future_days = self._max_future_days
+        new_instance._max_backdate_days = self._max_backdate_days
+        new_instance._max_clock_skew_seconds = self._max_clock_skew_seconds
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "violations_count": len(self._violations),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> TemporalConsistencyGuard:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         """Mengaktifkan atau menonaktifkan guard."""
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Temporal consistency guard enabled: {enabled}")
 
     def set_strict_mode(self, strict: bool = True) -> None:
         """Set strict mode."""
         self._strict_mode = strict
+        self._record_audit("SET_STRICT_MODE", "system", {"strict": strict})
         logger.info(f"Temporal consistency guard strict mode: {strict}")
 
     def configure(
@@ -361,6 +618,11 @@ class TemporalConsistencyGuard:
             self._max_backdate_days = max_backdate_days
         if max_clock_skew_seconds is not None:
             self._max_clock_skew_seconds = max_clock_skew_seconds
+        self._record_audit("CONFIGURE", "system", {
+            "max_future_days": max_future_days,
+            "max_backdate_days": max_backdate_days,
+            "max_clock_skew_seconds": max_clock_skew_seconds,
+        })
         logger.info(
             f"Temporal consistency config updated: future_days={self._max_future_days}, backdate_days={self._max_backdate_days}, clock_skew_sec={self._max_clock_skew_seconds}"
         )
@@ -715,6 +977,7 @@ class TemporalConsistencyGuard:
                 if v.violation_id == violation_id and not v.is_resolved:
                     resolved = v.resolve(resolved_by, action)
                     self._violations[i] = resolved
+                    self._record_audit("RESOLVE_VIOLATION", resolved_by, {"violation_id": str(violation_id)})
                     logger.info(f"Temporal violation {violation_id} resolved by {resolved_by}")
                     return resolved
         return None
@@ -730,6 +993,7 @@ class TemporalConsistencyGuard:
                     "max_future_days": self._max_future_days,
                     "max_backdate_days": self._max_backdate_days,
                     "max_clock_skew_seconds": self._max_clock_skew_seconds,
+                    "version": self._version,
                 }
 
             by_type: dict[str, int] = {}
@@ -751,6 +1015,7 @@ class TemporalConsistencyGuard:
                 "max_future_days": self._max_future_days,
                 "max_backdate_days": self._max_backdate_days,
                 "max_clock_skew_seconds": self._max_clock_skew_seconds,
+                "version": self._version,
                 "latest_violation": self._violations[-1].detected_at.isoformat()
                 if self._violations
                 else None,
@@ -763,6 +1028,8 @@ class TemporalConsistencyGuard:
                 self._tx_repo.reset()
             self._enabled = True
             self._strict_mode = True
+            self._version += 1
+            self._audit_trail = []
 
 
 # === 5. SINGLETON ACCESSOR ===
@@ -772,7 +1039,6 @@ _lock_instance = threading.Lock()
 
 
 def get_temporal_consistency_guard() -> TemporalConsistencyGuard:
-    """Mendapatkan instance singleton TemporalConsistencyGuard."""
     global _temporal_consistency_guard_instance
     if _temporal_consistency_guard_instance is None:
         with _lock_instance:

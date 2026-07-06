@@ -76,6 +76,16 @@ class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
+    # ===== NEW: find_payrolls_by_period (sesuai kontrak PayrollRepositoryPort) =====
+    async def find_payrolls_by_period(
+        self, period_year: int, period_month: int, legal_entity_id: UUID
+    ) -> list[PayrollRunTable]:
+        """
+        Cari semua payroll run untuk periode tertentu.
+        Method ini adalah implementasi dari kontrak PayrollRepositoryPort.
+        """
+        return await self.get_payroll_runs_by_period(period_year, period_month, legal_entity_id)
+
     async def update_payroll_run_status(self, run_id: uuid.UUID, status: str) -> None:
         session = await self._get_session()
         stmt = update(PayrollRunTable).where(PayrollRunTable.id == run_id).values(status=status)

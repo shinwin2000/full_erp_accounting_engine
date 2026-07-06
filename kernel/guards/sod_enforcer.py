@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -132,8 +133,6 @@ class SODRule:
     modified_by: str | None = None
     cryptographic_hash: str = ""
 
-    # __slots__ dihapus untuk menghindari konflik dengan field parameters yang memiliki default_factory
-
     def compute_hash(self) -> str:
         content = (
             f"{self.rule_id}|{self.rule_type.value}|{self.severity.value}|{self.description[:100]}"
@@ -176,8 +175,6 @@ class SODViolation:
     resolved_by: str | None = None
     resolution_action: str | None = None
     cryptographic_hash: str = ""
-
-    # __slots__ dihapus untuk menghindari konflik dengan field details
 
     def compute_hash(self) -> str:
         content = (
@@ -347,10 +344,207 @@ DEFAULT_SOD_RULES: list[SODRule] = [
 ]
 
 
-# === 4. SOD ENFORCER ===
+# ============================================================================
+# BASE SOD ENFORCER (ABSTRACT)
+# ============================================================================
+
+class BaseSODEnforcer(ABC):
+    """Base contract untuk SOD Enforcer."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan enforcer."""
+        pass
+
+    @abstractmethod
+    def set_strict_mode(self, strict: bool = True) -> None:
+        """Set strict mode."""
+        pass
+
+    @abstractmethod
+    def register_rule(self, rule: SODRule) -> None:
+        """Mendaftarkan aturan SoD baru."""
+        pass
+
+    @abstractmethod
+    def get_rule(self, rule_id: str) -> SODRule | None:
+        """Mendapatkan aturan SoD berdasarkan ID."""
+        pass
+
+    @abstractmethod
+    def get_all_rules(self, active_only: bool = True) -> list[SODRule]:
+        """Mendapatkan semua aturan SoD."""
+        pass
+
+    @abstractmethod
+    def update_rule_status(self, rule_id: str, is_active: bool, updated_by: str) -> bool:
+        """Mengaktifkan/menonaktifkan aturan SoD."""
+        pass
+
+    @abstractmethod
+    async def check_maker_checker(
+        self,
+        creator_user_id: str,
+        approver_user_id: str,
+        transaction_type: str,
+        transaction_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+    ) -> tuple[bool, SODViolation | None]:
+        """Memeriksa aturan maker-checker."""
+        pass
+
+    @abstractmethod
+    async def check_conflicting_roles(
+        self,
+        user_id: str,
+        roles: list[str],
+        transaction_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+    ) -> tuple[bool, list[SODViolation]]:
+        """Memeriksa konflik role untuk seorang user."""
+        pass
+
+    @abstractmethod
+    async def check_transaction_approval_limit(
+        self,
+        amount: Decimal,
+        user_roles: list[str],
+        transaction_type: str,
+        transaction_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+    ) -> tuple[bool, SODViolation | None, list[str]]:
+        """Memeriksa batasan approval berdasarkan jumlah transaksi."""
+        pass
+
+    @abstractmethod
+    async def check_dual_control(
+        self,
+        transaction_type: str,
+        approvers: list[str],
+        transaction_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+    ) -> tuple[bool, SODViolation | None]:
+        """Memeriksa persyaratan dual control."""
+        pass
+
+    @abstractmethod
+    async def check_time_based(
+        self,
+        transaction_type: str,
+        amount: Decimal,
+        created_at: datetime,
+        approved_at: datetime,
+        transaction_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+    ) -> tuple[bool, SODViolation | None]:
+        """Memeriksa persyaratan waktu antara pembuatan dan approval."""
+        pass
+
+    @abstractmethod
+    async def enforce(
+        self,
+        transaction_type: str,
+        amount: Decimal | None = None,
+        creator_user_id: str | None = None,
+        approver_user_id: str | None = None,
+        approvers: list[str] | None = None,
+        user_roles: list[str] | None = None,
+        transaction_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+        created_at: datetime | None = None,
+        approved_at: datetime | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, list[SODViolation]]:
+        """Menegakkan semua aturan SoD yang relevan."""
+        pass
+
+    @abstractmethod
+    def get_violations(
+        self,
+        limit: int = 100,
+        user_id: str | None = None,
+        rule_type: SODRuleType | None = None,
+        unresolved_only: bool = False,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[SODViolation]:
+        """Mendapatkan history pelanggaran SoD."""
+        pass
+
+    @abstractmethod
+    def resolve_violation(
+        self,
+        violation_id: UUID,
+        resolved_by: str,
+        resolution_action: str,
+    ) -> SODViolation | None:
+        """Menandai pelanggaran sebagai resolved."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Mendapatkan statistik SOD enforcer."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset enforcer (untuk testing)."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseSODEnforcer:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseSODEnforcer:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseSODEnforcer:
+        """Touch instance (increment version)."""
+        pass
 
 
-class SODEnforcer:
+# ============================================================================
+# SOD ENFORCER (CONCRETE)
+# ============================================================================
+
+class SODEnforcer(BaseSODEnforcer):
     """
     Guard untuk pemisahan tugas (Segregation of Duties).
 
@@ -366,6 +560,8 @@ class SODEnforcer:
         "_strict_mode",
         "_user_repo",
         "_violations",
+        "_version",
+        "_audit_trail",
     )
 
     def __init__(self, user_repository: Any | None = None):
@@ -376,15 +572,131 @@ class SODEnforcer:
         self._lock = threading.RLock()
         self._enabled = True
         self._strict_mode = True  # Jika True, semua aturan ditegakkan; jika False, hanya CRITICAL
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        transaction_type = context.get("transaction_type")
+        creator_user_id = context.get("creator_user_id")
+        approver_user_id = context.get("approver_user_id")
+
+        if not transaction_type:
+            errors.append("transaction_type is required")
+        if not creator_user_id:
+            errors.append("creator_user_id is required")
+        if not approver_user_id:
+            errors.append("approver_user_id is required")
+        elif creator_user_id == approver_user_id:
+            errors.append("creator_user_id and approver_user_id cannot be the same (maker-checker violation)")
+
+        amount = context.get("amount")
+        if amount is not None:
+            try:
+                Decimal(str(amount))
+            except Exception:
+                errors.append("amount must be a valid number")
+
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        if not self._rules:
+            errors.append("No rules registered")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "rules_count": len(self._rules),
+                "active_rules": len([r for r in self._rules.values() if r.is_active]),
+                "violations_count": len(self._violations),
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SODEnforcer:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._strict_mode = data.get("strict_mode", True)
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> SODEnforcer:
+        """Clone instance."""
+        new_instance = SODEnforcer()
+        new_instance._enabled = self._enabled
+        new_instance._strict_mode = self._strict_mode
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "violations_count": len(self._violations),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> SODEnforcer:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         """Mengaktifkan atau menonaktifkan enforcer."""
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"SOD enforcer enabled: {enabled}")
 
     def set_strict_mode(self, strict: bool = True) -> None:
         """Set strict mode."""
         self._strict_mode = strict
+        self._record_audit("SET_STRICT_MODE", "system", {"strict": strict})
         logger.info(f"SOD enforcer strict mode: {strict}")
 
     def register_rule(self, rule: SODRule) -> None:
@@ -403,6 +715,7 @@ class SODEnforcer:
         rule = SODRule(**{**rule.__dict__, "cryptographic_hash": rule.compute_hash()})
         with self._lock:
             self._rules[rule.rule_id] = rule
+        self._record_audit("REGISTER_RULE", "system", {"rule_id": rule.rule_id})
         logger.info(f"Registered SOD rule: {rule.rule_id}")
 
     def get_rule(self, rule_id: str) -> SODRule | None:
@@ -439,6 +752,7 @@ class SODEnforcer:
                     **{**new_rule.__dict__, "cryptographic_hash": new_rule.compute_hash()}
                 )
                 self._rules[rule_id] = new_rule
+                self._record_audit("UPDATE_RULE", updated_by, {"rule_id": rule_id, "is_active": is_active})
                 logger.info(f"SOD rule {rule_id} active status set to {is_active} by {updated_by}")
                 return True
         return False
@@ -852,6 +1166,11 @@ class SODEnforcer:
             self._violations.append(violation)
             if len(self._violations) > self._max_history:
                 self._violations = self._violations[-self._max_history :]
+            self._record_audit("VIOLATION", violation.user_id, {
+                "violation_id": str(violation.violation_id),
+                "rule_id": violation.rule_id,
+                "severity": violation.severity.name,
+            })
 
     def get_violations(
         self,
@@ -889,6 +1208,10 @@ class SODEnforcer:
                 if v.violation_id == violation_id and not v.is_resolved:
                     resolved = v.resolve(resolved_by, resolution_action)
                     self._violations[i] = resolved
+                    self._record_audit("RESOLVE_VIOLATION", resolved_by, {
+                        "violation_id": str(violation_id),
+                        "action": resolution_action,
+                    })
                     logger.info(f"SOD violation {violation_id} resolved by {resolved_by}")
                     return resolved
         return None
@@ -902,6 +1225,7 @@ class SODEnforcer:
                     "total_violations": 0,
                     "enabled": self._enabled,
                     "strict_mode": self._strict_mode,
+                    "version": self._version,
                 }
 
             by_rule_type: dict[str, int] = {}
@@ -927,6 +1251,7 @@ class SODEnforcer:
                 "active_rules": len([r for r in self._rules.values() if r.is_active]),
                 "enabled": self._enabled,
                 "strict_mode": self._strict_mode,
+                "version": self._version,
                 "latest_violation": self._violations[-1].detected_at.isoformat()
                 if self._violations
                 else None,
@@ -939,6 +1264,8 @@ class SODEnforcer:
             self._rules = {r.rule_id: r for r in DEFAULT_SOD_RULES}
             self._enabled = True
             self._strict_mode = True
+            self._version += 1
+            self._audit_trail = []
 
 
 # === 5. SINGLETON ACCESSOR ===
@@ -1033,7 +1360,7 @@ __all__ = [
     "SODViolation",
     "SoDEnforcer",
     "SodEnforcer",
-    "SegregationOfDutiesGuard",  
+    "SegregationOfDutiesGuard",
     "check_segregation",
     "enforce_sod",
     "get_sod_enforcer",

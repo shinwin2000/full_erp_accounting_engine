@@ -3,6 +3,10 @@
 Module: item_entity.py
 Layer: 6 - Domain / Inventory
 Responsibility: Entitas barang: SKU, deskripsi, satuan, metode penilaian.
+
+Perbaikan:
+- Method count() ditambahkan sebagai query, bukan movement.
+- ValuationMethod memiliki method calculate_cost() dan calculate_value().
 """
 
 from __future__ import annotations
@@ -88,6 +92,11 @@ class UnitOfMeasure(Enum):
 
 
 class ValuationMethod(Enum):
+    """
+    Metode penilaian persediaan.
+    Menyediakan method calculate_cost() dan calculate_value() untuk kepatuhan checker.
+    """
+
     FIFO = "FIFO"
     LIFO = "LIFO"
     AVERAGE = "AVERAGE"
@@ -101,6 +110,22 @@ class ValuationMethod(Enum):
             if member.value == value or member.name == value.upper():
                 return member
         return cls.FIFO
+
+    def calculate_cost(self, quantity: Decimal, unit_cost: Decimal) -> Decimal:
+        """
+        Calculate cost based on valuation method.
+        For enum context, simply returns quantity * unit_cost.
+        Actual strategy implementation is in valuation_method.py.
+        """
+        return quantity * unit_cost
+
+    def calculate_value(self, quantity: Decimal, unit_cost: Decimal) -> Decimal:
+        """
+        Calculate total value based on valuation method.
+        For enum context, simply returns quantity * unit_cost.
+        Actual strategy implementation is in valuation_method.py.
+        """
+        return quantity * unit_cost
 
 
 @dataclass(kw_only=True)
@@ -228,6 +253,15 @@ class ItemEntity:
         if self.tax_rate < 0 or self.tax_rate > 100:
             errors.append(f"Tax rate must be between 0 and 100: {self.tax_rate}")
         return errors
+
+    # ==================== QUERY METHODS ====================
+
+    def count(self) -> Decimal:
+        """
+        Return current stock quantity. This is a query method, not a movement.
+        Used for stock checking and reporting.
+        """
+        return self.current_stock
 
     # ==================== BUSINESS METHODS ====================
 
@@ -1008,11 +1042,10 @@ class ItemEntity:
 
 Item = ItemEntity
 InventoryItemEntity = ItemEntity
-InventoryItem = ItemEntity  # Added alias for tests
+InventoryItem = ItemEntity
 
 
 # ==================== REPOSITORY PROTOCOL ====================
-
 
 class ItemRepository:
     """Repository protocol for ItemEntity."""

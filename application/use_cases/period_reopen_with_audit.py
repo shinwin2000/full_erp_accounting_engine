@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 """
 Module: period_reopen_with_audit.py
@@ -200,7 +201,7 @@ async def period_reopen_handler(
 
 
 # ============================================================================
-# SIMPLE USE CASE FOR UNIT TESTS (synchronous)
+# SIMPLE USE CASE FOR UNIT TESTS (synchronous) — dengan DI
 # ============================================================================
 
 
@@ -212,10 +213,20 @@ class PeriodReopenUseCase:
     Modifies period.status to PeriodStatus.OPEN if approved.
     """
 
+    def __init__(self, period_service=None, journal_service=None):
+        """
+        Dependency injection untuk testing.
+
+        Args:
+            period_service: FiscalPeriodService instance (optional).
+            journal_service: JournalService instance (optional).
+        """
+        self._period_service = period_service
+        self._journal_service = journal_service
+
     def execute(self, period: FiscalPeriod, reason: str, approved_by: str = None) -> Any:
         if approved_by is None:
             raise PermissionError("approval required to reopen a closed period")
-        # Use timezone.utc instead of bare UTC
         period._status = PeriodStatus.OPEN
         if period._opened_at is None:
             period._opened_at = datetime.now(UTC)

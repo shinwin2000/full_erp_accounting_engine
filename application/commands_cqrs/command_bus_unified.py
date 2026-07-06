@@ -1,4 +1,4 @@
-# command_bus_unified.py - Hardened version with BaseCommand (fix P56)
+# command_bus_unified.py - Hardened version with BaseCommand (fix P56) + Idempotency support
 # Ganti seluruh isi file dengan kode di bawah
 
 #!/usr/bin/env python3
@@ -18,6 +18,8 @@ Responsibility:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -45,6 +47,50 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (untuk CachePort.delete dan MetricsPort.inc_commands_dispatched)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk operasi yang tidak memiliki
+    persistence sendiri. Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+_idempotency_manager = IdempotencyManager()
 
 
 # === 1. CACHE PORT IMPLEMENTATION ===
@@ -93,7 +139,20 @@ class CachePort:
         if self._fallback_memory:
             self._memory_cache[key] = (value, time.time() + ttl)
 
-    async def delete(self, key: str) -> None:
+    async def delete(self, key: str, idempotency_key: str | None = None) -> None:
+        """
+        Delete a key from cache.
+
+        This method is idempotent: repeated calls with the same key produce
+        the same result. If idempotency_key is provided, the operation is
+        cached to guarantee idempotent behavior.
+        """
+        method_name = "cache_delete"
+        if idempotency_key:
+            cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+            if cached is not None:
+                return
+
         if self._redis:
             try:
                 await self._redis.delete(key)
@@ -101,6 +160,11 @@ class CachePort:
                 pass
         if self._fallback_memory:
             self._memory_cache.pop(key, None)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"status": "success", "key": key}
+            )
 
     async def clear(self) -> None:
         if self._redis:
@@ -121,8 +185,29 @@ class MetricsPort:
         self._command_latencies: list[float] = []
         self._max_latency_samples = 10000
 
-    def inc_commands_dispatched(self, command_type: str) -> None:
+    def inc_commands_dispatched(
+        self, command_type: str, idempotency_key: str | None = None
+    ) -> None:
+        """
+        Increment dispatched command counter.
+
+        This operation is idempotent: calling multiple times with the same
+        idempotency_key produces the same effect (only one increment).
+        """
+        method_name = "inc_commands_dispatched"
+        if idempotency_key:
+            cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+            if cached is not None:
+                return
+
         self._commands_dispatched[command_type] = self._commands_dispatched.get(command_type, 0) + 1
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key,
+                method_name,
+                {"status": "success", "command_type": command_type}
+            )
 
     def inc_commands_failed(self, command_type: str, reason: str) -> None:
         if command_type not in self._commands_failed:
@@ -1056,7 +1141,7 @@ __all__ = [
     "CommandBus",
     "CommandBusClosedError",
     "CommandBusError",
-    "CommandBusUnified",      
+    "CommandBusUnified",
     "CommandExecutionError",
     "CommandNotFoundError",
     "CommandTimeoutError",

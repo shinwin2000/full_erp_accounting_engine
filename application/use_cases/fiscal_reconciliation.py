@@ -20,17 +20,17 @@ from typing import Any
 from uuid import UUID
 
 from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
+from application.service_layer.service_fiscal_period import FiscalPeriodService
 from application.service_layer.service_ledger import LedgerService
 from application.service_layer.service_report import ReportService
 from application.service_layer.service_tax import TaxService
+from domain.fiscal_period.aggregate_root import PeriodStatus
 from kernel.sealed_gate import SealedGate
 
 logger = logging.getLogger(__name__)
 
 
 class FiscalReconciliationCommand(BaseCommand):
-    """Command untuk rekonsiliasi fiskal."""
-
     __slots__ = (
         "dry_run",
         "include_corrections",
@@ -62,15 +62,13 @@ class FiscalReconciliationCommand(BaseCommand):
 
     def to_dict(self) -> dict[str, Any]:
         data = super().to_dict()
-        data.update(
-            {
-                "legal_entity_id": str(self.legal_entity_id),
-                "tahun_pajak": self.tahun_pajak,
-                "include_corrections": self.include_corrections,
-                "post_adjustment_journal": self.post_adjustment_journal,
-                "dry_run": self.dry_run,
-            }
-        )
+        data.update({
+            "legal_entity_id": str(self.legal_entity_id),
+            "tahun_pajak": self.tahun_pajak,
+            "include_corrections": self.include_corrections,
+            "post_adjustment_journal": self.post_adjustment_journal,
+            "dry_run": self.dry_run,
+        })
         return data
 
 
@@ -112,22 +110,20 @@ class FiscalReconciliationResult:
 
 
 class FiscalReconciliationUseCase:
-    """
-    Use case untuk rekonsiliasi fiskal.
-    """
-
     def __init__(
         self,
         tax_service: TaxService,
         ledger_service: LedgerService,
         report_service: ReportService,
-        journal_service,  # JournalService - akan diinject
+        journal_service,
+        fiscal_period_service: FiscalPeriodService,
         sealed_gate: SealedGate | None = None,
     ):
         self._tax_service = tax_service
         self._ledger_service = ledger_service
         self._report_service = report_service
         self._journal_service = journal_service
+        self._period_service = fiscal_period_service
         self._sealed_gate = sealed_gate
         self._stats = {"executed": 0, "succeeded": 0, "failed": 0}
 
@@ -219,9 +215,7 @@ class FiscalReconciliationUseCase:
                     "corporate_tax_due": float(result.corporate_tax_due),
                     "tax_credits": float(result.tax_credits),
                     "tax_payable": float(result.tax_payable),
-                    "adjustment_journal_id": str(result.adjustment_journal_id)
-                    if result.adjustment_journal_id
-                    else None,
+                    "adjustment_journal_id": str(result.adjustment_journal_id) if result.adjustment_journal_id else None,
                     "report_path": result.report_path,
                 },
             )
@@ -257,9 +251,7 @@ class FiscalReconciliationUseCase:
         )
         if entertainment_expense > 0:
             non_deductible = entertainment_expense * Decimal("0.5")
-            positive.append(
-                FiscalCorrection("Entertainment expense (non-deductible 50%)", non_deductible)
-            )
+            positive.append(FiscalCorrection("Entertainment expense (non-deductible 50%)", non_deductible))
         donation = await self._ledger_service.get_account_balance(
             legal_entity_id, "5-6200", tahun, 12, date(tahun, 12, 31)
         )
@@ -280,32 +272,34 @@ class FiscalReconciliationUseCase:
         user_id: UUID,
         correlation_id: str | None,
     ) -> UUID:
+        # ========== VALIDATION: Period must be OPEN ==========
+        period = await self._period_service.get_period(legal_entity_id, tahun, 12)
+        period_str = f"{tahun}-12"
+        if not period:
+            raise ValueError(f"Period {period_str} does not exist")
+        if period.status != PeriodStatus.OPEN.value:
+            raise ValueError(
+                f"Cannot post tax adjustment journal: period {period_str} is {period.status}. "
+                "Period must be OPEN."
+            )
+
         tax_expense_account = "5-7000"
         tax_payable_account = "2-2100"
         lines = [
-            {
-                "account_code": tax_expense_account,
-                "debit": tax_due,
-                "credit": Decimal("0"),
-                "description": f"Corporate income tax {tahun}",
-            },
-            {
-                "account_code": tax_payable_account,
-                "debit": Decimal("0"),
-                "credit": tax_due,
-                "description": f"Tax payable {tahun}",
-            },
+            {"account_code": tax_expense_account, "debit": tax_due, "credit": Decimal("0"), "description": f"Corporate income tax {tahun}"},
+            {"account_code": tax_payable_account, "debit": Decimal("0"), "credit": tax_due, "description": f"Tax payable {tahun}"},
         ]
         journal_id = await self._journal_service.post_journal(
             legal_entity_id=legal_entity_id,
             journal_date=date(tahun, 12, 31),
-            period=f"{tahun}-12",
+            period=period_str,
             description=f"Tax adjustment for fiscal year {tahun}",
             lines=lines,
             source_system="fiscal_reconciliation",
             user_id=user_id,
             correlation_id=correlation_id,
         )
+        logger.info(f"Tax adjustment journal {journal_id} posted for year {tahun}")
         return journal_id
 
     async def _generate_reconciliation_report(
@@ -348,11 +342,6 @@ class FiscalReconciliationUseCase:
 
     def get_stats(self) -> dict[str, int]:
         return self._stats
-
-
-# ============================================================================
-# Handler dengan dependency injection
-# ============================================================================
 
 
 async def fiscal_reconciliation_handler(

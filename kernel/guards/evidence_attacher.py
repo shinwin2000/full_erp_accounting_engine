@@ -21,6 +21,7 @@ import hashlib
 import logging
 import mimetypes
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -72,7 +73,6 @@ class _FallbackFileStorage:
     async def download(self, path: str) -> bytes | None:
         """Download file dari storage."""
         if path in self._storage:
-            # Update last accessed
             if path in self._metadata:
                 self._metadata[path]["last_accessed"] = datetime.now(UTC).isoformat()
             return self._storage[path]
@@ -90,28 +90,22 @@ class _FallbackFileStorage:
         return False
 
     async def get_metadata(self, path: str) -> dict[str, Any] | None:
-        """Mendapatkan metadata file."""
         return self._metadata.get(path)
 
     async def exists(self, path: str) -> bool:
-        """Cek apakah file ada."""
         return path in self._storage
 
     async def get_size(self, path: str) -> int | None:
-        """Mendapatkan ukuran file."""
         meta = await self.get_metadata(path)
         return meta.get("size") if meta else None
 
     async def list_files(self, prefix: str = "") -> list[str]:
-        """List file dengan prefix tertentu."""
         return [p for p in self._storage.keys() if p.startswith(prefix)]
 
     async def get_total_used_bytes(self) -> int:
-        """Total bytes yang digunakan."""
         return self._total_used_bytes
 
     async def clear(self) -> None:
-        """Clear semua file (untuk testing)."""
         self._storage.clear()
         self._metadata.clear()
         self._total_used_bytes = 0
@@ -121,17 +115,13 @@ class _FallbackFileStorage:
 
 
 class EvidenceRequirement(Enum):
-    """Tingkat kebutuhan bukti."""
-
-    MANDATORY = auto()  # Wajib ada bukti
-    OPTIONAL = auto()  # Opsional, tapi direkomendasikan
-    CONDITIONAL = auto()  # Tergantung jumlah atau kondisi
-    NONE = auto()  # Tidak perlu bukti
+    MANDATORY = auto()
+    OPTIONAL = auto()
+    CONDITIONAL = auto()
+    NONE = auto()
 
 
 class EvidenceType(Enum):
-    """Jenis bukti pendukung."""
-
     INVOICE = "invoice"
     RECEIPT = "receipt"
     CONTRACT = "contract"
@@ -145,8 +135,6 @@ class EvidenceType(Enum):
 
 
 class EvidenceVerificationStatus(Enum):
-    """Status verifikasi bukti."""
-
     PENDING = "pending"
     VERIFIED = "verified"
     FAILED = "failed"
@@ -156,8 +144,6 @@ class EvidenceVerificationStatus(Enum):
 
 @dataclass
 class Evidence:
-    """Representasi bukti pendukung."""
-
     evidence_id: UUID
     filename: str
     file_hash: str
@@ -178,7 +164,6 @@ class Evidence:
     cryptographic_hash: str = ""
 
     def compute_hash(self) -> str:
-        """Menghitung hash kriptografis untuk integritas record."""
         content = (
             f"{self.evidence_id}|{self.filename}|{self.file_hash}|{self.file_size}|"
             f"{self.mime_type}|{self.evidence_type.value}|{self.uploaded_by}|"
@@ -191,13 +176,11 @@ class Evidence:
             raise ValueError("Cryptographic hash mismatch")
 
     def is_expired(self) -> bool:
-        """Cek apakah bukti sudah expired."""
         if self.expiry_date:
             return datetime.now(UTC) > self.expiry_date
         return False
 
     def to_dict(self) -> dict[str, Any]:
-        """Konversi ke dictionary untuk serialisasi."""
         return {
             "evidence_id": str(self.evidence_id),
             "filename": self.filename,
@@ -219,16 +202,14 @@ class Evidence:
 
 @dataclass
 class TransactionEvidenceRequirement:
-    """Requirement bukti untuk tipe transaksi."""
-
     transaction_type: str
     requirement: EvidenceRequirement
     min_evidence_count: int = 1
     required_types: list[EvidenceType] = field(default_factory=list)
-    amount_threshold: Decimal | None = None  # Conditional above this amount
+    amount_threshold: Decimal | None = None
     description: str = ""
     requires_verification: bool = True
-    expiry_days: int | None = None  # Jika tidak None, bukti akan expired setelah X hari
+    expiry_days: int | None = None
 
 
 # === 3. DEFAULT REQUIREMENTS ===
@@ -253,7 +234,7 @@ DEFAULT_EVIDENCE_REQUIREMENTS: dict[str, TransactionEvidenceRequirement] = {
         requirement=EvidenceRequirement.CONDITIONAL,
         min_evidence_count=1,
         required_types=[EvidenceType.RECEIPT, EvidenceType.INVOICE],
-        amount_threshold=Decimal("1000000"),  # 1 juta
+        amount_threshold=Decimal("1000000"),
         description="Cash disbursement above 1M requires receipt/invoice",
     ),
     "CASH_RECEIPT": TransactionEvidenceRequirement(
@@ -321,10 +302,165 @@ DEFAULT_EVIDENCE_REQUIREMENTS: dict[str, TransactionEvidenceRequirement] = {
 }
 
 
-# === 4. EVIDENCE ATTACHER GUARD ===
+# ============================================================================
+# BASE EVIDENCE ATTACHER GUARD (ABSTRACT)
+# ============================================================================
+
+class BaseEvidenceAttacherGuard(ABC):
+    """Base contract untuk Evidence Attacher Guard."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan guard."""
+        pass
+
+    @abstractmethod
+    def set_auto_verify(self, auto_verify: bool = True) -> None:
+        """Set apakah bukti otomatis diverifikasi setelah upload."""
+        pass
+
+    @abstractmethod
+    def register_requirement(self, requirement: TransactionEvidenceRequirement) -> None:
+        """Mendaftarkan requirement untuk tipe transaksi baru."""
+        pass
+
+    @abstractmethod
+    def get_requirement(self, transaction_type: str) -> TransactionEvidenceRequirement | None:
+        """Mendapatkan requirement untuk tipe transaksi."""
+        pass
+
+    @abstractmethod
+    async def validate_evidence(
+        self,
+        transaction_type: str,
+        evidence_ids: list[UUID],
+        amount: Decimal | None = None,
+        user_id: str | None = None,
+        check_expiry: bool = True,
+    ) -> tuple[bool, str | None, list[str]]:
+        """Memvalidasi apakah bukti mencukupi untuk transaksi."""
+        pass
+
+    @abstractmethod
+    async def upload_evidence(
+        self,
+        file_content: bytes,
+        filename: str,
+        mime_type: str | None,
+        evidence_type: EvidenceType,
+        transaction_id: UUID | None = None,
+        description: str | None = None,
+        user_id: str | None = None,
+        legal_entity_id: UUID | None = None,
+        tags: list[str] | None = None,
+        expiry_days: int | None = None,
+    ) -> Evidence:
+        """Mengupload bukti ke storage dan membuat record."""
+        pass
+
+    @abstractmethod
+    async def get_evidence(self, evidence_id: UUID) -> Evidence | None:
+        """Mendapatkan evidence berdasarkan ID."""
+        pass
+
+    @abstractmethod
+    async def get_evidences_for_transaction(self, transaction_id: UUID) -> list[Evidence]:
+        """Mendapatkan semua bukti untuk suatu transaksi."""
+        pass
+
+    @abstractmethod
+    async def enforce(
+        self,
+        transaction_type: str,
+        evidence_ids: list[UUID],
+        amount: Decimal | None = None,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, list[str]]:
+        """Menegakkan requirement bukti, raise exception jika tidak terpenuhi."""
+        pass
+
+    @abstractmethod
+    def get_requirements(self) -> dict[str, TransactionEvidenceRequirement]:
+        """Mendapatkan semua requirement yang terdaftar."""
+        pass
+
+    @abstractmethod
+    def get_check_history(
+        self,
+        limit: int = 100,
+        only_violations: bool = False,
+        transaction_type: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """Mendapatkan history pemeriksaan bukti."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Mendapatkan statistik evidence attacher."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset guard (untuk testing)."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseEvidenceAttacherGuard:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseEvidenceAttacherGuard:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseEvidenceAttacherGuard:
+        """Touch instance (increment version)."""
+        pass
 
 
-class EvidenceAttacherGuard:
+# ============================================================================
+# EVIDENCE ATTACHER GUARD (CONCRETE)
+# ============================================================================
+
+class EvidenceAttacherGuard(BaseEvidenceAttacherGuard):
     """
     Guard untuk memastikan bukti pendukung transaksi.
 
@@ -336,33 +472,147 @@ class EvidenceAttacherGuard:
         self._file_storage = file_storage or _FallbackFileStorage()
         self._requirements = DEFAULT_EVIDENCE_REQUIREMENTS.copy()
         self._evidences: dict[UUID, Evidence] = {}
-        self._transaction_evidence: dict[
-            UUID, list[UUID]
-        ] = {}  # transaction_id -> list of evidence_ids
+        self._transaction_evidence: dict[UUID, list[UUID]] = {}
         self._check_history: list[dict[str, Any]] = []
         self._max_history = 10000
         self._lock = threading.RLock()
         self._enabled = True
         self._auto_verify_on_upload = False
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        transaction_type = context.get("transaction_type")
+        evidence_ids = context.get("evidence_ids", [])
+        amount = context.get("amount")
+
+        if not transaction_type:
+            errors.append("transaction_type is required")
+        if not evidence_ids:
+            errors.append("evidence_ids is required and cannot be empty")
+        elif not isinstance(evidence_ids, list):
+            errors.append("evidence_ids must be a list")
+        else:
+            for eid in evidence_ids:
+                try:
+                    UUID(str(eid))
+                except Exception:
+                    errors.append(f"Invalid evidence_id: {eid}")
+
+        if amount is not None:
+            try:
+                Decimal(str(amount))
+            except Exception:
+                errors.append("amount must be a valid number")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "auto_verify_on_upload": self._auto_verify_on_upload,
+                "evidences_count": len(self._evidences),
+                "transaction_evidence_count": len(self._transaction_evidence),
+                "history_count": len(self._check_history),
+                "requirements_count": len(self._requirements),
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> EvidenceAttacherGuard:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._auto_verify_on_upload = data.get("auto_verify_on_upload", False)
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> EvidenceAttacherGuard:
+        """Clone instance."""
+        new_instance = EvidenceAttacherGuard()
+        new_instance._enabled = self._enabled
+        new_instance._auto_verify_on_upload = self._auto_verify_on_upload
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "evidences_count": len(self._evidences),
+                "history_count": len(self._check_history),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> EvidenceAttacherGuard:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
-        """Mengaktifkan atau menonaktifkan guard."""
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Evidence attacher guard enabled: {enabled}")
 
     def set_auto_verify(self, auto_verify: bool = True) -> None:
-        """Set apakah bukti otomatis diverifikasi setelah upload."""
         self._auto_verify_on_upload = auto_verify
+        self._record_audit("SET_AUTO_VERIFY", "system", {"auto_verify": auto_verify})
         logger.info(f"Auto-verify on upload: {auto_verify}")
 
     def register_requirement(self, requirement: TransactionEvidenceRequirement) -> None:
-        """Mendaftarkan requirement untuk tipe transaksi baru."""
         with self._lock:
             self._requirements[requirement.transaction_type] = requirement
+        self._record_audit("REGISTER_REQUIREMENT", "system", {"type": requirement.transaction_type})
         logger.info(f"Registered evidence requirement for {requirement.transaction_type}")
 
     def get_requirement(self, transaction_type: str) -> TransactionEvidenceRequirement | None:
-        """Mendapatkan requirement untuk tipe transaksi."""
         return self._requirements.get(transaction_type)
 
     async def validate_evidence(
@@ -373,25 +623,11 @@ class EvidenceAttacherGuard:
         user_id: str | None = None,
         check_expiry: bool = True,
     ) -> tuple[bool, str | None, list[str]]:
-        """
-        Memvalidasi apakah bukti mencukupi untuk transaksi.
-
-        Args:
-            transaction_type: Tipe transaksi
-            evidence_ids: Daftar ID bukti yang dilampirkan
-            amount: Jumlah transaksi (untuk conditional requirement)
-            user_id: User ID (untuk audit)
-            check_expiry: Apakah memeriksa expiry date
-
-        Returns:
-            (is_valid, error_message, warnings)
-        """
         if not self._enabled:
             return True, None, []
 
         requirement = self._requirements.get(transaction_type)
         if not requirement:
-            # No specific requirement, allow by default
             return True, None, []
 
         warnings = []
@@ -399,7 +635,6 @@ class EvidenceAttacherGuard:
         for eid in evidence_ids:
             ev = self._evidences.get(eid)
             if ev:
-                # Check expiry
                 if check_expiry and ev.is_expired():
                     warnings.append(f"Evidence {eid} ({ev.filename}) has expired")
                 evidences.append(ev)
@@ -413,9 +648,7 @@ class EvidenceAttacherGuard:
                 and requirement.amount_threshold is not None
                 and amount <= requirement.amount_threshold
             ):
-                # Below threshold, no evidence needed
                 return True, None, warnings
-            # Above threshold, treat as mandatory
             effective_requirement = EvidenceRequirement.MANDATORY
         else:
             effective_requirement = requirement.requirement
@@ -431,7 +664,6 @@ class EvidenceAttacherGuard:
             return True, None, warnings
 
         if effective_requirement == EvidenceRequirement.MANDATORY:
-            # Check minimum count
             if len(evidences) < requirement.min_evidence_count:
                 return (
                     False,
@@ -439,7 +671,6 @@ class EvidenceAttacherGuard:
                     warnings,
                 )
 
-            # Check required types if specified
             if requirement.required_types:
                 has_required = any(e.evidence_type in requirement.required_types for e in evidences)
                 if not has_required:
@@ -450,12 +681,9 @@ class EvidenceAttacherGuard:
                         warnings,
                     )
 
-            # Check verification status if required
             if requirement.requires_verification:
                 unverified = [
-                    e
-                    for e in evidences
-                    if e.verification_status != EvidenceVerificationStatus.VERIFIED
+                    e for e in evidences if e.verification_status != EvidenceVerificationStatus.VERIFIED
                 ]
                 if unverified:
                     return (
@@ -464,7 +692,6 @@ class EvidenceAttacherGuard:
                         warnings,
                     )
 
-            # Check for expired
             if check_expiry:
                 expired = [e for e in evidences if e.is_expired()]
                 if expired:
@@ -489,24 +716,6 @@ class EvidenceAttacherGuard:
         tags: list[str] | None = None,
         expiry_days: int | None = None,
     ) -> Evidence:
-        """
-        Mengupload bukti ke storage dan membuat record.
-
-        Args:
-            file_content: Konten file
-            filename: Nama file
-            mime_type: MIME type (auto-detect jika None)
-            evidence_type: Jenis bukti
-            transaction_id: ID transaksi (optional)
-            description: Deskripsi
-            user_id: User ID (default dari context)
-            legal_entity_id: Entitas hukum (default dari context)
-            tags: Tag untuk kategorisasi
-            expiry_days: Masa berlaku dalam hari (None = tidak expired)
-
-        Returns:
-            Evidence object
-        """
         if not self._enabled:
             raise EvidenceAttacherError(
                 "Evidence attacher is disabled",
@@ -522,15 +731,12 @@ class EvidenceAttacherGuard:
         if mime_type is None:
             mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
-        # Compute file hash for integrity
         file_hash = hashlib.sha256(file_content).hexdigest()
         file_size = len(file_content)
 
-        # Generate storage path
         evidence_id = uuid4()
         storage_path = f"evidence/{legal_entity_id}/{evidence_type.value}/{evidence_id}/{filename}"
 
-        # Upload to storage
         success = await self._file_storage.upload(storage_path, file_content, mime_type)
         if not success:
             raise EvidenceAttacherError(
@@ -539,7 +745,6 @@ class EvidenceAttacherGuard:
                 severity=GuardSeverity.HIGH,
             )
 
-        # Calculate expiry date
         expiry_date = None
         if expiry_days is not None:
             expiry_date = datetime.now(UTC) + timedelta(days=expiry_days)
@@ -586,44 +791,38 @@ class EvidenceAttacherGuard:
         with self._lock:
             self._evidences[evidence_id] = evidence
             if transaction_id:
-                if transaction_id not in self._transaction_evidence:
-                    self._transaction_evidence[transaction_id] = []
-                self._transaction_evidence[transaction_id].append(evidence_id)
+                self._transaction_evidence.setdefault(transaction_id, []).append(evidence_id)
 
-        # Auto-verify if configured
         if self._auto_verify_on_upload:
             await self.verify_evidence(evidence_id, user_id, EvidenceVerificationStatus.VERIFIED)
 
-        logger.info(
-            f"Evidence uploaded: {filename} ({file_size} bytes) by {user_id}, id={evidence_id}"
-        )
+        self._record_audit("UPLOAD", user_id, {
+            "evidence_id": str(evidence_id),
+            "filename": filename,
+            "size": file_size,
+        })
+        logger.info(f"Evidence uploaded: {filename} ({file_size} bytes) by {user_id}, id={evidence_id}")
         return evidence
 
     async def get_evidence(self, evidence_id: UUID) -> Evidence | None:
-        """Mendapatkan evidence berdasarkan ID."""
         return self._evidences.get(evidence_id)
 
     async def get_evidences_for_transaction(self, transaction_id: UUID) -> list[Evidence]:
-        """Mendapatkan semua bukti untuk suatu transaksi."""
         evidence_ids = self._transaction_evidence.get(transaction_id, [])
         return [self._evidences[eid] for eid in evidence_ids if eid in self._evidences]
 
     async def get_evidences_by_type(self, evidence_type: EvidenceType) -> list[Evidence]:
-        """Mendapatkan semua bukti dengan tipe tertentu."""
         with self._lock:
             return [e for e in self._evidences.values() if e.evidence_type == evidence_type]
 
     async def get_evidences_by_user(self, user_id: str) -> list[Evidence]:
-        """Mendapatkan semua bukti yang diupload oleh user tertentu."""
         with self._lock:
             return [e for e in self._evidences.values() if e.uploaded_by == user_id]
 
     async def download_evidence(self, evidence: Evidence) -> bytes | None:
-        """Mendownload file bukti."""
         return await self._file_storage.download(evidence.storage_path)
 
     async def verify_integrity(self, evidence: Evidence) -> bool:
-        """Memverifikasi integritas file bukti dengan hash."""
         file_content = await self.download_evidence(evidence)
         if not file_content:
             return False
@@ -637,24 +836,11 @@ class EvidenceAttacherGuard:
         status: EvidenceVerificationStatus = EvidenceVerificationStatus.VERIFIED,
         rejection_reason: str | None = None,
     ) -> Evidence | None:
-        """
-        Memverifikasi bukti (menandai sebagai verified/failed/rejected).
-
-        Args:
-            evidence_id: ID bukti
-            verified_by: User yang melakukan verifikasi
-            status: Status verifikasi baru
-            rejection_reason: Alasan penolakan (jika status REJECTED)
-
-        Returns:
-            Evidence yang sudah diupdate, atau None jika tidak ditemukan
-        """
         with self._lock:
             evidence = self._evidences.get(evidence_id)
             if not evidence:
                 return None
 
-            # Check integrity before marking as verified
             integrity_ok = True
             if status == EvidenceVerificationStatus.VERIFIED:
                 integrity_ok = await self.verify_integrity(evidence)
@@ -662,7 +848,6 @@ class EvidenceAttacherGuard:
                     status = EvidenceVerificationStatus.FAILED
                     logger.warning(f"Evidence {evidence_id} integrity check failed")
 
-            # Update description with rejection reason if needed
             description = evidence.description
             if status == EvidenceVerificationStatus.REJECTED and rejection_reason:
                 description = f"{evidence.description or ''} [REJECTED: {rejection_reason}]"
@@ -688,9 +873,11 @@ class EvidenceAttacherGuard:
                 cryptographic_hash=evidence.cryptographic_hash,
             )
             self._evidences[evidence_id] = updated
-            logger.info(
-                f"Evidence {evidence_id} verification status set to {status.value} by {verified_by}"
-            )
+            self._record_audit("VERIFY", verified_by, {
+                "evidence_id": str(evidence_id),
+                "status": status.value,
+            })
+            logger.info(f"Evidence {evidence_id} verification status set to {status.value} by {verified_by}")
             return updated
 
     async def attach_to_transaction(
@@ -699,26 +886,12 @@ class EvidenceAttacherGuard:
         transaction_id: UUID,
         user_id: str | None = None,
     ) -> bool:
-        """
-        Menghubungkan evidence ke transaksi.
-
-        Args:
-            evidence_id: ID bukti
-            transaction_id: ID transaksi
-            user_id: User ID (untuk audit)
-
-        Returns:
-            True jika berhasil
-        """
         with self._lock:
             evidence = self._evidences.get(evidence_id)
             if not evidence:
-                logger.warning(
-                    f"Cannot attach evidence {evidence_id} to transaction {transaction_id}: evidence not found"
-                )
+                logger.warning(f"Cannot attach evidence {evidence_id} to transaction {transaction_id}: evidence not found")
                 return False
 
-            # Update evidence with transaction_id
             updated = Evidence(
                 evidence_id=evidence.evidence_id,
                 filename=evidence.filename,
@@ -740,12 +913,11 @@ class EvidenceAttacherGuard:
                 cryptographic_hash=evidence.cryptographic_hash,
             )
             self._evidences[evidence_id] = updated
-
-            if transaction_id not in self._transaction_evidence:
-                self._transaction_evidence[transaction_id] = []
-            if evidence_id not in self._transaction_evidence[transaction_id]:
-                self._transaction_evidence[transaction_id].append(evidence_id)
-
+            self._transaction_evidence.setdefault(transaction_id, []).append(evidence_id)
+            self._record_audit("ATTACH", user_id or "system", {
+                "evidence_id": str(evidence_id),
+                "transaction_id": str(transaction_id),
+            })
             logger.info(f"Attached evidence {evidence_id} to transaction {transaction_id}")
             return True
 
@@ -755,7 +927,6 @@ class EvidenceAttacherGuard:
         transaction_id: UUID,
         user_id: str | None = None,
     ) -> bool:
-        """Memutuskan hubungan evidence dari transaksi."""
         with self._lock:
             evidence = self._evidences.get(evidence_id)
             if not evidence:
@@ -787,44 +958,35 @@ class EvidenceAttacherGuard:
             if transaction_id in self._transaction_evidence:
                 if evidence_id in self._transaction_evidence[transaction_id]:
                     self._transaction_evidence[transaction_id].remove(evidence_id)
-                    logger.info(
-                        f"Detached evidence {evidence_id} from transaction {transaction_id}"
-                    )
+                    self._record_audit("DETACH", user_id or "system", {
+                        "evidence_id": str(evidence_id),
+                        "transaction_id": str(transaction_id),
+                    })
+                    logger.info(f"Detached evidence {evidence_id} from transaction {transaction_id}")
                     return True
             return False
 
     async def delete_evidence(
         self, evidence_id: UUID, deleted_by: str, force: bool = False
     ) -> bool:
-        """
-        Menghapus bukti (soft delete dengan status, atau hard delete jika belum terikat).
-
-        Args:
-            evidence_id: ID bukti
-            deleted_by: User yang menghapus
-            force: Jika True, hard delete meskipun sudah terikat
-
-        Returns:
-            True jika berhasil dihapus
-        """
         with self._lock:
             evidence = self._evidences.get(evidence_id)
             if not evidence:
                 return False
 
-            # Hard delete if not attached to any transaction or force=True
             if evidence.transaction_id is None or force:
-                # Delete from storage
                 await self._file_storage.delete(evidence.storage_path)
                 del self._evidences[evidence_id]
-                # Remove from transaction mapping
                 for tx_id, ev_ids in self._transaction_evidence.items():
                     if evidence_id in ev_ids:
                         ev_ids.remove(evidence_id)
+                self._record_audit("DELETE", deleted_by, {
+                    "evidence_id": str(evidence_id),
+                    "force": force,
+                })
                 logger.info(f"Evidence {evidence_id} hard deleted by {deleted_by}")
                 return True
             else:
-                # Soft delete - mark as expired
                 updated = Evidence(
                     evidence_id=evidence.evidence_id,
                     filename=evidence.filename,
@@ -846,6 +1008,9 @@ class EvidenceAttacherGuard:
                     cryptographic_hash=evidence.cryptographic_hash,
                 )
                 self._evidences[evidence_id] = updated
+                self._record_audit("SOFT_DELETE", deleted_by, {
+                    "evidence_id": str(evidence_id),
+                })
                 logger.info(f"Evidence {evidence_id} soft deleted (expired) by {deleted_by}")
                 return True
 
@@ -857,22 +1022,6 @@ class EvidenceAttacherGuard:
         user_id: str | None = None,
         raise_on_violation: bool = True,
     ) -> tuple[bool, list[str]]:
-        """
-        Menegakkan requirement bukti, raise exception jika tidak terpenuhi.
-
-        Args:
-            transaction_type: Tipe transaksi
-            evidence_ids: Daftar ID bukti
-            amount: Jumlah transaksi
-            user_id: User ID
-            raise_on_violation: Raise exception jika violation
-
-        Returns:
-            (is_valid, warnings)
-
-        Raises:
-            EvidenceAttacherError: Jika evidence tidak mencukupi
-        """
         is_valid, error_msg, warnings = await self.validate_evidence(
             transaction_type=transaction_type,
             evidence_ids=evidence_ids,
@@ -880,7 +1029,6 @@ class EvidenceAttacherGuard:
             user_id=user_id,
         )
 
-        # Record check
         self._record_check(transaction_type, evidence_ids, amount, is_valid, error_msg, warnings)
 
         if not is_valid and raise_on_violation:
@@ -906,7 +1054,6 @@ class EvidenceAttacherGuard:
         error_msg: str | None,
         warnings: list[str],
     ) -> None:
-        """Record evidence check untuk audit."""
         with self._lock:
             record = {
                 "timestamp": datetime.now(UTC).isoformat(),
@@ -923,7 +1070,6 @@ class EvidenceAttacherGuard:
                 self._check_history = self._check_history[-self._max_history :]
 
     def get_requirements(self) -> dict[str, TransactionEvidenceRequirement]:
-        """Mendapatkan semua requirement yang terdaftar."""
         return self._requirements.copy()
 
     def get_check_history(
@@ -934,7 +1080,6 @@ class EvidenceAttacherGuard:
         start_date: datetime | None = None,
         end_date: datetime | None = None,
     ) -> list[dict[str, Any]]:
-        """Mendapatkan history pemeriksaan bukti."""
         with self._lock:
             result = self._check_history[-limit:]
 
@@ -946,11 +1091,9 @@ class EvidenceAttacherGuard:
             result = [r for r in result if datetime.fromisoformat(r["timestamp"]) >= start_date]
         if end_date:
             result = [r for r in result if datetime.fromisoformat(r["timestamp"]) <= end_date]
-
         return result
 
     def get_statistics(self) -> dict[str, Any]:
-        """Mendapatkan statistik evidence attacher."""
         with self._lock:
             total_evidences = len(self._evidences)
             total_checks = len(self._check_history)
@@ -960,6 +1103,7 @@ class EvidenceAttacherGuard:
                     "total_evidences": total_evidences,
                     "total_checks": 0,
                     "enabled": self._enabled,
+                    "version": self._version,
                 }
 
             violations = [r for r in self._check_history if not r["is_valid"]]
@@ -989,18 +1133,18 @@ class EvidenceAttacherGuard:
                 "by_evidence_type": by_evidence_type,
                 "enabled": self._enabled,
                 "auto_verify": self._auto_verify_on_upload,
-                "latest_check": self._check_history[-1]["timestamp"]
-                if self._check_history
-                else None,
+                "version": self._version,
+                "latest_check": self._check_history[-1]["timestamp"] if self._check_history else None,
             }
 
     def reset(self) -> None:
-        """Reset guard (untuk testing)."""
         with self._lock:
             self._evidences.clear()
             self._transaction_evidence.clear()
             self._check_history.clear()
             self._requirements = DEFAULT_EVIDENCE_REQUIREMENTS.copy()
+            self._version += 1
+            self._audit_trail = []
 
 
 # === 5. SINGLETON ACCESSOR ===
@@ -1010,7 +1154,6 @@ _lock_instance = threading.Lock()
 
 
 def get_evidence_attacher_guard() -> EvidenceAttacherGuard:
-    """Mendapatkan instance singleton EvidenceAttacherGuard."""
     global _evidence_attacher_guard_instance
     if _evidence_attacher_guard_instance is None:
         with _lock_instance:

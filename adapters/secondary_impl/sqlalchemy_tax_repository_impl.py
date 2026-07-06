@@ -916,6 +916,160 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
             await self.session.rollback()
             raise TaxRepositoryError(f"Failed to record NTPN: {e}") from e
 
+    # ========================================================================
+    # TAX RETURN (SPT) - ALIAS UNTUK KONTRAK PORT
+    # ========================================================================
+
+    async def save_tax_return(self, spt: SPTSubmission) -> None:
+        """
+        Simpan tax return (SPT) - alias untuk _save_spt.
+        Method ini memenuhi kontrak TaxRepositoryPort.
+        """
+        await self._save_spt(spt)
+
+    async def find_tax_return_by_period(
+        self, legal_entity_id: UUID, year: int, month: int | None = None, spt_type: str | None = None
+    ) -> list[SPTSubmission]:
+        """
+        Cari tax return (SPT) berdasarkan periode.
+        Method ini memenuhi kontrak TaxRepositoryPort.
+        """
+        try:
+            conditions = [CoretaxSPTTable.legal_entity_id == legal_entity_id]
+            if year:
+                conditions.append(CoretaxSPTTable.tahun == year)
+            if month:
+                conditions.append(CoretaxSPTTable.bulan == month)
+            if spt_type:
+                conditions.append(CoretaxSPTTable.spt_type == spt_type)
+            stmt = select(CoretaxSPTTable).where(and_(*conditions)).order_by(
+                CoretaxSPTTable.tahun.desc(), CoretaxSPTTable.bulan.desc()
+            )
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            spt_list = []
+            for table in tables:
+                status_map = {
+                    "draft": SPTStatus.DRAFT,
+                    "submitted": SPTStatus.SUBMITTED,
+                    "approved": SPTStatus.APPROVED,
+                    "rejected": SPTStatus.REJECTED,
+                    "void": SPTStatus.VOID,
+                }
+                status = status_map.get(table.status, SPTStatus.DRAFT)
+                spt_list.append(
+                    SPTSubmission(
+                        id=table.id,
+                        spt_number=table.spt_number,
+                        spt_type=table.spt_type,
+                        npwp=table.npwp,
+                        tahun=table.tahun,
+                        bulan=table.bulan,
+                        masa_pajak=table.masa_pajak,
+                        status=status,
+                        xml_content=table.xml_content,
+                        coretax_tracking_id=table.coretax_tracking_id,
+                        approval_date=table.approval_date,
+                        rejection_reason=table.rejection_reason,
+                        submitted_by=table.submitted_by,
+                        submitted_at=table.submitted_at,
+                        created_at=table.created_at,
+                        legal_entity_id=table.legal_entity_id,
+                    )
+                )
+            return spt_list
+        except Exception as e:
+            raise TaxRepositoryError(f"Failed to find tax returns by period: {e}") from e
+
+    async def calculate_tax(
+        self, legal_entity_id: UUID, period_year: int, period_month: int | None = None
+    ) -> dict[str, Any]:
+        """
+        Hitung pajak terutang untuk periode tertentu.
+        Method ini memenuhi kontrak TaxRepositoryPort.
+        Mengembalikan dictionary dengan rincian PPN, PPh, dan total kewajiban pajak.
+        """
+        try:
+            npwp = await self._get_npwp_by_legal_entity(legal_entity_id)
+            if not npwp:
+                raise TaxRepositoryError(f"Legal entity {legal_entity_id} has no NPWP")
+
+            # ===== Hitung PPN Keluaran =====
+            conditions_kel = [
+                CoretaxFakturTable.npwp_penjual == npwp,
+                CoretaxFakturTable.faktur_type == "keluaran",
+                CoretaxFakturTable.deleted_at.is_(None),
+            ]
+            if period_month:
+                start_date = date(period_year, period_month, 1)
+                if period_month == 12:
+                    end_date = date(period_year + 1, 1, 1)
+                else:
+                    end_date = date(period_year, period_month + 1, 1)
+                conditions_kel.append(CoretaxFakturTable.faktur_date >= start_date)
+                conditions_kel.append(CoretaxFakturTable.faktur_date < end_date)
+            else:
+                start_date = date(period_year, 1, 1)
+                end_date = date(period_year + 1, 1, 1)
+                conditions_kel.append(CoretaxFakturTable.faktur_date >= start_date)
+                conditions_kel.append(CoretaxFakturTable.faktur_date < end_date)
+
+            stmt_kel = select(func.coalesce(func.sum(CoretaxFakturTable.ppn), 0)).where(and_(*conditions_kel))
+            ppn_kel = (await self.session.execute(stmt_kel)).scalar() or Decimal(0)
+
+            # ===== Hitung PPN Masukan (dapat dikreditkan) =====
+            conditions_mas = [
+                CoretaxFakturTable.npwp_pembeli == npwp,
+                CoretaxFakturTable.faktur_type == "masukan",
+                CoretaxFakturTable.deleted_at.is_(None),
+                CoretaxFakturTable.status.in_(["approved", "submitted"]),
+            ]
+            if period_month:
+                conditions_mas.append(CoretaxFakturTable.faktur_date >= start_date)
+                conditions_mas.append(CoretaxFakturTable.faktur_date < end_date)
+            else:
+                conditions_mas.append(CoretaxFakturTable.faktur_date >= start_date)
+                conditions_mas.append(CoretaxFakturTable.faktur_date < end_date)
+
+            stmt_mas = select(func.coalesce(func.sum(CoretaxFakturTable.ppn), 0)).where(and_(*conditions_mas))
+            ppn_mas = (await self.session.execute(stmt_mas)).scalar() or Decimal(0)
+
+            ppn_terutang = ppn_kel - ppn_mas
+            if ppn_terutang < 0:
+                ppn_terutang = Decimal(0)
+
+            # ===== Hitung PPh dipotong dari bupot =====
+            conditions_bupot = [
+                CoretaxBupotTable.npwp_pemotong == npwp,
+            ]
+            if period_month:
+                conditions_bupot.append(CoretaxBupotTable.tahun_pajak == period_year)
+                conditions_bupot.append(CoretaxBupotTable.masa_pajak == period_month)
+            else:
+                conditions_bupot.append(CoretaxBupotTable.tahun_pajak == period_year)
+
+            stmt_bupot = select(func.coalesce(func.sum(CoretaxBupotTable.pph_dipotong), 0)).where(and_(*conditions_bupot))
+            pph_dipotong = (await self.session.execute(stmt_bupot)).scalar() or Decimal(0)
+
+            total_liability = ppn_terutang + pph_dipotong
+
+            return {
+                "legal_entity_id": str(legal_entity_id),
+                "period_year": period_year,
+                "period_month": period_month,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "ppn_keluaran": float(ppn_kel),
+                "ppn_masukan": float(ppn_mas),
+                "ppn_terutang": float(ppn_terutang),
+                "pph_dipotong": float(pph_dipotong),
+                "total_tax_liability": float(total_liability),
+                "currency": "IDR",
+                "npwp": npwp,
+            }
+        except Exception as e:
+            raise TaxRepositoryError(f"Failed to calculate tax: {e}") from e
+
 
 __all__ = [
     "BupotNotFoundError",

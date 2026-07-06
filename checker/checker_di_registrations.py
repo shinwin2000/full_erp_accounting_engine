@@ -13,11 +13,13 @@ Fitur:
 - Deteksi implementasi real vs fallback/in-memory
 - Skor kepatuhan (0-100)
 - Ekspor JSON
+- RCA integration (analisis root cause untuk setiap error)
 
 Cara pakai:
   python checker/checker_di_registrations.py
   python checker/checker_di_registrations.py --json report.json
   python checker/checker_di_registrations.py --verbose
+  python checker/checker_di_registrations.py --no-rca   # nonaktifkan RCA
 """
 
 from __future__ import annotations
@@ -25,12 +27,75 @@ from __future__ import annotations
 import argparse
 import ast
 import asyncio
+import importlib.util
 import json
 import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+
+# =============================================================================
+# [RCA] Load RCA Engine dari checker/core/rca.py menggunakan importlib.util
+# =============================================================================
+# =============================================================================
+# [RCA] Load RCA Engine dari checker/core/rca.py
+# =============================================================================
+_RCA_AVAILABLE = False
+_analyze_exception = None
+_RCAEngine = None
+
+def _load_rca_from_file():
+    global _RCA_AVAILABLE, _analyze_exception, _RCAEngine
+    rca_path = Path(__file__).resolve().parent / "core" / "rca.py"
+    if not rca_path.exists():
+        print(f"⚠️  RCA file not found at {rca_path}")
+        return False
+
+    # Coba import normal dengan menambahkan path
+    sys.path.insert(0, str(rca_path.parent))
+    try:
+        import rca as rca_module
+        _analyze_exception = getattr(rca_module, "analyze_exception", None)
+        _RCAEngine = getattr(rca_module, "RCAEngine", None)
+        if _analyze_exception is not None and _RCAEngine is not None:
+            _RCA_AVAILABLE = True
+            print("✅ RCA Engine loaded via normal import")
+            return True
+        else:
+            print("⚠️  RCA module loaded but required attributes missing")
+            return False
+    except ImportError as e:
+        print(f"⚠️  Normal import failed: {e}")
+        # Fallback ke importlib.util
+        try:
+            spec = importlib.util.spec_from_file_location("rca", rca_path)
+            if spec is None or spec.loader is None:
+                print("⚠️  Failed to create spec for rca.py")
+                return False
+            rca_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(rca_module)
+            _analyze_exception = getattr(rca_module, "analyze_exception", None)
+            _RCAEngine = getattr(rca_module, "RCAEngine", None)
+            if _analyze_exception is not None and _RCAEngine is not None:
+                _RCA_AVAILABLE = True
+                print("✅ RCA Engine loaded via importlib.util")
+                return True
+            else:
+                print("⚠️  RCA module loaded but required attributes missing")
+                return False
+        except Exception as e:
+            import traceback
+            print(f"⚠️  RCA load error: {e}")
+            traceback.print_exc()
+            return False
+    except Exception as e:
+        import traceback
+        print(f"⚠️  RCA load error: {e}")
+        traceback.print_exc()
+        return False
+
+_load_rca_from_file()
 
 # =============================================================================
 # Konfigurasi Root Project
@@ -49,6 +114,7 @@ COLOR = {
     "BLUE": "\033[94m",
     "CYAN": "\033[96m",
     "BOLD": "\033[1m",
+    "DIM": "\033[2m", 
     "RESET": "\033[0m"
 }
 if not sys.stdout.isatty():
@@ -71,8 +137,9 @@ class RegistrationStatus:
     resolvable: bool
     implementation: Optional[str] = None
     is_fallback: bool = False
-    is_ignored: bool = False  # Port yang diabaikan (InMemory, Fallback, Stub)
+    is_ignored: bool = False
     error: Optional[str] = None
+    rca_result: Optional[Dict[str, Any]] = None
 
 @dataclass
 class CheckResult:
@@ -93,7 +160,6 @@ class PortScanner:
     def __init__(self, root: Path):
         self.root = root
         self.exclude_names = {"BasePort", "BaseRepository", "BaseProtocol"}
-        # Kata kunci yang menandakan ini bukan port yang harus didaftarkan
         self.ignore_keywords = {"InMemory", "Fallback", "Stub", "Mock"}
 
     def scan(self) -> List[PortInfo]:
@@ -115,9 +181,7 @@ class PortScanner:
                             name = node.name
                             if name in self.exclude_names:
                                 continue
-                            # Hanya class yang berakhiran Port/Protocol/Repository
                             if name.endswith(("Port", "Protocol", "Repository")):
-                                # Abaikan yang mengandung kata kunci ignore
                                 if any(kw in name for kw in self.ignore_keywords):
                                     continue
                                 module = str(file_path.relative_to(self.root).with_suffix("")).replace("\\", ".").replace("/", ".")
@@ -186,52 +250,78 @@ class ContainerChecker:
         self._registered_names = names
         return names
 
-    async def resolve_interface(self, port_name: str, port_module: str) -> Tuple[bool, Optional[str], Optional[str]]:
+    async def resolve_interface(self, port_name: str, port_module: str, rca_engine=None) -> Tuple[bool, Optional[str], Optional[str], Optional[Dict]]:
         if self.container is None:
-            return False, None, "Container not initialized"
+            return False, None, "Container not initialized", None
+
         try:
             mod = __import__(port_module, fromlist=[port_name])
             interface = getattr(mod, port_name, None)
             if interface is None:
-                return False, None, f"Class {port_name} not found"
+                return False, None, f"Class {port_name} not found", None
         except Exception as e:
-            return False, None, f"Import error: {e}"
+            rca = None
+            if rca_engine is not None and _RCA_AVAILABLE and callable(getattr(rca_engine, "analyze", None)):
+                try:
+                    rca_result = rca_engine.analyze(e, {"port_name": port_name, "module": port_module})
+                    rca = rca_result.to_dict() if hasattr(rca_result, "to_dict") else None
+                except Exception:
+                    pass
+            return False, None, f"Import error: {e}", rca
 
         instance = None
         error_msg = None
+        rca_data = None
 
         if hasattr(self.container, "resolve_async"):
             try:
                 instance = await self.container.resolve_async(interface)
             except Exception as e:
                 error_msg = f"resolve_async failed: {e}"
-
-        if instance is None and hasattr(self.container, "resolve"):
-            try:
-                instance = self.container.resolve(interface)
-                error_msg = None
-            except Exception as e:
-                error_msg = f"resolve failed: {e}"
-
-        if instance is None and hasattr(self.container, "get"):
-            try:
-                instance = self.container.get(interface)
-                error_msg = None
-            except Exception as e:
-                error_msg = f"get failed: {e}"
+                if rca_engine is not None and _RCA_AVAILABLE and callable(getattr(rca_engine, "analyze", None)):
+                    try:
+                        rca_result = rca_engine.analyze(e, {"port_name": port_name, "module": port_module, "method": "resolve_async"})
+                        rca_data = rca_result.to_dict() if hasattr(rca_result, "to_dict") else None
+                    except Exception:
+                        pass
+        else:
+            if hasattr(self.container, "resolve"):
+                try:
+                    instance = self.container.resolve(interface)
+                except Exception as e:
+                    error_msg = f"resolve failed: {e}"
+                    if rca_engine is not None and _RCA_AVAILABLE and callable(getattr(rca_engine, "analyze", None)):
+                        try:
+                            rca_result = rca_engine.analyze(e, {"port_name": port_name, "module": port_module, "method": "resolve"})
+                            rca_data = rca_result.to_dict() if hasattr(rca_result, "to_dict") else None
+                        except Exception:
+                            pass
+            elif hasattr(self.container, "get"):
+                try:
+                    instance = self.container.get(interface)
+                except Exception as e:
+                    error_msg = f"get failed: {e}"
+                    if rca_engine is not None and _RCA_AVAILABLE and callable(getattr(rca_engine, "analyze", None)):
+                        try:
+                            rca_result = rca_engine.analyze(e, {"port_name": port_name, "module": port_module, "method": "get"})
+                            rca_data = rca_result.to_dict() if hasattr(rca_result, "to_dict") else None
+                        except Exception:
+                            pass
 
         if instance is not None:
-            return True, instance.__class__.__name__, None
-        return False, None, error_msg or "Could not resolve"
+            return True, instance.__class__.__name__, None, None
+        return False, None, error_msg or "Could not resolve", rca_data
 
 # =============================================================================
 # Main Checker
 # =============================================================================
 class PortRegistrationChecker:
-    def __init__(self):
+    def __init__(self, enable_rca: bool = True):
         self.scanner = PortScanner(ROOT)
         self.container_checker = ContainerChecker()
         self.result: Optional[CheckResult] = None
+        self.enable_rca = enable_rca and _RCA_AVAILABLE and _RCAEngine is not None
+        self.rca_engine = _RCAEngine() if self.enable_rca else None
 
     async def run_checks(self) -> CheckResult:
         if not self.container_checker.setup():
@@ -249,18 +339,19 @@ class PortRegistrationChecker:
         unregistered_count = 0
 
         for port in ports:
-            # Cek apakah port ini harus diabaikan (sudah difilter di scanner, tapi safety)
             is_ignored = False
-
             is_registered = port.name in registered_names
             resolvable = False
             impl = None
             is_fallback = False
             error = None
+            rca_data = None
 
             if is_registered:
                 registered_count += 1
-                success, impl_class, err = await self.container_checker.resolve_interface(port.name, port.module)
+                success, impl_class, err, rca = await self.container_checker.resolve_interface(
+                    port.name, port.module, self.rca_engine
+                )
                 if success:
                     resolvable = True
                     resolvable_count += 1
@@ -270,9 +361,12 @@ class PortRegistrationChecker:
                         fallback_count += 1
                 else:
                     error = err or "Resolve failed"
+                    rca_data = rca
             else:
                 # Coba implicit resolve
-                success, impl_class, err = await self.container_checker.resolve_interface(port.name, port.module)
+                success, impl_class, err, rca = await self.container_checker.resolve_interface(
+                    port.name, port.module, self.rca_engine
+                )
                 if success:
                     is_registered = True
                     registered_count += 1
@@ -285,6 +379,7 @@ class PortRegistrationChecker:
                 else:
                     unregistered_count += 1
                     error = err or "Not registered"
+                    rca_data = rca
 
             details.append(RegistrationStatus(
                 port=port,
@@ -293,10 +388,10 @@ class PortRegistrationChecker:
                 implementation=impl,
                 is_fallback=is_fallback,
                 is_ignored=is_ignored,
-                error=error
+                error=error,
+                rca_result=rca_data
             ))
 
-        # Skor: berdasarkan resolvable_count - fallback_count, dibagi total_ports_aktual (total - ignored)
         actual_total = total - ignored_count
         score = ((resolvable_count - fallback_count) / actual_total * 100) if actual_total > 0 else 100.0
 
@@ -321,6 +416,7 @@ def print_report(result: CheckResult, verbose: bool = False):
     print(f"\n{c['CYAN']}{'═'*72}{c['RESET']}")
     print(f"{c['BOLD']}{c['CYAN']}  PORT REGISTRATION CHECKER REPORT{c['RESET']}")
     print(f"{c['CYAN']}{'═'*72}{c['RESET']}")
+    print(f"  RCA Engine          : {'✅ Aktif' if _RCA_AVAILABLE else '⚠️  Tidak tersedia'}")
 
     print(f"\n  Total Ports ditemukan   : {result.total_ports}")
     print(f"  Port diabaikan (InMemory, dll): {result.ignored_count}")
@@ -355,10 +451,53 @@ def print_report(result: CheckResult, verbose: bool = False):
                 print(f"  {c['RED']}❌{c['RESET']} {status.port.name} ({status.port.file_path}) -> GAGAL RESOLVE")
                 if status.error:
                     print(f"      Error: {status.error}")
+                if status.rca_result and isinstance(status.rca_result, dict):
+                    root_cause = status.rca_result.get("root_cause", "")
+                    fix = status.rca_result.get("suggested_fix", "")
+                    conf = status.rca_result.get("confidence", 0)
+                    if root_cause:
+                        print(f"      {c['CYAN']}RCA:{c['RESET']} {root_cause[:200]}")
+                    if fix:
+                        print(f"      {c['YELLOW']}Fix:{c['RESET']} {fix[:200]}")
+                    if conf:
+                        # Gunakan .get() untuk menghindari KeyError
+                        dim_color = c.get('DIM', '')
+                        print(f"      {dim_color}Confidence: {conf:.0%}{c['RESET']}")
             else:
                 print(f"  {c['RED']}❌{c['RESET']} {status.port.name} ({status.port.file_path}) -> TIDAK TERDAFTAR")
                 if status.error:
                     print(f"      Error: {status.error}")
+                if status.rca_result and isinstance(status.rca_result, dict):
+                    root_cause = status.rca_result.get("root_cause", "")
+                    fix = status.rca_result.get("suggested_fix", "")
+                    conf = status.rca_result.get("confidence", 0)
+                    if root_cause:
+                        print(f"      {c['CYAN']}RCA:{c['RESET']} {root_cause[:200]}")
+                    if fix:
+                        print(f"      {c['YELLOW']}Fix:{c['RESET']} {fix[:200]}")
+                    if conf:
+                        dim_color = c.get('DIM', '')
+                        print(f"      {dim_color}Confidence: {conf:.0%}{c['RESET']}")
+
+    # Deteksi duplikasi port
+    port_names = {}
+    duplicate_suggestions = []
+    for status in result.details:
+        name = status.port.name
+        if name not in port_names:
+            port_names[name] = []
+        port_names[name].append(status.port.file_path)
+    for name, files in port_names.items():
+        if len(files) > 1:
+            duplicate_suggestions.append(
+                f"⚠️  Port '{name}' didefinisikan di {len(files)} file: {', '.join(files)}. "
+                f"Hapus atau rename salah satu untuk menghindari konflik."
+            )
+
+    if duplicate_suggestions:
+        print(f"\n{c['YELLOW']}─── Saran Perbaikan ───{c['RESET']}")
+        for sug in duplicate_suggestions:
+            print(f"  {c['YELLOW']}{sug}{c['RESET']}")
 
     if result.unregistered_count == 0 and result.fallback_count == 0 and result.resolvable_count == (result.total_ports - result.ignored_count):
         print(f"\n{c['GREEN']}✅ Semua port terdaftar dengan implementasi nyata dan bisa di-resolve.{c['RESET']}")
@@ -378,6 +517,7 @@ def save_json(result: CheckResult, filepath: str):
         "resolvable_count": result.resolvable_count,
         "fallback_count": result.fallback_count,
         "unregistered_count": result.unregistered_count,
+        "rca_available": _RCA_AVAILABLE,
         "details": [
             {
                 "port": s.port.name,
@@ -387,7 +527,8 @@ def save_json(result: CheckResult, filepath: str):
                 "implementation": s.implementation,
                 "is_fallback": s.is_fallback,
                 "is_ignored": s.is_ignored,
-                "error": s.error
+                "error": s.error,
+                "rca": s.rca_result,
             }
             for s in result.details
         ],
@@ -401,24 +542,24 @@ def save_json(result: CheckResult, filepath: str):
 # Main CLI
 # =============================================================================
 async def async_main(args):
-    checker = PortRegistrationChecker()
+    checker = PortRegistrationChecker(enable_rca=not args.no_rca)
     result = await checker.run_checks()
     print_report(result, verbose=args.verbose)
     if args.json:
         save_json(result, args.json)
-    # Exit code 0 jika tidak ada unregistered port atau fallback yang tidak diinginkan
     sys.exit(0 if result.unregistered_count == 0 and result.fallback_count == 0 and result.resolvable_count == (result.total_ports - result.ignored_count) else 1)
 
 def main():
-    parser = argparse.ArgumentParser(description="Port Registration Checker")
+    parser = argparse.ArgumentParser(description="Port Registration Checker with RCA")
     parser.add_argument("--json", metavar="FILE", help="Ekspor laporan ke JSON")
-    parser.add_argument("--verbose", action="store_true", help="Tampilkan detail tambahan")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan detail tambahan")
+    parser.add_argument("--no-rca", action="store_true", help="Nonaktifkan RCA analysis")
     args = parser.parse_args()
 
     start_time = time.monotonic()
 
     print(f"{COLOR['BOLD']}{COLOR['CYAN']}╔════════════════════════════════════════════════════════════════════╗")
-    print(f"║      SOVEREIGN PORT REGISTRATION CHECKER                      ║")
+    print(f"║      SOVEREIGN PORT REGISTRATION CHECKER with RCA              ║")
     print(f"╚════════════════════════════════════════════════════════════════════╝{COLOR['RESET']}")
 
     try:

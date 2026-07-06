@@ -16,6 +16,7 @@ from __future__ import annotations
 import inspect
 import logging
 import weakref
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -93,8 +94,49 @@ class HandlerExecutionError(Exception):
         super().__init__(f"Handler execution failed for {command_type}: {original_error}")
 
 
+# ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseCommandHandlerRegistry(ABC):
+    """
+    Base contract for Command Handler Registry.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    def register(
+        self,
+        command_type: str,
+        handler: Callable,
+        handler_type: HandlerType = HandlerType.COMMAND,
+        **kwargs,
+    ) -> None:
+        """Register a handler for a command type."""
+        pass
+
+    @abstractmethod
+    def get_handler(self, command_type: str) -> Callable:
+        """Get handler by command type."""
+        pass
+
+    @abstractmethod
+    def list_handlers(self, handler_type: HandlerType | None = None) -> list[dict[str, Any]]:
+        """List all registered handlers."""
+        pass
+
+    @abstractmethod
+    def unregister(self, command_type: str, handler_type: HandlerType = HandlerType.COMMAND) -> bool:
+        """Unregister a handler."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics about registered handlers."""
+        pass
+
+
 # === 3. COMMAND HANDLER REGISTRY ===
-class CommandHandlerRegistry:
+class CommandHandlerRegistry(BaseCommandHandlerRegistry):
     _instance: CommandHandlerRegistry | None = None
     _lock: Any = None
 

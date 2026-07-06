@@ -58,6 +58,64 @@ class PurchaseOrderAggregate:
     def is_locked(self) -> bool:
         return self._is_locked
 
+    # ==================== FACTORY METHODS ====================
+
+    @classmethod
+    def create(cls, legal_entity_id: UUID, created_by: str) -> PurchaseOrderAggregate:
+        agg = cls(
+            aggregate_id=uuid4(),
+            legal_entity_id=legal_entity_id,
+        )
+        agg._audit_trail.append({
+            "action": "CREATE",
+            "performed_by": created_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+        })
+        return agg
+
+    @classmethod
+    def from_events(
+        cls,
+        aggregate_id: UUID,
+        legal_entity_id: UUID,
+        events: list[DomainEvent],
+    ) -> PurchaseOrderAggregate:
+        """Reconstruct aggregate from event stream."""
+        agg = cls(
+            aggregate_id=aggregate_id,
+            legal_entity_id=legal_entity_id,
+        )
+        # Apply events (placeholder)
+        for event in events:
+            agg.apply(event)
+        agg.version = len(events) + 1
+        return agg
+
+    @classmethod
+    def reconstruct(
+        cls,
+        aggregate_id: UUID,
+        legal_entity_id: UUID,
+        purchase_orders: dict[UUID, PurchaseOrderEntity],
+        goods_receipts: dict[UUID, GoodsReceiptNoteEntity],
+        created_at: datetime,
+        updated_at: datetime,
+        version: int,
+        is_locked: bool = False,
+    ) -> PurchaseOrderAggregate:
+        """Reconstruct aggregate from saved state (not from events)."""
+        agg = cls(
+            aggregate_id=aggregate_id,
+            legal_entity_id=legal_entity_id,
+            purchase_orders=purchase_orders.copy(),
+            goods_receipts=goods_receipts.copy(),
+            created_at=created_at,
+            updated_at=updated_at,
+            version=version,
+        )
+        agg._is_locked = is_locked
+        return agg
+
     # ==================== EVENT METHODS ====================
 
     def _add_event(self, event: DomainEvent) -> None:
@@ -85,6 +143,11 @@ class PurchaseOrderAggregate:
     def register_event(self, event: DomainEvent) -> None:
         """Register a domain event."""
         self._add_event(event)
+
+    def apply(self, event: DomainEvent) -> None:
+        """Apply a domain event (event sourcing placeholder)."""
+        # Just record that event was applied.
+        self._events.append(event)
 
     # ==================== AUDIT TRAIL ====================
 
@@ -384,20 +447,6 @@ class PurchaseOrderAggregate:
             "is_locked": self._is_locked,
         }
 
-    @classmethod
-    def create(cls, legal_entity_id: UUID, created_by: str) -> PurchaseOrderAggregate:
-        agg = cls(
-            aggregate_id=uuid4(),
-            legal_entity_id=legal_entity_id,
-        )
-        # Fix: use datetime from import, not __import__
-        agg._audit_trail.append({
-            "action": "CREATE",
-            "performed_by": created_by,
-            "timestamp": datetime.now(UTC).isoformat(),
-        })
-        return agg
-
 
 class PurchaseOrderRepository:
     async def get_by_legal_entity(self, legal_entity_id: UUID) -> PurchaseOrderAggregate | None:
@@ -430,5 +479,5 @@ PurchaseOrder = PurchaseOrderAggregate
 __all__ = [
     "PurchaseOrderAggregate",
     "PurchaseOrderRepository",
-    "PurchaseOrder",  
+    "PurchaseOrder",
 ]

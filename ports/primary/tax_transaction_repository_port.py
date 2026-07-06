@@ -7,6 +7,7 @@ Responsibility: Implementasi in-memory repository untuk transaksi pajak.
                kredit pajak, pembayaran pajak, SPT Masa/Tahunan, restitusi,
                audit trail, import/export CSV, dan statistik perpajakan.
 Audit: Setiap transaksi pajak tercatat.
+Perbaikan: Semua nilai moneter menggunakan str() bukan float().
 """
 
 from __future__ import annotations
@@ -81,7 +82,7 @@ class TaxTransaction:
     tax_amount: Decimal  # Pajak terutang/kredit
     rate: Decimal  # Tarif pajak saat transaksi
     status: TaxTransactionStatus
-    reference_type: str | None  # JOURNAL, INVOICE, PAYMENT, etc
+    reference_type: str | None
     reference_id: UUID | None
     description: str | None
     is_credit: bool = False  # True jika ini kredit pajak (masukan/PPh dipotong)
@@ -105,16 +106,16 @@ class TaxTransaction:
             "transaction_date": self.transaction_date.isoformat(),
             "tax_period_month": self.tax_period_month,
             "tax_period_year": self.tax_period_year,
-            "amount": float(self.amount),
-            "tax_amount": float(self.tax_amount),
-            "rate": float(self.rate),
+            "amount": str(self.amount),          # ← str
+            "tax_amount": str(self.tax_amount),  # ← str
+            "rate": str(self.rate),              # ← str
             "status": self.status.value,
             "reference_type": self.reference_type,
             "reference_id": str(self.reference_id) if self.reference_id else None,
             "description": self.description,
             "is_credit": self.is_credit,
             "payment_date": self.payment_date.isoformat() if self.payment_date else None,
-            "payment_amount": float(self.payment_amount),
+            "payment_amount": str(self.payment_amount),   # ← str
             "ntpn": self.ntpn,
             "reported_in_spt_id": str(self.reported_in_spt_id) if self.reported_in_spt_id else None,
             "adjusted_from_id": str(self.adjusted_from_id) if self.adjusted_from_id else None,
@@ -220,7 +221,7 @@ class TaxTransactionRepositoryPort:
             tax_transaction.created_by,
             {
                 "tax_type": tax_transaction.tax_type.value,
-                "amount": float(tax_transaction.tax_amount),
+                "amount": str(tax_transaction.tax_amount),   # ← str
                 "period": f"{tax_transaction.tax_period_year}-{tax_transaction.tax_period_month}",
             },
         )
@@ -492,7 +493,7 @@ class TaxTransactionRepositoryPort:
         tx.version += 1
         await self.update(tx)
         await self._log_audit(
-            "PAYMENT", tax_transaction_id, user_id, {"ntpn": ntpn, "amount": float(amount)}
+            "PAYMENT", tax_transaction_id, user_id, {"ntpn": ntpn, "amount": str(amount)}  # ← str
         )
         return True
 
@@ -587,9 +588,9 @@ class TaxTransactionRepositoryPort:
                     tx.tax_type.value,
                     tx.transaction_date.isoformat(),
                     f"{tx.tax_period_year}-{tx.tax_period_month:02d}",
-                    float(tx.amount),
-                    float(tx.tax_amount),
-                    float(tx.rate),
+                    str(tx.amount),          # ← str
+                    str(tx.tax_amount),      # ← str
+                    str(tx.rate),            # ← str
                     tx.status.value,
                     "1" if tx.is_credit else "0",
                     tx.payment_date.isoformat() if tx.payment_date else "",
@@ -655,11 +656,11 @@ class TaxTransactionRepositoryPort:
             by_type[t.tax_type.value] = by_type.get(t.tax_type.value, 0) + 1
         return {
             "total_transactions": total,
-            "total_liability": float(total_liability),
-            "total_credit": float(total_credit),
-            "net_payable": float(net_payable),
-            "total_paid": float(paid),
-            "outstanding": float(net_payable - paid),
+            "total_liability": str(total_liability),   # ← str
+            "total_credit": str(total_credit),         # ← str
+            "net_payable": str(net_payable),           # ← str
+            "total_paid": str(paid),                   # ← str
+            "outstanding": str(net_payable - paid),    # ← str
             "by_tax_type": by_type,
             "spt_submissions": len(self._spt_submissions),
         }

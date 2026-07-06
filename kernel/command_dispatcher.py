@@ -19,6 +19,7 @@ import heapq
 import logging
 import threading
 import time
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, auto
@@ -54,8 +55,48 @@ class QueuedCommand:
     created_at: float = field(default_factory=time.time)
 
 
+# ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseCommandDispatcher(ABC):
+    """
+    Base contract for Command Dispatcher.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    def start_workers(self, worker_count: int = 4) -> None:
+        """Start background worker tasks."""
+        pass
+
+    @abstractmethod
+    async def stop_workers(self, timeout: float = 10.0) -> None:
+        """Stop all workers gracefully."""
+        pass
+
+    @abstractmethod
+    async def dispatch(
+        self,
+        envelope: CommandEnvelope,
+        priority: DispatchPriority = DispatchPriority.NORMAL,
+        strategy: DispatchStrategy | None = None,
+    ) -> CommandEnvelope:
+        """Dispatch a command envelope."""
+        pass
+
+    @abstractmethod
+    def clear_queue(self) -> int:
+        """Clear all pending commands from the queue."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics about dispatcher."""
+        pass
+
+
 # === 2. COMMAND DISPATCHER ===
-class CommandDispatcher:
+class CommandDispatcher(BaseCommandDispatcher):
     _instance: CommandDispatcher | None = None
     _lock = threading.Lock()
 

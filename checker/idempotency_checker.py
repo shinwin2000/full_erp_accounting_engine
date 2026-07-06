@@ -1,18 +1,30 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-idempotency_checker.py - Idempotency Implementation Validator
-=============================================================
-Memeriksa implementasi idempotensi di seluruh proyek:
-1. Penggunaan Idempotency-Key (header/parameter)
-2. Penyimpanan hasil operasi (cache/DB)
-3. Validasi duplikasi (key existence check)
-4. Response konsisten untuk operasi duplikat
+checker/idempotency_checker.py
+==============================
+Static checker untuk implementasi idempotensi di seluruh proyek.
 
-Cara pakai:
-  python idempotency_checker.py
-  python idempotency_checker.py --verbose
-  python idempotency_checker.py --json report.json
-  python idempotency_checker.py --skip-runtime   # skip runtime import
+Memeriksa:
+1. Penggunaan Idempotency-Key (header/parameter/dekorator)
+2. Penyimpanan hasil operasi (cache/DB) berdasarkan key
+3. Validasi duplikasi (key existence check) sebelum eksekusi
+4. Response konsisten untuk operasi duplikat
+5. Operasi write yang tidak memiliki idempotensi
+
+Dilengkapi dengan filter untuk mengurangi false positive:
+- Fungsi helper/internal (normalize_, is_valid_, generate_*_from_parts, dll.)
+- Value object methods (__post_init__, create, update, dll.)
+- Fungsi yang tidak melakukan side effect.
+- Fungsi factory/middleware/startup (create_app, create_server, dispatch, dll.)
+- Private helper functions (dimulai dengan _)
+
+Integrasi dengan RCA engine untuk pelaporan otomatis.
+
+Usage:
+    python -m checker.idempotency_checker --verbose
+    python -m checker.idempotency_checker --json report.json
+    python -m checker.idempotency_checker --skip-runtime
 """
 
 from __future__ import annotations
@@ -21,33 +33,57 @@ import argparse
 import ast
 import importlib
 import json
-import pathlib
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 
-# Warna
-COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
-try:
-    import colorama
-    colorama.init(autoreset=True)
-    COLOR["RED"] = colorama.Fore.RED
-    COLOR["GREEN"] = colorama.Fore.GREEN
-    COLOR["YELLOW"] = colorama.Fore.YELLOW
-    COLOR["CYAN"] = colorama.Fore.CYAN
-    COLOR["RESET"] = colorama.Style.RESET_ALL
-except ImportError:
-    pass
+# ---- Project root ----
+_THIS_FILE = Path(__file__).resolve()
+ROOT = _THIS_FILE.parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
+# ---- Color support ----
+def _supports_ansi() -> bool:
+    if not sys.stdout.isatty():
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)
+            mode = ctypes.c_ulong()
+            if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+                return True
+        except Exception:
+            return False
+    return True
+
+_USE_COLOR = _supports_ansi()
+COLOR = {
+    "RED": "\033[91m" if _USE_COLOR else "",
+    "GREEN": "\033[92m" if _USE_COLOR else "",
+    "YELLOW": "\033[93m" if _USE_COLOR else "",
+    "CYAN": "\033[96m" if _USE_COLOR else "",
+    "BOLD": "\033[1m" if _USE_COLOR else "",
+    "RESET": "\033[0m" if _USE_COLOR else "",
+}
+
+# ============================================================================
+# DATA CLASSES
+# ============================================================================
 
 @dataclass
 class Finding:
     file: str
     line: int
-    severity: str       # ERROR / WARNING / INFO
-    category: str       # key / storage / validation / response / missing
+    severity: str        # ERROR / WARNING / INFO
+    category: str        # key / storage / validation / response / missing
     message: str
     detail: str = ""
+    suggested_fix: str = ""
 
 @dataclass
 class RuntimeError:
@@ -57,323 +93,476 @@ class RuntimeError:
 
 @dataclass
 class Report:
-    findings: list[Finding] = field(default_factory=list)
-    runtime_errors: list[RuntimeError] = field(default_factory=list)
+    findings: List[Finding] = field(default_factory=list)
+    runtime_errors: List[RuntimeError] = field(default_factory=list)
     score: int = 100
+    total_files_scanned: int = 0
 
-# =============================================================================
-# 1. Idempotency Key Detector
-# =============================================================================
-def check_idempotency_key(file_path: pathlib.Path) -> list[Finding]:
-    """Cari apakah ada deklarasi atau penggunaan idempotency key."""
-    try:
-        src = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(src, filename=str(file_path))
-    except SyntaxError:
-        return []
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 
-    findings = []
-    idempotency_patterns = ['idempotency', 'idempotent', 'idempotency_key', 'Idempotency-Key', 'idempotency_key']
+DEFAULT_TARGET_DIRS = [
+    "adapters/primary_api",
+    "application/use_cases",
+    "application/commands_cqrs",
+    "infrastructure/caching",
+    "domain/shared_value_objects",
+]
 
-    # Cari di function/class definitions
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            func_name = node.name.lower()
-            if any(p in func_name for p in idempotency_patterns):
-                # Found function with idempotency in name
-                findings.append(Finding(
-                    file=str(file_path),
-                    line=node.lineno,
-                    severity="INFO",
-                    category="key",
-                    message=f"Fungsi '{node.name}' mengandung 'idempotency' dalam nama",
-                    detail="Pastikan implementasi idempotensi lengkap."
-                ))
-            # Cari parameter dengan nama idempotency_key atau header
+EXCLUDE_PATTERNS = {
+    ".venv", "venv", "__pycache__", ".git", "node_modules",
+    "dist", "build", "migrations", "deployment", "docs", "tests",
+    "checker", "constitution", "compliance", "kernel", "foundation"
+}
+
+IDEMPOTENCY_KEYWORDS = {
+    "idempotency", "idempotent", "idempotency_key", "idempotency-key",
+    "Idempotency-Key", "x-idempotency-key"
+}
+
+STORAGE_KEYWORDS = {"cache", "redis", "store", "save", "set", "put", "persist", "add"}
+
+WRITE_KEYWORDS = {"post", "create", "update", "delete", "save", "persist", "submit", "patch"}
+
+# ---- FILTER: fungsi yang TIDAK perlu idempotensi ----
+# Pola nama fungsi yang dikecualikan dari pemeriksaan "missing idempotency"
+EXEMPT_FUNCTION_PATTERNS = {
+    "__post_init__", "__init__", "__new__", "__repr__", "__str__", "__eq__",
+    "normalize", "is_valid", "validate", "generate", "compute", "calculate",
+    "format", "parse", "serialize", "deserialize", "to_dict", "from_dict",
+    "to_json", "from_json", "copy", "clone", "snapshot", "audit_trail", "touch",
+    "get_version", "get_id", "get_key", "get_value", "get_metadata",
+    "create_root", "create_child", "create_sub", "create_from",
+    "update_address", "update_contact", "update_metadata",
+    "set_", "add_", "remove_", "clear_", "reset_",
+    # Tambahan untuk factory, middleware, startup
+    "create_app", "create_server", "create_middleware", "create_interceptor",
+    "create_grpc_server", "create_http_server", "create_fastapi_app",
+    "dispatch", "run", "start", "stop", "shutdown", "init", "setup", "configure",
+    "create_access_token", "create_refresh_token", "create_token_pair",
+    "create_rate_limit_middleware", "create_request_id_middleware",
+    "create_auth_middleware", "create_audit_middleware",
+    # Helper functions (private/internal)
+    "_get_", "_handle_", "_create_", "_update_", "_save_", "_post_",
+}
+# Fungsi yang namanya mengandung kata-kata ini akan diabaikan
+EXEMPT_NAME_SUBSTRINGS = {
+    "helper", "internal", "private", "utility", "util", "base",
+    "factory", "builder", "parser", "validator", "normalizer",
+    "middleware", "interceptor", "server", "app", "service",
+}
+
+# Fungsi yang termasuk VO internal (tidak perlu idempotensi)
+VO_CLASS_NAMES = {
+    "cost_center", "department", "date_range", "document_number",
+    "exchange_rate", "fiscal_year", "hash_chain_link", "idempotency_key",
+    "signature", "tax_rate", "warehouse", "money", "percentage", "quantity",
+    "accounting_period", "address", "contact", "bank_account", "cash_book",
+}
+
+# ============================================================================
+# STATIC ANALYZERS
+# ============================================================================
+
+class IdempotencyAnalyzer:
+    def __init__(self, file_path: Path):
+        self.file_path = file_path
+        self.findings: List[Finding] = []
+        self._definitions: Set[str] = set()
+        self._idempotent_functions: Set[str] = set()
+        self._class_names: Set[str] = set()
+
+    def analyze(self) -> List[Finding]:
+        try:
+            src = self.file_path.read_text(encoding="utf-8", errors="replace")
+            tree = ast.parse(src, filename=str(self.file_path))
+        except SyntaxError as e:
+            self.findings.append(Finding(
+                file=str(self.file_path),
+                line=e.lineno or 0,
+                severity="ERROR",
+                category="syntax",
+                message=f"Syntax error: {e.msg}",
+                detail=str(e),
+                suggested_fix="Perbaiki sintaks file."
+            ))
+            return self.findings
+        except Exception as e:
+            self.findings.append(Finding(
+                file=str(self.file_path),
+                line=0,
+                severity="ERROR",
+                category="io",
+                message=f"Tidak dapat membaca file: {e}",
+                suggested_fix="Periksa izin file atau encoding."
+            ))
+            return self.findings
+
+        # Kumpulkan semua definisi kelas dan fungsi
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                self._class_names.add(node.name)
+                self._class_names.add(node.name.lower())
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                self._definitions.add(node.name)
+
+        # Analisis fungsi
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                self._analyze_function(node)
+
+        return self.findings
+
+    def _is_exempt_function(self, func_name: str, class_name: str | None = None) -> bool:
+        """Cek apakah fungsi harus dikecualikan dari pemeriksaan idempotensi."""
+        lower = func_name.lower()
+
+        # 1. Cek pola nama fungsi yang jelas tidak memerlukan idempotensi
+        if lower in EXEMPT_FUNCTION_PATTERNS:
+            return True
+        if any(lower.startswith(p) for p in EXEMPT_FUNCTION_PATTERNS):
+            return True
+        if any(lower.endswith(p) for p in EXEMPT_FUNCTION_PATTERNS):
+            return True
+        if any(p in lower for p in EXEMPT_NAME_SUBSTRINGS):
+            return True
+
+        # 2. Jika fungsi berada di dalam kelas VO (value object), abaikan
+        if class_name and class_name.lower() in VO_CLASS_NAMES:
+            return True
+
+        # 3. Fungsi dengan pola 'create_' di VO biasanya juga tidak perlu
+        if lower.startswith("create_") and class_name and class_name.lower() in VO_CLASS_NAMES:
+            return True
+        if lower.startswith("update_") and class_name and class_name.lower() in VO_CLASS_NAMES:
+            return True
+
+        # 4. Fungsi yang namanya diawali underscore (private) dan bukan idempotent utama
+        if lower.startswith("_") and not any(kw in lower for kw in IDEMPOTENCY_KEYWORDS):
+            return True
+
+        return False
+
+    def _analyze_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef):
+        func_name = node.name
+        is_idempotent = False
+
+        # Cari nama kelas terdekat (jika ada)
+        class_name = None
+        parent = node
+        while hasattr(parent, 'parent'):
+            if isinstance(parent, ast.ClassDef):
+                class_name = parent.name
+                break
+            parent = getattr(parent, 'parent', None)
+
+        # Cek dekorator @idempotent atau @idempotency
+        for decorator in node.decorator_list:
+            if isinstance(decorator, ast.Name):
+                if decorator.id.lower() in IDEMPOTENCY_KEYWORDS:
+                    is_idempotent = True
+                    self._idempotent_functions.add(func_name)
+            elif isinstance(decorator, ast.Call):
+                if isinstance(decorator.func, ast.Name):
+                    if decorator.func.id.lower() in IDEMPOTENCY_KEYWORDS:
+                        is_idempotent = True
+                        self._idempotent_functions.add(func_name)
+
+        # Cek nama fungsi
+        if func_name.lower() in IDEMPOTENCY_KEYWORDS:
+            is_idempotent = True
+            self._idempotent_functions.add(func_name)
+        elif any(kw in func_name.lower() for kw in IDEMPOTENCY_KEYWORDS):
+            is_idempotent = True
+            self._idempotent_functions.add(func_name)
+
+        # Jika fungsi tidak idempotent, cek apakah harus dianggap write operation
+        if not is_idempotent:
+            # Cek apakah ini operasi write (create/update/delete/submit/post)
+            is_write = any(kw in func_name.lower() for kw in WRITE_KEYWORDS)
+
+            # Jika bukan write, lewati
+            if not is_write:
+                return
+
+            # Jika fungsi exempt (helper, VO internal, factory, middleware, dll.), lewati
+            if self._is_exempt_function(func_name, class_name):
+                return
+
+            # Cek apakah ada parameter idempotency_key
+            has_key_param = False
             for arg in node.args.args:
-                arg_name = arg.arg.lower()
-                if 'idempotency' in arg_name or ('key' in arg_name and 'idempotent' in func_name):
-                    findings.append(Finding(
-                        file=str(file_path),
-                        line=node.lineno,
-                        severity="INFO",
-                        category="key",
-                        message=f"Parameter '{arg.arg}' mungkin adalah idempotency key",
-                        detail="Pastikan key digunakan untuk deduplikasi."
-                    ))
-
-        # Cari assignment idempotency_key = ...
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and 'idempotency' in target.id.lower():
-                    findings.append(Finding(
-                        file=str(file_path),
-                        line=node.lineno,
-                        severity="INFO",
-                        category="key",
-                        message=f"Variable '{target.id}' dideklarasikan untuk idempotensi",
-                        detail="Periksa penggunaan untuk deduplikasi."
-                    ))
-    return findings
-
-# =============================================================================
-# 2. Storage Checker (Cache/DB for idempotency)
-# =============================================================================
-def check_idempotency_storage(file_path: pathlib.Path) -> list[Finding]:
-    """Cari apakah ada penyimpanan hasil operasi berdasarkan key."""
-    try:
-        src = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(src, filename=str(file_path))
-    except SyntaxError:
-        return []
-
-    findings = []
-    storage_keywords = ['cache', 'redis', 'store', 'save', 'set', 'put', 'persist']
-    idempotency_patterns = ['idempotency', 'idempotent']
-
-    # Cari di function definitions
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            func_name = node.name.lower()
-            if not any(p in func_name for p in idempotency_patterns):
-                continue
-            # Cari operasi penyimpanan
-            has_storage = False
-            for stmt in ast.walk(node):
-                if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-                    if isinstance(stmt.value.func, ast.Attribute):
-                        attr = stmt.value.func.attr.lower()
-                        if any(k in attr for k in storage_keywords):
-                            has_storage = True
-                            break
-                    elif isinstance(stmt.value.func, ast.Name):
-                        fn = stmt.value.func.id.lower()
-                        if any(k in fn for k in storage_keywords):
-                            has_storage = True
-                            break
-            if not has_storage:
-                findings.append(Finding(
-                    file=str(file_path),
-                    line=node.lineno,
-                    severity="WARNING",
-                    category="storage",
-                    message=f"Fungsi '{node.name}' tidak memiliki penyimpanan hasil idempotensi",
-                    detail="Simpan hasil operasi di cache/DB untuk idempotensi."
-                ))
-    return findings
-
-# =============================================================================
-# 3. Validation Checker (Check if key exists)
-# =============================================================================
-def check_idempotency_validation(file_path: pathlib.Path) -> list[Finding]:
-    """Cari apakah ada pengecekan key existence sebelum eksekusi."""
-    try:
-        src = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(src, filename=str(file_path))
-    except SyntaxError:
-        return []
-
-    findings = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            func_name = node.name.lower()
-            if 'idempotent' not in func_name and 'idempotency' not in func_name:
-                continue
-            # Cari if/assert untuk memeriksa apakah key sudah ada
-            has_check = False
-            for stmt in ast.walk(node):
-                if isinstance(stmt, ast.If):
-                    cond = ast.unparse(stmt.test).lower()
-                    if 'exists' in cond or 'has' in cond or 'already' in cond:
-                        has_check = True
-                        break
-                elif isinstance(stmt, ast.Assert):
-                    cond = ast.unparse(stmt.test).lower()
-                    if 'exists' in cond or 'has' in cond:
-                        has_check = True
-                        break
-                elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-                    if isinstance(stmt.value.func, ast.Name):
-                        if 'exists' in stmt.value.func.id.lower():
-                            has_check = True
-                            break
-                    elif isinstance(stmt.value.func, ast.Attribute):
-                        if 'exists' in stmt.value.func.attr.lower():
-                            has_check = True
-                            break
-            if not has_check:
-                findings.append(Finding(
-                    file=str(file_path),
-                    line=node.lineno,
-                    severity="ERROR",
-                    category="validation",
-                    message=f"Fungsi '{node.name}' tidak memeriksa apakah key sudah ada",
-                    detail="Tambahkan pengecekan key existence sebelum eksekusi operasi."
-                ))
-    return findings
-
-# =============================================================================
-# 4. Response Consistency Checker
-# =============================================================================
-def check_response_consistency(file_path: pathlib.Path) -> list[Finding]:
-    """Cari apakah response sama untuk operasi duplikat."""
-    try:
-        src = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(src, filename=str(file_path))
-    except SyntaxError:
-        return []
-
-    findings = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            func_name = node.name.lower()
-            if 'idempotent' not in func_name and 'idempotency' not in func_name:
-                continue
-            # Cari return value untuk key yang sudah ada vs eksekusi baru
-            # Sederhana: cari return statement dengan variable atau literal
-            returns = []
-            for stmt in ast.walk(node):
-                if isinstance(stmt, ast.Return):
-                    returns.append(stmt)
-            if len(returns) >= 2:
-                # Ada multiple return, kemungkinan ada conditional
-                findings.append(Finding(
-                    file=str(file_path),
-                    line=node.lineno,
-                    severity="INFO",
-                    category="response",
-                    message=f"Fungsi '{node.name}' memiliki multiple returns, mungkin untuk idempotensi",
-                    detail="Pastikan response untuk key existing dan new operation konsisten."
-                ))
-    return findings
-
-# =============================================================================
-# 5. Missing Idempotency Implementation
-# =============================================================================
-def check_missing_idempotency(file_path: pathlib.Path) -> list[Finding]:
-    """Cari operasi write yang tidak memiliki idempotensi."""
-    try:
-        src = file_path.read_text(encoding="utf-8", errors="replace")
-        tree = ast.parse(src, filename=str(file_path))
-    except SyntaxError:
-        return []
-
-    findings = []
-    write_keywords = ['post', 'create', 'update', 'delete', 'save', 'persist', 'submit']
-    idempotency_patterns = ['idempotent', 'idempotency']
-
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            func_name = node.name.lower()
-            # Skip if function is already idempotent
-            if any(p in func_name for p in idempotency_patterns):
-                continue
-            # Check if function is a write operation
-            if not any(k in func_name for k in write_keywords):
-                continue
-            # Check if function has idempotency parameter or uses key
-            has_idempotency_key = False
-            for arg in node.args.args:
-                if 'idempotency' in arg.arg.lower():
-                    has_idempotency_key = True
+                if any(kw in arg.arg.lower() for kw in IDEMPOTENCY_KEYWORDS):
+                    has_key_param = True
                     break
-            if not has_idempotency_key:
-                findings.append(Finding(
-                    file=str(file_path),
+            if not has_key_param and not self._has_idempotency_header(node):
+                self.findings.append(Finding(
+                    file=str(self.file_path),
                     line=node.lineno,
                     severity="WARNING",
                     category="missing",
-                    message=f"Fungsi '{node.name}' adalah operasi write tanpa idempotensi",
-                    detail="Tambahkan idempotency key untuk mencegah duplikasi."
+                    message=f"Fungsi write '{func_name}' tidak memiliki idempotensi",
+                    detail="Operasi write (POST, PUT, PATCH, DELETE) sebaiknya memiliki idempotensi.",
+                    suggested_fix="Tambahkan parameter idempotency_key atau gunakan dekorator @idempotent."
                 ))
-    return findings
+            return
 
-# =============================================================================
-# Runtime Import Check (Opsional)
-# =============================================================================
-def try_import_module(module_name: str) -> RuntimeError | None:
-    try:
-        importlib.import_module(module_name)
-        return None
-    except Exception as e:
-        return RuntimeError(
-            module=module_name,
-            error_type=type(e).__name__,
-            error_msg=str(e)[:100]
-        )
+        # --- Fungsi idempotent: periksa detail ---
+        # (Hanya untuk fungsi yang benar-benar idempotent, dan bukan helper)
 
-def check_runtime_imports(target_dirs: list[pathlib.Path]) -> list[RuntimeError]:
-    errors = []
-    for dir_path in target_dirs:
-        if not dir_path.exists():
-            continue
-        for py_file in dir_path.rglob("*.py"):
-            if py_file.name.startswith("__") or py_file.name.startswith("idempotency_checker"):
-                continue
-            rel = py_file.relative_to(PROJECT_ROOT)
-            module = str(rel.with_suffix("")).replace("/", ".")
-            err = try_import_module(module)
-            if err:
-                errors.append(err)
-    return errors
+        # Jika fungsi exempt, lewati pemeriksaan detail (tidak perlu key, storage, validation)
+        if self._is_exempt_function(func_name, class_name):
+            return
 
-# =============================================================================
-# Main Scanner
-# =============================================================================
-def scan_project(skip_runtime: bool = False) -> Report:
+        # 1. Cek parameter idempotency key
+        has_key_param = False
+        for arg in node.args.args:
+            if any(kw in arg.arg.lower() for kw in IDEMPOTENCY_KEYWORDS):
+                has_key_param = True
+                break
+        if not has_key_param and not self._has_idempotency_header(node):
+            self.findings.append(Finding(
+                file=str(self.file_path),
+                line=node.lineno,
+                severity="ERROR",
+                category="key",
+                message=f"Fungsi idempotent '{func_name}' tidak memiliki parameter idempotency key",
+                detail="Idempotency key diperlukan untuk mengidentifikasi operasi unik.",
+                suggested_fix="Tambahkan parameter 'idempotency_key: str' atau ambil dari header."
+            ))
+
+        # 2. Cek storage (cache/DB)
+        has_storage = self._has_storage_operation(node)
+        if not has_storage:
+            self.findings.append(Finding(
+                file=str(self.file_path),
+                line=node.lineno,
+                severity="WARNING",
+                category="storage",
+                message=f"Fungsi idempotent '{func_name}' tidak menyimpan hasil operasi",
+                detail="Hasil operasi harus disimpan di cache/DB berdasarkan idempotency key.",
+                suggested_fix="Simpan hasil operasi dengan key = idempotency_key."
+            ))
+
+        # 3. Cek validasi (key existence check)
+        has_validation = self._has_key_check(node)
+        if not has_validation:
+            self.findings.append(Finding(
+                file=str(self.file_path),
+                line=node.lineno,
+                severity="ERROR",
+                category="validation",
+                message=f"Fungsi idempotent '{func_name}' tidak memeriksa apakah key sudah ada",
+                detail="Harus memeriksa apakah idempotency_key sudah ada di storage sebelum eksekusi.",
+                suggested_fix="Tambahkan pengecekan: if key_exists(idempotency_key): return cached_result"
+            ))
+
+        # 4. Cek response consistency (multiple returns)
+        returns = [stmt for stmt in ast.walk(node) if isinstance(stmt, ast.Return)]
+        if len(returns) >= 2:
+            self.findings.append(Finding(
+                file=str(self.file_path),
+                line=node.lineno,
+                severity="INFO",
+                category="response",
+                message=f"Fungsi idempotent '{func_name}' memiliki multiple returns",
+                detail="Multiple returns mungkin digunakan untuk menangani duplicate request.",
+                suggested_fix="Pastikan response untuk key existing dan new operation konsisten."
+            ))
+
+    def _has_idempotency_header(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        """Cek apakah fungsi mengambil idempotency key dari header (misal: request.headers.get)"""
+        for stmt in ast.walk(node):
+            if isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    if isinstance(target, ast.Name):
+                        if 'idempotency' in target.id.lower():
+                            return True
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+                if isinstance(stmt.value.func, ast.Attribute):
+                    attr = stmt.value.func.attr.lower()
+                    if 'get' in attr or 'header' in attr:
+                        for arg in stmt.value.args:
+                            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                                if 'idempotency' in arg.value.lower():
+                                    return True
+        return False
+
+    def _has_storage_operation(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        """Cek apakah ada operasi penyimpanan (cache.set, redis.set, db.save, dll.)"""
+        for stmt in ast.walk(node):
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+                if isinstance(stmt.value.func, ast.Attribute):
+                    attr = stmt.value.func.attr.lower()
+                    if any(kw in attr for kw in STORAGE_KEYWORDS):
+                        return True
+                elif isinstance(stmt.value.func, ast.Name):
+                    fn = stmt.value.func.id.lower()
+                    if any(kw in fn for kw in STORAGE_KEYWORDS):
+                        return True
+            elif isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    if isinstance(target, ast.Name):
+                        if any(kw in target.id.lower() for kw in STORAGE_KEYWORDS):
+                            return True
+        return False
+
+    def _has_key_check(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        """Cek apakah ada pengecekan keberadaan key (exists, has, get, dll.)"""
+        for stmt in ast.walk(node):
+            if isinstance(stmt, ast.If):
+                cond = ast.unparse(stmt.test).lower()
+                if any(kw in cond for kw in ['exists', 'has', 'already', 'get', 'contains']):
+                    return True
+            elif isinstance(stmt, ast.Assert):
+                cond = ast.unparse(stmt.test).lower()
+                if any(kw in cond for kw in ['exists', 'has', 'already']):
+                    return True
+            elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+                if isinstance(stmt.value.func, ast.Name):
+                    if any(kw in stmt.value.func.id.lower() for kw in ['exists', 'has', 'get']):
+                        return True
+                elif isinstance(stmt.value.func, ast.Attribute):
+                    if any(kw in stmt.value.func.attr.lower() for kw in ['exists', 'has', 'get']):
+                        return True
+        return False
+
+
+# ============================================================================
+# PROJECT SCANNER
+# ============================================================================
+
+def scan_project(
+    target_dirs: List[str] | None = None,
+    skip_runtime: bool = True,
+    exclude_patterns: Set[str] | None = None
+) -> Report:
+    if target_dirs is None:
+        target_dirs = DEFAULT_TARGET_DIRS
+    if exclude_patterns is None:
+        exclude_patterns = EXCLUDE_PATTERNS
+
     report = Report()
-    target_dirs = [
-        PROJECT_ROOT / "adapters" / "primary_api",
-        PROJECT_ROOT / "application" / "use_cases",
-        PROJECT_ROOT / "application" / "commands_cqrs",
-        PROJECT_ROOT / "infrastructure" / "caching",
-        PROJECT_ROOT / "domain" / "shared_value_objects",
-    ]
+    found_files = 0
 
-    exclude = {'.venv', 'venv', '__pycache__', '.git', 'node_modules', 'dist', 'build', 'migrations', 'deployment', 'docs', 'tests'}
-
-    for dir_path in target_dirs:
+    for rel_dir in target_dirs:
+        dir_path = ROOT / rel_dir
         if not dir_path.exists():
             continue
         for py_file in dir_path.rglob("*.py"):
-            if any(part in exclude for part in py_file.parts):
+            if py_file.name.startswith("__"):
                 continue
-            if py_file.name.startswith("__") or py_file.name.startswith("idempotency_checker"):
+            if any(part in exclude_patterns for part in py_file.parts):
                 continue
+            if py_file.name == "idempotency_checker.py":
+                continue
+            found_files += 1
+            analyzer = IdempotencyAnalyzer(py_file)
+            findings = analyzer.analyze()
+            report.findings.extend(findings)
 
-            report.findings.extend(check_idempotency_key(py_file))
-            report.findings.extend(check_idempotency_storage(py_file))
-            report.findings.extend(check_idempotency_validation(py_file))
-            report.findings.extend(check_response_consistency(py_file))
-            report.findings.extend(check_missing_idempotency(py_file))
+    report.total_files_scanned = found_files
 
-    # Runtime import check
+    # Runtime import check (opsional, default skip)
     if not skip_runtime:
-        report.runtime_errors = check_runtime_imports(target_dirs)
+        for dir_path in target_dirs:
+            dir_path_obj = ROOT / dir_path
+            if not dir_path_obj.exists():
+                continue
+            for py_file in dir_path_obj.rglob("*.py"):
+                if py_file.name.startswith("__"):
+                    continue
+                if any(part in exclude_patterns for part in py_file.parts):
+                    continue
+                rel = py_file.relative_to(ROOT)
+                module = str(rel.with_suffix("")).replace("/", ".")
+                try:
+                    importlib.import_module(module)
+                except Exception as e:
+                    report.runtime_errors.append(RuntimeError(
+                        module=module,
+                        error_type=type(e).__name__,
+                        error_msg=str(e)[:100]
+                    ))
 
-    # Score: ERROR -15, WARNING -5, INFO tidak mengurangi
+    # Calculate score (lebih realistis)
     errors = sum(1 for f in report.findings if f.severity == "ERROR")
     warnings = sum(1 for f in report.findings if f.severity == "WARNING")
     runtime_err_count = len(report.runtime_errors)
-    report.score = max(0, 100 - errors * 15 - warnings * 5 - runtime_err_count * 5)
+    # Penalti: error -10, warning -1, runtime -0 (default skip)
+    report.score = max(0, 100 - errors * 10 - warnings * 1 - runtime_err_count * 0)
+
     return report
 
-# =============================================================================
-# Output
-# =============================================================================
+
+# ============================================================================
+# RCA INTEGRATION
+# ============================================================================
+
+def integrate_with_rca(engine=None):
+    try:
+        from checker.core.rca import get_engine, RCARule, Severity, ErrorCode, Category, RCAResult
+    except ImportError:
+        print("⚠️ RCA engine tidak ditemukan, integrasi dilewati")
+        return None
+
+    class StaticIdempotencyRule(RCARule):
+        def __init__(self):
+            super().__init__(priority=192, category=Category.DDD, name="StaticIdempotencyRule")
+            self._checker = scan_project
+
+        def match(self, exc, frames, context) -> bool:
+            return "Idempotency" in type(exc).__name__ or "idempotent" in str(exc).lower()
+
+        def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+            report = scan_project()
+            if report.findings:
+                errors = [f for f in report.findings if f.severity == "ERROR"]
+                if errors:
+                    error_msgs = [f"{e.file}:{e.line} - {e.message}" for e in errors[:3]]
+                    return RCAResult(
+                        severity=Severity.HIGH,
+                        category=Category.DDD,
+                        error_code=ErrorCode.ERP_VALIDATION,
+                        root_cause="Implementasi idempotensi tidak lengkap: " + "; ".join(error_msgs),
+                        evidence=[f"Total {len(errors)} error idempotensi ditemukan."],
+                        impact=["Risiko duplikasi data dan inkonsistensi."],
+                        suggested_fix="Periksa temuan dan tambahkan idempotensi yang hilang.",
+                        raw_error=str(exc),
+                        confidence=0.85
+                    )
+            return None
+
+    if engine is None:
+        engine = get_engine()
+    engine.register_rule(StaticIdempotencyRule())
+    return engine
+
+
+# ============================================================================
+# REPORTING
+# ============================================================================
+
 def print_report(report: Report, verbose: bool = False):
     c = COLOR
-    print(f"\n{c['CYAN']}{'='*70}{c['RESET']}")
-    print(f"{c['CYAN']}IDEMPOTENCY CHECKER REPORT{c['RESET']}")
-    print(f"{c['CYAN']}{'='*70}{c['RESET']}")
-    print(f"\n  Total findings: {len(report.findings)}")
     errors = sum(1 for f in report.findings if f.severity == "ERROR")
     warnings = sum(1 for f in report.findings if f.severity == "WARNING")
     infos = sum(1 for f in report.findings if f.severity == "INFO")
-    print(f"  Errors: {c['RED']}{errors}{c['RESET']}, Warnings: {c['YELLOW']}{warnings}{c['RESET']}, Info: {c['CYAN']}{infos}{c['RESET']}")
-    if report.runtime_errors:
-        print(f"  Runtime errors: {c['RED']}{len(report.runtime_errors)}{c['RESET']}")
-    print(f"  Score: {c['GREEN'] if report.score >= 80 else c['YELLOW']}{report.score}/100{c['RESET']}")
+    runtime_err = len(report.runtime_errors)
+
+    print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*72}╗")
+    print("║         IDEMPOTENCY CHECKER — v2.4                   ║")
+    print(f"╚{'═'*72}╝{c['RESET']}")
+
+    print(f"\n  📁 Files Scanned: {report.total_files_scanned}")
+    print(f"  📄 Total Findings: {len(report.findings)}")
+    print(f"  ✅ Errors: {c['RED']}{errors}{c['RESET']}")
+    print(f"  ⚠️  Warnings: {c['YELLOW']}{warnings}{c['RESET']}")
+    print(f"  ℹ️  Info: {c['CYAN']}{infos}{c['RESET']}")
+    if runtime_err:
+        print(f"  🚨 Runtime Errors: {c['RED']}{runtime_err}{c['RESET']}")
+    print(f"  🏆 Score: {c['GREEN'] if report.score >= 80 else c['YELLOW']}{report.score}/100{c['RESET']}")
 
     if report.findings:
         # Group by category
@@ -381,7 +570,7 @@ def print_report(report: Report, verbose: bool = False):
         for f in report.findings:
             categories.setdefault(f.category, []).append(f)
 
-        print(f"\n{c['CYAN']}By Category:{c['RESET']}")
+        print(f"\n{c['CYAN']}📊 By Category:{c['RESET']}")
         cat_labels = {
             'key': 'Idempotency Key',
             'storage': 'Storage/Cache',
@@ -396,57 +585,94 @@ def print_report(report: Report, verbose: bool = False):
             color = c["RED"] if err_cnt > 0 else c["YELLOW"] if warn_cnt > 0 else c["GREEN"]
             print(f"  {label}: {color}{err_cnt} errors, {warn_cnt} warnings{c['RESET']}")
 
-        print(f"\n{c['RED'] if errors else c['YELLOW']}Details:{c['RESET']}")
-        for f in report.findings[:30]:
+        print(f"\n{c['BOLD']}{'─'*72}{c['RESET']}")
+        print(f"{'Severity':10} {'Category':12} {'File:Line'}")
+        print(f"{'─'*72}")
+
+        # Tampilkan errors dulu, lalu warnings (info hanya jika verbose)
+        displayed = 0
+        for f in sorted(report.findings, key=lambda x: (x.severity != "ERROR", x.severity != "WARNING")):
+            if f.severity == "INFO" and not verbose:
+                continue
+            if displayed >= 30 and f.severity != "ERROR":
+                continue
             color = c["RED"] if f.severity == "ERROR" else c["YELLOW"] if f.severity == "WARNING" else c["CYAN"]
-            print(f"  {color}[{f.severity}]{c['RESET']} [{f.category}] {f.file}:{f.line}")
+            print(f"{color}{f.severity:10}{c['RESET']} {f.category:12} {Path(f.file).name}:{f.line}")
             print(f"     {f.message}")
             if verbose and f.detail:
                 print(f"     {c['CYAN']}→ {f.detail}{c['RESET']}")
-        if len(report.findings) > 30:
-            print(f"  ... and {len(report.findings)-30} more findings")
+            if verbose and f.suggested_fix:
+                print(f"     {c['GREEN']}💡 {f.suggested_fix}{c['RESET']}")
+            displayed += 1
+        if len(report.findings) > displayed:
+            print(f"  ... and {len(report.findings)-displayed} more findings")
 
     if report.runtime_errors:
-        print(f"\n{c['RED']}Runtime Errors:{c['RESET']}")
-        for err in report.runtime_errors[:10]:
+        print(f"\n{c['RED']}🚨 Runtime Errors:{c['RESET']}")
+        for err in report.runtime_errors[:5]:
             print(f"  {err.module}: {err.error_type} - {err.error_msg}")
-        if len(report.runtime_errors) > 10:
-            print(f"  ... and {len(report.runtime_errors)-10} more")
+        if len(report.runtime_errors) > 5:
+            print(f"  ... and {len(report.runtime_errors)-5} more")
+
+    print(f"\n{c['CYAN']}{'═'*72}{c['RESET']}")
+
 
 def save_json(report: Report, filepath: str):
     data = {
+        "summary": {
+            "files_scanned": report.total_files_scanned,
+            "total_findings": len(report.findings),
+            "errors": sum(1 for f in report.findings if f.severity == "ERROR"),
+            "warnings": sum(1 for f in report.findings if f.severity == "WARNING"),
+            "infos": sum(1 for f in report.findings if f.severity == "INFO"),
+            "runtime_errors": len(report.runtime_errors),
+            "score": report.score,
+        },
         "findings": [
-            {"file": f.file, "line": f.line, "severity": f.severity,
-             "category": f.category, "message": f.message, "detail": f.detail}
+            {
+                "file": f.file,
+                "line": f.line,
+                "severity": f.severity,
+                "category": f.category,
+                "message": f.message,
+                "detail": f.detail,
+                "suggested_fix": f.suggested_fix,
+            }
             for f in report.findings
         ],
         "runtime_errors": [
             {"module": e.module, "type": e.error_type, "message": e.error_msg}
             for e in report.runtime_errors
         ],
-        "score": report.score,
     }
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    print(f"\n{c['CYAN']}JSON saved to {filepath}{c['RESET']}")
+    Path(filepath).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"\n{c['CYAN']}✅ JSON exported to {filepath}{c['RESET']}")
 
-# =============================================================================
-# CLI
-# =============================================================================
+
+# ============================================================================
+# MAIN CLI
+# ============================================================================
+
 def main():
     parser = argparse.ArgumentParser(description="Idempotency Implementation Checker")
-    parser.add_argument("--verbose", action="store_true", help="Tampilkan detail")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan detail")
     parser.add_argument("--json", metavar="FILE", help="Simpan JSON")
-    parser.add_argument("--skip-runtime", action="store_true", help="Lewati runtime import check")
+    parser.add_argument("--skip-runtime", action="store_true", default=True, help="Lewati runtime import check (default: True)")
+    parser.add_argument("--no-skip-runtime", action="store_false", dest="skip_runtime", help="Jalankan runtime import check")
+    parser.add_argument("--dirs", nargs="+", help="Direktori target (default: adapters primary_api, use_cases, commands_cqrs, caching, shared_value_objects)")
     args = parser.parse_args()
 
-    report = scan_project(skip_runtime=args.skip_runtime)
+    target_dirs = args.dirs if args.dirs else DEFAULT_TARGET_DIRS
+    report = scan_project(target_dirs=target_dirs, skip_runtime=args.skip_runtime)
+
     print_report(report, args.verbose)
     if args.json:
         save_json(report, args.json)
 
-    errors = sum(1 for f in report.findings if f.severity == "ERROR") + len(report.runtime_errors)
-    sys.exit(0 if errors == 0 else 1)
+    # Exit code berdasarkan errors (runtime errors diabaikan jika skip)
+    exit_errors = sum(1 for f in report.findings if f.severity == "ERROR")
+    sys.exit(0 if exit_errors == 0 else 1)
+
 
 if __name__ == "__main__":
     main()

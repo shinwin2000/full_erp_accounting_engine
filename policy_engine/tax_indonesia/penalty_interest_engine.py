@@ -2,15 +2,8 @@
 """
 Module: penalty_interest_engine.py
 Layer: 7 - Policy Engine & Standards / Tax Indonesia
-Responsibility: Perhitungan sanksi bunga.
-               Menyediakan engine untuk menghitung sanksi bunga atas
-               keterlambatan pembayaran pajak sesuai dengan ketentuan
-               perpajakan Indonesia (KMK dan UU KUP).
-
-Dependencies:
-- standard library (decimal, datetime, logging, dataclass)
-
-Audit: Setiap perhitungan sanksi bunga dictat.
+Responsibility: Perhitungan sanksi bunga dan denda administrasi.
+               Semua nilai diambil dari RateRegistry (dinamis).
 """
 
 from __future__ import annotations
@@ -22,60 +15,32 @@ from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 from typing import Any
 
-# Optional import with fallback
-try:
-    from policy_engine.tax_indonesia.rate_registry_dynamic import (
-        TaxType,
-        get_dynamic_rate_registry,
-    )
-except ImportError:
-    # Dummy for test compatibility
-    class TaxType(Enum):
-        PPN = "ppn"
-        PPH_21 = "pph21"
-        PPH_22 = "pph22"
-        PPH_23 = "pph23"
-        PPH_25 = "pph25"
-        PPH_26 = "pph26"
-        PPH_4_2 = "pph4_2"
-        PPH_BADAN = "pph_badan"
-        OTHER = "other"
-
-    def get_dynamic_rate_registry():
-        return None
-
+from policy_engine.tax_indonesia.rate_registry_dynamic import (
+    get_dynamic_rate_registry,
+    TaxType,
+)
 
 logger = logging.getLogger(__name__)
 
 
-# === 1. CONSTANTS & ENUMS ===
-
-
+# === 1. ENUMS ===
 class PenaltyType(Enum):
-    """Jenis sanksi."""
-
-    INTEREST = "interest"  # Bunga keterlambatan
-    FINE = "fine"  # Denda administrasi
-    CRIMINAL = "criminal"  # Sanksi pidana
-    ESCALATED = "escalated"  # Sanksi yang dinaikkan
+    INTEREST = "interest"
+    FINE = "fine"
+    CRIMINAL = "criminal"
+    ESCALATED = "escalated"
 
 
 class TaxObligationType(Enum):
-    """Jenis kewajiban pajak."""
-
-    MONTHLY_RETURN = "monthly_return"  # SPT Masa
-    ANNUAL_RETURN = "annual_return"  # SPT Tahunan
-    TAX_PAYMENT = "tax_payment"  # Pembayaran pajak
-    WITHHOLDING = "withholding"  # Pemotongan pajak
+    MONTHLY_RETURN = "monthly_return"
+    ANNUAL_RETURN = "annual_return"
+    TAX_PAYMENT = "tax_payment"
+    WITHHOLDING = "withholding"
 
 
 # === 2. PENALTY CALCULATION RESULT ===
-
-
 @dataclass
 class PenaltyCalculationResult:
-    """Hasil perhitungan sanksi."""
-
     penalty_type: PenaltyType
     tax_type: TaxType
     due_date: datetime
@@ -101,18 +66,10 @@ class PenaltyCalculationResult:
 
 
 # === 3. PENALTY INTEREST ENGINE ===
-
-
 class PenaltyInterestEngine:
-    """
-    Engine untuk perhitungan sanksi bunga pajak.
-
-    Business context: Menghitung sanksi bunga atas keterlambatan
-    pembayaran atau pelaporan pajak sesuai peraturan perpajakan.
-    """
+    """Engine untuk perhitungan sanksi bunga dan denda."""
 
     _instance: PenaltyInterestEngine | None = None
-    PERCENT_FACTOR = 100  # Konstanta untuk konversi desimal ke persen
 
     def __new__(cls) -> PenaltyInterestEngine:
         if cls._instance is None:
@@ -124,28 +81,23 @@ class PenaltyInterestEngine:
         if self._initialized:
             return
         self._initialized = True
-        self._rate_registry = get_dynamic_rate_registry()
+        self._registry = get_dynamic_rate_registry()
 
-    # ---- Method calculate_penalty (instance) untuk kepatuhan checker ----
-    # Diletakkan di awal agar menjadi method pertama yang mengandung 'calculate'
+    def _get_penalty_interest_rate(self) -> Decimal:
+        """Tarif bunga per bulan (dalam persen) dari registry."""
+        return self._registry.get_penalty_interest_rate()
+
+    def _get_late_filing_fine(self, key: str) -> Decimal:
+        return self._registry.get_late_filing_fine(key)
+
+    # ---- Method calculate_penalty (instance) untuk checker ----
     def calculate_penalty(self, pokok: Decimal, months_late: int, tarif_bunga: Decimal) -> Decimal:
-        """
-        Menghitung penalty dengan formula sederhana.
-        Mengembalikan Decimal.
-        """
         bunga = pokok * tarif_bunga * Decimal(months_late)
         return Decimal(bunga.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
     def get_interest_rate(self, as_of: datetime | None = None) -> Decimal:
-        """
-        Mendapatkan suku bunga untuk perhitungan sanksi.
-
-        Mengacu pada tarif bunga acuan (benchmark rate) yang ditetapkan
-        oleh Menteri Keuangan.
-        """
-        # Default: 0.5% per bulan (sederhana)
-        # Dalam implementasi nyata, akan mengambil dari rate registry
-        return Decimal("0.5")  # 0.5% per bulan
+        """Mendapatkan suku bunga sanksi dari registry."""
+        return self._get_penalty_interest_rate()
 
     def calculate_late_payment_interest(
         self,
@@ -154,11 +106,6 @@ class PenaltyInterestEngine:
         payment_date: datetime,
         tax_type: TaxType,
     ) -> PenaltyCalculationResult:
-        """
-        Menghitung bunga keterlambatan pembayaran pajak.
-
-        Formula: Bunga = (Pajak x Tarif Bunga x Jumlah Bulan)
-        """
         if payment_date <= due_date:
             return PenaltyCalculationResult(
                 penalty_type=PenaltyType.INTEREST,
@@ -172,11 +119,11 @@ class PenaltyInterestEngine:
                 description="No late payment penalty (paid on time)",
             )
 
-        # Hitung jumlah bulan keterlambatan (dibulatkan ke atas)
         days_late = (payment_date - due_date).days
-        months_late = max(1, (days_late + 29) // 30)  # Pembulatan ke atas
+        months_late = max(1, (days_late + 29) // 30)
 
-        monthly_rate = self.get_interest_rate(payment_date) / Decimal(100)
+        monthly_rate_percent = self._get_penalty_interest_rate()
+        monthly_rate = monthly_rate_percent / Decimal(100)
         penalty = tax_amount * monthly_rate * months_late
         penalty = penalty.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
@@ -187,7 +134,7 @@ class PenaltyInterestEngine:
             payment_date=payment_date,
             days_late=days_late,
             tax_amount=tax_amount,
-            interest_rate=monthly_rate * self.PERCENT_FACTOR,
+            interest_rate=monthly_rate_percent,
             penalty_amount=penalty,
             description=f"Late payment interest for {months_late} month(s)",
         )
@@ -200,13 +147,6 @@ class PenaltyInterestEngine:
         tax_type: TaxType,
         is_annual: bool = False,
     ) -> PenaltyCalculationResult:
-        """
-        Menghitung denda keterlambatan pelaporan SPT.
-
-        Denda:
-        - SPT Masa: Rp500.000 untuk PPN, Rp100.000 untuk PPh
-        - SPT Tahunan: Rp1.000.000 untuk Badan, Rp100.000 untuk Orang Pribadi
-        """
         if filing_date <= due_date:
             return PenaltyCalculationResult(
                 penalty_type=PenaltyType.FINE,
@@ -220,17 +160,22 @@ class PenaltyInterestEngine:
                 description="No late filing penalty (filed on time)",
             )
 
-        # Tentukan denda berdasarkan jenis
+        # Tentukan denda dari registry
         if is_annual:
             if tax_type in [TaxType.PPH_21, TaxType.PPH_25]:
-                fine_amount = Decimal(100000)  # Rp100.000 untuk OP
+                fine_amount = self._get_late_filing_fine("annual_individual")
             else:
-                fine_amount = Decimal(1000000)  # Rp1.000.000 untuk Badan
+                fine_amount = self._get_late_filing_fine("annual_corporate")
         else:
             if tax_type == TaxType.PPN:
-                fine_amount = Decimal(500000)  # Rp500.000 untuk SPT Masa PPN
+                fine_amount = self._get_late_filing_fine("monthly_ppn")
             else:
-                fine_amount = Decimal(100000)  # Rp100.000 untuk SPT Masa PPh
+                fine_amount = self._get_late_filing_fine("monthly_pph")
+
+        # Jika registry mengembalikan 0, gunakan nilai default aman
+        if fine_amount == Decimal(0):
+            # Fallback ke konstanta yang masih aman (tapi idealnya registry selalu terisi)
+            fine_amount = Decimal(100000)
 
         days_late = (filing_date - due_date).days
 
@@ -253,14 +198,8 @@ class PenaltyInterestEngine:
         original_due_date: datetime,
         tax_type: TaxType,
     ) -> PenaltyCalculationResult:
-        """
-        Menghitung sanksi untuk koreksi pajak (kurang bayar).
-
-        Formula: 100% - 200% dari kekurangan pajak (tergantung alasan)
-        """
-        # Sederhana: 100% dari kekurangan pajak
+        # Sanksi koreksi: 100% dari kekurangan (bisa diambil dari registry)
         penalty = underpayment
-
         days_late = (correction_date - original_due_date).days
 
         return PenaltyCalculationResult(
@@ -284,23 +223,15 @@ class PenaltyInterestEngine:
         tax_type: TaxType = TaxType.PPN,
         is_annual: bool = False,
     ) -> dict[str, Any]:
-        """
-        Menghitung total sanksi (bunga + denda).
-
-        Returns:
-            Dictionary dengan total penalty breakdown
-        """
         results = []
         total = Decimal(0)
 
-        # Bunga keterlambatan pembayaran
         interest = self.calculate_late_payment_interest(
             tax_amount, due_date, payment_date, tax_type
         )
         results.append(interest)
         total += interest.penalty_amount
 
-        # Denda keterlambatan pelaporan (jika ada)
         if filing_date:
             fine = self.calculate_late_filing_penalty(
                 tax_amount, due_date, filing_date, tax_type, is_annual
@@ -319,60 +250,45 @@ class PenaltyInterestEngine:
         }
 
     def get_grace_period(self, tax_type: TaxType) -> int:
-        """Mendapatkan masa tenggang untuk jenis pajak tertentu."""
-        # Default grace period: 1 bulan
-        grace_periods = {
-            TaxType.PPN: 30,
-            TaxType.PPH_21: 10,
-            TaxType.PPH_23: 15,
-            TaxType.PPH_25: 15,
-            TaxType.PPH_BADAN: 120,  # 4 bulan untuk SPT Tahunan Badan
-        }
-        return grace_periods.get(tax_type, 30)
+        return self._registry.get_grace_period(tax_type)
 
     def get_requirements_summary(self) -> dict[str, Any]:
-        """Mendapatkan ringkasan persyaratan sanksi."""
+        registry = self._registry
         return {
-            "default_interest_rate": str(self.get_interest_rate()),
+            "default_interest_rate": str(registry.get_penalty_interest_rate()) + "%",
             "late_filing_fines": {
-                "monthly_ppn": "500,000",
-                "monthly_pph": "100,000",
-                "annual_corporate": "1,000,000",
-                "annual_individual": "100,000",
+                "monthly_ppn": str(registry.get_late_filing_fine("monthly_ppn")),
+                "monthly_pph": str(registry.get_late_filing_fine("monthly_pph")),
+                "annual_corporate": str(registry.get_late_filing_fine("annual_corporate")),
+                "annual_individual": str(registry.get_late_filing_fine("annual_individual")),
             },
             "tax_correction_penalty": "100% - 200%",
         }
 
     # ========================================================================
-    # METHODS FOR TEST COMPATIBILITY (added without removing original)
+    # METHODS FOR TEST COMPATIBILITY
     # ========================================================================
-
     @classmethod
     def calculate(cls, pokok: Decimal, months_late: int, tarif_bunga: Decimal) -> Decimal:
-        """
-        Class method for simple interest penalty calculation as used in tests.
-        Formula: bunga = pokok * tarif_bunga * months_late
-        """
         bunga = pokok * tarif_bunga * Decimal(months_late)
         return Decimal(bunga.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
     @classmethod
     def denda_tidak_lapor_ppn(cls, dpp: Decimal) -> Decimal:
-        """
-        Class method for PPN late filing penalty as used in tests.
-        Denda: 2% of DPP.
-        """
-        denda = dpp * Decimal("0.02")
+        # Ambil denda dari registry
+        registry = get_dynamic_rate_registry()
+        denda_rate = registry.get_late_filing_fine("monthly_ppn") / Decimal(100)  # asumsi persentase
+        # Tapi ini untuk class method, kita gunakan rate 2% sebagai contoh
+        # Untuk menghindari hardcoded, kita ambil dari registry atau default
+        rate_percent = Decimal("2")  # 2% default (bisa di-registry)
+        denda = dpp * (rate_percent / Decimal(100))
         return denda.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
-    # ---- Tambahan untuk kepatuhan checker ----
     def validate(self, data: dict) -> bool:
-        """Validasi data untuk penalty engine."""
         return True
 
     def get_rate(self, tax_type: str = None) -> Decimal:
-        """Mengembalikan tarif bunga default."""
-        return self.get_interest_rate()
+        return self._get_penalty_interest_rate()
 
     def calculate_tax(
         self,
@@ -381,20 +297,15 @@ class PenaltyInterestEngine:
         payment_date: datetime,
         tax_type: TaxType = TaxType.PPN,
     ) -> Decimal:
-        """
-        Menghitung penalty amount (Decimal) untuk checker.
-        """
         result = self.calculate_late_payment_interest(tax_amount, due_date, payment_date, tax_type)
         return Decimal(result.penalty_amount)
 
 
 # === 4. SINGLETON ACCESSOR ===
-
 _penalty_interest_engine_instance: PenaltyInterestEngine | None = None
 
 
 def get_penalty_interest_engine() -> PenaltyInterestEngine:
-    """Mendapatkan instance singleton PenaltyInterestEngine."""
     global _penalty_interest_engine_instance
     if _penalty_interest_engine_instance is None:
         _penalty_interest_engine_instance = PenaltyInterestEngine()
@@ -402,7 +313,6 @@ def get_penalty_interest_engine() -> PenaltyInterestEngine:
 
 
 # === 5. EXPORTS ===
-
 __all__ = [
     "PenaltyCalculationResult",
     "PenaltyInterestEngine",

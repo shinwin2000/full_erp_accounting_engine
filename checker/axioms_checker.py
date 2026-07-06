@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-checker/axioms_checker.py — Axioms Integrity Checker (v6.2.1)
+checker/axioms_checker.py — Axioms Integrity Checker (v6.2.4)
 ================================================================
 Fully integrated with RCA Engine.
 Runs without errors even if the database is unavailable.
 Default: SQLite in‑memory for zero‑config demo.
+Bugfix: Avoid property get() error on Severity.order (fixed).
 """
 
 import asyncio
@@ -25,10 +26,39 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 # ---- RCA Engine ----
-from checker.core.rca import (
-    RCAEngine, RCAResult, Severity, Category, ErrorCode,
-    get_engine, analyze_exception
-)
+try:
+    from checker.core.rca import (
+        RCAEngine, RCAResult, Severity, Category, ErrorCode,
+        get_engine, analyze_exception
+    )
+except ImportError:
+    # Fallback dummy jika RCA tidak tersedia
+    class Severity:
+        FATAL = "FATAL"
+        CRITICAL = "CRITICAL"
+        HIGH = "HIGH"
+        MEDIUM = "MEDIUM"
+        LOW = "LOW"
+        INFO = "INFO"
+        order = {"FATAL": 5, "CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
+    class Category: pass
+    class ErrorCode: pass
+    class RCAResult:
+        def __init__(self, severity=None, category=None, error_code=None,
+                     root_cause="", evidence=None, impact=None,
+                     suggested_fix="", confidence=0.5):
+            self.severity = severity
+            self.category = category
+            self.error_code = error_code
+            self.root_cause = root_cause
+            self.evidence = evidence or []
+            self.impact = impact or []
+            self.suggested_fix = suggested_fix
+            self.confidence = confidence
+        def to_dict(self):
+            return {"root_cause": self.root_cause, "severity": self.severity}
+    def get_engine(): return None
+    def analyze_exception(*args, **kwargs): return RCAResult()
 
 # ---- SQLAlchemy (async) ----
 try:
@@ -40,6 +70,7 @@ try:
 except ImportError:
     HAS_SQLALCHEMY = False
     AsyncSession = object
+    declarative_base = None
 
 # ---- Event Store (optional) ----
 try:
@@ -60,8 +91,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 DEFAULT_CONFIG = {
-    # Use SQLite in‑memory by default – no external DB required
-    "db_url": "sqlite+aiosqlite:///file::memory:?cache=shared",
+    "db_url": "sqlite+aiosqlite:///:memory:",
     "pool_size": 5,
     "max_overflow": 10,
     "timeout": 10.0,
@@ -72,8 +102,26 @@ DEFAULT_CONFIG = {
     "redact_sensitive": True,
     "export_format": "json",
     "export_dir": "./reports",
-    "demo_mode": False,          # if True, populate with sample data
+    "demo_mode": False,
 }
+
+# ============================================================
+# HELPER: SAFE SEVERITY WEIGHT
+# ============================================================
+
+def _severity_weight(severity) -> int:
+    """
+    Return a numeric weight for a severity object or string.
+    Handles both plain strings and Severity enum members.
+    """
+    if hasattr(severity, 'value'):          # Enum member
+        sev_str = severity.value
+    else:
+        sev_str = str(severity)
+
+    # Fallback: manual mapping (most reliable)
+    mapping = {"FATAL": 5, "CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
+    return mapping.get(sev_str.upper(), 0)
 
 # ============================================================
 # RCA WRAPPER
@@ -116,7 +164,7 @@ class RCAAnalyzer:
 # DATABASE MODELS (for demo)
 # ============================================================
 
-if HAS_SQLALCHEMY:
+if HAS_SQLALCHEMY and declarative_base is not None:
     Base = declarative_base()
 
     class JournalLine(Base):
@@ -165,6 +213,16 @@ if HAS_SQLALCHEMY:
         __tablename__ = "intercompany_transactions"
         id = Column(Integer, primary_key=True)
         elimination_status = Column(String(20))
+else:
+    Base = None
+    # Placeholder classes
+    class JournalLine: pass
+    class Account: pass
+    class FiscalPeriod: pass
+    class Transaction: pass
+    class Currency: pass
+    class IncomeStatement: pass
+    class IntercompanyTransaction: pass
 
 # ============================================================
 # AXIOM CHECK BASE
@@ -174,8 +232,8 @@ class AxiomCheck:
     """Base class for an axiom integrity check."""
     name: str = "base"
     description: str = ""
-    severity_if_violated: Severity = Severity.CRITICAL
-    error_code: ErrorCode = ErrorCode.ERP_VALIDATION
+    severity_if_violated: Severity = Severity.CRITICAL if hasattr(Severity, 'CRITICAL') else "CRITICAL"
+    error_code: ErrorCode = ErrorCode.ERP_VALIDATION if hasattr(ErrorCode, 'ERP_VALIDATION') else "ERP_VALIDATION"
 
     def __init__(self, config: Dict[str, Any], rca: RCAAnalyzer):
         self.config = config
@@ -191,11 +249,9 @@ class AxiomCheck:
         self._event_store = store
 
     async def check(self) -> Optional[RCAResult]:
-        """Run the check. Return RCAResult if violation found, else None."""
         raise NotImplementedError
 
     async def _safe_query(self, query, *args, **kwargs) -> Any:
-        """Execute query with retry and timeout."""
         attempts = 0
         while attempts < self.config.get("retry_attempts", 2):
             try:
@@ -215,7 +271,7 @@ class AxiomCheck:
                           confidence: float = 0.85) -> RCAResult:
         return RCAResult(
             severity=self.severity_if_violated,
-            category=Category.DDD,
+            category=Category.DDD if hasattr(Category, 'DDD') else None,
             error_code=self.error_code,
             root_cause=root_cause,
             evidence=evidence,
@@ -231,8 +287,8 @@ class AxiomCheck:
 class DoubleEntryCheck(AxiomCheck):
     name = "double_entry"
     description = "Verify total debit equals total credit for every journal."
-    severity_if_violated = Severity.FATAL
-    error_code = ErrorCode.ERP_BALANCE_MISMATCH
+    severity_if_violated = Severity.FATAL if hasattr(Severity, 'FATAL') else "FATAL"
+    error_code = ErrorCode.ERP_BALANCE_MISMATCH if hasattr(ErrorCode, 'ERP_BALANCE_MISMATCH') else "ERP_BALANCE_MISMATCH"
 
     async def check(self) -> Optional[RCAResult]:
         if self._session is None:
@@ -275,8 +331,8 @@ class DoubleEntryCheck(AxiomCheck):
 class ConservationOfValueCheck(AxiomCheck):
     name = "conservation_of_value"
     description = "Assets = Liabilities + Equity."
-    severity_if_violated = Severity.FATAL
-    error_code = ErrorCode.ERP_BALANCE_MISMATCH
+    severity_if_violated = Severity.FATAL if hasattr(Severity, 'FATAL') else "FATAL"
+    error_code = ErrorCode.ERP_BALANCE_MISMATCH if hasattr(ErrorCode, 'ERP_BALANCE_MISMATCH') else "ERP_BALANCE_MISMATCH"
 
     async def check(self) -> Optional[RCAResult]:
         if self._session is None:
@@ -316,8 +372,8 @@ class ConservationOfValueCheck(AxiomCheck):
 class AccrualBasisCheck(AxiomCheck):
     name = "accrual_basis"
     description = "Revenue/expense recognized in correct period."
-    severity_if_violated = Severity.CRITICAL
-    error_code = ErrorCode.ERP_VALIDATION
+    severity_if_violated = Severity.CRITICAL if hasattr(Severity, 'CRITICAL') else "CRITICAL"
+    error_code = ErrorCode.ERP_VALIDATION if hasattr(ErrorCode, 'ERP_VALIDATION') else "ERP_VALIDATION"
 
     async def check(self) -> Optional[RCAResult]:
         if self._session is None:
@@ -328,7 +384,7 @@ class AccrualBasisCheck(AxiomCheck):
             FROM transactions
             WHERE type = 'REVENUE'
               AND service_date > posting_date
-              AND ABS(EXTRACT(DAY FROM (service_date - posting_date))) > 30
+              AND (JULIANDAY(service_date) - JULIANDAY(posting_date)) > 30
         """)
         try:
             result = await self._safe_query(query)
@@ -349,8 +405,8 @@ class AccrualBasisCheck(AxiomCheck):
 class EntityIsolationCheck(AxiomCheck):
     name = "entity_isolation"
     description = "Intercompany transactions properly eliminated."
-    severity_if_violated = Severity.CRITICAL
-    error_code = ErrorCode.ERP_VALIDATION
+    severity_if_violated = Severity.CRITICAL if hasattr(Severity, 'CRITICAL') else "CRITICAL"
+    error_code = ErrorCode.ERP_VALIDATION if hasattr(ErrorCode, 'ERP_VALIDATION') else "ERP_VALIDATION"
 
     async def check(self) -> Optional[RCAResult]:
         if self._session is None:
@@ -381,8 +437,8 @@ class EntityIsolationCheck(AxiomCheck):
 class MonetaryUnitCheck(AxiomCheck):
     name = "monetary_unit"
     description = "All transactions use valid currency with active rate."
-    severity_if_violated = Severity.HIGH
-    error_code = ErrorCode.ERP_VALIDATION
+    severity_if_violated = Severity.HIGH if hasattr(Severity, 'HIGH') else "HIGH"
+    error_code = ErrorCode.ERP_VALIDATION if hasattr(ErrorCode, 'ERP_VALIDATION') else "ERP_VALIDATION"
 
     async def check(self) -> Optional[RCAResult]:
         if self._session is None:
@@ -413,8 +469,8 @@ class MonetaryUnitCheck(AxiomCheck):
 class TimeIrreversibilityCheck(AxiomCheck):
     name = "time_irreversibility"
     description = "No backdating beyond allowed periods."
-    severity_if_violated = Severity.HIGH
-    error_code = ErrorCode.ERP_VALIDATION
+    severity_if_violated = Severity.HIGH if hasattr(Severity, 'HIGH') else "HIGH"
+    error_code = ErrorCode.ERP_VALIDATION if hasattr(ErrorCode, 'ERP_VALIDATION') else "ERP_VALIDATION"
 
     async def check(self) -> Optional[RCAResult]:
         if self._session is None:
@@ -448,8 +504,8 @@ class TimeIrreversibilityCheck(AxiomCheck):
 class GoingConcernCheck(AxiomCheck):
     name = "going_concern"
     description = "No indicators of going concern issues."
-    severity_if_violated = Severity.INFO
-    error_code = ErrorCode.ERP_VALIDATION
+    severity_if_violated = Severity.INFO if hasattr(Severity, 'INFO') else "INFO"
+    error_code = ErrorCode.ERP_VALIDATION if hasattr(ErrorCode, 'ERP_VALIDATION') else "ERP_VALIDATION"
 
     async def check(self) -> Optional[RCAResult]:
         if self._session is None:
@@ -458,7 +514,7 @@ class GoingConcernCheck(AxiomCheck):
         query = text("""
             WITH yearly_income AS (
                 SELECT
-                    EXTRACT(YEAR FROM period_end) AS year,
+                    strftime('%Y', period_end) AS year,
                     SUM(net_income) AS total_income
                 FROM income_statements
                 GROUP BY year
@@ -488,19 +544,28 @@ class GoingConcernCheck(AxiomCheck):
 class ImmutabilityCheck(AxiomCheck):
     name = "immutability"
     description = "Ensure posted journals are never modified."
-    severity_if_violated = Severity.FATAL
-    error_code = ErrorCode.AGGREGATE_ERROR
+    severity_if_violated = Severity.FATAL if hasattr(Severity, 'FATAL') else "FATAL"
+    error_code = ErrorCode.AGGREGATE_ERROR if hasattr(ErrorCode, 'AGGREGATE_ERROR') else "AGGREGATE_ERROR"
 
     async def check(self) -> Optional[RCAResult]:
         if self._event_store is None:
-            # Not a violation, just skip
             return None
 
         try:
-            events = await self._event_store.get_events_by_type(
-                "JournalModified",
-                limit=self.config.get("max_events_fetch", 1000)
-            )
+            if hasattr(self._event_store, 'get_events_by_type'):
+                events = await self._event_store.get_events_by_type(
+                    "JournalModified",
+                    limit=self.config.get("max_events_fetch", 1000)
+                )
+            elif hasattr(self._event_store, 'get_events'):
+                events = await self._event_store.get_events(
+                    limit=self.config.get("max_events_fetch", 1000)
+                )
+                events = [e for e in events if e.get('type') == 'JournalModified']
+            else:
+                logger.warning("Event store does not support event retrieval.")
+                return None
+
             if events:
                 evidence = [
                     f"Found {len(events)} modifications on posted journals."
@@ -539,7 +604,6 @@ async def populate_demo_data(session: AsyncSession) -> None:
     lines = [
         JournalLine(journal_id=1, account_code="1000", debit=Decimal("1000.00"), credit=Decimal("0.00")),
         JournalLine(journal_id=1, account_code="2000", debit=Decimal("0.00"), credit=Decimal("900.00")),
-        # missing 100 credit -> unbalanced
     ]
     session.add_all(lines)
 
@@ -618,29 +682,31 @@ class AxiomsChecker:
         self.rca = await RCAAnalyzer.get_instance()
 
         # Database
-        if HAS_SQLALCHEMY:
+        if HAS_SQLALCHEMY and Base is not None:
             db_url = self.config["db_url"]
-            # Conditionally add pool parameters only for non-SQLite
             engine_kwargs = {"echo": False}
             if "sqlite" not in db_url.lower():
                 engine_kwargs.update({
                     "pool_size": self.config.get("pool_size", 5),
                     "max_overflow": self.config.get("max_overflow", 10),
                 })
-            self._engine = create_async_engine(db_url, **engine_kwargs)
-            self._session_factory = sessionmaker(
-                self._engine, class_=AsyncSession, expire_on_commit=False
-            )
-            # Create tables if using SQLite (or any) – for demo
-            async with self._engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
+            try:
+                self._engine = create_async_engine(db_url, **engine_kwargs)
+                self._session_factory = sessionmaker(
+                    self._engine, class_=AsyncSession, expire_on_commit=False
+                )
+                async with self._engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+            except Exception as e:
+                logger.error(f"Failed to initialize database: {e}")
+                self._session_factory = None
+                self._engine = None
         else:
-            logger.warning("SQLAlchemy not installed; database checks disabled.")
+            logger.warning("SQLAlchemy not installed or Base not defined; database checks disabled.")
 
         # Event Store (optional)
         if HAS_EVENT_STORE:
             try:
-                # Correct: await the coroutine
                 self._event_store = await get_event_store()
             except Exception as e:
                 logger.error(f"Failed to initialize event store: {e}")
@@ -695,41 +761,41 @@ class AxiomsChecker:
                         result = await check.check()
                         if result:
                             self.results.append(result)
-                            if result.severity.order >= Severity.HIGH.order:
+                            # Determine severity weight using safe helper
+                            sev_val = getattr(result.severity, 'value', result.severity)
+                            if _severity_weight(sev_val) >= 3:   # HIGH or above
                                 self.violations.append({
                                     "axiom": check.name,
-                                    "severity": result.severity.value,
+                                    "severity": sev_val,
                                     "root_cause": result.root_cause,
                                     "suggested_fix": result.suggested_fix,
                                     "confidence": result.confidence,
                                 })
                     except Exception as e:
-                        # Analyze the error using RCA, but mark as system error, not violation.
+                        # Analyze the error using RCA
                         rca_result = await self.rca.analyze(
                             e, {"check": check.name, "phase": "execution"}
                         )
-                        # If the error is a connection issue, we log it as a system failure
-                        # but DO NOT add it to violations (it's not an axiom violation).
                         if "connection" in str(e).lower() or "timeout" in str(e).lower():
                             logger.error(f"System error in check {check.name}: {rca_result.root_cause}")
-                            # Optionally, add to results but mark severity as INFO
-                            rca_result.severity = Severity.INFO
+                            rca_result.severity = Severity.INFO if hasattr(Severity, 'INFO') else "INFO"
                             rca_result.root_cause = f"SYSTEM ERROR: {rca_result.root_cause}"
                             self.results.append(rca_result)
                         else:
-                            # For other exceptions, treat as potential violation if severe
                             self.results.append(rca_result)
-                            if rca_result.severity.order >= Severity.CRITICAL.order:
+                            sev_val = getattr(rca_result.severity, 'value', rca_result.severity)
+                            if _severity_weight(sev_val) >= 4:   # CRITICAL or above
                                 self.violations.append({
                                     "axiom": check.name,
-                                    "severity": rca_result.severity.value,
+                                    "severity": sev_val,
                                     "root_cause": f"EXCEPTION: {rca_result.root_cause}",
                                     "suggested_fix": rca_result.suggested_fix,
                                     "confidence": rca_result.confidence,
                                 })
         except Exception as outer:
             logger.error(f"Outer session error: {outer}")
-            # Do not crash; we'll return whatever we have.
+            # Re-raise to see the actual error if needed
+            raise
 
         return self.results
 
@@ -737,7 +803,7 @@ class AxiomsChecker:
         now = datetime.now(timezone.utc)
         return {
             "timestamp": now.isoformat(),
-            "version": "6.2.1",
+            "version": "6.2.4",
             "config": {
                 "db_url": "[REDACTED]" if self.config.get("redact_sensitive", True) else self.config["db_url"],
                 "demo_mode": self.config.get("demo_mode", False),

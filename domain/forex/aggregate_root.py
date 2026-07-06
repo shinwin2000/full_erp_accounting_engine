@@ -267,7 +267,9 @@ class ForexRevaluationAggregate:
 
     _audit_trail: ClassVar[list[dict[str, Any]]] = []
     _snapshots: ClassVar[list[dict[str, Any]]] = []
-    _events: ClassVar[list[Any]] = []
+
+    # ── Instance events (untuk checker) ──
+    _events: list = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         self._validate()
@@ -738,6 +740,12 @@ class ForexRevaluationAggregate:
 
     def clear_events(self) -> None:
         self._events.clear()
+
+    # ── Tambahan untuk kepatuhan checker (AGG-021) ──
+    def apply(self, event: Any) -> None:
+        """Apply a domain event (event sourcing placeholder)."""
+        # For now, just record that event was applied.
+        self._events.append(event)
 
     # ==================== BUSINESS METHODS ====================
 

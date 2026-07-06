@@ -22,6 +22,7 @@ import hashlib
 import json
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -236,10 +237,135 @@ class AuditTrailReport:
     generated_at: datetime
 
 
-# === 3. AUDIT TRAIL COMPLETENESS ENFORCER ===
+# ============================================================================
+# BASE AUDIT TRAIL COMPLETENESS ENFORCER (ABSTRACT)
+# ============================================================================
+
+class BaseAuditTrailCompletenessEnforcer(ABC):
+    """Base contract untuk Audit Trail Completeness Enforcer."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan enforcer."""
+        pass
+
+    @abstractmethod
+    async def enforce_completeness(
+        self,
+        transaction_id: UUID,
+        legal_entity_id: UUID,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, AuditTrailCompletenessViolation | None]:
+        """Enforce audit trail completeness for a transaction."""
+        pass
+
+    @abstractmethod
+    async def enforce_no_gap_between_transactions(
+        self,
+        legal_entity_id: UUID,
+        from_date: datetime,
+        to_date: datetime,
+    ) -> AuditTrailReport:
+        """Check for time gaps between transactions."""
+        pass
+
+    @abstractmethod
+    async def record_audit_event(
+        self,
+        transaction_id: UUID,
+        legal_entity_id: UUID,
+        event_type: AuditEventType,
+        event_data: dict[str, Any],
+        user_id: str,
+        sequence_number: int | None = None,
+    ) -> UUID:
+        """Record an audit event with hash chain."""
+        pass
+
+    @abstractmethod
+    async def get_audit_trail_summary(
+        self,
+        legal_entity_id: UUID,
+        from_date: datetime | None = None,
+        to_date: datetime | None = None,
+    ) -> AuditTrailReport:
+        """Get audit trail summary."""
+        pass
+
+    @abstractmethod
+    def get_violations(
+        self,
+        limit: int = 100,
+        min_severity: LawViolationSeverity = LawViolationSeverity.LOW,
+    ) -> list[AuditTrailCompletenessViolation]:
+        """Get violation history."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset state."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseAuditTrailCompletenessEnforcer:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseAuditTrailCompletenessEnforcer:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseAuditTrailCompletenessEnforcer:
+        """Touch instance (increment version)."""
+        pass
 
 
-class AuditTrailCompletenessEnforcer:
+# ============================================================================
+# AUDIT TRAIL COMPLETENESS ENFORCER (CONCRETE)
+# ============================================================================
+
+class AuditTrailCompletenessEnforcer(BaseAuditTrailCompletenessEnforcer):
     """
     Enforcer untuk kelengkapan audit trail.
 
@@ -256,9 +382,119 @@ class AuditTrailCompletenessEnforcer:
         self._max_history = 10000
         self._lock = threading.RLock()
         self._enabled = True
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        transaction_id = context.get("transaction_id")
+        legal_entity_id = context.get("legal_entity_id")
+
+        if not transaction_id:
+            errors.append("transaction_id is required")
+        else:
+            try:
+                UUID(str(transaction_id))
+            except Exception:
+                errors.append("transaction_id must be a valid UUID")
+        if not legal_entity_id:
+            errors.append("legal_entity_id is required")
+        else:
+            try:
+                UUID(str(legal_entity_id))
+            except Exception:
+                errors.append("legal_entity_id must be a valid UUID")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        if self.MAX_TIME_GAP_SECONDS <= 0:
+            errors.append("MAX_TIME_GAP_SECONDS must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "max_history": self._max_history,
+                "max_time_gap_seconds": self.MAX_TIME_GAP_SECONDS,
+                "violations_count": len(self._violation_history),
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AuditTrailCompletenessEnforcer:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> AuditTrailCompletenessEnforcer:
+        """Clone instance."""
+        new_instance = AuditTrailCompletenessEnforcer()
+        new_instance._enabled = self._enabled
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "violations_count": len(self._violation_history),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> AuditTrailCompletenessEnforcer:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Audit trail completeness enforcer enabled: {enabled}")
 
     async def enforce_completeness(
@@ -443,6 +679,11 @@ class AuditTrailCompletenessEnforcer:
             timestamp=datetime.now(UTC),
         )
 
+        self._record_audit("RECORD_EVENT", user_id, {
+            "transaction_id": str(transaction_id),
+            "event_type": event_type.value,
+            "sequence": sequence_number,
+        })
         logger.debug(
             f"Audit event recorded for transaction {transaction_id} (seq {sequence_number})"
         )
@@ -469,6 +710,10 @@ class AuditTrailCompletenessEnforcer:
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
+            self._record_audit("VIOLATION", violation.user_id or "system", {
+                "message": violation.message,
+                "severity": violation.severity.name,
+            })
 
     def get_violations(
         self,
@@ -483,7 +728,11 @@ class AuditTrailCompletenessEnforcer:
         with self._lock:
             total = len(self._violation_history)
             if total == 0:
-                return {"total_violations": 0, "enabled": self._enabled}
+                return {
+                    "total_violations": 0,
+                    "enabled": self._enabled,
+                    "version": self._version,
+                }
 
             by_severity = {}
             for v in self._violation_history:
@@ -494,6 +743,7 @@ class AuditTrailCompletenessEnforcer:
                 "by_severity": by_severity,
                 "max_time_gap_seconds": self.MAX_TIME_GAP_SECONDS,
                 "enabled": self._enabled,
+                "version": self._version,
                 "latest_violation": self._violation_history[-1].timestamp.isoformat()
                 if self._violation_history
                 else None,
@@ -503,6 +753,8 @@ class AuditTrailCompletenessEnforcer:
         with self._lock:
             self._violation_history = []
             self._enabled = True
+            self._version += 1
+            self._audit_trail = []
             if hasattr(self._audit_repo, "clear"):
                 self._audit_repo.clear()
             if hasattr(self._event_store, "clear"):

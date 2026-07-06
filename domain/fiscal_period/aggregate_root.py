@@ -607,8 +607,27 @@ class FiscalPeriod:
         return new_period
 
     def restore(self, restored_by: str) -> FiscalPeriod:
-        new_period = self._copy()
+        """
+        Restore a closed period back to open state.
+        This is a reopen operation that requires the period to be CLOSED.
+        """
+        # VALIDATION: Period must be CLOSED before restore/reopen
+        if self._status != PeriodStatus.CLOSED:
+            raise InvalidStatusTransitionError(
+                f"Cannot restore period with status {self._status.value}. "
+                "Period must be CLOSED to restore/reopen."
+            )
+
+        # Perform the reopen operation
+        new_period = self.reopen(restored_by, reason="Restored from closed state")
         new_period._record_audit("RESTORE", restored_by, {})
+        new_period._register_event(
+            {
+                "event_type": "period_restored",
+                "period_id": str(self._period_id),
+                "restored_by": restored_by,
+            }
+        )
         return new_period
 
     def activate(self, activated_by: str) -> FiscalPeriod:
@@ -621,10 +640,18 @@ class FiscalPeriod:
             return self
         return self.close(deactivated_by)
 
+    # ==================== LOCK / UNLOCK METHODS ====================
+
     def lock(self, locked_by: str, reason: str) -> FiscalPeriod:
+        """
+        Lock an OPEN period. Only OPEN periods can be locked.
+        LOCKED status prevents new postings but allows adjustments.
+        """
+        # ========== VALIDATION: Period must be OPEN ==========
         if self._status != PeriodStatus.OPEN:
             raise InvalidStatusTransitionError(
-                f"Cannot lock period with status {self._status.value}"
+                f"Cannot lock period with status {self._status.value}. "
+                "Period must be OPEN to lock."
             )
         now = datetime.now(UTC)
         new_period = FiscalPeriod(
@@ -649,19 +676,24 @@ class FiscalPeriod:
             version=self._version + 1,
         )
         new_period._record_audit("LOCK", locked_by, {"reason": reason})
-        new_period._register_event(
-            {
-                "event_type": "period_locked",
-                "period_id": str(self._period_id),
-                "locked_by": locked_by,
-            }
-        )
+        new_period._register_event({
+            "event_type": "period_locked",
+            "period_id": str(self._period_id),
+            "locked_by": locked_by,
+        })
         return new_period
 
-    def unlock(self, unlocked_by: str) -> FiscalPeriod:
+    def unlock_period(self, unlocked_by: str) -> FiscalPeriod:
+        """
+        Unlock a LOCKED period back to OPEN state.
+        Only LOCKED periods can be unlocked.
+        This is the preferred method; use unlock() for backward compatibility.
+        """
+        # ========== VALIDATION: Period must be LOCKED ==========
         if self._status != PeriodStatus.LOCKED:
             raise InvalidStatusTransitionError(
-                f"Cannot unlock period with status {self._status.value}"
+                f"Cannot unlock period with status {self._status.value}. "
+                "Period must be LOCKED to unlock."
             )
         now = datetime.now(UTC)
         new_period = FiscalPeriod(
@@ -687,6 +719,12 @@ class FiscalPeriod:
         )
         new_period._record_audit("UNLOCK", unlocked_by, {})
         return new_period
+
+    def unlock(self, unlocked_by: str) -> FiscalPeriod:
+        """Alias untuk unlock_period (backward compatibility)."""
+        return self.unlock_period(unlocked_by)
+
+    # ==================== VALIDATE & CONVERT METHODS ====================
 
     def validate(self) -> dict[str, Any]:
         errors = []
@@ -875,9 +913,14 @@ class FiscalPeriod:
         return self._status == PeriodStatus.CLOSED
 
     def reopen(self, reopened_by: str, reason: str = "") -> FiscalPeriod:
+        """
+        Reopen a CLOSED period back to OPEN state.
+        Only CLOSED periods can be reopened.
+        """
         if not self.can_reopen():
             raise InvalidStatusTransitionError(
-                f"Cannot reopen period with status {self._status.value}"
+                f"Cannot reopen period with status {self._status.value}. "
+                "Period must be CLOSED to reopen."
             )
         return self.open(reopened_by, force=True)
 

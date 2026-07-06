@@ -9,6 +9,8 @@ Responsibility: Menyediakan REST API endpoint untuk mengelola Supplier/Vendor:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import datetime
 from decimal import Decimal
@@ -16,7 +18,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -39,6 +41,52 @@ from application.service_layer.service_supplier import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 router = APIRouter()
 
@@ -180,12 +228,22 @@ def to_supplier_response(supplier: Supplier) -> SupplierResponseModel:
 async def create_supplier(
     request: Request,
     payload: CreateSupplierRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: SupplierService = Depends(get_service(SupplierService)),
 ) -> SupplierResponseModel:
     """
     Create a new supplier/vendor.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "create_supplier"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SupplierResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.create_supplier(
@@ -205,7 +263,12 @@ async def create_supplier(
             created_by=user.user_id,
             correlation_id=correlation_id,
         )
-        return to_supplier_response(result)
+        response = to_supplier_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except SupplierServiceError as e:
         logger.warning(f"Supplier service error: {e}")
         raise HTTPException(
@@ -294,12 +357,22 @@ async def update_supplier(
     request: Request,
     supplier_id: UUID,
     payload: UpdateSupplierRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: SupplierService = Depends(get_service(SupplierService)),
 ) -> SupplierResponseModel:
     """
     Update supplier details (name, address, payment terms, etc.).
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "update_supplier"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SupplierResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         # Convert status to string if provided
@@ -324,7 +397,12 @@ async def update_supplier(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Supplier not found",
             )
-        return to_supplier_response(result)
+        response = to_supplier_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except SupplierNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -356,12 +434,22 @@ async def update_supplier(
 async def deactivate_supplier(
     request: Request,
     supplier_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: SupplierService = Depends(get_service(SupplierService)),
 ) -> Response:
     """
     Deactivate a supplier (soft delete).
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "deactivate_supplier"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     try:
         correlation_id = get_correlation_id(request)
         # Get current supplier to check if exists
@@ -378,6 +466,12 @@ async def deactivate_supplier(
             updated_by=user.user_id,
             correlation_id=correlation_id,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"status": "success", "supplier_id": str(supplier_id)}
+            )
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except HTTPException:
         raise
@@ -397,12 +491,22 @@ async def deactivate_supplier(
 async def activate_supplier(
     request: Request,
     supplier_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: SupplierService = Depends(get_service(SupplierService)),
 ) -> Response:
     """
     Activate a previously deactivated supplier.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "activate_supplier"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     try:
         correlation_id = get_correlation_id(request)
         supplier = await service.get_supplier(supplier_id)
@@ -417,6 +521,12 @@ async def activate_supplier(
             updated_by=user.user_id,
             correlation_id=correlation_id,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, {"status": "success", "supplier_id": str(supplier_id)}
+            )
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except HTTPException:
         raise
@@ -437,12 +547,22 @@ async def change_supplier_status(
     request: Request,
     supplier_id: UUID,
     status: SupplierStatusEnum = Body(..., description="New status"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: SupplierService = Depends(get_service(SupplierService)),
 ) -> SupplierResponseModel:
     """
     Change supplier status (active, inactive, suspended, blacklisted).
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "change_supplier_status"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SupplierResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.update_supplier(
@@ -456,7 +576,12 @@ async def change_supplier_status(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Supplier not found",
             )
-        return to_supplier_response(result)
+        response = to_supplier_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -480,12 +605,22 @@ async def update_withholding_category(
     request: Request,
     supplier_id: UUID,
     payload: UpdateWithholdingCategoryRequest,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: SupplierService = Depends(get_service(SupplierService)),
 ) -> SupplierResponseModel:
     """
     Update withholding category for a supplier.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "update_withholding_category"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return SupplierResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.update_withholding_category(
@@ -499,7 +634,12 @@ async def update_withholding_category(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Supplier not found",
             )
-        return to_supplier_response(result)
+        response = to_supplier_response(result)
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except SupplierNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

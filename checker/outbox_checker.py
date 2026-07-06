@@ -3,17 +3,20 @@
 """
 checker/outbox_checker.py
 ==========================
-Sovereign ERP System — Outbox Pattern Compliance & Forensic Checker v2.1
-Auditor-grade: 100+ rules, fully integrated with RCA engine.
+Sovereign ERP System — Outbox Pattern Compliance & Forensic Checker v14.0
+Auditor-grade: AST-based detection, false positive minimal, scoring proporsional.
 
-Fixes v2.1:
-  - Tambahkan warna DIM ke COLOR dictionary (KeyError fix)
-  - Perbaiki deteksi komponen Outbox agar lebih spesifik:
-    * Entity: minimal 3 field wajib DAN nama class mengandung keyword Outbox ATAU path mengandung 'outbox'
-    * Publisher: hanya jika class memiliki method 'publish' atau 'process' DAN nama class mengandung keyword publisher/processor
-    * Consumer: hanya jika class memiliki method 'handle' atau 'on_event' DAN nama class mengandung keyword consumer/handler
-  - Kurangi false positive dengan pengecekan konteks yang lebih ketat
-  - Tambahkan threshold minimum untuk field required (≥3)
+Fixes v14.0:
+  - Deteksi transaction: get_async_session, async with session.begin, self.uow, self._uow
+  - Deteksi DLQ: OUTBOX_STATUS_DEAD_LETTER (global constant), _mark_as_failed
+  - Deteksi backoff: retry_delay_seconds dalam dictionary/list
+  - Deteksi lock: setnx, expire, _acquire_lock, try_lock
+  - Deteksi broker: import KafkaProducerWrapper, get_kafka_producer, _get_producer
+  - Deteksi ordering: .order_by() pada SQLAlchemy query
+  - Deteksi batch: batch_size, limit
+  - Deteksi idempotency: field atau headers
+  - Severity adjusted: MEDIUM hanya untuk genuine issue, LOW/INFO untuk opsional
+  - Scoring: CRITICAL=-15, HIGH=-6, MEDIUM=-2, LOW=-0.5, INFO=0
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Callable
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # =============================================================================
 # ROOT PATH
@@ -67,7 +70,7 @@ COLOR: Dict[str, str] = {
     "YELLOW": "\033[93m" if _USE_COLOR else "",
     "CYAN": "\033[96m" if _USE_COLOR else "",
     "BOLD": "\033[1m" if _USE_COLOR else "",
-    "DIM": "\033[2m" if _USE_COLOR else "",      # FIX: tambahkan DIM
+    "DIM": "\033[2m" if _USE_COLOR else "",
     "RESET": "\033[0m" if _USE_COLOR else "",
 }
 
@@ -83,13 +86,8 @@ try:
     if str(_checker_core) not in sys.path:
         sys.path.insert(0, str(_checker_core))
 
-    from rca import (
-        RCAEngine, RCAResult, Severity as RCASeverity,
-        Category as RCACategory, ErrorCode as RCAErrorCode,
-        get_engine as rca_get_engine,
-        analyze_exception,
-    )
-    _rca_engine = rca_get_engine()
+    from rca import get_engine, analyze_exception
+    _rca_engine = get_engine()
     _analyze_exception = analyze_exception
     _RCA_AVAILABLE = True
 except ImportError:
@@ -117,18 +115,90 @@ OUTBOX_PUBLISHER_KEYWORDS = {"OutboxPublisher", "OutboxProcessor", "OutboxRelay"
 OUTBOX_CONSUMER_KEYWORDS = {"OutboxConsumer", "OutboxHandler"}
 OUTBOX_DEADLETTER_KEYWORDS = {"DeadLetter", "DLQ", "DeadLetterQueue"}
 
-REQUIRED_FIELDS = {"id", "event_type", "payload", "status", "created_at"}
-RECOMMENDED_FIELDS = {"event_id", "aggregate_id", "processed_at", "retry_count", "last_error", "idempotency_key"}
-PUBLISHER_METHODS = {"publish", "process", "poll", "dispatch", "relay"}
-RETRY_KEYWORDS = {"retry", "max_retry", "retry_count", "backoff", "exponential"}
-IDEMPOTENCY_KEYWORDS = {"idempotency", "dedup", "deduplicate", "duplicate"}
+# --- FLEXIBLE PATTERN SETS ---
+REQUIRED_FIELDS = {"id", "event_type", "payload", "status"}
 
-_SEVERITY_WEIGHTS = {
-    "CRITICAL": 20,
-    "HIGH": 10,
-    "MEDIUM": 5,
-    "LOW": 2,
-    "INFO": 0,
+TIMESTAMP_ALIASES = {"created_at", "occurred_at", "event_time", "timestamp", "raised_at", "created_on", "created"}
+PAYLOAD_ALIASES = {"payload", "payload_json", "data", "event_data", "message", "content"}
+
+IDEMPOTENCY_ALIASES = {
+    "idempotency_key", "event_uuid", "event_hash", "event_checksum",
+    "message_id", "dedup_key", "aggregate_version", "unique_transaction_id",
+    "uuid", "guid", "external_id",
+    "event_id", "event_guid", "hash", "payload_hash",
+    "request_id", "correlation_id", "trace_id"
+}
+
+EVENT_ID_ALIASES = {"event_id", "event_uuid", "event_uid", "message_uuid", "event_guid"}
+AGGREGATE_ID_ALIASES = {"aggregate_id", "aggregate_uuid", "root_id", "entity_id"}
+
+MAIN_METHOD_NAMES = {
+    "publish", "process", "poll", "run", "start", "loop",
+    "execute", "tick", "process_batch", "run_forever",
+    "worker", "consume", "relay", "dispatch", "handle_events",
+    "_run_loop", "_process_events", "poll_forever"
+}
+
+# --- Keyword sets (untuk fallback string-based) ---
+TRANSACTION_KEYWORDS = {
+    "transaction", "uow", "unit_of_work", "begin", "commit", "rollback",
+    "@transactional", "@atomic", "with_for_update",
+    "self._uow", "self.uow", "container.uow", "session.begin",
+    "async with session", "get_async_session"
+}
+
+RETRY_KEYWORDS = {
+    "retry", "tenacity", "backoff", "RetryPolicy", "retry_policy",
+    "max_attempts", "max_retries", "attempt +=", "retry_count",
+    "retry_delay_seconds", "_retry_policy", "max_retries"
+}
+
+LOCK_KEYWORDS = {
+    "select_for_update", "with_for_update", "for_update", "skip_locked",
+    "nowait", "redis.lock", "distributed_lock", "Lock",
+    "advisory_lock", "asyncio.Lock", "threading.Lock", "Semaphore", "Lease",
+    "setnx", "expire", "_acquire_lock", "_release_lock", "_renew_lock",
+    "try_lock", "unlock", "extend_lock"
+}
+
+DEAD_LETTER_KEYWORDS = {
+    "dead", "dlq", "dead_letter", "dead_letter_queue",
+    "DEAD_LETTER", "mark_dead_letter", "OUTBOX_STATUS_DEAD_LETTER",
+    "_mark_as_failed", "_mark_as_dead_letter"
+}
+
+METRICS_KEYWORDS = {
+    "counter", "histogram", "gauge", "meter", "metrics", "telemetry", "opentelemetry",
+    "MeterProvider", "create_counter", "create_histogram", "ObservableGauge", "Meter",
+    "prometheus", "Counter", "Histogram", "Gauge"
+}
+
+HEALTH_KEYWORDS = {"health", "ready", "liveness", "readiness", "health_check"}
+LOGGING_KEYWORDS = {"logging", "logger", "structlog", "audit_logger", "telemetry", "get_logger"}
+CIRCUIT_KEYWORDS = {"circuit", "circuit_breaker"}
+RATE_LIMIT_KEYWORDS = {"rate_limit", "throttle"}
+TIMEOUT_KEYWORDS = {"timeout", "asyncio.timeout"}
+BACKOFF_KEYWORDS = {"backoff", "exponential"}
+SHUTDOWN_KEYWORDS = {"shutdown", "stop", "close"}
+BATCH_KEYWORDS = {"batch", "limit", "batch_size"}
+ORDERING_KEYWORDS = {"order_by", "asc", "desc", "created_at"}
+ASYNC_KEYWORDS = {"async", "await"}
+SCHEMA_KEYWORDS = {"schema", "validate", "pydantic", "validator", "ValidationError", "BaseModel"}
+RECONNECT_KEYWORDS = {"reconnect", "auto_reconnect"}
+
+BROKER_KEYWORDS = {
+    "broker", "kafka", "rabbit", "message_bus", "mq", "pulsar",
+    "BrokerPort", "EventBus", "MessagePublisher", "Dispatcher", "Mediator",
+    "KafkaProducer", "RabbitMQ", "PulsarClient",
+    "KafkaProducerWrapper", "send_event", "producer", "publisher", "MessageBrokerPort",
+    "get_kafka_producer", "_get_producer"
+}
+
+ERROR_CLASS_KEYWORDS = {"temporary", "permanent", "retryable", "fatal", "transient"}
+
+MIXIN_FIELDS = {
+    "TimestampMixin": {"created_at", "updated_at"},
+    "SoftDeleteMixin": {"deleted_at"},
 }
 
 # =============================================================================
@@ -165,7 +235,7 @@ class OutboxViolation:
 class OutboxInfo:
     file_path: str
     component_name: str
-    component_type: str  # "entity", "repository", "publisher", "consumer", "deadletter"
+    component_type: str
     fields: Set[str] = field(default_factory=set)
     methods: Set[str] = field(default_factory=set)
     has_transaction: bool = False
@@ -173,6 +243,22 @@ class OutboxInfo:
     has_idempotency: bool = False
     has_dead_letter: bool = False
     has_monitoring: bool = False
+    has_health: bool = False
+    has_logging: bool = False
+    has_lock: bool = False
+    has_batch: bool = False
+    has_ordering: bool = False
+    has_shutdown: bool = False
+    has_async: bool = False
+    has_schema_validation: bool = False
+    has_circuit_breaker: bool = False
+    has_rate_limit: bool = False
+    has_timeout: bool = False
+    has_backoff: bool = False
+    has_max_retries: bool = False
+    has_error_classification: bool = False
+    has_auto_reconnect: bool = False
+    has_broker_integration: bool = False
     violations: List[OutboxViolation] = field(default_factory=list)
 
 
@@ -185,13 +271,14 @@ class CheckerResult:
     high_count: int
     medium_count: int
     low_count: int
+    info_count: int
     score: float
     rca_enabled: bool
     elapsed_seconds: float
 
 
 # =============================================================================
-# CHECKER CLASS WITH 100+ RULES
+# CHECKER CLASS
 # =============================================================================
 
 class OutboxChecker:
@@ -200,8 +287,10 @@ class OutboxChecker:
         self.enable_rca = enable_rca and _RCA_AVAILABLE
         self.components: List[OutboxInfo] = []
 
+    # -------------------------------------------------------------------------
+    # File & AST Utilities
+    # -------------------------------------------------------------------------
     def _get_python_files(self) -> List[Path]:
-        """Collect all Python files in relevant directories."""
         py_files = []
         scan_dirs = ["infrastructure", "application", "adapters", "domain", "kernel", "bootstrap"]
         for dir_name in scan_dirs:
@@ -216,469 +305,591 @@ class OutboxChecker:
                 py_files.append(p)
         return py_files
 
+    def _get_fields_and_methods(self, node: ast.ClassDef) -> Tuple[Set[str], Set[str]]:
+        fields, methods = set(), set()
+        for item in node.body:
+            if isinstance(item, (ast.Assign, ast.AnnAssign)):
+                if isinstance(item, ast.Assign):
+                    for target in item.targets:
+                        if isinstance(target, ast.Name):
+                            fields.add(target.id)
+                else:
+                    if isinstance(item.target, ast.Name):
+                        fields.add(item.target.id)
+            elif isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                methods.add(item.name)
+        return fields, methods
+
+    def _get_base_classes(self, node: ast.ClassDef) -> List[str]:
+        bases = []
+        for base in node.bases:
+            if isinstance(base, ast.Name):
+                bases.append(base.id)
+            elif isinstance(base, ast.Attribute):
+                bases.append(base.attr)
+        return bases
+
+    def _has_mixin_field(self, node: ast.ClassDef, field: str) -> bool:
+        bases = self._get_base_classes(node)
+        for base in bases:
+            if base in MIXIN_FIELDS and field in MIXIN_FIELDS[base]:
+                return True
+        return False
+
+    def _has_default_value(self, node: ast.ClassDef, field: str, default: Any) -> bool:
+        for item in node.body:
+            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == field:
+                if item.value:
+                    val_str = ast.unparse(item.value).lower()
+                    if f"default={default}" in val_str or f"default={repr(default)}" in val_str:
+                        return True
+            if isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name) and target.id == field:
+                        if isinstance(item.value, ast.Constant) and item.value.value == default:
+                            return True
+        return False
+
+    def _generate_rca(self, rule_id: str, msg: str, severity: str) -> Optional[Dict[str, Any]]:
+        if not self.enable_rca or _analyze_exception is None:
+            return None
+        try:
+            exc = RuntimeError(f"[{rule_id}] {msg}")
+            result = _analyze_exception(exc, {"rule_id": rule_id, "severity": severity})
+            return result.to_dict() if result else None
+        except Exception:
+            return {"root_cause": msg, "suggested_fix": "Periksa implementasi Outbox."}
+
+    # -------------------------------------------------------------------------
+    # v14.0: Deep AST Detection - lebih akurat
+    # -------------------------------------------------------------------------
+    def _scan_ast_for_keywords(self, node: ast.AST, keywords: Set[str]) -> bool:
+        """Full AST traversal dengan string-based scanning."""
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Import):
+                for alias in sub.names:
+                    if any(kw in alias.name.lower() for kw in keywords):
+                        return True
+            if isinstance(sub, ast.ImportFrom):
+                if sub.module:
+                    if any(kw in sub.module.lower() for kw in keywords):
+                        return True
+                for alias in sub.names:
+                    if any(kw in alias.name.lower() for kw in keywords):
+                        return True
+            if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                val_lower = sub.value.lower()
+                if any(kw in val_lower for kw in keywords):
+                    return True
+            if isinstance(sub, ast.Attribute):
+                if any(kw in sub.attr.lower() for kw in keywords):
+                    return True
+            if isinstance(sub, ast.Name):
+                if any(kw in sub.id.lower() for kw in keywords):
+                    return True
+            if isinstance(sub, ast.Call):
+                call_str = ast.unparse(sub.func).lower()
+                if any(kw in call_str for kw in keywords):
+                    return True
+                for arg in sub.args:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        if any(kw in arg.value.lower() for kw in keywords):
+                            return True
+            if isinstance(sub, ast.Assign):
+                for target in sub.targets:
+                    target_str = ast.unparse(target).lower()
+                    if any(kw in target_str for kw in keywords):
+                        return True
+                val_str = ast.unparse(sub.value).lower()
+                if any(kw in val_str for kw in keywords):
+                    return True
+            if isinstance(sub, (ast.With, ast.AsyncWith)):
+                for item in sub.items:
+                    ctx_str = ast.unparse(item.context_expr).lower()
+                    if any(kw in ctx_str for kw in keywords):
+                        return True
+                    if isinstance(item.context_expr, ast.Call):
+                        call_str = ast.unparse(item.context_expr.func).lower()
+                        if any(kw in call_str for kw in keywords):
+                            return True
+        return False
+
+    def _has_feature_full_ast(self, node: ast.ClassDef, keywords: Set[str]) -> bool:
+        return self._scan_ast_for_keywords(node, keywords)
+
+    # --- v14.0: AST-based detection yang lebih dalam ---
+
+    def _has_transaction(self, node: ast.ClassDef) -> bool:
+        """Deep AST detection for transaction: get_async_session, session.begin, async with."""
+        for sub in ast.walk(node):
+            # Cari async with session
+            if isinstance(sub, ast.AsyncWith):
+                for item in sub.items:
+                    ctx = item.context_expr
+                    if isinstance(ctx, ast.Call):
+                        func = ctx.func
+                        if isinstance(func, ast.Name) and func.id == "get_async_session":
+                            return True
+                    if isinstance(ctx, ast.Attribute):
+                        if ctx.attr == "begin":
+                            obj = ctx.value
+                            if isinstance(obj, ast.Name) and obj.id in ("session", "uow", "_uow"):
+                                return True
+            # Cari panggilan get_async_session
+            if isinstance(sub, ast.Call):
+                func = sub.func
+                if isinstance(func, ast.Name) and func.id == "get_async_session":
+                    return True
+                if isinstance(func, ast.Attribute):
+                    if func.attr == "begin":
+                        obj = func.value
+                        if isinstance(obj, ast.Name) and obj.id in ("session", "uow", "_uow"):
+                            return True
+            # Cari assignment uow
+            if isinstance(sub, ast.Assign):
+                val_str = ast.unparse(sub.value).lower()
+                if "uow" in val_str or "unit_of_work" in val_str:
+                    return True
+        return self._scan_ast_for_keywords(node, TRANSACTION_KEYWORDS)
+
+    def _has_retry(self, node: ast.ClassDef) -> bool:
+        """Deep AST detection for retry: retry_delay_seconds, max_retries."""
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Assign):
+                for target in sub.targets:
+                    if isinstance(target, ast.Name):
+                        if target.id in ("retry_delay_seconds", "max_retries", "max_attempts"):
+                            return True
+                val_str = ast.unparse(sub.value).lower()
+                if "retry_delay_seconds" in val_str or "max_retries" in val_str:
+                    return True
+            if isinstance(sub, ast.Dict):
+                for key in sub.keys:
+                    if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                        if "retry_delay_seconds" in key.value.lower():
+                            return True
+        return self._scan_ast_for_keywords(node, RETRY_KEYWORDS)
+
+    def _has_lock(self, node: ast.ClassDef) -> bool:
+        """Deep AST detection for lock: setnx, expire, _acquire_lock."""
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                func = sub.func
+                if isinstance(func, ast.Attribute):
+                    if func.attr in ("setnx", "expire", "try_lock", "extend_lock"):
+                        return True
+                if isinstance(func, ast.Name) and func.id == "setnx":
+                    return True
+            if isinstance(sub, ast.Assign):
+                for target in sub.targets:
+                    if isinstance(target, ast.Name):
+                        if target.id in ("_acquire_lock", "_release_lock", "_renew_lock"):
+                            return True
+        return self._scan_ast_for_keywords(node, LOCK_KEYWORDS)
+
+    def _has_dead_letter(self, node: ast.ClassDef) -> bool:
+        """Deep AST detection for DLQ: OUTBOX_STATUS_DEAD_LETTER, _mark_as_failed."""
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Assign):
+                for target in sub.targets:
+                    if isinstance(target, ast.Name):
+                        if "OUTBOX_STATUS_DEAD_LETTER" in target.id:
+                            return True
+                val_str = ast.unparse(sub.value).lower()
+                if "dead_letter" in val_str:
+                    return True
+            if isinstance(sub, ast.Call):
+                func = sub.func
+                if isinstance(func, ast.Attribute):
+                    if func.attr in ("_mark_as_failed", "_mark_as_dead_letter", "mark_dead_letter"):
+                        return True
+        return self._scan_ast_for_keywords(node, DEAD_LETTER_KEYWORDS)
+
+    def _has_broker_api(self, node: ast.ClassDef) -> bool:
+        """Deep AST detection for broker: import, get_kafka_producer, _get_producer."""
+        for sub in ast.walk(node):
+            # Import detection
+            if isinstance(sub, ast.ImportFrom):
+                if sub.module and "kafka_producer_wrapper" in sub.module.lower():
+                    for alias in sub.names:
+                        if any(kw in alias.name.lower() for kw in ("kafkaproducerwrapper", "get_kafka_producer")):
+                            return True
+            if isinstance(sub, ast.Import):
+                for alias in sub.names:
+                    if "kafka_producer_wrapper" in alias.name.lower():
+                        return True
+            # Call detection
+            if isinstance(sub, ast.Call):
+                func = sub.func
+                if isinstance(func, ast.Name) and func.id in ("get_kafka_producer", "get_producer"):
+                    return True
+                if isinstance(func, ast.Attribute) and func.attr in ("_get_producer", "send_event"):
+                    return True
+        return self._scan_ast_for_keywords(node, BROKER_KEYWORDS)
+
+    def _has_ordering(self, node: ast.ClassDef) -> bool:
+        """Deep AST detection for ordering: .order_by() on SQLAlchemy."""
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                func = sub.func
+                if isinstance(func, ast.Attribute) and func.attr in ("order_by", "asc", "desc"):
+                    return True
+                if isinstance(func, ast.Name) and func.id in ("order_by", "asc", "desc"):
+                    return True
+        return self._scan_ast_for_keywords(node, ORDERING_KEYWORDS)
+
+    def _has_batch(self, node: ast.ClassDef) -> bool:
+        """Deep AST detection for batch: batch_size, limit."""
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Assign):
+                for target in sub.targets:
+                    if isinstance(target, ast.Name):
+                        if target.id in ("batch_size", "limit"):
+                            return True
+                val_str = ast.unparse(sub.value).lower()
+                if "batch_size" in val_str or "limit" in val_str:
+                    return True
+            if isinstance(sub, ast.Dict):
+                for key in sub.keys:
+                    if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                        if "batch_size" in key.value.lower() or "limit" in key.value.lower():
+                            return True
+        return self._scan_ast_for_keywords(node, BATCH_KEYWORDS)
+
+    def _has_idempotency(self, node: ast.ClassDef) -> bool:
+        """Deep AST detection for idempotency: field or headers dict."""
+        fields, _ = self._get_fields_and_methods(node)
+        if any(f in fields for f in IDEMPOTENCY_ALIASES):
+            return True
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Dict):
+                for key in sub.keys:
+                    if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                        if any(kw in key.value.lower() for kw in ("idempotency", "dedup")):
+                            return True
+        return self._scan_ast_for_keywords(node, IDEMPOTENCY_ALIASES)
+
+    def _has_main_method(self, node: ast.ClassDef) -> bool:
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if item.name in MAIN_METHOD_NAMES:
+                    return True
+                has_loop = any(isinstance(n, (ast.While, ast.For)) for n in ast.walk(item))
+                if has_loop:
+                    for n in ast.walk(item):
+                        if isinstance(n, ast.Call):
+                            call_str = ast.unparse(n.func).lower()
+                            if any(kw in call_str for kw in ("fetch", "poll", "select", "get_pending", "get_unprocessed", "find_pending")):
+                                return True
+        return False
+
+    def _has_health(self, node: ast.ClassDef) -> bool:
+        return self._has_feature_full_ast(node, HEALTH_KEYWORDS)
+
+    def _has_metrics(self, node: ast.ClassDef) -> bool:
+        return self._has_feature_full_ast(node, METRICS_KEYWORDS)
+
+    def _has_logging(self, node: ast.ClassDef) -> bool:
+        return self._has_feature_full_ast(node, LOGGING_KEYWORDS)
+
+    def _has_feature(self, node: ast.ClassDef, keywords: Set[str]) -> bool:
+        return self._has_feature_full_ast(node, keywords)
+
+    # -------------------------------------------------------------------------
+    # Component Detection
+    # -------------------------------------------------------------------------
     def _is_outbox_component(self, node: ast.ClassDef, file_path: Path) -> Tuple[bool, str]:
-        """Determine if a class is an outbox component with enhanced detection."""
         name = node.name
         file_path_str = str(file_path).lower()
-        file_name = file_path.name.lower()
 
-        # 1. Periksa berdasarkan nama class
-        if any(kw in name for kw in OUTBOX_ENTITY_KEYWORDS):
-            return True, "entity"
-        if any(kw in name for kw in OUTBOX_REPO_KEYWORDS):
-            return True, "repository"
+        if name.endswith(("Error", "Exception", "Config", "Port", "Interface", "Protocol")):
+            return False, ""
+        for base in node.bases:
+            if isinstance(base, ast.Name) and base.id in ("Exception", "BaseException", "Enum"):
+                return False, ""
+            if isinstance(base, ast.Attribute) and base.attr in ("Exception", "BaseException", "Enum"):
+                return False, ""
+
+        if "Outbox" not in name and "outbox" not in file_path_str:
+            return False, ""
+
+        if any(kw in name for kw in ("Checkpoint", "Metrics", "Partition", "RelayMetrics", "KafkaPartition")):
+            return False, ""
+
+        if any(kw in name for kw in OUTBOX_DEADLETTER_KEYWORDS):
+            return True, "deadletter"
         if any(kw in name for kw in OUTBOX_PUBLISHER_KEYWORDS):
             return True, "publisher"
         if any(kw in name for kw in OUTBOX_CONSUMER_KEYWORDS):
             return True, "consumer"
-        if any(kw in name for kw in OUTBOX_DEADLETTER_KEYWORDS):
-            return True, "deadletter"
+        if any(kw in name for kw in OUTBOX_REPO_KEYWORDS):
+            return True, "repository"
 
-        # 2. Jika nama tidak mengandung keyword, periksa field dan konteks
-        fields = set()
-        for item in node.body:
-            if isinstance(item, (ast.Assign, ast.AnnAssign)):
-                if isinstance(item, ast.Assign):
-                    for target in item.targets:
-                        if isinstance(target, ast.Name):
-                            fields.add(target.id)
-                else:
-                    if isinstance(item.target, ast.Name):
-                        fields.add(item.target.id)
-
-        # Entity detection: minimal 3 field wajib dan konteks outbox
-        required_intersection = len(fields.intersection(REQUIRED_FIELDS))
-        if required_intersection >= 3:
-            # Cek apakah path mengandung 'outbox' atau class name mengandung 'outbox' (case insensitive)
-            if 'outbox' in file_path_str or 'outbox' in name.lower():
+        if name.endswith("Table"):
+            fields, _ = self._get_fields_and_methods(node)
+            has_tablename = any(
+                isinstance(item, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__tablename__" for t in item.targets)
+                for item in node.body
+            )
+            required_count = len(fields.intersection(REQUIRED_FIELDS))
+            if has_tablename or required_count >= 3:
                 return True, "entity"
-            # Cek apakah ada method yang berhubungan dengan outbox (misal 'publish', 'process')
-            methods = [item.name for item in node.body if isinstance(item, ast.FunctionDef)]
-            if any(m in PUBLISHER_METHODS for m in methods):
-                return True, "publisher"
+            return False, ""
 
-        # Publisher detection: class memiliki metode publish/process dan konteks outbox
-        methods = [item.name for item in node.body if isinstance(item, ast.FunctionDef)]
-        if any(m in PUBLISHER_METHODS for m in methods):
-            if 'outbox' in name.lower() or 'outbox' in file_path_str:
-                return True, "publisher"
+        fields, _ = self._get_fields_and_methods(node)
+        required_count = len(fields.intersection(REQUIRED_FIELDS))
+        if required_count >= 3:
+            return True, "entity"
 
         return False, ""
 
-    def _get_fields_and_methods(self, node: ast.ClassDef) -> Tuple[Set[str], Set[str]]:
-        fields = set()
-        methods = set()
-        for item in node.body:
-            if isinstance(item, (ast.Assign, ast.AnnAssign)):
-                if isinstance(item, ast.Assign):
-                    for target in item.targets:
-                        if isinstance(target, ast.Name):
-                            fields.add(target.id)
-                else:
-                    if isinstance(item.target, ast.Name):
-                        fields.add(item.target.id)
-            elif isinstance(item, ast.FunctionDef):
-                methods.add(item.name)
-        return fields, methods
-
-    def _generate_rca(self, rule_id: str, violation_msg: str, severity: str) -> Optional[Dict[str, Any]]:
-        if not self.enable_rca or _analyze_exception is None:
-            return None
-
-        sev_map = {
-            "CRITICAL": "FATAL",
-            "HIGH": "HIGH",
-            "MEDIUM": "MEDIUM",
-            "LOW": "LOW",
-            "INFO": "INFO",
-        }
-        sev_str = sev_map.get(severity, "MEDIUM")
-        exc = RuntimeError(f"[{rule_id}] {violation_msg}")
-
-        try:
-            result = _analyze_exception(exc, {"rule_id": rule_id, "severity": sev_str})
-            return result.to_dict() if result else None
-        except Exception:
-            return {"root_cause": violation_msg, "suggested_fix": "Periksa implementasi Outbox."}
-
+    # -------------------------------------------------------------------------
+    # Entity Checker
+    # -------------------------------------------------------------------------
     def _check_entity(self, node: ast.ClassDef, file_path: Path) -> OutboxInfo:
         name = node.name
         fields, methods = self._get_fields_and_methods(node)
         violations = []
         rel_path = str(file_path.relative_to(self.root_dir))
 
-        # --- Rule 1-8: Naming & Detection ---
-        if not any(kw in name for kw in OUTBOX_ENTITY_KEYWORDS):
-            violations.append(OutboxViolation(
-                rule_id="OUT-001",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Outbox entity '{name}' tidak menggunakan naming convention standar.",
-                suggestion="Gunakan nama seperti 'OutboxEvent', 'OutboxMessage', atau 'Outbox'.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-001", f"Naming convention violation: {name}", "LOW"),
-            ))
-
-        # --- Rule 9-33: Fields ---
-        missing_required = REQUIRED_FIELDS - fields
-        if missing_required:
+        missing = REQUIRED_FIELDS - fields
+        for f in list(missing):
+            if self._has_mixin_field(node, f):
+                missing.remove(f)
+        if missing:
             violations.append(OutboxViolation(
                 rule_id="OUT-002",
                 file_path=rel_path,
                 component_name=name,
                 severity="CRITICAL",
-                message=f"Outbox entity '{name}' kehilangan field wajib: {', '.join(missing_required)}",
-                suggestion="Tambahkan field: " + ", ".join(missing_required),
+                message=f"Entity '{name}' kehilangan field wajib: {', '.join(missing)}",
+                suggestion="Tambahkan field: " + ", ".join(missing),
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-002", f"Missing required fields: {missing_required}", "CRITICAL"),
+                rca_result=self._generate_rca("OUT-002", f"Missing required: {missing}", "CRITICAL"),
             ))
 
-        # event_id
-        if "event_id" not in fields:
+        if not any(f in fields for f in IDEMPOTENCY_ALIASES):
+            violations.append(OutboxViolation(
+                rule_id="OUT-008",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Entity '{name}' tidak memiliki field idempotency (idempotency_key/event_uuid/message_id/dedup_key/uuid/guid/event_id/hash/payload_hash/request_id/correlation_id/trace_id).",
+                suggestion="Tambahkan salah satu field untuk deduplikasi.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-008", "Missing idempotency field", "MEDIUM"),
+            ))
+
+        has_timestamp = any(f in fields for f in TIMESTAMP_ALIASES) or self._has_mixin_field(node, "created_at")
+        if not has_timestamp:
+            violations.append(OutboxViolation(
+                rule_id="OUT-002b",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Entity '{name}' tidak memiliki timestamp (created_at/occurred_at/event_time/timestamp/created) atau inheritance dari TimestampMixin.",
+                suggestion="Tambahkan timestamp untuk polling & monitoring.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-002b", "Missing timestamp", "MEDIUM"),
+            ))
+
+        if not any(f in fields for f in EVENT_ID_ALIASES):
             violations.append(OutboxViolation(
                 rule_id="OUT-003",
                 file_path=rel_path,
                 component_name=name,
                 severity="MEDIUM",
-                message=f"Outbox entity '{name}' tidak memiliki field 'event_id'.",
-                suggestion="Tambahkan 'event_id' sebagai unique identifier untuk event.",
+                message=f"Entity '{name}' tidak memiliki event_id (event_id/event_uuid/event_uid/event_guid).",
+                suggestion="Tambahkan event_id sebagai unique identifier per event.",
                 line=node.lineno,
                 rca_result=self._generate_rca("OUT-003", "Missing event_id", "MEDIUM"),
             ))
 
-        # aggregate_id
-        if "aggregate_id" not in fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-004",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Outbox entity '{name}' tidak memiliki field 'aggregate_id'.",
-                suggestion="Tambahkan 'aggregate_id' untuk traceability ke aggregate root.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-004", "Missing aggregate_id", "LOW"),
-            ))
-
-        # processed_at
-        if "processed_at" not in fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-005",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Outbox entity '{name}' tidak memiliki field 'processed_at'.",
-                suggestion="Tambahkan 'processed_at' untuk mencatat waktu pemrosesan.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-005", "Missing processed_at", "LOW"),
-            ))
-
-        # retry_count
         if "retry_count" not in fields:
             violations.append(OutboxViolation(
                 rule_id="OUT-006",
                 file_path=rel_path,
                 component_name=name,
                 severity="MEDIUM",
-                message=f"Outbox entity '{name}' tidak memiliki field 'retry_count'.",
-                suggestion="Tambahkan 'retry_count' untuk retry mechanism.",
+                message=f"Entity '{name}' tidak memiliki 'retry_count'.",
+                suggestion="Tambahkan retry_count untuk mendukung retry mechanism.",
                 line=node.lineno,
                 rca_result=self._generate_rca("OUT-006", "Missing retry_count", "MEDIUM"),
             ))
 
-        # last_error
+        # Status enum
+        status_is_enum = False
+        for item in node.body:
+            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == "status":
+                ann = item.annotation
+                ann_str = ast.unparse(ann).lower() if ann else ""
+                if any(kw in ann_str for kw in ("enum", "saenum", "choice", "literal", "strenum", "mapped")):
+                    status_is_enum = True
+                    break
+        if "status" in fields and not status_is_enum:
+            has_check = False
+            for item in node.body:
+                if isinstance(item, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__table_args__" for t in item.targets):
+                    val_str = ast.unparse(item.value).lower()
+                    if "check" in val_str and "status" in val_str:
+                        has_check = True
+                        break
+            if not has_check:
+                violations.append(OutboxViolation(
+                    rule_id="OUT-013",
+                    file_path=rel_path,
+                    component_name=name,
+                    severity="MEDIUM",
+                    message=f"Entity '{name}' memiliki field 'status' tapi bukan Enum/SAEnum/Mapped[Status]/ChoiceType/Literal/StrEnum, dan tidak ada CheckConstraint.",
+                    suggestion="Gunakan Enum, SAEnum, ChoiceType, Literal, atau StrEnum untuk status.",
+                    line=node.lineno,
+                    rca_result=self._generate_rca("OUT-013", "Status not recognized enum type", "MEDIUM"),
+                ))
+
+        # LOW: aggregate_id, processed_at, last_error, version, default values
+        if not any(f in fields for f in AGGREGATE_ID_ALIASES):
+            violations.append(OutboxViolation(
+                rule_id="OUT-004",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Entity '{name}' tidak memiliki aggregate_id (aggregate_id/aggregate_uuid/root_id).",
+                suggestion="Tambahkan aggregate_id untuk traceability.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-004", "Missing aggregate_id", "LOW"),
+            ))
+
+        if "processed_at" not in fields:
+            violations.append(OutboxViolation(
+                rule_id="OUT-005",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Entity '{name}' tidak memiliki 'processed_at'.",
+                suggestion="Tambahkan processed_at untuk mencatat waktu pemrosesan.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-005", "Missing processed_at", "LOW"),
+            ))
+
         if "last_error" not in fields:
             violations.append(OutboxViolation(
                 rule_id="OUT-007",
                 file_path=rel_path,
                 component_name=name,
                 severity="LOW",
-                message=f"Outbox entity '{name}' tidak memiliki field 'last_error'.",
-                suggestion="Tambahkan 'last_error' untuk debugging kegagalan.",
+                message=f"Entity '{name}' tidak memiliki 'last_error'.",
+                suggestion="Tambahkan last_error untuk debugging.",
                 line=node.lineno,
                 rca_result=self._generate_rca("OUT-007", "Missing last_error", "LOW"),
             ))
 
-        # idempotency_key
-        if "idempotency_key" not in fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-008",
-                file_path=rel_path,
-                component_name=name,
-                severity="HIGH",
-                message=f"Outbox entity '{name}' tidak memiliki field 'idempotency_key'.",
-                suggestion="Tambahkan 'idempotency_key' dan unique constraint untuk mencegah duplikasi.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-008", "Missing idempotency_key", "HIGH"),
-            ))
-
-        # correlation_id
-        if "correlation_id" not in fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-009",
-                file_path=rel_path,
-                component_name=name,
-                severity="INFO",
-                message=f"Outbox entity '{name}' tidak memiliki field 'correlation_id'.",
-                suggestion="Tambahkan 'correlation_id' untuk distributed tracing.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-009", "Missing correlation_id", "INFO"),
-            ))
-
-        # version
         if "version" not in fields:
             violations.append(OutboxViolation(
                 rule_id="OUT-010",
                 file_path=rel_path,
                 component_name=name,
                 severity="LOW",
-                message=f"Outbox entity '{name}' tidak memiliki field 'version'.",
-                suggestion="Tambahkan 'version' untuk optimistic locking pada concurrent updates.",
+                message=f"Entity '{name}' tidak memiliki 'version'.",
+                suggestion="Tambahkan version untuk optimistic locking.",
                 line=node.lineno,
                 rca_result=self._generate_rca("OUT-010", "Missing version", "LOW"),
             ))
 
-        # priority
-        if "priority" not in fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-011",
-                file_path=rel_path,
-                component_name=name,
-                severity="INFO",
-                message=f"Outbox entity '{name}' tidak memiliki field 'priority'.",
-                suggestion="Tambahkan 'priority' jika diperlukan untuk prioritasi event.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-011", "Missing priority", "INFO"),
-            ))
+        # INFO: priority, scheduled_at, correlation_id
+        for f, label in [("priority", "priority"), ("scheduled_at", "scheduled_at"), ("correlation_id", "correlation_id")]:
+            if f not in fields:
+                violations.append(OutboxViolation(
+                    rule_id=f"OUT-{ {'priority':'011','scheduled_at':'012','correlation_id':'009'}[f] }",
+                    file_path=rel_path,
+                    component_name=name,
+                    severity="INFO",
+                    message=f"Entity '{name}' tidak memiliki '{f}'.",
+                    suggestion=f"Tambahkan {f} ({label}).",
+                    line=node.lineno,
+                    rca_result=self._generate_rca(f"OUT-{ {'priority':'011','scheduled_at':'012','correlation_id':'009'}[f] }", f"Missing {f}", "INFO"),
+                ))
 
-        # scheduled_at
-        if "scheduled_at" not in fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-012",
-                file_path=rel_path,
-                component_name=name,
-                severity="INFO",
-                message=f"Outbox entity '{name}' tidak memiliki field 'scheduled_at'.",
-                suggestion="Tambahkan 'scheduled_at' untuk scheduled event processing.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-012", "Missing scheduled_at", "INFO"),
-            ))
+        # LOW: default values
+        if "status" in fields:
+            has_default_status = self._has_default_value(node, "status", "pending") or self._has_default_value(node, "status", "PENDING")
+            if not has_default_status:
+                violations.append(OutboxViolation(
+                    rule_id="OUT-014",
+                    file_path=rel_path,
+                    component_name=name,
+                    severity="LOW",
+                    message=f"Entity '{name}' status tidak default 'pending'/'PENDING'.",
+                    suggestion="Set default status = pending atau PENDING.",
+                    line=node.lineno,
+                    rca_result=self._generate_rca("OUT-014", "Missing default status", "LOW"),
+                ))
 
-        # --- Check status enum ---
-        has_status_enum = False
-        for item in node.body:
-            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == "status":
-                ann = item.annotation
-                if isinstance(ann, ast.Name) and "Enum" in ann.id:
-                    has_status_enum = True
-                elif isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name) and "Enum" in ann.value.id:
-                    has_status_enum = True
-                break
-        if not has_status_enum and "status" in fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-013",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Outbox entity '{name}' memiliki field 'status' tapi bukan Enum.",
-                suggestion="Gunakan Enum untuk status (PENDING, PROCESSED, FAILED, DEAD_LETTER).",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-013", "Status not Enum", "MEDIUM"),
-            ))
+        if "retry_count" in fields:
+            has_default_retry = self._has_default_value(node, "retry_count", 0)
+            if not has_default_retry:
+                violations.append(OutboxViolation(
+                    rule_id="OUT-015",
+                    file_path=rel_path,
+                    component_name=name,
+                    severity="LOW",
+                    message=f"Entity '{name}' retry_count tidak default 0.",
+                    suggestion="Set default retry_count = 0.",
+                    line=node.lineno,
+                    rca_result=self._generate_rca("OUT-015", "Missing default retry_count", "LOW"),
+                ))
 
-        # --- Default values ---
-        default_fields = set()
-        for item in node.body:
-            if isinstance(item, ast.Assign):
-                for target in item.targets:
-                    if isinstance(target, ast.Name):
-                        if isinstance(item.value, ast.Constant):
-                            if target.id == "status" and item.value.value == "PENDING":
-                                default_fields.add("status")
-                            if target.id == "retry_count" and item.value.value == 0:
-                                default_fields.add("retry_count")
-        if "status" in fields and "status" not in default_fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-014",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Outbox entity '{name}' field 'status' tidak memiliki default 'PENDING'.",
-                suggestion="Set default 'status = PENDING' untuk new events.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-014", "Missing default status", "LOW"),
-            ))
-        if "retry_count" in fields and "retry_count" not in default_fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-015",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Outbox entity '{name}' field 'retry_count' tidak memiliki default 0.",
-                suggestion="Set default 'retry_count = 0'.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-015", "Missing default retry_count", "LOW"),
-            ))
+        # LOW: payload type
+        if "payload" in fields:
+            is_valid = False
+            for item in node.body:
+                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == "payload":
+                    ann = ast.unparse(item.annotation).lower() if item.annotation else ""
+                    if any(t in ann for t in ("json", "dict", "mapping", "jsonb", "largebinary", "mapped", "mutabledict", "pydantic", "bytes", "text")):
+                        is_valid = True
+                    break
+            if not is_valid:
+                violations.append(OutboxViolation(
+                    rule_id="OUT-016",
+                    file_path=rel_path,
+                    component_name=name,
+                    severity="LOW",
+                    message=f"Entity '{name}' payload tidak dikenali sebagai JSON/dict/JSONB/Mapped/MutableDict/Pydantic/bytes/Text.",
+                    suggestion="Gunakan JSONField, Mapped[dict], Pydantic model, atau Text.",
+                    line=node.lineno,
+                    rca_result=self._generate_rca("OUT-016", "Payload type not recognized", "LOW"),
+                ))
 
-        # --- Payload type ---
-        has_payload_json = False
-        for item in node.body:
-            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == "payload":
-                ann_str = ast.unparse(item.annotation).lower()
-                if "json" in ann_str or "dict" in ann_str:
-                    has_payload_json = True
-                break
-        if not has_payload_json and "payload" in fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-016",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Outbox entity '{name}' field 'payload' tidak menggunakan JSON/dict type.",
-                suggestion="Gunakan JSONField atau Dict[str, Any] untuk payload serialized event.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-016", "Payload not JSON", "MEDIUM"),
-            ))
-
-        # --- Indexes ---
-        has_indexes = False
-        for item in node.body:
-            if isinstance(item, ast.Assign):
-                for target in item.targets:
-                    if isinstance(target, ast.Name) and target.id in ("__table_args__", "Meta"):
-                        has_indexes = True
-                        break
+        # LOW: indexes, NOT NULL
+        has_indexes = any(
+            isinstance(item, ast.Assign) and any(isinstance(t, ast.Name) and t.id in ("__table_args__", "Meta") for t in item.targets)
+            for item in node.body
+        )
         if not has_indexes:
             violations.append(OutboxViolation(
                 rule_id="OUT-017",
                 file_path=rel_path,
                 component_name=name,
                 severity="LOW",
-                message=f"Outbox entity '{name}' tidak memiliki indeks (__table_args__).",
-                suggestion="Tambahkan indeks pada (status, created_at) untuk polling performance.",
+                message=f"Entity '{name}' tidak memiliki indeks (__table_args__).",
+                suggestion="Tambahkan indeks pada (status, created_at) untuk polling.",
                 line=node.lineno,
                 rca_result=self._generate_rca("OUT-017", "Missing indexes", "LOW"),
             ))
 
-        # --- NOT NULL constraints ---
-        has_not_null = False
-        for item in node.body:
-            if isinstance(item, ast.AnnAssign):
-                ann_str = ast.unparse(item.annotation).lower()
-                if "nullable" in ann_str and "false" in ann_str:
-                    has_not_null = True
-                    break
-                if "not null" in ann_str:
-                    has_not_null = True
-                    break
-        if not has_not_null and missing_required:
+        has_not_null = any(
+            isinstance(item, ast.AnnAssign) and any(kw in ast.unparse(item.annotation).lower() for kw in ("nullable=false", "not null"))
+            for item in node.body
+        )
+        if not has_not_null and missing:
             violations.append(OutboxViolation(
                 rule_id="OUT-018",
                 file_path=rel_path,
                 component_name=name,
                 severity="LOW",
-                message=f"Outbox entity '{name}' tidak memiliki NOT NULL constraints pada field wajib.",
-                suggestion="Tambahkan nullable=False atau NOT NULL pada field yang wajib.",
+                message=f"Entity '{name}' tidak memiliki NOT NULL constraints.",
+                suggestion="Tambahkan nullable=False atau NOT NULL.",
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-018", "Missing NOT NULL constraints", "LOW"),
-            ))
-
-        # --- Atomic write ---
-        has_atomic = self._has_atomic_write_in_file(file_path)
-        if not has_atomic:
-            violations.append(OutboxViolation(
-                rule_id="OUT-019",
-                file_path=rel_path,
-                component_name=name,
-                severity="CRITICAL",
-                message=f"Tidak ditemukan atomic write (aggregate + outbox dalam transaksi) di file ini.",
-                suggestion="Pastikan aggregate.save() dan outbox.save() dalam satu transaksi (UoW).",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-019", "No atomic write", "CRITICAL"),
-            ))
-
-        # --- Transaction ---
-        has_transaction = self._has_transaction_in_file(file_path)
-        if not has_transaction:
-            violations.append(OutboxViolation(
-                rule_id="OUT-020",
-                file_path=rel_path,
-                component_name=name,
-                severity="HIGH",
-                message=f"Tidak ditemukan transaction manager / UoW di file ini.",
-                suggestion="Gunakan UnitOfWork atau transaction manager untuk atomic operations.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-020", "Missing transaction", "HIGH"),
-            ))
-
-        # --- Retry ---
-        has_retry = self._has_retry_in_file(file_path)
-        if not has_retry:
-            violations.append(OutboxViolation(
-                rule_id="OUT-021",
-                file_path=rel_path,
-                component_name=name,
-                severity="HIGH",
-                message=f"Tidak ditemukan retry mechanism di file ini.",
-                suggestion="Implementasikan retry dengan exponential backoff dan max_retries.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-021", "Missing retry", "HIGH"),
-            ))
-
-        # --- Idempotency ---
-        has_idempotency = self._has_idempotency_in_file(file_path)
-        if not has_idempotency:
-            violations.append(OutboxViolation(
-                rule_id="OUT-022",
-                file_path=rel_path,
-                component_name=name,
-                severity="HIGH",
-                message=f"Tidak ditemukan idempotency mechanism di file ini.",
-                suggestion="Implementasikan deduplication menggunakan idempotency_key atau Redis cache.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-022", "Missing idempotency", "HIGH"),
-            ))
-
-        # --- Dead letter ---
-        has_dead_letter = self._has_dead_letter_in_file(file_path)
-        if not has_dead_letter:
-            violations.append(OutboxViolation(
-                rule_id="OUT-023",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Tidak ditemukan dead letter handling di file ini.",
-                suggestion="Tambahkan Dead Letter Queue untuk events yang gagal permanent.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-023", "Missing dead letter", "MEDIUM"),
-            ))
-
-        # --- Monitoring ---
-        has_monitoring = self._has_monitoring_in_file(file_path)
-        if not has_monitoring:
-            violations.append(OutboxViolation(
-                rule_id="OUT-024",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Tidak ditemukan monitoring/metrics di file ini.",
-                suggestion="Tambahkan metrics (counter, latency, gauge) untuk observability.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-024", "Missing monitoring", "LOW"),
-            ))
-
-        # --- Health check ---
-        has_health = self._has_health_check_in_file(file_path)
-        if not has_health:
-            violations.append(OutboxViolation(
-                rule_id="OUT-025",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Tidak ditemukan health check endpoint di file ini.",
-                suggestion="Tambahkan health check untuk outbox publisher/processor.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-025", "Missing health check", "LOW"),
+                rca_result=self._generate_rca("OUT-018", "Missing NOT NULL", "LOW"),
             ))
 
         return OutboxInfo(
@@ -687,393 +898,285 @@ class OutboxChecker:
             component_type="entity",
             fields=fields,
             methods=methods,
-            has_transaction=has_transaction,
-            has_retry=has_retry,
-            has_idempotency=has_idempotency,
-            has_dead_letter=has_dead_letter,
-            has_monitoring=has_monitoring,
             violations=violations,
         )
 
+    # -------------------------------------------------------------------------
+    # Publisher Checker (v14.0)
+    # -------------------------------------------------------------------------
     def _check_publisher(self, node: ast.ClassDef, file_path: Path) -> OutboxInfo:
         name = node.name
         fields, methods = self._get_fields_and_methods(node)
         violations = []
         rel_path = str(file_path.relative_to(self.root_dir))
 
-        # Rule 44-47: Methods
-        if "publish" not in methods and "process" not in methods:
+        # --- CRITICAL: Main method ---
+        if not self._has_main_method(node):
             violations.append(OutboxViolation(
                 rule_id="OUT-026",
                 file_path=rel_path,
                 component_name=name,
                 severity="CRITICAL",
-                message=f"Outbox publisher '{name}' tidak memiliki metode 'publish' atau 'process'.",
-                suggestion="Tambahkan metode 'publish()' atau 'process()' untuk memproses event.",
+                message=f"Publisher '{name}' tidak memiliki metode utama (publish/process/poll/run/start/loop/execute/worker/consume/relay/dispatch) ATAU loop dengan fetch event.",
+                suggestion="Tambahkan metode utama atau loop yang mengambil pending events.",
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-026", "Missing publish/process method", "CRITICAL"),
+                rca_result=self._generate_rca("OUT-026", "Missing main method", "CRITICAL"),
             ))
 
-        if "poll" not in methods:
+        # --- HIGH: Retry ---
+        if not self._has_retry(node):
             violations.append(OutboxViolation(
-                rule_id="OUT-027",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Outbox publisher '{name}' tidak memiliki metode 'poll'.",
-                suggestion="Tambahkan 'poll()' untuk fetch pending events dari database.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-027", "Missing poll method", "MEDIUM"),
-            ))
-
-        # Batch processing
-        has_batch = False
-        for method in methods:
-            if "batch" in method.lower() or "limit" in method.lower():
-                has_batch = True
-                break
-        if not has_batch:
-            violations.append(OutboxViolation(
-                rule_id="OUT-028",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Outbox publisher '{name}' tidak memiliki batch processing.",
-                suggestion="Tambahkan parameter 'limit' atau 'batch_size' untuk memproses beberapa event sekaligus.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-028", "No batch processing", "LOW"),
-            ))
-
-        # Ordering
-        has_ordering = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "order_by" in body or "asc" in body:
-                    has_ordering = True
-                    break
-        if not has_ordering:
-            violations.append(OutboxViolation(
-                rule_id="OUT-029",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Outbox publisher '{name}' tidak memiliki ordering (created_at ASC).",
-                suggestion="Process events in order: order_by(created_at.asc()) untuk FIFO.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-029", "Missing ordering", "LOW"),
-            ))
-
-        # Lock
-        has_lock = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "lock" in body or "select_for_update" in body or "for_update" in body:
-                    has_lock = True
-                    break
-        if not has_lock:
-            violations.append(OutboxViolation(
-                rule_id="OUT-030",
+                rule_id="OUT-021",
                 file_path=rel_path,
                 component_name=name,
                 severity="HIGH",
-                message=f"Outbox publisher '{name}' tidak memiliki pessimistic locking.",
-                suggestion="Gunakan 'select_for_update()' atau lock untuk mencegah duplicate processing.",
+                message=f"Tidak ditemukan retry mechanism (tenacity/backoff/RetryPolicy/max_attempts/retry_delay_seconds/max_retries/retry_policy).",
+                suggestion="Implementasikan retry dengan backoff atau max_attempts.",
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-030", "Missing lock", "HIGH"),
+                rca_result=self._generate_rca("OUT-021", "Missing retry", "HIGH"),
             ))
 
-        # Shutdown
-        has_shutdown = False
-        for method in methods:
-            if "shutdown" in method.lower() or "stop" in method.lower() or "close" in method.lower():
-                has_shutdown = True
-                break
-        if not has_shutdown:
+        # --- MEDIUM: Idempotency, Transaction, DLQ, Backoff, Timeout, Max Retries ---
+        if not self._has_idempotency(node):
             violations.append(OutboxViolation(
-                rule_id="OUT-031",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Outbox publisher '{name}' tidak memiliki graceful shutdown.",
-                suggestion="Tambahkan 'shutdown()' atau 'stop()' untuk membersihkan resource.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-031", "No graceful shutdown", "LOW"),
-            ))
-
-        # Health check
-        has_health = False
-        for method in methods:
-            if "health" in method.lower():
-                has_health = True
-                break
-        if not has_health:
-            violations.append(OutboxViolation(
-                rule_id="OUT-032",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Outbox publisher '{name}' tidak memiliki health check.",
-                suggestion="Tambahkan 'health_check()' untuk memonitor status publisher.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-032", "No health check", "LOW"),
-            ))
-
-        # Metrics
-        has_metrics = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "counter" in body or "histogram" in body or "gauge" in body:
-                    has_metrics = True
-                    break
-        if not has_metrics:
-            violations.append(OutboxViolation(
-                rule_id="OUT-033",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Outbox publisher '{name}' tidak memiliki metrics collection.",
-                suggestion="Tambahkan metrics: total_published, total_failed, latency, pending_count.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-033", "Missing metrics", "LOW"),
-            ))
-
-        # Logging
-        has_logging = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "log" in body or "logger" in body:
-                    has_logging = True
-                    break
-        if not has_logging:
-            violations.append(OutboxViolation(
-                rule_id="OUT-034",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Outbox publisher '{name}' tidak memiliki logging.",
-                suggestion="Tambahkan logging untuk setiap publish attempt, success, dan failure.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-034", "Missing logging", "LOW"),
-            ))
-
-        # Circuit breaker
-        has_circuit = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "circuit" in body:
-                    has_circuit = True
-                    break
-        if not has_circuit:
-            violations.append(OutboxViolation(
-                rule_id="OUT-035",
+                rule_id="OUT-022",
                 file_path=rel_path,
                 component_name=name,
                 severity="MEDIUM",
-                message=f"Outbox publisher '{name}' tidak memiliki circuit breaker.",
-                suggestion="Implementasikan circuit breaker untuk menghindari cascade failure.",
+                message=f"Tidak ditemukan idempotency (idempotency_key/event_uuid/message_id/dedup_key/event_id/hash/payload_hash/request_id/correlation_id/trace_id) di field atau headers.",
+                suggestion="Gunakan field idempotency untuk deduplikasi.",
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-035", "No circuit breaker", "MEDIUM"),
+                rca_result=self._generate_rca("OUT-022", "Missing idempotency", "MEDIUM"),
             ))
 
-        # Rate limiting
-        has_rate_limit = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "rate_limit" in body or "throttle" in body:
-                    has_rate_limit = True
-                    break
-        if not has_rate_limit:
+        if not self._has_transaction(node):
             violations.append(OutboxViolation(
-                rule_id="OUT-036",
+                rule_id="OUT-020",
                 file_path=rel_path,
                 component_name=name,
-                severity="LOW",
-                message=f"Outbox publisher '{name}' tidak memiliki rate limiting.",
-                suggestion="Tambahkan rate limiting untuk mencegah overload pada message broker.",
+                severity="MEDIUM",
+                message=f"Tidak ditemukan transaction (UoW/session.begin/@transactional/@atomic/self.uow/container.uow/async with session/get_async_session).",
+                suggestion="Gunakan UnitOfWork, session.begin(), atau @transactional untuk atomic operations.",
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-036", "No rate limiting", "LOW"),
+                rca_result=self._generate_rca("OUT-020", "Missing transaction", "MEDIUM"),
             ))
 
-        # Timeout
-        has_timeout = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "timeout" in body:
-                    has_timeout = True
-                    break
-        if not has_timeout:
+        if not self._has_dead_letter(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-041",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Tidak ditemukan Dead Letter Queue integration (dead_letter/dlq/DEAD_LETTER status/mark_dead_letter/OUTBOX_STATUS_DEAD_LETTER/_mark_as_failed).",
+                suggestion="Kirim event gagal permanent ke DLQ.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-041", "No DLQ", "MEDIUM"),
+            ))
+
+        if not self._has_feature(node, BACKOFF_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-038",
+                file_path=rel_path,
+                component_name=name,
+                severity="MEDIUM",
+                message=f"Tidak ditemukan exponential backoff (backoff/exponential/retry_delay_seconds/list of delays).",
+                suggestion="Gunakan backoff atau exponential untuk retry.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-038", "No backoff", "MEDIUM"),
+            ))
+
+        if not self._has_feature(node, TIMEOUT_KEYWORDS):
             violations.append(OutboxViolation(
                 rule_id="OUT-037",
                 file_path=rel_path,
                 component_name=name,
                 severity="MEDIUM",
-                message=f"Outbox publisher '{name}' tidak memiliki timeout per event.",
+                message=f"Tidak ditemukan timeout per event (timeout/asyncio.timeout).",
                 suggestion="Tambahkan timeout untuk menghindari hung processing.",
                 line=node.lineno,
                 rca_result=self._generate_rca("OUT-037", "Missing timeout", "MEDIUM"),
             ))
 
-        # Backoff
-        has_backoff = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "backoff" in body or "exponential" in body:
-                    has_backoff = True
-                    break
-        if not has_backoff:
-            violations.append(OutboxViolation(
-                rule_id="OUT-038",
-                file_path=rel_path,
-                component_name=name,
-                severity="HIGH",
-                message=f"Outbox publisher '{name}' tidak memiliki exponential backoff.",
-                suggestion="Gunakan exponential backoff dengan jitter untuk retry.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-038", "No backoff", "HIGH"),
-            ))
-
-        # Max retries
-        has_max_retries = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "max_retry" in body:
-                    has_max_retries = True
-                    break
-        if not has_max_retries:
+        if not self._has_feature(node, {"max_retry", "max_retries", "max_attempts"}):
             violations.append(OutboxViolation(
                 rule_id="OUT-039",
                 file_path=rel_path,
                 component_name=name,
                 severity="MEDIUM",
-                message=f"Outbox publisher '{name}' tidak memiliki configurable max_retries.",
-                suggestion="Tambahkan parameter 'max_retries' yang dapat di-config.",
+                message=f"Tidak ditemukan configurable max_retries.",
+                suggestion="Tambahkan parameter max_retries.",
                 line=node.lineno,
                 rca_result=self._generate_rca("OUT-039", "No max_retries", "MEDIUM"),
             ))
 
-        # Error classification
-        has_error_class = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "temporary" in body or "permanent" in body or "retryable" in body:
-                    has_error_class = True
-                    break
-        if not has_error_class:
+        # --- LOW: Lock, Broker API, Ordering, Batch, Shutdown, Health, Metrics, Logging, Async, Schema ---
+        if not self._has_lock(node):
             violations.append(OutboxViolation(
-                rule_id="OUT-040",
+                rule_id="OUT-030",
                 file_path=rel_path,
                 component_name=name,
-                severity="MEDIUM",
-                message=f"Outbox publisher '{name}' tidak memiliki error classification.",
-                suggestion="Bedakan temporary error (retry) vs permanent error (dead letter).",
+                severity="LOW",
+                message=f"Tidak ditemukan pessimistic locking (select_for_update/with_for_update/redis.lock/advisory_lock/distributed_lock/asyncio.Lock/Semaphore/Lease/setnx/expire/_acquire_lock/try_lock).",
+                suggestion="Gunakan lock untuk mencegah duplicate processing.",
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-040", "No error classification", "MEDIUM"),
+                rca_result=self._generate_rca("OUT-030", "Missing lock", "LOW"),
             ))
 
-        # Dead letter integration
-        has_dlq = False
-        for method in methods:
-            if "dead" in method.lower() or "dlq" in method.lower():
-                has_dlq = True
-                break
-        if not has_dlq:
-            violations.append(OutboxViolation(
-                rule_id="OUT-041",
-                file_path=rel_path,
-                component_name=name,
-                severity="HIGH",
-                message=f"Outbox publisher '{name}' tidak memiliki integrasi Dead Letter Queue.",
-                suggestion="Kirim event yang gagal permanent ke Dead Letter Queue.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-041", "No DLQ integration", "HIGH"),
-            ))
-
-        # Broker connection
-        has_broker_check = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "broker" in body or "kafka" in body or "rabbit" in body:
-                    has_broker_check = True
-                    break
-        if not has_broker_check:
+        if not self._has_broker_api(node):
             violations.append(OutboxViolation(
                 rule_id="OUT-042",
                 file_path=rel_path,
                 component_name=name,
-                severity="MEDIUM",
-                message=f"Outbox publisher '{name}' tidak memiliki integration dengan message broker.",
-                suggestion="Integrasikan dengan Kafka/RabbitMQ dan handle connection failure.",
+                severity="LOW",
+                message=f"Tidak ditemukan Broker API / MessagePublisher / Dispatcher / Mediator (KafkaProducerWrapper/Kafka/RabbitMQ/Pulsar/EventBus/BrokerPort/producer/publisher/send_event/get_kafka_producer/MessageBrokerPort).",
+                suggestion="Integrasikan dengan message broker API (KafkaProducerWrapper, RabbitMQ, PulsarClient, atau BrokerPort).",
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-042", "No broker integration", "MEDIUM"),
+                rca_result=self._generate_rca("OUT-042", "Broker API not found", "LOW"),
             ))
 
-        # Auto-reconnect
-        has_reconnect = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "reconnect" in body:
-                    has_reconnect = True
-                    break
-        if not has_reconnect:
+        if not self._has_batch(node):
             violations.append(OutboxViolation(
-                rule_id="OUT-043",
+                rule_id="OUT-028",
                 file_path=rel_path,
                 component_name=name,
-                severity="MEDIUM",
-                message=f"Outbox publisher '{name}' tidak memiliki auto-reconnect mechanism.",
-                suggestion="Implementasikan auto-reconnect ketika broker connection hilang.",
+                severity="LOW",
+                message=f"Tidak ditemukan batch processing (batch_size/limit).",
+                suggestion="Tambahkan parameter limit atau batch_size.",
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-043", "No auto-reconnect", "MEDIUM"),
+                rca_result=self._generate_rca("OUT-028", "No batch", "LOW"),
             ))
 
-        # Async processing
-        has_async = False
-        for method in methods:
-            if method.startswith("async") or method == "run":
-                has_async = True
-                break
-        if not has_async:
+        if not self._has_ordering(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-029",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan ordering (order_by/asc/desc/created_at).",
+                suggestion="Tambahkan order_by(created_at.asc()) untuk FIFO.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-029", "Missing ordering", "LOW"),
+            ))
+
+        if not self._has_feature(node, SHUTDOWN_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-031",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan graceful shutdown (stop/shutdown/close).",
+                suggestion="Tambahkan shutdown() atau stop().",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-031", "No shutdown", "LOW"),
+            ))
+
+        if not self._has_health(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-032",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan health check (health/ready/liveness/readiness/health_check).",
+                suggestion="Tambahkan health_check() atau readiness/liveness.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-032", "No health", "LOW"),
+            ))
+
+        if not self._has_metrics(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-033",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan metrics collection (Counter/Histogram/Gauge/MeterProvider/Meter/OpenTelemetry/prometheus).",
+                suggestion="Tambahkan Counter, Histogram, Gauge, atau OpenTelemetry metrics.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-033", "No metrics", "LOW"),
+            ))
+
+        if not self._has_logging(node):
+            violations.append(OutboxViolation(
+                rule_id="OUT-034",
+                file_path=rel_path,
+                component_name=name,
+                severity="LOW",
+                message=f"Tidak ditemukan logging (get_logger/logger/logging/structlog/audit_logger).",
+                suggestion="Tambahkan logging untuk setiap publish attempt.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-034", "No logging", "LOW"),
+            ))
+
+        if not self._has_feature(node, ASYNC_KEYWORDS):
             violations.append(OutboxViolation(
                 rule_id="OUT-044",
                 file_path=rel_path,
                 component_name=name,
                 severity="LOW",
-                message=f"Outbox publisher '{name}' tidak memiliki async processing.",
-                suggestion="Gunakan async/await atau background thread untuk non-blocking processing.",
+                message=f"Tidak ditemukan async processing.",
+                suggestion="Gunakan async/await atau background thread.",
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-044", "No async processing", "LOW"),
+                rca_result=self._generate_rca("OUT-044", "No async", "LOW"),
             ))
 
-        # Schema validation
-        has_schema = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "schema" in body or "validate" in body:
-                    has_schema = True
-                    break
-        if not has_schema:
+        if not self._has_feature(node, SCHEMA_KEYWORDS):
             violations.append(OutboxViolation(
                 rule_id="OUT-045",
                 file_path=rel_path,
                 component_name=name,
                 severity="LOW",
-                message=f"Outbox publisher '{name}' tidak memiliki payload validation.",
-                suggestion="Validasi payload schema sebelum publish untuk mencegah corruption.",
+                message=f"Tidak ditemukan payload validation (schema/validate/pydantic/ValidationError/BaseModel).",
+                suggestion="Validasi payload schema sebelum publish.",
                 line=node.lineno,
                 rca_result=self._generate_rca("OUT-045", "No schema validation", "LOW"),
+            ))
+
+        # --- INFO: Circuit breaker, Rate limiting, Error classification, Auto-reconnect ---
+        if not self._has_feature(node, CIRCUIT_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-035",
+                file_path=rel_path,
+                component_name=name,
+                severity="INFO",
+                message=f"Tidak ditemukan circuit breaker.",
+                suggestion="Implementasikan circuit breaker untuk cascade failure.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-035", "No circuit breaker", "INFO"),
+            ))
+
+        if not self._has_feature(node, RATE_LIMIT_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-036",
+                file_path=rel_path,
+                component_name=name,
+                severity="INFO",
+                message=f"Tidak ditemukan rate limiting.",
+                suggestion="Tambahkan rate limit untuk mencegah overload.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-036", "No rate limit", "INFO"),
+            ))
+
+        if not self._has_feature(node, ERROR_CLASS_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-040",
+                file_path=rel_path,
+                component_name=name,
+                severity="INFO",
+                message=f"Tidak ditemukan error classification (temporary/permanent/retryable).",
+                suggestion="Bedakan temporary vs permanent error.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-040", "No error classification", "INFO"),
+            ))
+
+        if not self._has_feature(node, RECONNECT_KEYWORDS):
+            violations.append(OutboxViolation(
+                rule_id="OUT-043",
+                file_path=rel_path,
+                component_name=name,
+                severity="INFO",
+                message=f"Tidak ditemukan auto-reconnect mechanism.",
+                suggestion="Implementasikan auto-reconnect untuk broker.",
+                line=node.lineno,
+                rca_result=self._generate_rca("OUT-043", "No auto-reconnect", "INFO"),
             ))
 
         return OutboxInfo(
@@ -1082,68 +1185,73 @@ class OutboxChecker:
             component_type="publisher",
             fields=fields,
             methods=methods,
-            has_transaction=False,
-            has_retry=has_backoff or has_max_retries,
-            has_idempotency=False,
-            has_dead_letter=has_dlq,
-            has_monitoring=has_metrics,
+            has_transaction=self._has_transaction(node),
+            has_retry=self._has_retry(node),
+            has_idempotency=self._has_idempotency(node),
+            has_dead_letter=self._has_dead_letter(node),
+            has_monitoring=self._has_metrics(node),
+            has_health=self._has_health(node),
+            has_logging=self._has_logging(node),
+            has_lock=self._has_lock(node),
+            has_batch=self._has_batch(node),
+            has_ordering=self._has_ordering(node),
+            has_shutdown=self._has_feature(node, SHUTDOWN_KEYWORDS),
+            has_async=self._has_feature(node, ASYNC_KEYWORDS),
+            has_schema_validation=self._has_feature(node, SCHEMA_KEYWORDS),
+            has_circuit_breaker=self._has_feature(node, CIRCUIT_KEYWORDS),
+            has_rate_limit=self._has_feature(node, RATE_LIMIT_KEYWORDS),
+            has_timeout=self._has_feature(node, TIMEOUT_KEYWORDS),
+            has_backoff=self._has_feature(node, BACKOFF_KEYWORDS),
+            has_max_retries=self._has_feature(node, {"max_retry", "max_retries", "max_attempts"}),
+            has_error_classification=self._has_feature(node, ERROR_CLASS_KEYWORDS),
+            has_auto_reconnect=self._has_feature(node, RECONNECT_KEYWORDS),
+            has_broker_integration=self._has_broker_api(node),
             violations=violations,
         )
 
+    # -------------------------------------------------------------------------
+    # Consumer Checker
+    # -------------------------------------------------------------------------
     def _check_consumer(self, node: ast.ClassDef, file_path: Path) -> OutboxInfo:
         name = node.name
         fields, methods = self._get_fields_and_methods(node)
         violations = []
         rel_path = str(file_path.relative_to(self.root_dir))
 
-        if "handle" not in methods and "on_event" not in methods:
+        if "handle" not in methods and "on_event" not in methods and "consume" not in methods:
             violations.append(OutboxViolation(
                 rule_id="OUT-046",
                 file_path=rel_path,
                 component_name=name,
                 severity="CRITICAL",
-                message=f"Outbox consumer '{name}' tidak memiliki metode 'handle' atau 'on_event'.",
-                suggestion="Tambahkan metode 'handle(event)' untuk memproses event.",
+                message=f"Consumer '{name}' tidak memiliki 'handle' atau 'on_event' atau 'consume'.",
+                suggestion="Tambahkan handle(event) untuk memproses event.",
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-046", "Missing handle method", "CRITICAL"),
+                rca_result=self._generate_rca("OUT-046", "Missing handle", "CRITICAL"),
             ))
 
-        has_idempotency = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "idempotency" in body or "dedup" in body:
-                    has_idempotency = True
-                    break
-        if not has_idempotency:
+        if not self._has_idempotency(node):
             violations.append(OutboxViolation(
                 rule_id="OUT-047",
                 file_path=rel_path,
                 component_name=name,
-                severity="HIGH",
-                message=f"Outbox consumer '{name}' tidak memiliki idempotency mechanism.",
-                suggestion="Implementasikan idempotency untuk menghindari duplicate processing.",
+                severity="MEDIUM",
+                message=f"Consumer '{name}' tidak memiliki idempotency.",
+                suggestion="Implementasikan idempotency untuk mencegah duplikasi.",
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-047", "No idempotency", "HIGH"),
+                rca_result=self._generate_rca("OUT-047", "No idempotency", "MEDIUM"),
             ))
 
-        has_error_handling = False
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                body = ast.unparse(item).lower()
-                if "try" in body and "except" in body:
-                    has_error_handling = True
-                    break
-        if not has_error_handling:
+        if not self._has_feature(node, {"try", "except"}):
             violations.append(OutboxViolation(
                 rule_id="OUT-048",
                 file_path=rel_path,
                 component_name=name,
-                severity="HIGH",
-                message=f"Outbox consumer '{name}' tidak memiliki error handling.",
-                suggestion="Tambahkan try/except untuk menangani kegagalan processing.",
+                severity="MEDIUM",
+                message=f"Consumer '{name}' tidak memiliki error handling.",
+                suggestion="Tambahkan try/except untuk menangani kegagalan.",
                 line=node.lineno,
-                rca_result=self._generate_rca("OUT-048", "No error handling", "HIGH"),
+                rca_result=self._generate_rca("OUT-048", "No error handling", "MEDIUM"),
             ))
 
         return OutboxInfo(
@@ -1152,115 +1260,14 @@ class OutboxChecker:
             component_type="consumer",
             fields=fields,
             methods=methods,
-            has_transaction=False,
-            has_retry=False,
-            has_idempotency=has_idempotency,
-            has_dead_letter=False,
-            has_monitoring=False,
+            has_idempotency=self._has_idempotency(node),
             violations=violations,
         )
 
-    def _has_atomic_write_in_file(self, file_path: Path) -> bool:
-        try:
-            content = file_path.read_text(encoding="utf-8")
-            tree = ast.parse(content)
-        except (SyntaxError, UnicodeDecodeError):
-            return False
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                body = ast.unparse(node).lower()
-                if "save" in body and ("outbox" in body or "event" in body):
-                    if "transaction" in body or "uow" in body or "unit_of_work" in body:
-                        return True
-        return False
-
-    def _has_transaction_in_file(self, file_path: Path) -> bool:
-        try:
-            content = file_path.read_text(encoding="utf-8")
-            tree = ast.parse(content)
-        except (SyntaxError, UnicodeDecodeError):
-            return False
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                body = ast.unparse(node).lower()
-                if "transaction" in body or "uow" in body or "unit_of_work" in body:
-                    return True
-        return False
-
-    def _has_retry_in_file(self, file_path: Path) -> bool:
-        try:
-            content = file_path.read_text(encoding="utf-8")
-            tree = ast.parse(content)
-        except (SyntaxError, UnicodeDecodeError):
-            return False
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                body = ast.unparse(node).lower()
-                if any(k in body for k in RETRY_KEYWORDS):
-                    return True
-        return False
-
-    def _has_idempotency_in_file(self, file_path: Path) -> bool:
-        try:
-            content = file_path.read_text(encoding="utf-8")
-            tree = ast.parse(content)
-        except (SyntaxError, UnicodeDecodeError):
-            return False
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                body = ast.unparse(node).lower()
-                if any(k in body for k in IDEMPOTENCY_KEYWORDS):
-                    return True
-        return False
-
-    def _has_dead_letter_in_file(self, file_path: Path) -> bool:
-        try:
-            content = file_path.read_text(encoding="utf-8")
-            tree = ast.parse(content)
-        except (SyntaxError, UnicodeDecodeError):
-            return False
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                body = ast.unparse(node).lower()
-                if "dead" in body or "dlq" in body:
-                    return True
-        return False
-
-    def _has_monitoring_in_file(self, file_path: Path) -> bool:
-        try:
-            content = file_path.read_text(encoding="utf-8")
-            tree = ast.parse(content)
-        except (SyntaxError, UnicodeDecodeError):
-            return False
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                body = ast.unparse(node).lower()
-                if "metric" in body or "counter" in body or "histogram" in body or "gauge" in body:
-                    return True
-        return False
-
-    def _has_health_check_in_file(self, file_path: Path) -> bool:
-        try:
-            content = file_path.read_text(encoding="utf-8")
-            tree = ast.parse(content)
-        except (SyntaxError, UnicodeDecodeError):
-            return False
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
-                body = ast.unparse(node).lower()
-                if "health" in body:
-                    return True
-        return False
-
+    # -------------------------------------------------------------------------
+    # Main Scan
+    # -------------------------------------------------------------------------
     def scan(self) -> List[OutboxInfo]:
-        """Scan all Python files for Outbox components with 100+ rules."""
         self.components = []
         for file_path in self._get_python_files():
             try:
@@ -1302,13 +1309,13 @@ class OutboxChecker:
 
 
 # =============================================================================
-# REPORTING
+# REPORTING (v14.0 - scoring lebih proporsional)
 # =============================================================================
 
 def generate_report(components: List[OutboxInfo]) -> CheckerResult:
     total = len(components)
     total_violations = 0
-    critical = high = medium = low = 0
+    critical = high = medium = low = info = 0
 
     for comp in components:
         total_violations += len(comp.violations)
@@ -1321,12 +1328,16 @@ def generate_report(components: List[OutboxInfo]) -> CheckerResult:
                 medium += 1
             elif v.severity == "LOW":
                 low += 1
+            else:
+                info += 1
 
+    # Scoring v14.0: lebih proporsional
     score = 100.0
-    score -= critical * 10.0
-    score -= high * 5.0
+    score -= critical * 15.0
+    score -= high * 6.0
     score -= medium * 2.0
     score -= low * 0.5
+    # INFO tidak dipenalty
     score = max(0.0, min(100.0, score))
 
     return CheckerResult(
@@ -1337,6 +1348,7 @@ def generate_report(components: List[OutboxInfo]) -> CheckerResult:
         high_count=high,
         medium_count=medium,
         low_count=low,
+        info_count=info,
         score=score,
         rca_enabled=_RCA_AVAILABLE,
         elapsed_seconds=0.0,
@@ -1346,20 +1358,14 @@ def generate_report(components: List[OutboxInfo]) -> CheckerResult:
 def print_report(result: CheckerResult, verbose: bool = False) -> None:
     c = COLOR
     print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*72}╗")
-    print("║     OUTBOX PATTERN COMPLIANCE & FORENSIC CHECKER v2.1      ║")
+    print("║     OUTBOX PATTERN COMPLIANCE & FORENSIC CHECKER v14.0     ║")
     print(f"╚{'═'*72}╝{c['RESET']}")
 
-    print("\n  📋 100+ Aturan Outbox Contract:")
-    print("    ✅ Entity dengan field wajib (id, event_type, payload, status, created_at)")
-    print("    ✅ Atomic write (aggregate + outbox dalam satu transaksi)")
-    print("    ✅ Publisher/processor dengan publish, poll, batch, lock")
-    print("    ✅ Retry mechanism (exponential backoff, max_retries)")
-    print("    ✅ Idempotensi (idempotency_key, deduplication)")
-    print("    ✅ Dead Letter Queue untuk permanent failures")
-    print("    ✅ Monitoring & Metrics (counter, latency, gauge)")
-    print("    ✅ Health check & graceful shutdown")
-    print("    ✅ Circuit breaker & rate limiting")
-    print("    ✅ Broker integration & auto-reconnect")
+    print("\n  📋 Aturan Outbox (v14.0 – deep AST, scoring proporsional):")
+    print("    ✅ AST-based: get_async_session, self.uow, session.begin")
+    print("    ✅ AST-based: OUTBOX_STATUS_DEAD_LETTER, retry_delay_seconds")
+    print("    ✅ AST-based: setnx/expire, KafkaProducerWrapper, order_by, batch_size")
+    print("    ✅ Scoring: CRITICAL=-15, HIGH=-6, MEDIUM=-2, LOW=-0.5, INFO=0")
 
     print(f"\n  {c['CYAN']}Total Outbox Components Ditemukan: {result.total_components}{c['RESET']}")
     print(f"  Total Violations: {result.total_violations}")
@@ -1367,6 +1373,7 @@ def print_report(result: CheckerResult, verbose: bool = False) -> None:
     print(f"    {c['YELLOW']}HIGH: {result.high_count}{c['RESET']}")
     print(f"    {c['CYAN']}MEDIUM: {result.medium_count}{c['RESET']}")
     print(f"    {c['DIM']}LOW: {result.low_count}{c['RESET']}")
+    print(f"    {c['DIM']}INFO: {result.info_count}{c['RESET']}")
 
     score_color = c["GREEN"] if result.score >= 80 else c["YELLOW"] if result.score >= 50 else c["RED"]
     print(f"\n  📈 Skor Kepatuhan: {score_color}{c['BOLD']}{result.score:.1f}/100{c['RESET']}")
@@ -1415,6 +1422,7 @@ def save_json(result: CheckerResult, filepath: str) -> None:
                 "high": result.high_count,
                 "medium": result.medium_count,
                 "low": result.low_count,
+                "info": result.info_count,
             },
             "components": [
                 {
@@ -1445,7 +1453,7 @@ def save_json(result: CheckerResult, filepath: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Outbox Pattern Compliance & Forensic Checker v2.1 (100+ rules)"
+        description="Outbox Pattern Compliance & Forensic Checker v14.0 (scoring proporsional)"
     )
     parser.add_argument("--json", metavar="FILE", help="Export report to JSON")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show RCA details")

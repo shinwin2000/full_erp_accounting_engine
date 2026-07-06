@@ -20,8 +20,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal, getcontext
 from enum import Enum
 from typing import Any
@@ -305,10 +306,176 @@ class CurrencyValidationResult:
         }
 
 
-# === 3. CURRENCY VALIDATOR ===
+# ============================================================================
+# BASE CURRENCY VALIDATOR (ABSTRACT)
+# ============================================================================
+
+class BaseCurrencyValidator(ABC):
+    """Base contract untuk Currency Validator."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan validator."""
+        pass
+
+    @abstractmethod
+    def set_strict_mode(self, strict: bool = True) -> None:
+        """Set strict mode. Jika True, transaksi multi-currency tanpa kurs akan ditolak."""
+        pass
+
+    @abstractmethod
+    async def get_functional_currency(self, legal_entity_id: UUID) -> str:
+        """Mendapatkan mata uang fungsional entitas."""
+        pass
+
+    @abstractmethod
+    async def validate_currency(
+        self,
+        currency: str,
+        legal_entity_id: UUID | None = None,
+        transaction_date: datetime | None = None,
+        user_id: str | None = None,
+    ) -> CurrencyValidationResult:
+        """Memvalidasi apakah mata uang didukung dan memiliki kurs jika berbeda dari fungsional."""
+        pass
+
+    @abstractmethod
+    async def validate_exchange_rate(
+        self,
+        from_currency: str,
+        to_currency: str,
+        rate: Decimal,
+        as_of: datetime,
+        legal_entity_id: UUID | None = None,
+        tolerance: Decimal = EXCHANGE_RATE_DEVIATION_TOLERANCE,
+        user_id: str | None = None,
+    ) -> CurrencyValidationResult:
+        """Memvalidasi kurs yang digunakan terhadap official rate."""
+        pass
+
+    @abstractmethod
+    async def validate_multi_currency_transaction(
+        self,
+        amounts: list[tuple[Decimal, str]],
+        legal_entity_id: UUID | None = None,
+        transaction_date: datetime | None = None,
+        user_id: str | None = None,
+        target_currency: str | None = None,
+    ) -> tuple[bool, list[CurrencyValidationResult], Decimal | None]:
+        """Memvalidasi transaksi multi-currency."""
+        pass
+
+    @abstractmethod
+    async def convert_amount(
+        self,
+        amount: Decimal,
+        from_currency: str,
+        to_currency: str,
+        as_of: datetime | None = None,
+        legal_entity_id: UUID | None = None,
+        raise_on_error: bool = False,
+    ) -> tuple[Decimal | None, str | None]:
+        """Mengkonversi amount ke mata uang target."""
+        pass
+
+    @abstractmethod
+    async def get_historical_rate(
+        self,
+        from_currency: str,
+        to_currency: str,
+        as_of: datetime,
+    ) -> Decimal | None:
+        """Mendapatkan kurs historis pada tanggal tertentu."""
+        pass
+
+    @abstractmethod
+    async def enforce(
+        self,
+        currency: str,
+        legal_entity_id: UUID | None = None,
+        transaction_date: datetime | None = None,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> CurrencyValidationResult:
+        """Menegakkan validasi mata uang, raise exception jika tidak valid."""
+        pass
+
+    @abstractmethod
+    def get_check_history(
+        self,
+        limit: int = 100,
+        only_violations: bool = False,
+        currency: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[CurrencyValidationResult]:
+        """Mendapatkan history pemeriksaan mata uang."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Mendapatkan statistik currency validator."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset history (untuk testing)."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseCurrencyValidator:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseCurrencyValidator:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseCurrencyValidator:
+        """Touch instance (increment version)."""
+        pass
 
 
-class CurrencyValidator:
+# ============================================================================
+# CURRENCY VALIDATOR (CONCRETE)
+# ============================================================================
+
+class CurrencyValidator(BaseCurrencyValidator):
     """
     Guard untuk validasi mata uang.
 
@@ -329,15 +496,134 @@ class CurrencyValidator:
         self._lock = threading.RLock()
         self._enabled = True
         self._strict_mode = True  # Jika True, transaksi dengan kurs missing akan ditolak
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        currency = context.get("currency")
+        legal_entity_id = context.get("legal_entity_id")
+        transaction_date = context.get("transaction_date")
+
+        if not currency:
+            errors.append("currency is required")
+        else:
+            if not isinstance(currency, str):
+                errors.append("currency must be a string")
+            elif currency.upper() not in SUPPORTED_CURRENCIES:
+                errors.append(f"currency {currency} is not supported. Supported: {sorted(SUPPORTED_CURRENCIES)}")
+
+        if legal_entity_id:
+            try:
+                UUID(str(legal_entity_id))
+            except Exception:
+                errors.append("legal_entity_id must be a valid UUID")
+
+        if transaction_date:
+            try:
+                if isinstance(transaction_date, str):
+                    datetime.fromisoformat(transaction_date)
+                elif not isinstance(transaction_date, datetime):
+                    errors.append("transaction_date must be a datetime or ISO string")
+            except ValueError:
+                errors.append("transaction_date must be a valid ISO format date")
+
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "history_count": len(self._check_history),
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CurrencyValidator:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._strict_mode = data.get("strict_mode", True)
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> CurrencyValidator:
+        """Clone instance."""
+        new_instance = CurrencyValidator()
+        new_instance._enabled = self._enabled
+        new_instance._strict_mode = self._strict_mode
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "history_count": len(self._check_history),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> CurrencyValidator:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         """Mengaktifkan atau menonaktifkan validator."""
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Currency validator enabled: {enabled}")
 
     def set_strict_mode(self, strict: bool = True) -> None:
         """Set strict mode. Jika True, transaksi multi-currency tanpa kurs akan ditolak."""
         self._strict_mode = strict
+        self._record_audit("SET_STRICT_MODE", "system", {"strict": strict})
         logger.info(f"Currency validator strict mode: {strict}")
 
     async def get_functional_currency(self, legal_entity_id: UUID) -> str:
@@ -491,6 +777,11 @@ class CurrencyValidator:
                 self._check_history = self._check_history[-self._max_history :]
 
         if severity.value >= CurrencyValidatorSeverity.HIGH.value:
+            self._record_audit("VALIDATE_CURRENCY", user_id or "system", {
+                "currency": currency_upper,
+                "functional": functional_currency,
+                "severity": severity.name,
+            })
             logger.warning(f"Currency validation: {message}")
 
         return result
@@ -579,6 +870,12 @@ class CurrencyValidator:
             self._check_history.append(result)
 
         if not is_valid:
+            self._record_audit("VALIDATE_EXCHANGE_RATE", user_id or "system", {
+                "from": from_currency,
+                "to": to_currency,
+                "rate": str(rate),
+                "official": str(official_rate) if official_rate else None,
+            })
             logger.warning(f"Exchange rate validation failed: {message}")
 
         return result
@@ -795,6 +1092,7 @@ class CurrencyValidator:
                     "total_checks": 0,
                     "enabled": self._enabled,
                     "strict_mode": self._strict_mode,
+                    "version": self._version,
                 }
 
             violations = [
@@ -828,6 +1126,7 @@ class CurrencyValidator:
                 "by_currency": by_currency,
                 "enabled": self._enabled,
                 "strict_mode": self._strict_mode,
+                "version": self._version,
                 "latest_check": self._check_history[-1].timestamp.isoformat()
                 if self._check_history
                 else None,
@@ -837,6 +1136,8 @@ class CurrencyValidator:
         """Reset history (untuk testing)."""
         with self._lock:
             self._check_history = []
+            self._version += 1
+            self._audit_trail = []
 
 
 # === 4. SINGLETON ACCESSOR ===

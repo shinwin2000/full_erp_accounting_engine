@@ -534,6 +534,24 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
         await self._log_audit("POST_DEPRECIATION", asset_id, {"period": period_date.isoformat(), "amount": float(monthly)})
         return monthly
 
+    # ===== NEW: depreciate_asset (sesuai kontrak FixedAssetRepositoryPort) =====
+    async def depreciate_asset(
+        self,
+        asset_id: UUID,
+        as_of_date: date,
+        journal_id: UUID | None = None,
+        user_id: UUID | None = None,
+    ) -> Decimal:
+        """
+        Calculate and post depreciation for an asset.
+        This method implements the contract required by FixedAssetRepositoryPort.
+        If journal_id or user_id is not provided, we use a default placeholder.
+        """
+        # Jika journal_id atau user_id tidak diberikan, gunakan placeholder
+        actual_journal_id = journal_id or UUID(int=0)
+        actual_user_id = user_id or UUID(int=0)
+        return await self.post_monthly_depreciation(asset_id, as_of_date, actual_journal_id, actual_user_id)
+
     async def get_accumulated_depreciation(self, asset_id: UUID, as_of_date: date) -> Decimal:
         asset = await self.get_asset_by_id(asset_id)
         if not asset:

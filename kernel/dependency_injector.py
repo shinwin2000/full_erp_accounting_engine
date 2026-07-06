@@ -16,6 +16,7 @@ import functools
 import inspect
 import logging
 import threading
+from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -252,8 +253,77 @@ def _get_ioc_container(default_scope: str = "singleton"):
     return _FallbackIocContainer(default_scope=default_scope)
 
 
+# ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseDependencyInjector(ABC):
+    """
+    Base contract for Dependency Injector.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    def register(
+        self, interface: type[T], implementation: type[T], scope: str | None = None
+    ) -> None:
+        """Register implementation for interface."""
+        pass
+
+    @abstractmethod
+    def register_factory(
+        self, interface: type[T], factory: Callable[[], T], scope: str | None = None
+    ) -> None:
+        """Register factory for interface."""
+        pass
+
+    @abstractmethod
+    def register_singleton(self, interface: type[T], factory: Callable[[], T]) -> None:
+        """Register singleton instance."""
+        pass
+
+    @abstractmethod
+    def register_transient(self, interface: type[T], factory: Callable[[], T]) -> None:
+        """Register transient instance."""
+        pass
+
+    @abstractmethod
+    def register_scoped(self, interface: type[T], factory: Callable[[], T]) -> None:
+        """Register scoped instance."""
+        pass
+
+    @abstractmethod
+    def register_instance(self, interface: type[T], instance: T) -> None:
+        """Register existing instance."""
+        pass
+
+    @abstractmethod
+    def resolve(self, interface: type[T]) -> T:
+        """Resolve dependency by interface."""
+        pass
+
+    @abstractmethod
+    def try_resolve(self, interface: type[T]) -> T | None:
+        """Try to resolve dependency, return None if not found."""
+        pass
+
+    @abstractmethod
+    def has_registration(self, interface: type) -> bool:
+        """Check if interface has registration."""
+        pass
+
+    @abstractmethod
+    def create_scope(self) -> Any:
+        """Create a new dependency scope."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics about registered dependencies."""
+        pass
+
+
 # === 2. DEPENDENCY INJECTOR ===
-class DependencyInjector:
+class DependencyInjector(BaseDependencyInjector):
     _instance: DependencyInjector | None = None
     _lock = threading.Lock()
     _initialized: bool = False  # deklarasi tipe

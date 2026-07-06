@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_forex_router.py
@@ -27,6 +26,8 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from decimal import Decimal
@@ -34,7 +35,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -46,6 +47,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -372,9 +419,8 @@ class ForexDashboardResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_forex_service(request: Request, ) -> Any:
+async def get_forex_service(request: Request) -> Any:
     """Get Forex Service instance."""
-
     from application.service_layer.service_forex import ForexService
 
     container = request.app.state.container
@@ -383,7 +429,6 @@ async def get_forex_service(request: Request, ) -> Any:
 
 async def get_forex_revaluation_use_case() -> Any:
     """Get Forex Revaluation Use Case instance."""
-
     from application.use_cases.forex_revaluation import ForexRevaluationUseCase
 
     container = request.app.state.container
@@ -411,12 +456,20 @@ router = APIRouter(prefix="/forex", tags=["Foreign Exchange"])
 )
 async def create_exchange_rate(
     request: ExchangeRateCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_forex_service),
 ) -> ExchangeRateResponseSchema:
     """Create a new exchange rate."""
+    method_name = "create_exchange_rate"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ExchangeRateResponseSchema(**cached)
+
     try:
         result = await service.create_exchange_rate(
             from_currency=request.from_currency.value,
@@ -432,7 +485,7 @@ async def create_exchange_rate(
             legal_entity_id=legal_entity_id,
         )
 
-        return ExchangeRateResponseSchema(
+        response = ExchangeRateResponseSchema(
             id=result.id,
             from_currency=CurrencyCode(result.from_currency),
             to_currency=CurrencyCode(result.to_currency),
@@ -453,10 +506,15 @@ async def create_exchange_rate(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to create exchange rate: {e}")
+        logger.exception("Failed to create exchange rate: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -635,12 +693,20 @@ async def list_exchange_rates(
 async def update_exchange_rate(
     rate_id: UUID,
     request: ExchangeRateUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_forex_service),
 ) -> ExchangeRateResponseSchema:
     """Update an exchange rate."""
+    method_name = "update_exchange_rate"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ExchangeRateResponseSchema(**cached)
+
     try:
         result = await service.update_exchange_rate(
             rate_id=rate_id,
@@ -657,7 +723,7 @@ async def update_exchange_rate(
         if not result:
             raise HTTPException(status_code=404, detail="Exchange rate not found")
 
-        return ExchangeRateResponseSchema(
+        response = ExchangeRateResponseSchema(
             id=result.id,
             from_currency=CurrencyCode(result.from_currency),
             to_currency=CurrencyCode(result.to_currency),
@@ -678,10 +744,15 @@ async def update_exchange_rate(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to update exchange rate: {e}")
+        logger.exception("Failed to update exchange rate: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -694,12 +765,20 @@ async def update_exchange_rate(
 async def deactivate_exchange_rate(
     rate_id: UUID,
     reason: str = Query("", description="Reason for deactivation"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_forex_service),
 ) -> dict[str, Any]:
     """Deactivate an exchange rate."""
+    method_name = "deactivate_exchange_rate"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.deactivate_exchange_rate(
             rate_id=rate_id,
@@ -711,7 +790,7 @@ async def deactivate_exchange_rate(
         if not result:
             raise HTTPException(status_code=404, detail="Exchange rate not found")
 
-        return {
+        response = {
             "rate_id": str(rate_id),
             "from_currency": result.from_currency,
             "to_currency": result.to_currency,
@@ -719,10 +798,15 @@ async def deactivate_exchange_rate(
             "status": result.status,
             "message": "Exchange rate deactivated",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to deactivate exchange rate: {e}")
+        logger.exception("Failed to deactivate exchange rate: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -735,12 +819,20 @@ async def deactivate_exchange_rate(
 async def lock_exchange_rate(
     rate_id: UUID,
     reason: str = Query("", description="Lock reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_forex_service),
 ) -> ExchangeRateResponseSchema:
     """Lock an exchange rate to prevent modifications."""
+    method_name = "lock_exchange_rate"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ExchangeRateResponseSchema(**cached)
+
     try:
         result = await service.lock_exchange_rate(
             rate_id=rate_id,
@@ -752,7 +844,7 @@ async def lock_exchange_rate(
         if not result:
             raise HTTPException(status_code=404, detail="Exchange rate not found")
 
-        return ExchangeRateResponseSchema(
+        response = ExchangeRateResponseSchema(
             id=result.id,
             from_currency=CurrencyCode(result.from_currency),
             to_currency=CurrencyCode(result.to_currency),
@@ -773,10 +865,15 @@ async def lock_exchange_rate(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to lock exchange rate: {e}")
+        logger.exception("Failed to lock exchange rate: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -789,12 +886,20 @@ async def lock_exchange_rate(
 async def unlock_exchange_rate(
     rate_id: UUID,
     reason: str = Query("", description="Unlock reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_forex_service),
 ) -> ExchangeRateResponseSchema:
     """Unlock a locked exchange rate."""
+    method_name = "unlock_exchange_rate"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ExchangeRateResponseSchema(**cached)
+
     try:
         result = await service.unlock_exchange_rate(
             rate_id=rate_id,
@@ -806,7 +911,7 @@ async def unlock_exchange_rate(
         if not result:
             raise HTTPException(status_code=404, detail="Exchange rate not found")
 
-        return ExchangeRateResponseSchema(
+        response = ExchangeRateResponseSchema(
             id=result.id,
             from_currency=CurrencyCode(result.from_currency),
             to_currency=CurrencyCode(result.to_currency),
@@ -827,10 +932,15 @@ async def unlock_exchange_rate(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to unlock exchange rate: {e}")
+        logger.exception("Failed to unlock exchange rate: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -877,7 +987,7 @@ async def convert_currency(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to convert currency: {e}")
+        logger.exception("Failed to convert currency: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -936,7 +1046,7 @@ async def batch_convert_currency(
             errors=errors,
         )
     except Exception as e:
-        logger.exception(f"Failed to batch convert currency: {e}")
+        logger.exception("Failed to batch convert currency: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -986,7 +1096,7 @@ async def get_historical_rates(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get historical rates: {e}")
+        logger.exception("Failed to get historical rates: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1004,6 +1114,7 @@ async def get_historical_rates(
 )
 async def run_forex_revaluation(
     request: ForexRevaluationRequestSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:revaluate")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
@@ -1016,6 +1127,13 @@ async def run_forex_revaluation(
     - Calculates unrealized gain/loss
     - Creates journal entry if post_to_ledger is true
     """
+    method_name = "run_forex_revaluation"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ForexRevaluationResponseSchema(**cached)
+
     try:
         result = await revaluation_use_case.execute(
             legal_entity_id=legal_entity_id,
@@ -1029,7 +1147,7 @@ async def run_forex_revaluation(
             performed_by=current_user.user_id,
         )
 
-        return ForexRevaluationResponseSchema(
+        response = ForexRevaluationResponseSchema(
             revaluation_id=result.revaluation_id,
             revaluation_number=result.revaluation_number,
             revaluation_date=request.revaluation_date,
@@ -1047,10 +1165,15 @@ async def run_forex_revaluation(
             posted_at=result.posted_at,
             reversed_at=result.reversed_at,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to run forex revaluation: {e}")
+        logger.exception("Failed to run forex revaluation: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1103,7 +1226,7 @@ async def list_forex_revaluations(
             for r in revaluations
         ]
     except Exception as e:
-        logger.exception(f"Failed to list forex revaluations: {e}")
+        logger.exception("Failed to list forex revaluations: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1147,7 +1270,7 @@ async def get_forex_revaluation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get forex revaluation: {e}")
+        logger.exception("Failed to get forex revaluation: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1161,12 +1284,20 @@ async def reverse_forex_revaluation(
     revaluation_id: UUID,
     reason: str = Query(..., min_length=5, description="Reversal reason"),
     reversal_date: date = Query(default_factory=date.today, description="Reversal date"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:revaluate")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_forex_service),
 ) -> ForexRevaluationResponseSchema:
     """Reverse a forex revaluation entry."""
+    method_name = "reverse_forex_revaluation"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ForexRevaluationResponseSchema(**cached)
+
     try:
         result = await service.reverse_revaluation(
             revaluation_id=revaluation_id,
@@ -1181,7 +1312,7 @@ async def reverse_forex_revaluation(
                 status_code=404, detail="Revaluation not found or cannot be reversed"
             )
 
-        return ForexRevaluationResponseSchema(
+        response = ForexRevaluationResponseSchema(
             revaluation_id=result.id,
             revaluation_number=result.revaluation_number,
             revaluation_date=result.revaluation_date,
@@ -1199,10 +1330,15 @@ async def reverse_forex_revaluation(
             posted_at=result.posted_at,
             reversed_at=result.reversed_at,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to reverse revaluation: {e}")
+        logger.exception("Failed to reverse revaluation: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1245,7 +1381,7 @@ async def get_forex_position(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get forex position: {e}")
+        logger.exception("Failed to get forex position: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1286,7 +1422,7 @@ async def get_forex_dashboard(
             generated_at=datetime.now(),
         )
     except Exception as e:
-        logger.exception(f"Failed to get forex dashboard: {e}")
+        logger.exception("Failed to get forex dashboard: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1304,12 +1440,20 @@ async def get_forex_dashboard(
 async def sync_rates_from_provider(
     provider: RateProvider,
     effective_date: date = Query(default_factory=date.today, description="Effective date"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("forex:sync")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_forex_service),
 ) -> dict[str, Any]:
     """Sync exchange rates from external provider (Bank Indonesia, Bloomberg, etc.)."""
+    method_name = "sync_rates_from_provider"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.sync_rates_from_provider(
             legal_entity_id=legal_entity_id,
@@ -1318,7 +1462,7 @@ async def sync_rates_from_provider(
             synced_by=current_user.user_id,
         )
 
-        return {
+        response = {
             "provider": provider.value,
             "effective_date": effective_date.isoformat(),
             "rates_synced": result.rates_synced,
@@ -1328,10 +1472,15 @@ async def sync_rates_from_provider(
             "errors": result.errors,
             "message": f"Successfully synced {result.rates_synced} rates",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception(f"Failed to sync rates from provider: {e}")
+        logger.exception("Failed to sync rates from provider: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1370,7 +1519,7 @@ async def get_rate_history(
             for h in history
         ]
     except Exception as e:
-        logger.exception(f"Failed to get rate history: {e}")
+        logger.exception("Failed to get rate history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1416,7 +1565,7 @@ async def get_rate_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Failed to get rate status: {e}")
+        logger.exception("Failed to get rate status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1462,7 +1611,7 @@ async def export_exchange_rates(
             headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
-        logger.exception(f"Failed to export exchange rates: {e}")
+        logger.exception("Failed to export exchange rates: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1501,7 +1650,7 @@ async def export_revaluation_history(
             headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
-        logger.exception(f"Failed to export revaluation history: {e}")
+        logger.exception("Failed to export revaluation history: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

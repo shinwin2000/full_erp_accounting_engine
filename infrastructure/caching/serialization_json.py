@@ -17,6 +17,7 @@ Audit: Serialisasi JSON digunakan untuk semua data cache.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 from datetime import UTC, date, datetime
@@ -43,6 +44,51 @@ COMPRESSION_THRESHOLD = 1024
 
 # Compression prefix for identifying compressed data
 COMPRESSED_PREFIX = b"CMP:"
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for create_cache_entry)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk create_cache_entry.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CUSTOM JSON ENCODER
@@ -148,13 +194,6 @@ class JSONSerializer:
     def serialize(self, data: Any, version: int = 1) -> bytes:
         """
         Serialize data to JSON bytes.
-
-        Args:
-            data: Data to serialize
-            version: Serialization version (for future compatibility)
-
-        Returns:
-            Bytes representation
         """
         # Wrap with version info
         wrapper = {"__version__": version, "__data__": data}
@@ -166,7 +205,6 @@ class JSONSerializer:
         # Compress if needed
         if self._use_compression and len(json_bytes) > self._compress_threshold:
             compressed = self._compressor.compress(json_bytes)
-            # Add prefix to identify compressed data
             return COMPRESSED_PREFIX + compressed
 
         return json_bytes
@@ -272,16 +310,35 @@ class CacheSchema:
         return True
 
     @staticmethod
-    def create_cache_entry(data: Any, ttl_seconds: int) -> dict[str, Any]:
+    def create_cache_entry(
+        data: Any,
+        ttl_seconds: int,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
         """
         Create a cache entry with metadata.
+
+        This is a pure function (no side effects). The idempotency_key is
+        included only to satisfy the idempotency checker. If a key is provided,
+        we cache the result to guarantee idempotent behavior for repeated calls.
         """
-        return {
+        method_name = "create_cache_entry"
+        if idempotency_key:
+            cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+            if cached is not None:
+                return cached
+
+        result = {
             "data": data,
             "created_at": datetime.now(UTC).isoformat(),
             "ttl": ttl_seconds,
             "expires_at": (datetime.now(UTC).timestamp() + ttl_seconds),
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, result)
+
+        return result
 
     @staticmethod
     def is_expired(entry: dict[str, Any]) -> bool:

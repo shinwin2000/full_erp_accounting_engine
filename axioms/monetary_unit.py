@@ -285,6 +285,9 @@ class CurrencyDefinition:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
+    def get_version(self) -> int:
+        return self.version
+
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
@@ -503,6 +506,9 @@ class ExchangeRate:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
+    def get_version(self) -> int:
+        return self.version
+
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
 
@@ -676,6 +682,9 @@ class MonetaryAmount:
             "currency": self.currency,
             "timestamp": datetime.now(UTC).isoformat(),
         }
+
+    def get_version(self) -> int:
+        return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]
@@ -886,6 +895,9 @@ class MonetaryUnitViolation:
             "severity": self.severity.name,
             "timestamp": datetime.now(UTC).isoformat(),
         }
+
+    def get_version(self) -> int:
+        return self.version
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._audit_trail[-limit:]

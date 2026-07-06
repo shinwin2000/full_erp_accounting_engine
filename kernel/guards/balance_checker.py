@@ -41,6 +41,7 @@ Usage (testing):
 from __future__ import annotations
 
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -183,9 +184,124 @@ class BalanceCheckResult:
 
 
 # ============================================================================
+# BASE BALANCE CHECKER (ABSTRACT)
+# ============================================================================
+
+class BaseBalanceChecker(ABC):
+    """Base contract untuk Balance Checker."""
+
+    @abstractmethod
+    async def check_balance(
+        self,
+        account_id: UUID,
+        proposed_change: Decimal,
+        legal_entity_id: UUID | None = None,
+        allow_negative: bool = False,
+        currency: str = "IDR",
+        user_id: str | None = None,
+    ) -> BalanceCheckResult:
+        """Check if proposed change would cause invalid negative balance."""
+        pass
+
+    @abstractmethod
+    async def check_balance_before_transaction(
+        self,
+        account_debits: dict[UUID, Decimal],
+        account_credits: dict[UUID, Decimal],
+        legal_entity_id: UUID | None = None,
+        user_id: str | None = None,
+    ) -> list[BalanceCheckResult]:
+        """Check balances for a transaction with multiple debits and credits."""
+        pass
+
+    @abstractmethod
+    async def check_batch_balances(
+        self,
+        transactions: list[dict[str, Any]],
+        legal_entity_id: UUID | None = None,
+        user_id: str | None = None,
+    ) -> list[BalanceCheckResult]:
+        """Check balances for a batch of transactions efficiently."""
+        pass
+
+    @abstractmethod
+    async def enforce(
+        self,
+        account_id: UUID,
+        proposed_change: Decimal,
+        legal_entity_id: UUID | None = None,
+        allow_negative: bool = False,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> BalanceCheckResult:
+        """Enforce balance check, raise exception on violation."""
+        pass
+
+    @abstractmethod
+    async def enforce_multi_balance(
+        self,
+        account_balances: list[tuple[UUID, Decimal]],
+        legal_entity_id: UUID | None = None,
+        user_id: str | None = None,
+    ) -> list[BalanceCheckResult]:
+        """Enforce balance checks for multiple account changes."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseBalanceChecker:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseBalanceChecker:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseBalanceChecker:
+        """Touch instance (increment version)."""
+        pass
+
+
+# ============================================================================
 # Balance Checker (Stateless Guard)
 # ============================================================================
-class BalanceChecker:
+
+
+class BalanceChecker(BaseBalanceChecker):
     """
     Stateless guard for checking account balance constraints.
 
@@ -207,8 +323,112 @@ class BalanceChecker:
         self._port = account_balance_port
         self._tolerance = tolerance
         self._warning_threshold = warning_threshold_percentage
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
 
         logger.debug("BalanceChecker initialized with port: %s", type(account_balance_port).__name__)
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        account_id = context.get("account_id")
+        proposed_change = context.get("proposed_change")
+        legal_entity_id = context.get("legal_entity_id")
+        currency = context.get("currency", "IDR")
+
+        if not account_id:
+            errors.append("account_id is required")
+        if proposed_change is None:
+            errors.append("proposed_change is required")
+        else:
+            try:
+                Decimal(str(proposed_change))
+            except Exception:
+                errors.append("proposed_change must be a valid number")
+        if legal_entity_id:
+            try:
+                UUID(str(legal_entity_id))
+            except Exception:
+                errors.append("legal_entity_id must be a valid UUID")
+        if currency and not isinstance(currency, str):
+            errors.append("currency must be a string")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._tolerance < 0:
+            errors.append("tolerance must be non-negative")
+        if self._warning_threshold < 0 or self._warning_threshold > 100:
+            errors.append("warning_threshold_percentage must be between 0 and 100")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        return {
+            "tolerance": str(self._tolerance),
+            "warning_threshold_percentage": str(self._warning_threshold),
+            "version": self._version,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> BalanceChecker:
+        """Reconstruct dari dictionary."""
+        # Note: port cannot be restored from dict, caller must provide it.
+        # This is a placeholder; in practice, we would need the port.
+        raise NotImplementedError("BalanceChecker.from_dict requires account_balance_port; use constructor instead.")
+
+    def clone(self) -> BalanceChecker:
+        """Clone instance."""
+        # Cannot clone the port; create new instance with same parameters.
+        # In practice, cloning a stateless guard is trivial.
+        new_checker = BalanceChecker(self._port, self._tolerance, self._warning_threshold)
+        new_checker._version = self._version + 1
+        return new_checker
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        return {
+            "version": self._version,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> BalanceChecker:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def _get_account_type_from_data(self, account_data: dict[str, Any] | None, account_code: str) -> AccountType:
         if account_data and "account_type" in account_data:
@@ -231,20 +451,6 @@ class BalanceChecker:
         currency: str = "IDR",
         user_id: str | None = None,
     ) -> BalanceCheckResult:
-        """
-        Check if the proposed change would cause an invalid negative balance.
-
-        Args:
-            account_id: The account to check.
-            proposed_change: The change to apply (positive for credit, negative for debit).
-            legal_entity_id: Legal entity context (default from context holder).
-            allow_negative: Override to allow negative balance for this check.
-            currency: Transaction currency (for mismatch check).
-            user_id: User performing the action (for audit).
-
-        Returns:
-            BalanceCheckResult with details and decision.
-        """
         if legal_entity_id is None:
             legal_entity_id = get_current_legal_entity()
             if legal_entity_id is None:
@@ -373,7 +579,6 @@ class BalanceChecker:
         legal_entity_id: UUID | None = None,
         user_id: str | None = None,
     ) -> list[BalanceCheckResult]:
-        """Check balances for a transaction with multiple debits and credits."""
         results = []
         for account_id, debit in account_debits.items():
             result = await self.check_balance(
@@ -401,7 +606,6 @@ class BalanceChecker:
         legal_entity_id: UUID | None = None,
         user_id: str | None = None,
     ) -> list[BalanceCheckResult]:
-        """Check balances for a batch of transactions efficiently using batch API."""
         if legal_entity_id is None:
             legal_entity_id = get_current_legal_entity()
             if legal_entity_id is None:
@@ -488,9 +692,6 @@ class BalanceChecker:
         user_id: str | None = None,
         raise_on_violation: bool = True,
     ) -> BalanceCheckResult:
-        """
-        Enforce the balance check. Raises exception on violation unless disabled.
-        """
         result = await self.check_balance(
             account_id=account_id,
             proposed_change=proposed_change,
@@ -514,7 +715,6 @@ class BalanceChecker:
         legal_entity_id: UUID | None = None,
         user_id: str | None = None,
     ) -> list[BalanceCheckResult]:
-        """Enforce balance checks for multiple account changes."""
         violations = []
         for account_id, change in account_balances:
             result = await self.enforce(
@@ -532,8 +732,6 @@ class BalanceChecker:
 # ============================================================================
 # In-Memory Test Double (separate from production kernel)
 # ============================================================================
-# This is intentionally placed at the end of the file and clearly marked
-# as TESTING ONLY. It should be moved to tests/fakes/ in a real project.
 class InMemoryAccountBalancePort:
     """
     In-memory implementation of AccountBalancePort for testing purposes.
@@ -589,5 +787,5 @@ __all__ = [
     "BalanceCheckResult",
     "BalanceCheckSeverity",
     "BalanceChecker",
-    "InMemoryAccountBalancePort",  # testing only
-]
+    "InMemoryAccountBalancePort", 
+] 

@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_budget_router.py
@@ -25,14 +24,16 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -44,6 +45,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: Dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> Optional[Dict[str, Any]]:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now(timezone.utc) - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: Dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now(timezone.utc))
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -378,12 +425,20 @@ router = APIRouter(prefix="/budget", tags=["Budget"])
 )
 async def create_budget(
     request: BudgetCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> BudgetResponseSchema:
     """Create a new budget."""
+    method_name = "create_budget"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BudgetResponseSchema(**cached)
+
     from application.dto_objects.budget_request import BudgetCreateRequest
 
     try:
@@ -405,7 +460,7 @@ async def create_budget(
         )
         result = await service.create_budget(dto)
 
-        return BudgetResponseSchema(
+        response = BudgetResponseSchema(
             id=result.id,
             budget_code=result.budget_code,
             budget_name=result.budget_name,
@@ -432,9 +487,14 @@ async def create_budget(
             approved_at=result.approved_at,
             approved_by=result.approved_by,
             approved_by_name=result.approved_by_name,
-            # version=result.version sudah diisi di atas; tidak ada field revision
             lines=result.lines,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -565,12 +625,20 @@ async def get_budget_by_code(
 async def update_budget(
     budget_id: UUID,
     request: BudgetUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> BudgetResponseSchema:
     """Update budget information (only DRAFT or REJECTED status)."""
+    method_name = "update_budget"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BudgetResponseSchema(**cached)
+
     from application.dto_objects.budget_request import BudgetUpdateRequest
 
     try:
@@ -590,7 +658,7 @@ async def update_budget(
         if not result:
             raise HTTPException(status_code=404, detail="Budget not found or cannot be updated")
 
-        return BudgetResponseSchema(
+        response = BudgetResponseSchema(
             id=result.id,
             budget_code=result.budget_code,
             budget_name=result.budget_name,
@@ -619,6 +687,12 @@ async def update_budget(
             approved_by_name=result.approved_by_name,
             lines=result.lines,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -635,12 +709,20 @@ async def update_budget(
 async def update_budget_lines(
     budget_id: UUID,
     lines: list[BudgetLineUpdateSchema] = Body(..., description="Updated lines"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> BudgetResponseSchema:
     """Update budget line amounts (only DRAFT status)."""
+    method_name = "update_budget_lines"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BudgetResponseSchema(**cached)
+
     from application.dto_objects.budget_request import BudgetLineUpdateRequest
 
     try:
@@ -663,7 +745,7 @@ async def update_budget_lines(
         if not result:
             raise HTTPException(status_code=404, detail="Budget not found or cannot be updated")
 
-        return BudgetResponseSchema(
+        response = BudgetResponseSchema(
             id=result.id,
             budget_code=result.budget_code,
             budget_name=result.budget_name,
@@ -692,6 +774,12 @@ async def update_budget_lines(
             approved_by_name=result.approved_by_name,
             lines=result.lines,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -708,24 +796,38 @@ async def update_budget_lines(
 async def archive_budget(
     budget_id: UUID,
     reason: str = Query("", description="Reason for archiving"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> dict[str, Any]:
     """Archive a budget (soft delete)."""
+    method_name = "archive_budget"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.archive_budget(budget_id, current_user.user_id, legal_entity_id, reason)
 
         if not result:
             raise HTTPException(status_code=404, detail="Budget not found")
 
-        return {
+        response = {
             "budget_id": str(budget_id),
             "budget_code": result.budget_code,
             "status": result.status,
             "message": "Budget archived",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -745,19 +847,27 @@ async def archive_budget(
 )
 async def submit_budget(
     budget_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:submit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> BudgetResponseSchema:
     """Submit budget for approval workflow."""
+    method_name = "submit_budget"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BudgetResponseSchema(**cached)
+
     try:
         result = await service.submit_budget(budget_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Budget not found or cannot be submitted")
 
-        return BudgetResponseSchema(
+        response = BudgetResponseSchema(
             id=result.id,
             budget_code=result.budget_code,
             budget_name=result.budget_name,
@@ -786,6 +896,12 @@ async def submit_budget(
             approved_by_name=result.approved_by_name,
             lines=result.lines,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -802,19 +918,27 @@ async def submit_budget(
 async def approve_budget(
     budget_id: UUID,
     notes: str = Query("", description="Approval notes"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> BudgetResponseSchema:
     """Approve a submitted budget."""
+    method_name = "approve_budget"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BudgetResponseSchema(**cached)
+
     try:
         result = await service.approve_budget(budget_id, current_user.user_id, legal_entity_id, notes)
 
         if not result:
             raise HTTPException(status_code=404, detail="Budget not found or cannot be approved")
 
-        return BudgetResponseSchema(
+        response = BudgetResponseSchema(
             id=result.id,
             budget_code=result.budget_code,
             budget_name=result.budget_name,
@@ -843,6 +967,12 @@ async def approve_budget(
             approved_by_name=result.approved_by_name,
             lines=result.lines,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except PermissionError as e:
@@ -861,19 +991,27 @@ async def approve_budget(
 async def reject_budget(
     budget_id: UUID,
     reason: str = Query(..., min_length=5, description="Rejection reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> BudgetResponseSchema:
     """Reject a submitted budget."""
+    method_name = "reject_budget"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BudgetResponseSchema(**cached)
+
     try:
         result = await service.reject_budget(budget_id, current_user.user_id, legal_entity_id, reason)
 
         if not result:
             raise HTTPException(status_code=404, detail="Budget not found or cannot be rejected")
 
-        return BudgetResponseSchema(
+        response = BudgetResponseSchema(
             id=result.id,
             budget_code=result.budget_code,
             budget_name=result.budget_name,
@@ -902,6 +1040,12 @@ async def reject_budget(
             approved_by_name=result.approved_by_name,
             lines=result.lines,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -917,19 +1061,27 @@ async def reject_budget(
 )
 async def activate_budget(
     budget_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:activate")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> BudgetResponseSchema:
     """Activate an approved budget (make it effective)."""
+    method_name = "activate_budget"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BudgetResponseSchema(**cached)
+
     try:
         result = await service.activate_budget(budget_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Budget not found or cannot be activated")
 
-        return BudgetResponseSchema(
+        response = BudgetResponseSchema(
             id=result.id,
             budget_code=result.budget_code,
             budget_name=result.budget_name,
@@ -958,6 +1110,12 @@ async def activate_budget(
             approved_by_name=result.approved_by_name,
             lines=result.lines,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -974,19 +1132,27 @@ async def activate_budget(
 async def lock_budget(
     budget_id: UUID,
     reason: str = Query("", description="Lock reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> BudgetResponseSchema:
     """Lock a budget to prevent modifications."""
+    method_name = "lock_budget"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BudgetResponseSchema(**cached)
+
     try:
         result = await service.lock_budget(budget_id, current_user.user_id, legal_entity_id, reason)
 
         if not result:
             raise HTTPException(status_code=404, detail="Budget not found")
 
-        return BudgetResponseSchema(
+        response = BudgetResponseSchema(
             id=result.id,
             budget_code=result.budget_code,
             budget_name=result.budget_name,
@@ -1015,6 +1181,12 @@ async def lock_budget(
             approved_by_name=result.approved_by_name,
             lines=result.lines,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1030,19 +1202,27 @@ async def lock_budget(
 )
 async def unlock_budget(
     budget_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> BudgetResponseSchema:
     """Unlock a locked budget."""
+    method_name = "unlock_budget"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BudgetResponseSchema(**cached)
+
     try:
         result = await service.unlock_budget(budget_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Budget not found")
 
-        return BudgetResponseSchema(
+        response = BudgetResponseSchema(
             id=result.id,
             budget_code=result.budget_code,
             budget_name=result.budget_name,
@@ -1071,6 +1251,12 @@ async def unlock_budget(
             approved_by_name=result.approved_by_name,
             lines=result.lines,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1198,12 +1384,20 @@ async def create_budget_version(
     budget_id: UUID,
     version: str = Body(..., description="New version number"),
     notes: str = Body("", description="Version notes"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> BudgetResponseSchema:
     """Create a new version of an existing budget."""
+    method_name = "create_budget_version"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BudgetResponseSchema(**cached)
+
     try:
         result = await service.create_budget_version(
             budget_id=budget_id,
@@ -1216,7 +1410,7 @@ async def create_budget_version(
         if not result:
             raise HTTPException(status_code=404, detail="Budget not found")
 
-        return BudgetResponseSchema(
+        response = BudgetResponseSchema(
             id=result.id,
             budget_code=result.budget_code,
             budget_name=result.budget_name,
@@ -1245,6 +1439,12 @@ async def create_budget_version(
             approved_by_name=result.approved_by_name,
             lines=result.lines,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1387,12 +1587,20 @@ async def get_budget_vs_actual_ytd(
 )
 async def transfer_budget(
     request: BudgetTransferSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:transfer")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> BudgetTransferResponseSchema:
     """Transfer budget amount from one account to another."""
+    method_name = "transfer_budget"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BudgetTransferResponseSchema(**cached)
+
     try:
         result = await service.transfer_budget(
             budget_id=request.budget_id if hasattr(request, 'budget_id') else None,
@@ -1405,7 +1613,7 @@ async def transfer_budget(
             legal_entity_id=legal_entity_id,
         )
 
-        return BudgetTransferResponseSchema(
+        response = BudgetTransferResponseSchema(
             transfer_id=result.transfer_id,
             budget_id=result.budget_id,
             from_account_id=result.from_account_id,
@@ -1423,6 +1631,12 @@ async def transfer_budget(
             approved_at=result.approved_at,
             approved_by=result.approved_by,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1525,12 +1739,20 @@ async def get_budget_alerts(
 )
 async def create_rolling_forecast(
     request: BudgetRollingForecastSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("budget:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_budget_service),
 ) -> BudgetResponseSchema:
     """Create a rolling forecast based on existing budget."""
+    method_name = "create_rolling_forecast"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BudgetResponseSchema(**cached)
+
     try:
         result = await service.create_rolling_forecast(
             base_budget_id=request.base_budget_id,
@@ -1544,7 +1766,7 @@ async def create_rolling_forecast(
         if not result:
             raise HTTPException(status_code=404, detail="Base budget not found")
 
-        return BudgetResponseSchema(
+        response = BudgetResponseSchema(
             id=result.id,
             budget_code=result.budget_code,
             budget_name=result.budget_name,
@@ -1573,6 +1795,12 @@ async def create_rolling_forecast(
             approved_by_name=result.approved_by_name,
             lines=result.lines,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
+
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

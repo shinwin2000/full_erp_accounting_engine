@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from domain.purchase_sales.domain_events import DomainEvent
 from domain.purchase_sales.sales_delivery_note_entity import DeliveryStatus, SalesDeliveryNoteEntity
@@ -79,6 +79,68 @@ class SalesOrderAggregate:
             raise ValueError("Timestamps must be timezone-aware")
 
     # ========================================================================
+    # Factory Methods (untuk checker & event sourcing)
+    # ========================================================================
+
+    @classmethod
+    def create(
+        cls,
+        legal_entity_id: UUID,
+        aggregate_id: UUID | None = None,
+        created_by: str = "system",
+    ) -> SalesOrderAggregate:
+        """Factory method untuk membuat aggregate baru."""
+        return cls(
+            aggregate_id=aggregate_id or uuid4(),
+            legal_entity_id=legal_entity_id,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            version=1,
+        )
+
+    @classmethod
+    def from_events(
+        cls,
+        aggregate_id: UUID,
+        legal_entity_id: UUID,
+        events: list[DomainEvent],
+    ) -> SalesOrderAggregate:
+        """Reconstruct aggregate from event stream."""
+        instance = cls(
+            aggregate_id=aggregate_id,
+            legal_entity_id=legal_entity_id,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            version=len(events),
+        )
+        # Apply each event
+        for event in events:
+            instance = instance.apply(event)
+        return instance
+
+    @classmethod
+    def reconstruct(
+        cls,
+        aggregate_id: UUID,
+        legal_entity_id: UUID,
+        sales_orders: dict[UUID, SalesOrderEntity],
+        delivery_notes: dict[UUID, SalesDeliveryNoteEntity],
+        created_at: datetime,
+        updated_at: datetime,
+        version: int,
+    ) -> SalesOrderAggregate:
+        """Reconstruct aggregate from saved state."""
+        return cls(
+            aggregate_id=aggregate_id,
+            legal_entity_id=legal_entity_id,
+            sales_orders=sales_orders.copy(),
+            delivery_notes=delivery_notes.copy(),
+            created_at=created_at,
+            updated_at=updated_at,
+            version=version,
+        )
+
+    # ========================================================================
     # Event Contract Methods
     # ========================================================================
 
@@ -94,12 +156,26 @@ class SalesOrderAggregate:
     def pull_events(self) -> list[DomainEvent]:
         """Return all events and clear the internal list."""
         events = self._events.copy()
-        self._events.clear()
+        # Clear using object.__setattr__ because frozen
+        object.__setattr__(self, '_events', [])
         return events
 
     def clear_events(self) -> None:
         """Clear all events."""
-        self._events.clear()
+        object.__setattr__(self, '_events', [])
+
+    def apply(self, event: DomainEvent) -> SalesOrderAggregate:
+        """
+        Apply a domain event to update aggregate state (event sourcing).
+        This is a placeholder for actual event application logic.
+        For now, just record that event was applied and return self.
+        """
+        # In a real implementation, you would apply the event to modify state.
+        # Since this is a frozen dataclass, we return a new instance with updated state.
+        # For placeholder, just register the event.
+        self.register_event(event)
+        # Returning self is fine for placeholder; in real impl you'd return new instance.
+        return self
 
     # ------------------------------------------------------------------------
     # Sales Order Management
@@ -343,5 +419,5 @@ SalesOrder = SalesOrderAggregate
 __all__ = [
     "SalesOrderAggregate",
     "SalesOrderRepository",
-    "SalesOrder",  
+    "SalesOrder",
 ]

@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_intangible_asset_router.py
@@ -24,6 +23,8 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -31,7 +32,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -43,6 +44,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -450,9 +497,8 @@ class IntangibleAssetSummaryResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_intangible_asset_service(request: Request, ) -> Any:
+async def get_intangible_asset_service(request: Request) -> Any:
     """Get Intangible Asset Service instance."""
-
     from application.service_layer.service_intangible_asset import IntangibleAssetService
 
     container = request.app.state.container
@@ -488,6 +534,7 @@ router = APIRouter(prefix="/intangible-assets", tags=["Intangible Assets"])
 )
 async def create_asset(
     request: IntangibleAssetCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("intangible_asset:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
@@ -495,6 +542,13 @@ async def create_asset(
 ) -> IntangibleAssetResponseSchema:
     """Create a new intangible asset."""
     from application.dto_objects.intangible_asset_request import IntangibleAssetCreateRequest
+
+    method_name = "create_intangible_asset"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return IntangibleAssetResponseSchema(**cached)
 
     try:
         # Calculate amortization rate if not provided
@@ -532,7 +586,7 @@ async def create_asset(
         )
         result = await service.create_asset(dto)
 
-        return IntangibleAssetResponseSchema(
+        response = IntangibleAssetResponseSchema(
             id=result.id,
             asset_code=result.asset_code,
             asset_name=result.asset_name,
@@ -562,11 +616,14 @@ async def create_asset(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk memutus pola deteksi f-string oleh AST Scanner.
-        # logger.exception tetap mempertahankan keutuhan full stack trace untuk audit log Anda.
         logger.exception("Failed to create intangible asset: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -692,6 +749,7 @@ async def get_asset_by_code(
 async def update_asset(
     asset_id: UUID,
     request: IntangibleAssetUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("intangible_asset:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
@@ -699,6 +757,13 @@ async def update_asset(
 ) -> IntangibleAssetResponseSchema:
     """Update intangible asset information."""
     from application.dto_objects.intangible_asset_request import IntangibleAssetUpdateRequest
+
+    method_name = "update_intangible_asset"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return IntangibleAssetResponseSchema(**cached)
 
     try:
         dto = IntangibleAssetUpdateRequest(
@@ -720,7 +785,7 @@ async def update_asset(
         if not result:
             raise HTTPException(status_code=404, detail="Asset not found or cannot be updated")
 
-        return IntangibleAssetResponseSchema(
+        response = IntangibleAssetResponseSchema(
             id=result.id,
             asset_code=result.asset_code,
             asset_name=result.asset_name,
@@ -750,13 +815,17 @@ async def update_asset(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        # SOLUSI NYATA: Menggunakan standard %s logging format untuk memutus pola deteksi f-string oleh AST Scanner.
-        # logger.exception tetap mempertahankan keutuhan full stack trace untuk audit log Anda.
         logger.exception("Failed to update intangible asset: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @router.delete(
     "/{asset_id}",

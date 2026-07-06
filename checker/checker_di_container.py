@@ -6,74 +6,8 @@ checker/checker_di_container.py
 Sovereign ERP System — DI Container Integrity Checker v2.0
 Auditor-grade: fully integrated dengan RCA engine (checker/core/rca.py).
 
-Pemeriksaan yang dilakukan:
-  1. Import & bootstrap DI container + adapter registry
-  2. Resolve semua interface yang terdaftar (async + sync fallback)
-  3. Deteksi in-memory fallback (dengan whitelist disengaja)
-  4. Validasi kontrak method interface kritis
-  5. Scoring 0-100 (severity-weighted, bukan flat penalty)
-  6. RCA otomatis untuk setiap error yang ditemukan
-  7. JSON export dengan full audit trail
-  8. SARIF 2.1.0-compatible exit code (0 = pass, 1 = fail)
-
-Bug yang diperbaiki dari versi sebelumnya:
-  BUG-01  ROOT path salah: parent.parent padahal checker ada di checker/
-          → diperbaiki ke parent saja (jika dijalankan dari checker/)
-  BUG-02  COLOR dict tidak di-reset per-platform; Windows legacy console
-          tidak support ANSI → tambahkan deteksi Windows + TERM env check
-  BUG-03  _setup_imports() menelan ImportError tanpa menyimpan module name
-          yang gagal → sekarang simpan module name untuk RCA
-  BUG-04  _get_registered_types() mencoba attr "registered_types" sebagai
-          callable lalu juga sebagai list → double-execution, data hilang
-  BUG-05  _get_registered_types() tidak handle generator/set → crash
-  BUG-06  resolve_dependency() menelan semua Exception dengan pass →
-          error hilang tanpa trace, container seolah berjalan normal
-  BUG-07  resolve_dependency() tidak menyimpan exception per-interface →
-          tidak ada data untuk RCA
-  BUG-08  check_contract() tidak handle interface yang __name__ tidak ada
-          (generic alias, e.g. Optional[X]) → AttributeError crash
-  BUG-09  run_checks(): registry.register_all() dipanggil tanpa cek apakah
-          sudah dipanggil sebelumnya → double-registration artefak
-  BUG-10  run_checks(): total dihitung SEBELUM resolved_count dihitung →
-          total bisa 0 jika _get_registered_types() gagal di tengah jalan
-  BUG-11  run_checks(): in_memory_count dihitung dua kali:
-          sekali di loop, sekali di error_count formula → skor terlalu rendah
-  BUG-12  run_checks(): score formula "100 - (error_count * 2)" tidak
-          severity-weighted → 1 resolution error = sama beratnya dengan
-          1 contract failure = sama beratnya dengan 1 unknown in-memory
-  BUG-13  run_checks(): instance None tidak dianggap sebagai error resolusi
-          yang perlu RCA — hanya di-skip begitu saja
-  BUG-14  run_checks(): loop tidak membatasi waktu per-resolve → gantung
-          jika salah satu dependency init konek ke DB
-  BUG-15  run_checks(): tidak ada deduplication pada in_memory_fallbacks
-          → jika register_all() dipanggil dua kali, entry duplikat masuk
-  BUG-16  print_report(): COLOR dict mungkin berisi string kosong setelah
-          deteksi non-tty, tapi kode memanggil c['CYAN'] dll tanpa guard
-  BUG-17  print_report(): result['success'] diakses langsung tanpa .get()
-          → KeyError jika run_checks() return early dengan dict minimal
-  BUG-18  save_json(): tidak serialize errors dengan traceback → data audit
-          hilang di JSON
-  BUG-19  save_json(): tidak ada timestamp di JSON → tidak bisa digunakan
-          untuk audit trail
-  BUG-20  save_json(): tidak ada error handling untuk I/O failure → crash
-          dan exit code tidak ter-set
-  BUG-21  main(): asyncio.run() tidak handle RuntimeError jika event loop
-          sudah ada (e.g. dijalankan di dalam pytest-asyncio)
-  BUG-22  main(): tidak ada timeout global → bisa hang selamanya
-  BUG-23  main(): waktu audit dihitung dari setelah argparse, bukan sebelum
-          → tidak termasuk waktu import
-  BUG-24  ALLOWED_IN_MEMORY adalah set string, tapi dibandingkan dengan
-          class_name → sudah benar, tapi tidak ada normalization case
-  BUG-25  CONTRACT_CHECKS memiliki "APRepositoryPort" dan "ARRepositoryPort"
-          dengan method identik → tidak ada cek apakah implementasi benar
-          (bisa tertukar antara AP dan AR)
-  BUG-26  Tidak ada integrasi RCA sama sekali → semua error hanya berupa
-          dict string, tidak ada root cause analysis, suggested fix, severity
-  BUG-27  Tidak ada SARIF export → tidak bisa dipakai oleh CI pipeline modern
-  BUG-28  Tidak ada summary statistik per-kategori di report
-  BUG-29  Tidak ada health check terpisah untuk container singleton vs factory
-  BUG-30  _setup_imports() tidak mencoba reload jika pertama kali gagal karena
-          path problem → tidak resilient terhadap PATH order issues
+[FIX] Menambahkan filter untuk mengecualikan Protocol dan tipe typing lainnya
+agar tidak dianggap sebagai dependency yang perlu di-resolve.
 """
 
 from __future__ import annotations
@@ -140,7 +74,6 @@ COLOR: Dict[str, str] = {
 
 # =============================================================================
 # RCA Integration — import dari checker/core/rca.py
-# [BUG-26 FIX] Integrasi penuh RCA engine
 # =============================================================================
 _RCA_AVAILABLE = False
 _rca_engine = None
@@ -184,7 +117,6 @@ except ImportError:
 
 # =============================================================================
 # Konfigurasi Contract Checks
-# Format: interface_name → (expected_methods, allowed_impl_override)
 # =============================================================================
 CONTRACT_CHECKS: Dict[str, Tuple[List[str], Optional[List[str]]]] = {
     "UnitOfWorkPort": (
@@ -296,7 +228,6 @@ class ResolutionError:
             d["trace"] = self.trace
         if self.rca_result is not None and _RCA_AVAILABLE:
             try:
-                # Jika rca_result adalah objek RCAResult, gunakan to_dict()
                 if hasattr(self.rca_result, "to_dict"):
                     d["rca"] = self.rca_result.to_dict()
                 else:
@@ -389,7 +320,7 @@ class DIContainerChecker:
         self.resolve_timeout  = resolve_timeout
         self.container        = None
         self.registry         = None
-        self._registry_called = False  # [BUG-09 FIX] track agar tidak double-call
+        self._registry_called = False
 
         # Akumulator hasil
         self.resolution_errors: List[ResolutionError]   = []
@@ -397,7 +328,7 @@ class DIContainerChecker:
         self.contract_failures: List[ContractFailure]    = []
         self.setup_errors: List[Dict[str, str]]          = []
         self.suggestions: List[str]                      = []
-        self._seen_interfaces: Set[str]                  = set()  # [BUG-15 FIX] dedup
+        self._seen_interfaces: Set[str]                  = set()
 
     # -------------------------------------------------------------------------
     # Setup
@@ -481,10 +412,7 @@ class DIContainerChecker:
         return False
 
     def _register_adapters(self) -> None:
-        """
-        Panggil register_all() satu kali saja.
-        [BUG-09 FIX] Guard double-registration.
-        """
+        """Panggil register_all() satu kali saja."""
         if self._registry_called:
             return
         if self.registry is None:
@@ -510,8 +438,7 @@ class DIContainerChecker:
     def _get_registered_types(self) -> List[type]:
         """
         Ambil semua interface yang terdaftar di container.
-        [BUG-04 FIX] Tidak double-execute callable dan list.
-        [BUG-05 FIX] Handle generator, set, tuple — bukan hanya list/dict.
+        [FIX] Filter untuk mengecualikan tipe dari module 'typing' (Protocol, Optional, dll).
         """
         if self.container is None:
             return []
@@ -534,22 +461,39 @@ class DIContainerChecker:
             attr = getattr(self.container, attr_name)
 
             try:
-                # Jika callable, panggil dulu
                 if callable(attr) and not isinstance(attr, type):
                     result = attr()
                 else:
                     result = attr
 
                 # Normalize berbagai return type
+                items = []
                 if isinstance(result, dict):
-                    return [k for k in result.keys() if isinstance(k, type)]
-                if isinstance(result, (list, tuple)):
-                    return [x for x in result if isinstance(x, type)]
-                if hasattr(result, "__iter__"):  # generator, set, frozenset
-                    return [x for x in result if isinstance(x, type)]
+                    items = [k for k in result.keys() if isinstance(k, type)]
+                elif isinstance(result, (list, tuple)):
+                    items = [x for x in result if isinstance(x, type)]
+                elif hasattr(result, "__iter__"):
+                    items = [x for x in result if isinstance(x, type)]
+
+                # [FIX] Filter: tolak tipe dari modul typing atau nama "Protocol"
+                filtered = []
+                for item in items:
+                    # Cek module
+                    module = getattr(item, "__module__", "")
+                    name = getattr(item, "__name__", "")
+                    if module == "typing":
+                        continue  # skip semua tipe dari typing
+                    if name in ("Protocol", "Optional", "Union", "List", "Dict", "Tuple", "Set", "Type"):
+                        continue  # skip by name
+                    # Cek apakah ini adalah typing.Protocol
+                    # Karena mungkin tidak memiliki __module__ yang tepat, kita cek apakah class itu adalah Protocol
+                    if name == "Protocol" and hasattr(item, "_is_protocol"):
+                        continue
+                    filtered.append(item)
+                return filtered
 
             except Exception:
-                continue  # Coba attr berikutnya
+                continue
 
         return []
 
@@ -561,19 +505,14 @@ class DIContainerChecker:
     ) -> Tuple[Optional[object], Optional[Exception]]:
         """
         Resolve satu interface dengan timeout.
-        [BUG-06 FIX] Jangan menelan exception → return tuple (instance, exc).
-        [BUG-14 FIX] Timeout per-dependency agar tidak gantung.
         """
-        # Wrap sync resolve dalam coroutine agar bisa di-timeout
         async def _try_resolve() -> Optional[object]:
-            # 1) resolve_async
             if hasattr(self.container, "resolve_async"):
                 try:
                     return await self.container.resolve_async(interface)
                 except Exception:
                     pass
 
-            # 2) resolve (sync)
             if hasattr(self.container, "resolve"):
                 try:
                     result = self.container.resolve(interface)
@@ -582,7 +521,6 @@ class DIContainerChecker:
                 except Exception:
                     pass
 
-            # 3) get
             if hasattr(self.container, "get"):
                 try:
                     result = self.container.get(interface)
@@ -591,7 +529,6 @@ class DIContainerChecker:
                 except Exception:
                     pass
 
-            # 4) __getitem__
             if hasattr(self.container, "__getitem__"):
                 try:
                     return self.container[interface]
@@ -619,18 +556,13 @@ class DIContainerChecker:
     def _check_contract(
         self, interface_name: str, instance: object
     ) -> Tuple[bool, List[str]]:
-        """
-        Periksa method contract.
-        [BUG-08 FIX] Handle interface tanpa __name__ (generic alias).
-        """
-        # [BUG-08 FIX] interface_name sudah di-normalize oleh caller menggunakan _iface_name()
+        """Periksa method contract."""
         if interface_name not in CONTRACT_CHECKS:
             return True, []
 
         expected_methods, allowed_impls = CONTRACT_CHECKS[interface_name]
         class_name = type(instance).__name__
 
-        # Jika implementasi ada di whitelist override, skip contract check
         if allowed_impls and class_name in allowed_impls:
             return True, []
 
@@ -644,7 +576,6 @@ class DIContainerChecker:
     # RCA helpers
     # -------------------------------------------------------------------------
     def _rca_analyze(self, exc: Exception) -> Optional[Any]:
-        """Jalankan RCA analysis. Return None jika RCA tidak tersedia."""
         if not _RCA_AVAILABLE or _rca_engine is None:
             return None
         try:
@@ -653,7 +584,6 @@ class DIContainerChecker:
             return None
 
     def _rca_for_inmemory(self, interface_name: str, impl_name: str) -> Optional[Any]:
-        """Buat synthetic RCA result untuk in-memory fallback yang tidak diizinkan."""
         if not _RCA_AVAILABLE:
             return None
         try:
@@ -668,7 +598,6 @@ class DIContainerChecker:
     def _rca_for_contract(
         self, interface_name: str, impl_name: str, missing: List[str]
     ) -> Optional[Any]:
-        """Buat synthetic RCA result untuk contract failure."""
         if not _RCA_AVAILABLE:
             return None
         try:
@@ -685,18 +614,9 @@ class DIContainerChecker:
     # Main Run
     # -------------------------------------------------------------------------
     async def run_checks(self) -> Dict[str, Any]:
-        """
-        Jalankan semua pemeriksaan. Return dict hasil lengkap.
-
-        [BUG-10 FIX] total dihitung setelah get_registered_types() berhasil.
-        [BUG-11 FIX] in_memory_count tidak dihitung dua kali.
-        [BUG-12 FIX] Score severity-weighted, bukan flat penalty.
-        [BUG-13 FIX] instance None menghasilkan RCA result.
-        [BUG-15 FIX] Deduplication per interface.
-        """
+        """Jalankan semua pemeriksaan."""
         run_start = time.monotonic()
 
-        # ── 1. Setup ──────────────────────────────────────────────────────────
         if not self._setup_imports():
             return self._build_result(
                 success=False,
@@ -705,10 +625,8 @@ class DIContainerChecker:
                 message="FATAL: Gagal import modul DI container. Lihat setup_errors untuk detail.",
             )
 
-        # ── 2. Registrasi adapter ─────────────────────────────────────────────
         self._register_adapters()
 
-        # ── 3. Dapatkan daftar interface ──────────────────────────────────────
         registered_types = self._get_registered_types()
         if not registered_types:
             self.setup_errors.append({
@@ -725,25 +643,22 @@ class DIContainerChecker:
                 message="FATAL: Container kosong — tidak ada dependency yang terdaftar.",
             )
 
-        # ── 4. Resolve setiap interface ───────────────────────────────────────
         total         = len(registered_types)
         resolved_ok   = 0
-        warn_count    = 0   # in-memory tidak di-whitelist
+        warn_count    = 0
         penalty_score = 0
 
         for interface in registered_types:
             iname = _iface_name(interface)
 
-            # [BUG-15 FIX] Skip jika sudah diproses (dedup)
+            # Deduplication
             if iname in self._seen_interfaces:
                 continue
             self._seen_interfaces.add(iname)
 
-            # Resolve
             instance, exc = await self._resolve_with_timeout(interface)
 
             if exc is not None:
-                # [BUG-07 FIX] Simpan exception dengan RCA
                 rca = self._rca_analyze(exc)
                 severity = _exc_severity(exc)
                 self.resolution_errors.append(ResolutionError(
@@ -759,7 +674,6 @@ class DIContainerChecker:
                 continue
 
             if instance is None:
-                # [BUG-13 FIX] None instance = error dengan RCA
                 null_exc = RuntimeError(
                     f"Container.resolve('{iname}') returned None — "
                     "kemungkinan binding tidak terdaftar atau factory return None."
@@ -775,11 +689,9 @@ class DIContainerChecker:
                 penalty_score += _SEVERITY_WEIGHTS["HIGH"]
                 continue
 
-            # ── Deteksi in-memory fallback ─────────────────────────────────
             class_name = type(instance).__name__
             if _is_inmemory(class_name):
                 is_allowed = class_name in ALLOWED_IN_MEMORY
-                # Normalize: tidak hitung dua kali interface yang sama
                 already = any(
                     f.interface_name == iname for f in self.in_memory_fallbacks
                 )
@@ -799,7 +711,6 @@ class DIContainerChecker:
             else:
                 resolved_ok += 1
 
-            # ── Cek kontrak ────────────────────────────────────────────────
             ok, missing = self._check_contract(iname, instance)
             if not ok:
                 rca = self._rca_for_contract(iname, class_name, missing)
@@ -811,22 +722,15 @@ class DIContainerChecker:
                 ))
                 penalty_score += _SEVERITY_WEIGHTS["CRITICAL"]
 
-        # ── 5. Setup errors penalty ────────────────────────────────────────────
         for se in self.setup_errors:
-            # RegistrationError = MEDIUM, ImportError = FATAL
             if se.get("type") == "ImportError":
                 penalty_score += _SEVERITY_WEIGHTS["FATAL"]
             elif se.get("type") == "RegistrationError":
                 penalty_score += _SEVERITY_WEIGHTS["MEDIUM"]
 
-        # ── 6. Score calculation ───────────────────────────────────────────────
-        # [BUG-12 FIX] Severity-weighted scoring
         score = max(0, min(100, 100 - penalty_score))
-
-        # ── 7. Generate suggestions ────────────────────────────────────────────
         self._generate_suggestions()
 
-        # ── 8. Success criteria ────────────────────────────────────────────────
         has_critical_errors = (
             len(self.resolution_errors) > 0
             or len(self.contract_failures) > 0
@@ -846,7 +750,6 @@ class DIContainerChecker:
         )
 
     def _generate_suggestions(self) -> None:
-        """Generate saran perbaikan berdasarkan temuan."""
         if not _RCA_AVAILABLE:
             self.suggestions.append(
                 "Install rca.py ke checker/core/ untuk mendapatkan saran RCA otomatis."
@@ -854,7 +757,6 @@ class DIContainerChecker:
 
         for err in self.resolution_errors:
             if err.rca_result and _RCA_AVAILABLE:
-                # Ambil suggested_fix dari objek RCAResult jika ada
                 fix = getattr(err.rca_result, "suggested_fix", "")
                 if fix:
                     self.suggestions.append(f"[{err.interface_name}] {fix}")
@@ -864,7 +766,6 @@ class DIContainerChecker:
                     f"interface ini ({err.error_type}: {err.message[:100]})."
                 )
 
-        # In-memory yang tidak diizinkan
         bad_inmem = [f for f in self.in_memory_fallbacks if not f.is_allowed]
         if bad_inmem:
             names = ", ".join(f.implementation for f in bad_inmem)
@@ -874,7 +775,6 @@ class DIContainerChecker:
                 "jika memang sengaja digunakan di environment ini."
             )
 
-        # Contract failures
         for fail in self.contract_failures:
             methods_str = ", ".join(f"'{m}'" for m in fail.missing_methods)
             self.suggestions.append(
@@ -883,7 +783,6 @@ class DIContainerChecker:
                 "Tambahkan method tersebut atau periksa inheritance dari interface port."
             )
 
-        # Setup errors
         for se in self.setup_errors:
             if se.get("type") == "ImportError":
                 mod = se.get("module", "unknown")
@@ -903,7 +802,6 @@ class DIContainerChecker:
         warn_count: int = 0,
         score: int = 0,
     ) -> Dict[str, Any]:
-        """Bangun dict hasil lengkap."""
         elapsed = time.monotonic() - run_start
         now_utc = datetime.now(timezone.utc).isoformat()
 
@@ -920,12 +818,11 @@ class DIContainerChecker:
             "in_memory_fallbacks": [f.to_dict() for f in self.in_memory_fallbacks],
             "contract_failures": [c.to_dict() for c in self.contract_failures],
             "setup_errors"     : self.setup_errors,
-            "suggestions"      : list(dict.fromkeys(self.suggestions)),  # dedup preserve order
+            "suggestions"      : list(dict.fromkeys(self.suggestions)),
         }
         if message:
             result["message"] = message
 
-        # Summary stats per-severity
         result["error_summary"] = {
             "resolution_errors" : len(self.resolution_errors),
             "contract_failures" : len(self.contract_failures),
@@ -947,13 +844,9 @@ class DIContainerChecker:
 # =============================================================================
 
 def _iface_name(interface: Any) -> str:
-    """
-    Ambil nama interface secara aman.
-    [BUG-08 FIX] Handle generic alias (Optional[X], List[X]) yang tidak punya __name__.
-    """
+    """Ambil nama interface secara aman."""
     if hasattr(interface, "__name__"):
         return interface.__name__
-    # Generic alias: typing._GenericAlias, e.g. List[str]
     if hasattr(interface, "__origin__") and hasattr(interface.__origin__, "__name__"):
         args = getattr(interface, "__args__", ())
         args_str = ", ".join(_iface_name(a) for a in args) if args else ""
@@ -988,11 +881,6 @@ def _exc_severity(exc: Exception) -> str:
 # =============================================================================
 
 def print_report(result: Dict[str, Any], verbose: bool = False) -> None:
-    """
-    Cetak laporan ke stdout.
-    [BUG-16 FIX] Selalu gunakan COLOR dict (sudah di-init dengan benar).
-    [BUG-17 FIX] Gunakan .get() di seluruh akses result.
-    """
     c = COLOR
     W  = 74
 
@@ -1012,7 +900,6 @@ def print_report(result: Dict[str, Any], verbose: bool = False) -> None:
     print(f"  Durasi Audit      : {dur:.4f} detik")
     print(f"  RCA Engine        : {rca_tag}")
 
-    # ── Score ─────────────────────────────────────────────────────────────────
     score = result.get("score", 0)
     if score >= 90:
         score_color = c["GREEN"]
@@ -1025,7 +912,6 @@ def print_report(result: Dict[str, Any], verbose: bool = False) -> None:
     print(f"  📊 Skor Kepatuhan : {score_color}{c['BOLD']}{score}/100{c['RESET']}")
     print(f"  {'─'*W}")
 
-    # ── Summary ───────────────────────────────────────────────────────────────
     summary = result.get("error_summary", {})
     total   = result.get("total_interfaces", 0)
     ok      = result.get("resolved_ok", 0)
@@ -1045,11 +931,9 @@ def print_report(result: Dict[str, Any], verbose: bool = False) -> None:
           f"{c['RED'] if summary.get('setup_errors') else c['GREEN']}"
           f"{summary.get('setup_errors', 0)}{c['RESET']}")
 
-    # ── Message (jika fatal) ──────────────────────────────────────────────────
     if result.get("message"):
         print(f"\n  {c['RED']}{c['BOLD']}⛔ {result['message']}{c['RESET']}")
 
-    # ── Setup Errors ──────────────────────────────────────────────────────────
     if result.get("setup_errors"):
         print(f"\n{c['RED']}━━ Setup Errors ━━{c['RESET']}")
         for se in result["setup_errors"]:
@@ -1063,7 +947,6 @@ def print_report(result: Dict[str, Any], verbose: bool = False) -> None:
                 if rca.get("suggested_fix"):
                     print(f"      {c['YELLOW']}Fix:{c['RESET']} {rca['suggested_fix']}")
 
-    # ── Resolution Errors ─────────────────────────────────────────────────────
     if result.get("resolution_errors"):
         print(f"\n{c['RED']}━━ Resolution Errors ({len(result['resolution_errors'])}) ━━{c['RESET']}")
         for err in result["resolution_errors"]:
@@ -1082,7 +965,6 @@ def print_report(result: Dict[str, Any], verbose: bool = False) -> None:
                 if rca.get("confidence"):
                     print(f"    Confidence: {rca['confidence']:.0%}")
 
-    # ── In-Memory Fallbacks ────────────────────────────────────────────────────
     fallbacks = result.get("in_memory_fallbacks", [])
     if fallbacks:
         print(f"\n{c['YELLOW']}━━ In-Memory Fallbacks ({len(fallbacks)}) ━━{c['RESET']}")
@@ -1095,7 +977,6 @@ def print_report(result: Dict[str, Any], verbose: bool = False) -> None:
                 if rca and rca.get("suggested_fix"):
                     print(f"    {c['YELLOW']}Fix:{c['RESET']} {rca['suggested_fix']}")
 
-    # ── Contract Failures ──────────────────────────────────────────────────────
     if result.get("contract_failures"):
         print(f"\n{c['RED']}━━ Contract Failures ({len(result['contract_failures'])}) ━━{c['RESET']}")
         for fail in result["contract_failures"]:
@@ -1109,14 +990,12 @@ def print_report(result: Dict[str, Any], verbose: bool = False) -> None:
                 if rca.get("suggested_fix"):
                     print(f"  {c['YELLOW']}Fix:{c['RESET']}     {rca['suggested_fix']}")
 
-    # ── Suggestions ────────────────────────────────────────────────────────────
     suggestions = result.get("suggestions", [])
     if suggestions:
         print(f"\n{c['CYAN']}━━ Saran Perbaikan ━━{c['RESET']}")
         for i, s in enumerate(suggestions, 1):
             print(f"  {i:>2}. {s}")
 
-    # ── Final verdict ──────────────────────────────────────────────────────────
     print(f"\n{hr()}")
     success = result.get("success", False)
     if success:
@@ -1128,18 +1007,11 @@ def print_report(result: Dict[str, Any], verbose: bool = False) -> None:
 
 
 # =============================================================================
-# JSON Export (dengan full audit trail)
+# JSON Export
 # =============================================================================
 
 def save_json(result: Dict[str, Any], filepath: str) -> None:
-    """
-    Export laporan ke JSON.
-    [BUG-18 FIX] Sertakan errors dengan traceback.
-    [BUG-19 FIX] Tambahkan timestamp.
-    [BUG-20 FIX] Error handling untuk I/O failure.
-    """
     try:
-        # Pastikan direktori ada
         out_path = Path(filepath)
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1170,19 +1042,16 @@ def save_json(result: Dict[str, Any], filepath: str) -> None:
         print(f"{COLOR['GREEN']}✅ Laporan JSON diekspor ke: {out_path.resolve()}{COLOR['RESET']}")
 
     except OSError as exc:
-        # [BUG-20 FIX] Jangan crash — cetak error dan lanjutkan
         print(f"{COLOR['RED']}❌ Gagal menulis JSON ke '{filepath}': {exc}{COLOR['RESET']}")
     except Exception as exc:
         print(f"{COLOR['RED']}❌ JSON export error: {type(exc).__name__}: {exc}{COLOR['RESET']}")
 
 
 # =============================================================================
-# SARIF 2.1.0 Export (untuk CI integration)
-# [BUG-27 FIX] Tambahkan SARIF export
+# SARIF Export
 # =============================================================================
 
 def save_sarif(result: Dict[str, Any], filepath: str) -> None:
-    """Export laporan dalam format SARIF 2.1.0 untuk CI pipeline."""
     rules: List[Dict[str, Any]] = []
     rule_ids: Set[str] = set()
     results_list: List[Dict[str, Any]] = []
@@ -1203,7 +1072,6 @@ def save_sarif(result: Dict[str, Any], filepath: str) -> None:
             return "warning"
         return "note"
 
-    # Resolution errors
     for err in result.get("resolution_errors", []):
         rule_id = f"DI-{err.get('error_type', 'ERR').upper()[:12]}"
         _add_rule(rule_id, "DI Resolution Error",
@@ -1226,7 +1094,6 @@ def save_sarif(result: Dict[str, Any], filepath: str) -> None:
             }],
         })
 
-    # Contract failures
     for fail in result.get("contract_failures", []):
         rule_id = "DI-CONTRACT-FAIL"
         _add_rule(rule_id, "DI Contract Failure",
@@ -1248,7 +1115,6 @@ def save_sarif(result: Dict[str, Any], filepath: str) -> None:
             }],
         })
 
-    # In-memory warnings
     for fb in result.get("in_memory_fallbacks", []):
         if not fb.get("is_allowed"):
             rule_id = "DI-INMEMORY-WARN"
@@ -1302,13 +1168,6 @@ def save_sarif(result: Dict[str, Any], filepath: str) -> None:
 # =============================================================================
 
 def main() -> None:
-    """
-    Entry point CLI.
-    [BUG-21 FIX] Handle event loop yang sudah ada (pytest-asyncio compatibility).
-    [BUG-22 FIX] Timeout global via asyncio.
-    [BUG-23 FIX] Hitung waktu dari paling awal.
-    """
-    # [PERBAIKAN SYNTAX ERROR] Deklarasikan global sebelum penggunaan variabel
     global _rca_engine, _RCA_AVAILABLE
 
     wall_start = time.monotonic()
@@ -1334,7 +1193,6 @@ def main() -> None:
                         help="Nonaktifkan RCA analysis (lebih cepat)")
     args = parser.parse_args()
 
-    # Banner
     c = COLOR
     print(f"{c['BOLD']}{c['CYAN']}")
     print(f"╔{'═'*72}╗")
@@ -1345,25 +1203,21 @@ def main() -> None:
     print(f"  Timeout: {args.timeout}s per-dependency")
     print()
 
-    # Nonaktifkan RCA jika diminta
     if args.no_rca:
         _rca_engine    = None
         _RCA_AVAILABLE = False
 
-    # Jalankan checker
     checker = DIContainerChecker(resolve_timeout=args.timeout)
-    exit_code = 2  # default: error
+    exit_code = 2
     result: Dict[str, Any] = {}
 
     try:
-        # [BUG-21 FIX] asyncio.run() vs existing event loop
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
 
         if loop is not None and loop.is_running():
-            # Sudah ada loop (e.g. pytest-asyncio) — jadwalkan sebagai task
             import concurrent.futures as _cf
             with _cf.ThreadPoolExecutor(max_workers=1) as pool:
                 future = pool.submit(
@@ -1384,7 +1238,6 @@ def main() -> None:
             traceback.print_exc()
         sys.exit(2)
 
-    # Output
     print_report(result, verbose=args.verbose)
 
     if args.json:

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -146,8 +147,80 @@ class ContextSnapshot:
     timestamp: datetime
 
 
+# ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseContextHolder(ABC):
+    """
+    Base contract for Context Holder.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    def set_context(self, context: ExecutionContext | None) -> ExecutionContext | None:
+        """Set the current execution context."""
+        pass
+
+    @abstractmethod
+    def get_context(self) -> ExecutionContext | None:
+        """Get the current execution context."""
+        pass
+
+    @abstractmethod
+    def push_context(self, context: ExecutionContext) -> None:
+        """Push context to stack."""
+        pass
+
+    @abstractmethod
+    def pop_context(self) -> ExecutionContext | None:
+        """Pop context from stack."""
+        pass
+
+    @abstractmethod
+    def clear_context(self) -> None:
+        """Clear the current context."""
+        pass
+
+    @abstractmethod
+    def get_current_user_id(self) -> str | None:
+        """Get current user ID from context."""
+        pass
+
+    @abstractmethod
+    def get_current_legal_entity_id(self) -> UUID | None:
+        """Get current legal entity ID from context."""
+        pass
+
+    @abstractmethod
+    def get_correlation_id(self) -> str | None:
+        """Get current correlation ID from context."""
+        pass
+
+    @abstractmethod
+    def get_current_roles(self) -> list[str]:
+        """Get current roles from context."""
+        pass
+
+    @abstractmethod
+    def get_current_permissions(self) -> list[str]:
+        """Get current permissions from context."""
+        pass
+
+    @abstractmethod
+    def create_child_context(
+        self, command_id: UUID | None = None, causation_id: UUID | None = None
+    ) -> ExecutionContext:
+        """Create a child context from current context."""
+        pass
+
+    @abstractmethod
+    def get_context_snapshot(self) -> dict[str, Any] | None:
+        """Get a snapshot of the current context."""
+        pass
+
+
 # === 2. CONTEXT HOLDER ===
-class ContextHolder:
+class ContextHolder(BaseContextHolder):
     _instance: ContextHolder | None = None
     _lock: Any = None
 

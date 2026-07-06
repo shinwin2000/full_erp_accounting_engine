@@ -364,6 +364,9 @@ class AccrualEntry:
         new_entry._record_audit("TOUCH", touched_by, {})
         return new_entry
 
+    def get_version(self) -> int:
+        return self.version
+
     def _copy(self) -> AccrualEntry:
         return AccrualEntry(
             accrual_id=self.accrual_id,
@@ -608,6 +611,9 @@ class AccrualBasisViolation:
     def touch(self, touched_by: str) -> AccrualBasisViolation:
         self._record_audit("TOUCH", touched_by, {})
         return self
+
+    def get_version(self) -> int:
+        return self.version
 
     def resolve(self, by: str, correction_journal_id: UUID) -> AccrualBasisViolation:
         if self.resolved:

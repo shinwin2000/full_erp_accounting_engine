@@ -1,6 +1,5 @@
-# dto_to_command.py - Hardened version with complete implementation
-
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 """
 Module: dto_to_command.py
@@ -39,6 +38,35 @@ from application.dto_objects.period_close_request import PeriodCloseRequestDTO
 logger = logging.getLogger(__name__)
 
 
+# === SAFE CONVERSION HELPERS ===
+
+ZERO = Decimal("0")
+
+
+def _safe_decimal(value: Any, default: Decimal = ZERO) -> Decimal:
+    """Safely convert to Decimal."""
+    if value is None:
+        return default
+    if isinstance(value, Decimal):
+        return value
+    try:
+        return Decimal(str(value))
+    except (ValueError, TypeError):
+        return default
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    """Safely convert to float."""
+    if value is None:
+        return default
+    if isinstance(value, float):
+        return value
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
 # === 1. COMMAND BASE CLASS ===
 
 
@@ -54,6 +82,7 @@ class Command:
     idempotency_key: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert command to dictionary."""
         return {
             "command_id": str(self.command_id),
             "command_type": self.command_type,
@@ -209,14 +238,14 @@ def dto_to_post_journal_command(
     Mapping dari JournalEntryRequestDTO ke PostJournalEntryCommand.
     """
     lines = []
-    total_debit = Decimal("0")
-    total_credit = Decimal("0")
+    total_debit = ZERO
+    total_credit = ZERO
 
     for line_dto in dto.lines:
         line_dict = {
             "account_code": line_dto.account_code,
-            "debit": float(line_dto.debit),
-            "credit": float(line_dto.credit),
+            "debit": _safe_float(line_dto.debit),
+            "credit": _safe_float(line_dto.credit),
             "description": line_dto.description,
             "cost_center": line_dto.cost_center,
             "department": line_dto.department,
@@ -429,7 +458,7 @@ def dto_to_submit_coretax_command(
                 elif isinstance(value, (UUID, datetime, date)):
                     payload[key] = str(value)
                 elif isinstance(value, Decimal):
-                    payload[key] = float(value)
+                    payload[key] = _safe_float(value)
                 else:
                     payload[key] = value
 

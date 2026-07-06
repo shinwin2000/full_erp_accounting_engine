@@ -3,6 +3,13 @@
 Module: journal_entity.py
 Layer: Domain / Journal
 Responsibility: Entitas header jurnal dan state machine (circular import fixed).
+
+Perbaikan:
+- Validasi Double-Entry eksplisit di __post_init__.
+- Immutability guard untuk journal yang sudah diposting.
+- Method update_metadata dan update_totals dengan validasi.
+- Helper _ensure_editable dan _ensure_not_posted.
+- Docstring lengkap.
 """
 
 from __future__ import annotations
@@ -19,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 
 class JournalStatus(Enum):
+    """Status lifecycle of a journal entry."""
+
     DRAFT = "draft"
     SUBMITTED = "submitted"
     APPROVED = "approved"
@@ -36,13 +45,12 @@ class JournalStatus(Enum):
         return cls.DRAFT
 
     def can_transition_to(self, to_status: JournalStatus) -> bool:
-        # Lazy lookup to avoid circular import;
-        # JournalStateMachine is defined later in this module.
-        # Using globals() ensures the reference is resolved at call time.
+        """Check if transition to given status is allowed."""
         return globals()["JournalStateMachine"].can_transition(self, to_status)
 
 
 class JournalType(Enum):
+    """Type of journal entry."""
     GENERAL = "general"
     ADJUSTING = "adjusting"
     CLOSING = "closing"
@@ -74,6 +82,8 @@ class JournalType(Enum):
 
 @dataclass
 class JournalLine:
+    """A single line in a journal entry."""
+
     id: UUID = field(default_factory=uuid4)
     journal_id: UUID | None = None
     account_code: str = ""
@@ -91,7 +101,8 @@ class JournalLine:
     tax_rate: Decimal = Decimal(0)
     tax_amount: Decimal = Decimal(0)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Validate line invariants."""
         if self.debit_amount < 0 or self.credit_amount < 0:
             raise ValueError("Debit and credit amounts must be non-negative")
         if self.debit_amount == 0 and self.credit_amount == 0:
@@ -101,13 +112,16 @@ class JournalLine:
 
     @property
     def net_amount(self) -> Decimal:
+        """Net amount (debit - credit)."""
         return self.debit_amount - self.credit_amount
 
     @property
     def side(self) -> str:
+        """Return 'debit' or 'credit' based on the line."""
         return "debit" if self.debit_amount > 0 else "credit"
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
         return {
             "id": str(self.id),
             "journal_id": str(self.journal_id) if self.journal_id else None,
@@ -129,6 +143,7 @@ class JournalLine:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> JournalLine:
+        """Reconstruct from dictionary."""
         return cls(
             id=UUID(data["id"]) if data.get("id") else uuid4(),
             journal_id=UUID(data["journal_id"]) if data.get("journal_id") else None,
@@ -150,7 +165,7 @@ class JournalLine:
 
 
 # ============================================================================
-# STATE MACHINE DEFINITIONS (all in one file to avoid circular import)
+# STATE MACHINE DEFINITIONS
 # ============================================================================
 
 _ALLOWED_TRANSITIONS: dict[JournalStatus, set[JournalStatus]] = {
@@ -191,6 +206,7 @@ _ALLOWED_TRANSITIONS: dict[JournalStatus, set[JournalStatus]] = {
 
 @dataclass
 class StateTransitionRule:
+    """Rule for a state transition."""
     from_status: JournalStatus
     to_status: JournalStatus
     requires_approval: bool = False
@@ -389,6 +405,20 @@ class JournalStateMachine:
 
 @dataclass
 class JournalEntity:
+    """
+    Journal header entity.
+
+    This entity represents the header of a journal entry. It does not contain
+    line items; lines are managed separately. The total_debit and total_credit
+    fields must be maintained by the caller and validated for balance.
+
+    Invariants:
+    - total_debit == total_credit (within tolerance)
+    - journal_number is at least 3 characters
+    - description is at least 2 characters
+    - total_debit and total_credit are non-negative
+    """
+
     journal_id: UUID
     journal_number: str
     journal_type: JournalType
@@ -405,70 +435,148 @@ class JournalEntity:
     bank_account_id: UUID | None = None
     total_debit: Decimal = Decimal(0)
     total_credit: Decimal = Decimal(0)
-    _audit_trail: list[dict] = field(default_factory=list, repr=False)
+    _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
     _is_locked: bool = False
 
     def __post_init__(self) -> None:
+        """
+        Validate all invariants after initialization.
+
+        Raises:
+            ValueError: If any invariant is violated.
+        """
+        # Validate journal number
         if not self.journal_number or len(self.journal_number.strip()) < 3:
             raise ValueError("Journal number must be at least 3 characters")
+
+        # Validate description
         if not self.description or len(self.description.strip()) < 2:
             raise ValueError("Description must be at least 2 characters")
+
+        # Validate non-negative totals
         if self.total_debit < 0 or self.total_credit < 0:
             raise ValueError("Total debit and credit cannot be negative")
+
+        # ========== DOUBLE-ENTRY VALIDATION (ACC-016) ==========
+        # Ensure total debit equals total credit within tolerance.
+        # This is the core double-entry axiom check.
         if abs(self.total_debit - self.total_credit) > Decimal("0.01"):
             raise ValueError(
                 f"Journal not balanced: debit={self.total_debit}, credit={self.total_credit}"
             )
 
+    # ==================== PROPERTIES ====================
+
     @property
     def id(self) -> UUID:
+        """Get journal ID."""
         return self.journal_id
 
     @property
     def is_balanced(self) -> bool:
+        """Check if the journal is balanced within tolerance."""
         return abs(self.total_debit - self.total_credit) <= Decimal("0.01")
 
     @property
     def difference(self) -> Decimal:
+        """Difference between total debit and total credit."""
         return self.total_debit - self.total_credit
 
     @property
     def is_posted(self) -> bool:
+        """Check if the journal has been posted."""
         return self.status == JournalStatus.POSTED
 
     @property
     def is_draft(self) -> bool:
+        """Check if the journal is in DRAFT status."""
         return self.status == JournalStatus.DRAFT
 
     @property
     def is_locked(self) -> bool:
+        """Check if the journal is locked."""
         return self._is_locked
 
-    def can_edit(self) -> bool:
+    @property
+    def is_editable(self) -> bool:
+        """Check if the journal can be edited."""
         return JournalStateMachine.can_edit(self.status) and not self._is_locked
 
+    # ==================== BUSINESS RULES HELPERS ====================
+
+    def _ensure_editable(self, operation: str) -> None:
+        """
+        Ensure the journal is in an editable state.
+
+        Args:
+            operation: Name of the operation for error messages.
+
+        Raises:
+            ValueError: If the journal is locked or not editable.
+        """
+        if self._is_locked:
+            raise ValueError(f"Cannot {operation}: journal is locked")
+        if not JournalStateMachine.can_edit(self.status):
+            raise ValueError(f"Cannot {operation}: journal is in status {self.status.value}")
+
+    def _ensure_not_posted(self, operation: str) -> None:
+        """
+        Ensure the journal is not posted (immutability guard).
+
+        Args:
+            operation: Name of the operation for error messages.
+
+        Raises:
+            ValueError: If the journal is POSTED.
+        """
+        if self.status == JournalStatus.POSTED:
+            raise ValueError(
+                f"Cannot {operation}: journal has been posted and is immutable. "
+                "Use reverse() to create a reversal instead."
+            )
+
+    def can_edit(self) -> bool:
+        """Check if the journal can be edited."""
+        return self.is_editable
+
     def can_submit(self) -> bool:
+        """Check if the journal can be submitted."""
         return self.status == JournalStatus.DRAFT and not self._is_locked
 
     def can_approve(self) -> bool:
+        """Check if the journal can be approved."""
         return self.status == JournalStatus.SUBMITTED and not self._is_locked
 
     def can_post(self) -> bool:
+        """Check if the journal can be posted."""
         return self.status == JournalStatus.APPROVED and not self._is_locked
 
     def can_reverse(self) -> bool:
+        """Check if the journal can be reversed."""
         return self.status == JournalStatus.POSTED and not self._is_locked
 
     def can_cancel(self) -> bool:
+        """Check if the journal can be cancelled."""
         return self.status in [JournalStatus.DRAFT, JournalStatus.SUBMITTED] and not self._is_locked
 
     def can_archive(self) -> bool:
+        """Check if the journal can be archived."""
         return (
             self.status in [JournalStatus.POSTED, JournalStatus.REVERSED, JournalStatus.REJECTED]
             and not self._is_locked
         )
 
-    def record_audit(self, action: str, user_id: str, details: dict | None = None) -> None:
+    # ==================== AUDIT TRAIL ====================
+
+    def record_audit(self, action: str, user_id: str, details: dict[str, Any] | None = None) -> None:
+        """
+        Record an audit trail entry.
+
+        Args:
+            action: Name of the action.
+            user_id: ID of the user performing the action.
+            details: Additional details about the action.
+        """
         self._audit_trail.append(
             {
                 "timestamp": datetime.now(UTC).isoformat(),
@@ -479,10 +587,155 @@ class JournalEntity:
             }
         )
 
-    def get_audit_trail(self) -> list[dict]:
+    def get_audit_trail(self) -> list[dict[str, Any]]:
+        """Get a copy of the full audit trail."""
         return self._audit_trail.copy()
 
+    # ==================== METADATA UPDATE ====================
+
+    def update_metadata(
+        self,
+        updated_by: str,
+        description: str | None = None,
+        reference: str | None = None,
+        transaction_date: datetime | None = None,
+    ) -> JournalEntity:
+        """
+        Update metadata fields of the journal.
+
+        Args:
+            updated_by: User performing the update.
+            description: New description (optional).
+            reference: New reference (optional).
+            transaction_date: New transaction date (optional).
+
+        Returns:
+            A new JournalEntity instance with updated metadata.
+
+        Raises:
+            ValueError: If the journal is locked, not editable, or posted.
+        """
+        self._ensure_editable("update metadata")
+        self._ensure_not_posted("update metadata")
+
+        changes = {}
+        new_description = self.description
+        new_reference = self.reference
+        new_transaction_date = self.transaction_date
+
+        if description is not None and description != self.description:
+            if not description or len(description.strip()) < 2:
+                raise ValueError("Description must be at least 2 characters")
+            changes["description"] = {"old": self.description, "new": description}
+            new_description = description
+
+        if reference is not None and reference != self.reference:
+            changes["reference"] = {"old": self.reference, "new": reference}
+            new_reference = reference
+
+        if transaction_date is not None and transaction_date != self.transaction_date:
+            changes["transaction_date"] = {
+                "old": self.transaction_date.isoformat(),
+                "new": transaction_date.isoformat(),
+            }
+            new_transaction_date = transaction_date
+
+        if not changes:
+            return self
+
+        new_journal = JournalEntity(
+            journal_id=self.journal_id,
+            journal_number=self.journal_number,
+            journal_type=self.journal_type,
+            transaction_date=new_transaction_date,
+            description=new_description,
+            legal_entity_id=self.legal_entity_id,
+            status=self.status,
+            created_by=self.created_by,
+            created_at=self.created_at,
+            updated_at=datetime.now(UTC),
+            reference=new_reference,
+            source_system=self.source_system,
+            version=self.version + 1,
+            bank_account_id=self.bank_account_id,
+            total_debit=self.total_debit,
+            total_credit=self.total_credit,
+            _is_locked=self._is_locked,
+        )
+        new_journal.record_audit("metadata_updated", updated_by, {"changes": changes})
+        logger.info("Journal %s metadata updated by %s", self.journal_id, updated_by)
+        return new_journal
+
+    # ==================== TOTALS UPDATE ====================
+
+    def update_totals(
+        self,
+        updated_by: str,
+        new_total_debit: Decimal,
+        new_total_credit: Decimal,
+    ) -> JournalEntity:
+        """
+        Update the total debit and credit amounts.
+
+        Args:
+            updated_by: User performing the update.
+            new_total_debit: New total debit amount.
+            new_total_credit: New total credit amount.
+
+        Returns:
+            A new JournalEntity instance with updated totals.
+
+        Raises:
+            ValueError: If the journal is locked, not editable, posted, or unbalanced.
+        """
+        self._ensure_editable("update totals")
+        self._ensure_not_posted("update totals")
+
+        if new_total_debit < 0 or new_total_credit < 0:
+            raise ValueError("Total debit and credit cannot be negative")
+
+        # Validate double-entry balance
+        if abs(new_total_debit - new_total_credit) > Decimal("0.01"):
+            raise ValueError(
+                f"Journal would be unbalanced: debit={new_total_debit}, credit={new_total_credit}"
+            )
+
+        new_journal = JournalEntity(
+            journal_id=self.journal_id,
+            journal_number=self.journal_number,
+            journal_type=self.journal_type,
+            transaction_date=self.transaction_date,
+            description=self.description,
+            legal_entity_id=self.legal_entity_id,
+            status=self.status,
+            created_by=self.created_by,
+            created_at=self.created_at,
+            updated_at=datetime.now(UTC),
+            reference=self.reference,
+            source_system=self.source_system,
+            version=self.version + 1,
+            bank_account_id=self.bank_account_id,
+            total_debit=new_total_debit,
+            total_credit=new_total_credit,
+            _is_locked=self._is_locked,
+        )
+        new_journal.record_audit(
+            "totals_updated",
+            updated_by,
+            {
+                "old_debit": str(self.total_debit),
+                "new_debit": str(new_total_debit),
+                "old_credit": str(self.total_credit),
+                "new_credit": str(new_total_credit),
+            },
+        )
+        logger.info("Journal %s totals updated by %s", self.journal_id, updated_by)
+        return new_journal
+
+    # ==================== SERIALIZATION ====================
+
     def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary representation."""
         return {
             "journal_id": str(self.journal_id),
             "journal_number": self.journal_number,
@@ -505,6 +758,7 @@ class JournalEntity:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> JournalEntity:
+        """Reconstruct from dictionary."""
         return cls(
             journal_id=UUID(data["journal_id"]),
             journal_number=data["journal_number"],
@@ -525,7 +779,14 @@ class JournalEntity:
         )
 
 
+# ============================================================================
+# REPOSITORY PROTOCOL
+# ============================================================================
+
+
 class JournalEntityRepository:
+    """Repository protocol for JournalEntity."""
+
     async def get_by_id(self, journal_id: UUID, legal_entity_id: UUID) -> JournalEntity | None:
         raise NotImplementedError
 
@@ -543,6 +804,10 @@ class JournalEntityRepository:
     async def exists(self, journal_number: str, legal_entity_id: UUID) -> bool:
         raise NotImplementedError
 
+
+# ============================================================================
+# ALIAS
+# ============================================================================
 
 JournalEntry = JournalEntity
 

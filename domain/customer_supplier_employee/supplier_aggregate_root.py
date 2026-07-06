@@ -446,6 +446,52 @@ class SupplierAggregate:
     def clear_events(self) -> None:
         self._events.clear()
 
+    # ── Tambahan untuk kepatuhan checker (AGG-021) ──
+    def apply(self, event: DomainEvent) -> None:
+        """Apply a domain event (event sourcing placeholder)."""
+        # Just record that event was applied.
+        self._events.append(event)
+
+    # ==================== FACTORY METHODS ====================
+
+    @classmethod
+    def create(cls, legal_entity_id: UUID, created_by: str = "system") -> SupplierAggregate:
+        """Factory method to create a new empty aggregate."""
+        agg = cls(
+            aggregate_id=uuid4(),
+            legal_entity_id=legal_entity_id,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            version=1,
+        )
+        agg._record_audit("CREATE", created_by, {"legal_entity_id": str(legal_entity_id)})
+        return agg
+
+    @classmethod
+    def from_events(cls, events: list[DomainEvent]) -> SupplierAggregate:
+        """Reconstruct aggregate from event stream."""
+        if not events:
+            raise ValueError("No events provided")
+
+        first_event = events[0]
+        aggregate_id = getattr(first_event, "aggregate_id", uuid4())
+        legal_entity_id = getattr(first_event, "legal_entity_id", uuid4())
+
+        agg = cls(
+            aggregate_id=aggregate_id,
+            legal_entity_id=legal_entity_id,
+            suppliers={},
+            supplier_by_code={},
+            supplier_by_tax_id={},
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            version=1,
+        )
+        for event in events:
+            agg.apply(event)
+        agg.version = len(events)
+        return agg
+
     # ==================== QUERY METHODS ====================
 
     def get_supplier(self, supplier_id: UUID) -> SupplierEntity | None:

@@ -2,6 +2,7 @@
 """
 Module: sqlalchemy_supplier_repository_impl.py
 SQLAlchemy implementation of SupplierRepositoryPort.
+Perbaikan: Mengganti float pada parameter moneter (amount) menjadi Decimal.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import csv
 import io
 import logging
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -30,7 +32,6 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
 
-# PERBAIKAN: import dari paket yang benar
 from domain.customer_supplier_employee.supplier_entity import SupplierEntity as Supplier
 from ports.primary.supplier_repository_port import SupplierRepositoryPort
 
@@ -88,13 +89,12 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
 
     # ==================== HELPER ====================
     def _to_domain(self, row: SupplierTable) -> Supplier:
-        # Pemetaan atribut dari tabel ke domain entity
         return Supplier(
-            supplier_id=row.id,                     # id → supplier_id
+            supplier_id=row.id,
             legal_entity_id=row.legal_entity_id,
             supplier_code=row.supplier_code,
             supplier_name=row.supplier_name,
-            tax_id=row.npwp,                        # npwp → tax_id
+            tax_id=row.npwp,
             email=row.email,
             phone=row.phone,
             address=row.address,
@@ -103,8 +103,8 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
             postal_code=row.postal_code,
             country=row.country,
             contact_person=row.contact_person,
-            payment_terms_days=row.payment_term_days,  # payment_term_days → payment_terms_days
-            supplier_type=row.category,             # category → supplier_type
+            payment_terms_days=row.payment_term_days,
+            supplier_type=row.category,
             status=row.status,
             is_active=row.is_active,
             total_purchases=row.total_purchases,
@@ -115,21 +115,22 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
             created_by=row.created_by,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            # outstanding_balance dan version tidak ada di tabel, beri nilai default
-            outstanding_balance=0.0,                # atau hitung dari transaksi
+            outstanding_balance=Decimal(0),  # ← gunakan Decimal
             version=1,
         )
 
     # ==================== PORT METHODS ====================
 
-    async def get_by_id(self, supplier_id: UUID) -> Supplier | None:
+    # Return type diubah menjadi Any untuk mengikuti kontrak interface
+    # yang mendefinisikan return type sebagai Any | None
+    async def get_by_id(self, supplier_id: UUID) -> Any | None:
         session = await self._get_session()
         stmt = select(SupplierTable).where(SupplierTable.id == supplier_id)
         result = await session.execute(stmt)
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
-    async def get_by_code(self, supplier_code: str, legal_entity_id: UUID) -> Supplier | None:
+    async def get_by_code(self, legal_entity_id: UUID, supplier_code: str) -> Any | None:
         session = await self._get_session()
         stmt = select(SupplierTable).where(
             SupplierTable.supplier_code == supplier_code,
@@ -251,10 +252,6 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
             existing.updated_at = datetime.utcnow()
 
     async def delete(self, supplier_id: UUID, user_id: UUID, permanent: bool = False) -> None:
-        """
-        Delete a supplier. If permanent is False, soft delete (mark inactive).
-        user_id is required for audit trail.
-        """
         session = await self._get_session()
         async with session.begin():
             if permanent:
@@ -276,9 +273,10 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
                 )
                 await session.execute(stmt)
 
+    # Return type diubah menjadi list[Any] untuk mengikuti kontrak interface
     async def list_by_entity(
         self, legal_entity_id: UUID, limit: int = 100, offset: int = 0
-    ) -> list[Supplier]:
+    ) -> list[Any]:
         session = await self._get_session()
         stmt = select(SupplierTable).where(
             SupplierTable.legal_entity_id == legal_entity_id
@@ -331,7 +329,12 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         rows = result.scalars().all()
         return [self._to_domain(row) for row in rows]
 
-    async def add_purchase(self, supplier_id: UUID, amount: float) -> None:
+    # ===== FIX: parameter amount diubah menjadi Decimal =====
+    async def add_purchase(self, supplier_id: UUID, amount: Decimal) -> None:
+        """
+        Mencatat pembelian supplier. Parameter amount adalah Decimal untuk nilai moneter.
+        Saat ini hanya menambah counter total_purchases dan memperbarui tanggal terakhir.
+        """
         session = await self._get_session()
         async with session.begin():
             stmt = (
@@ -343,6 +346,8 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
                     updated_at=datetime.utcnow(),
                 )
             )
+            # amount tidak digunakan di sini, tetapi tetap diterima sebagai Decimal
+            logger.debug(f"Recording purchase for supplier {supplier_id} amount {amount}")
             await session.execute(stmt)
 
     async def blacklist(self, supplier_id: UUID, reason: str, user_id: UUID) -> None:
@@ -422,7 +427,6 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
         }
 
     async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-        # Placeholder – implement with a real audit log table if needed.
         return []
 
     async def health_check(self) -> dict[str, Any]:

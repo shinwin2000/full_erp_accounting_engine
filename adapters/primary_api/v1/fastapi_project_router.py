@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_project_router.py
@@ -25,6 +24,8 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -32,7 +33,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -44,6 +45,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -468,9 +515,8 @@ class UtilizationReportSchema(BaseModel):
 # ============================================================================
 
 
-async def get_project_service(request: Request, ) -> Any:
+async def get_project_service(request: Request) -> Any:
     """Get Project Service instance."""
-
     from application.service_layer.service_project import ProjectService
 
     container = request.app.state.container
@@ -498,12 +544,20 @@ router = APIRouter(prefix="/projects", tags=["Projects & Services"])
 )
 async def create_project(
     request: ProjectCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("project:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_project_service),
 ) -> ProjectResponseSchema:
     """Create a new project."""
+    method_name = "create_project"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ProjectResponseSchema(**cached)
+
     try:
         result = await service.create_project(
             project_code=request.project_code,
@@ -524,7 +578,7 @@ async def create_project(
             legal_entity_id=legal_entity_id,
         )
 
-        return ProjectResponseSchema(
+        response = ProjectResponseSchema(
             id=result.id,
             project_code=result.project_code,
             project_name=result.project_name,
@@ -558,6 +612,11 @@ async def create_project(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -644,7 +703,7 @@ async def get_project_by_code(
         if not project:
             raise HTTPException(
                 status_code=404,
-                detail=f"Project {project_code} not found",  # nosec
+                detail=f"Project {project_code} not found",
             )
 
         return ProjectResponseSchema(
@@ -697,12 +756,20 @@ async def get_project_by_code(
 async def update_project(
     project_id: UUID,
     request: ProjectUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("project:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_project_service),
 ) -> ProjectResponseSchema:
     """Update project information."""
+    method_name = "update_project"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ProjectResponseSchema(**cached)
+
     try:
         result = await service.update_project(
             project_id=project_id,
@@ -720,7 +787,7 @@ async def update_project(
         if not result:
             raise HTTPException(status_code=404, detail="Project not found or cannot be updated")
 
-        return ProjectResponseSchema(
+        response = ProjectResponseSchema(
             id=result.id,
             project_code=result.project_code,
             project_name=result.project_name,
@@ -754,6 +821,11 @@ async def update_project(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -771,12 +843,20 @@ async def close_project(
     project_id: UUID,
     permanent: bool = Query(False, description="Permanent closure"),
     reason: str = Query("", description="Reason for closure"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("project:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_project_service),
 ) -> dict[str, Any]:
     """Close or cancel a project."""
+    method_name = "close_project"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         if permanent:
             result = await service.delete_project(
@@ -792,13 +872,18 @@ async def close_project(
         if not result:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        return {
+        response = {
             "project_id": str(project_id),
             "project_code": result.project_code,
             "action": action,
             "status": result.status,
-            "message": f"Project {action} successfully",  # nosec
+            "message": f"Project {action} successfully",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -814,19 +899,27 @@ async def close_project(
 )
 async def activate_project(
     project_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("project:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_project_service),
 ) -> ProjectResponseSchema:
     """Activate a project (change status to ACTIVE)."""
+    method_name = "activate_project"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ProjectResponseSchema(**cached)
+
     try:
         result = await service.activate_project(project_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Project not found or cannot be activated")
 
-        return ProjectResponseSchema(
+        response = ProjectResponseSchema(
             id=result.id,
             project_code=result.project_code,
             project_name=result.project_name,
@@ -860,6 +953,11 @@ async def activate_project(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -876,12 +974,20 @@ async def activate_project(
 async def suspend_project(
     project_id: UUID,
     reason: str = Query(..., description="Suspension reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("project:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_project_service),
 ) -> ProjectResponseSchema:
     """Suspend a project (change status to ON_HOLD)."""
+    method_name = "suspend_project"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ProjectResponseSchema(**cached)
+
     try:
         result = await service.suspend_project(
             project_id, current_user.user_id, legal_entity_id, reason
@@ -890,7 +996,7 @@ async def suspend_project(
         if not result:
             raise HTTPException(status_code=404, detail="Project not found or cannot be suspended")
 
-        return ProjectResponseSchema(
+        response = ProjectResponseSchema(
             id=result.id,
             project_code=result.project_code,
             project_name=result.project_name,
@@ -924,6 +1030,11 @@ async def suspend_project(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1123,12 +1234,20 @@ async def get_project_revenue(
 )
 async def create_time_entry(
     request: TimeEntryCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("project:time_entry")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_project_service),
 ) -> TimeEntryResponseSchema:
     """Create a time entry for an employee."""
+    method_name = "create_time_entry"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return TimeEntryResponseSchema(**cached)
+
     try:
         result = await service.create_time_entry(
             project_id=request.project_id,
@@ -1142,7 +1261,7 @@ async def create_time_entry(
             legal_entity_id=legal_entity_id,
         )
 
-        return TimeEntryResponseSchema(
+        response = TimeEntryResponseSchema(
             id=result.id,
             time_entry_number=result.time_entry_number,
             employee_id=result.employee_id,
@@ -1171,6 +1290,11 @@ async def create_time_entry(
             rejection_reason=result.rejection_reason,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1257,12 +1381,20 @@ async def list_time_entries(
 async def update_time_entry(
     time_entry_id: UUID,
     request: TimeEntryUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("project:time_entry")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_project_service),
 ) -> TimeEntryResponseSchema:
     """Update a time entry (only DRAFT or REJECTED)."""
+    method_name = "update_time_entry"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return TimeEntryResponseSchema(**cached)
+
     try:
         result = await service.update_time_entry(
             time_entry_id=time_entry_id,
@@ -1277,7 +1409,7 @@ async def update_time_entry(
         if not result:
             raise HTTPException(status_code=404, detail="Time entry not found or cannot be updated")
 
-        return TimeEntryResponseSchema(
+        response = TimeEntryResponseSchema(
             id=result.id,
             time_entry_number=result.time_entry_number,
             employee_id=result.employee_id,
@@ -1306,6 +1438,11 @@ async def update_time_entry(
             rejection_reason=result.rejection_reason,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1322,12 +1459,20 @@ async def update_time_entry(
 async def approve_time_entry(
     time_entry_id: UUID,
     notes: str = Query("", description="Approval notes"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("project:time_entry_approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_project_service),
 ) -> TimeEntryResponseSchema:
     """Approve a submitted time entry."""
+    method_name = "approve_time_entry"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return TimeEntryResponseSchema(**cached)
+
     try:
         result = await service.approve_time_entry(
             time_entry_id=time_entry_id,
@@ -1341,7 +1486,7 @@ async def approve_time_entry(
                 status_code=404, detail="Time entry not found or cannot be approved"
             )
 
-        return TimeEntryResponseSchema(
+        response = TimeEntryResponseSchema(
             id=result.id,
             time_entry_number=result.time_entry_number,
             employee_id=result.employee_id,
@@ -1370,6 +1515,11 @@ async def approve_time_entry(
             rejection_reason=result.rejection_reason,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1386,12 +1536,20 @@ async def approve_time_entry(
 async def reject_time_entry(
     time_entry_id: UUID,
     reason: str = Query(..., min_length=5, description="Rejection reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("project:time_entry_approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_project_service),
 ) -> TimeEntryResponseSchema:
     """Reject a submitted time entry."""
+    method_name = "reject_time_entry"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return TimeEntryResponseSchema(**cached)
+
     try:
         result = await service.reject_time_entry(
             time_entry_id=time_entry_id,
@@ -1405,7 +1563,7 @@ async def reject_time_entry(
                 status_code=404, detail="Time entry not found or cannot be rejected"
             )
 
-        return TimeEntryResponseSchema(
+        response = TimeEntryResponseSchema(
             id=result.id,
             time_entry_number=result.time_entry_number,
             employee_id=result.employee_id,
@@ -1434,6 +1592,11 @@ async def reject_time_entry(
             rejection_reason=result.rejection_reason,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1455,12 +1618,20 @@ async def reject_time_entry(
 )
 async def create_retainer_contract(
     request: RetainerContractCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("project:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_project_service),
 ) -> RetainerContractResponseSchema:
     """Create a retainer contract for a customer."""
+    method_name = "create_retainer_contract"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return RetainerContractResponseSchema(**cached)
+
     try:
         result = await service.create_retainer_contract(
             customer_id=request.customer_id,
@@ -1475,7 +1646,7 @@ async def create_retainer_contract(
             legal_entity_id=legal_entity_id,
         )
 
-        return RetainerContractResponseSchema(
+        response = RetainerContractResponseSchema(
             id=result.id,
             customer_id=result.customer_id,
             customer_name=result.customer_name,
@@ -1497,6 +1668,11 @@ async def create_retainer_contract(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1518,12 +1694,20 @@ async def create_retainer_contract(
 )
 async def recognize_revenue(
     request: RevenueRecognitionRequestSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("project:revenue")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_project_service),
 ) -> list[RevenueRecognitionResponseSchema]:
     """Recognize revenue for projects based on recognition method."""
+    method_name = "recognize_revenue"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return [RevenueRecognitionResponseSchema(**item) for item in cached]
+
     try:
         results = await service.recognize_revenue(
             legal_entity_id=legal_entity_id,
@@ -1533,7 +1717,7 @@ async def recognize_revenue(
             processed_by=current_user.user_id,
         )
 
-        return [
+        response_list = [
             RevenueRecognitionResponseSchema(
                 recognition_id=r.id,
                 project_id=r.project_id,
@@ -1549,6 +1733,13 @@ async def recognize_revenue(
             )
             for r in results
         ]
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(
+                idempotency_key, method_name, [item.model_dump() for item in response_list]
+            )
+
+        return response_list
     except Exception as e:
         logger.exception("Failed to recognize revenue: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")

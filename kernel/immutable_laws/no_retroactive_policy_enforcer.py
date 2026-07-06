@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -329,10 +330,182 @@ class RetroactiveApplicationRecord:
         }
 
 
-# === 3. NO RETROACTIVE POLICY ENFORCER ===
+# ============================================================================
+# BASE NO RETROACTIVE POLICY ENFORCER (ABSTRACT)
+# ============================================================================
+
+class BaseNoRetroactivePolicyEnforcer(ABC):
+    """Base contract untuk No Retroactive Policy Enforcer."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan enforcer."""
+        pass
+
+    @abstractmethod
+    def set_strict_mode(self, strict: bool = True) -> None:
+        """Set strict mode."""
+        pass
+
+    @abstractmethod
+    async def enforce_no_retroactive(
+        self,
+        policy_id: UUID,
+        effective_date: datetime,
+        legal_entity_id: UUID,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, NoRetroactivePolicyViolation | None]:
+        """Enforce no retroactive policy application."""
+        pass
+
+    @abstractmethod
+    async def enforce_policy_transition(
+        self,
+        old_policy_id: UUID,
+        new_policy_id: UUID,
+        transition_date: datetime,
+        legal_entity_id: UUID,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, NoRetroactivePolicyViolation | None]:
+        """Enforce policy transition rules."""
+        pass
+
+    @abstractmethod
+    async def allow_retroactive_with_approval(
+        self,
+        policy_id: UUID,
+        effective_date: datetime,
+        legal_entity_id: UUID,
+        approved_by: list[str],
+        reason: str,
+        regulatory_mandate: bool = False,
+        justification_document: str | None = None,
+        applied_by: str | None = None,
+    ) -> RetroactiveApplicationRecord:
+        """Allow retroactive policy with approvals."""
+        pass
+
+    @abstractmethod
+    async def get_policy_effective_summary(
+        self,
+        legal_entity_id: UUID,
+        as_of_date: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Get policy effective summary."""
+        pass
+
+    @abstractmethod
+    async def get_retroactive_applications(
+        self,
+        policy_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+        limit: int = 100,
+    ) -> list[RetroactiveApplicationRecord]:
+        """Get retroactive application records."""
+        pass
+
+    @abstractmethod
+    async def create_policy(
+        self,
+        legal_entity_id: UUID,
+        policy_name: str,
+        policy_type: PolicyType,
+        effective_date: datetime,
+        created_by: str,
+        approved_by: list[str],
+        description: str = "",
+        is_active: bool = True,
+    ) -> AccountingPolicy:
+        """Create a new accounting policy."""
+        pass
+
+    @abstractmethod
+    async def update_policy_status(
+        self,
+        policy_id: UUID,
+        legal_entity_id: UUID,
+        is_active: bool,
+        updated_by: str,
+    ) -> bool:
+        """Update policy status."""
+        pass
+
+    @abstractmethod
+    def get_violations(
+        self,
+        limit: int = 100,
+        policy_id: UUID | None = None,
+        legal_entity_id: UUID | None = None,
+    ) -> list[NoRetroactivePolicyViolation]:
+        """Get violation history."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset state."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseNoRetroactivePolicyEnforcer:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseNoRetroactivePolicyEnforcer:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseNoRetroactivePolicyEnforcer:
+        """Touch instance (increment version)."""
+        pass
 
 
-class NoRetroactivePolicyEnforcer:
+# ============================================================================
+# NO RETROACTIVE POLICY ENFORCER (CONCRETE)
+# ============================================================================
+
+class NoRetroactivePolicyEnforcer(BaseNoRetroactivePolicyEnforcer):
     """
     Enforcer untuk hukum no retroactive policy.
 
@@ -354,13 +527,138 @@ class NoRetroactivePolicyEnforcer:
         self._lock = threading.RLock()
         self._enabled = True
         self._strict_mode = True
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        policy_id = context.get("policy_id")
+        effective_date = context.get("effective_date")
+        legal_entity_id = context.get("legal_entity_id")
+
+        if not policy_id:
+            errors.append("policy_id is required")
+        else:
+            try:
+                UUID(str(policy_id))
+            except Exception:
+                errors.append("policy_id must be a valid UUID")
+        if not effective_date:
+            errors.append("effective_date is required")
+        else:
+            try:
+                if isinstance(effective_date, str):
+                    datetime.fromisoformat(effective_date)
+                elif not isinstance(effective_date, datetime):
+                    errors.append("effective_date must be a datetime or ISO string")
+            except ValueError:
+                errors.append("effective_date must be a valid ISO format date")
+        if not legal_entity_id:
+            errors.append("legal_entity_id is required")
+        else:
+            try:
+                UUID(str(legal_entity_id))
+            except Exception:
+                errors.append("legal_entity_id must be a valid UUID")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "max_history": self._max_history,
+                "retroactive_records_count": len(self._retroactive_records),
+                "violations_count": len(self._violation_history),
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> NoRetroactivePolicyEnforcer:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._strict_mode = data.get("strict_mode", True)
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> NoRetroactivePolicyEnforcer:
+        """Clone instance."""
+        new_instance = NoRetroactivePolicyEnforcer()
+        new_instance._enabled = self._enabled
+        new_instance._strict_mode = self._strict_mode
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "retroactive_records_count": len(self._retroactive_records),
+                "violations_count": len(self._violation_history),
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> NoRetroactivePolicyEnforcer:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"No retroactive policy enforcer enabled: {enabled}")
 
     def set_strict_mode(self, strict: bool = True) -> None:
         self._strict_mode = strict
+        self._record_audit("SET_STRICT_MODE", "system", {"strict": strict})
         logger.info(f"No retroactive policy enforcer strict mode: {strict}")
 
     async def enforce_no_retroactive(
@@ -523,6 +821,11 @@ class NoRetroactivePolicyEnforcer:
             if len(self._retroactive_records) > self._max_history:
                 self._retroactive_records = self._retroactive_records[-self._max_history :]
 
+        self._record_audit("ALLOW_RETROACTIVE", applied_by, {
+            "policy_id": str(policy_id),
+            "reason": reason,
+            "approved_by": approved_by,
+        })
         logger.warning(
             f"Retroactive policy {policy_id} approved by {approved_by}. Reason: {reason}"
         )
@@ -628,6 +931,11 @@ class NoRetroactivePolicyEnforcer:
             description=description,
         )
 
+        self._record_audit("CREATE_POLICY", created_by, {
+            "policy_id": str(policy_id),
+            "policy_name": policy_name,
+            "policy_type": policy_type.value,
+        })
         logger.info(
             f"Policy created: {policy_name} (type {policy_type.value}) effective {effective_date.date()}"
         )
@@ -647,6 +955,10 @@ class NoRetroactivePolicyEnforcer:
             updated_by=updated_by,
         )
         if success:
+            self._record_audit("UPDATE_POLICY_STATUS", updated_by, {
+                "policy_id": str(policy_id),
+                "is_active": is_active,
+            })
             logger.info(
                 f"Policy {policy_id} status changed to {'active' if is_active else 'inactive'} by {updated_by}"
             )
@@ -657,6 +969,10 @@ class NoRetroactivePolicyEnforcer:
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
+            self._record_audit("VIOLATION", violation.user_id or "system", {
+                "message": violation.message,
+                "severity": violation.severity.name,
+            })
 
     def get_violations(
         self,
@@ -689,6 +1005,7 @@ class NoRetroactivePolicyEnforcer:
                 "by_reason": by_reason,
                 "enabled": self._enabled,
                 "strict_mode": self._strict_mode,
+                "version": self._version,
                 "latest_violation": self._violation_history[-1].timestamp.isoformat()
                 if self._violation_history
                 else None,
@@ -703,6 +1020,8 @@ class NoRetroactivePolicyEnforcer:
             self._violation_history = []
             self._enabled = True
             self._strict_mode = True
+            self._version += 1
+            self._audit_trail = []
             if hasattr(self._policy_repo, "clear"):
                 self._policy_repo.clear()
             if hasattr(self._period_repo, "clear"):

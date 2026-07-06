@@ -12,6 +12,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, Optional
 from uuid import UUID, uuid4
+from enum import Enum
 
 from sqlalchemy import Column, DateTime, String, Text, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID

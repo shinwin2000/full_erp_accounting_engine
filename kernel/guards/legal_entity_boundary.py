@@ -20,8 +20,10 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
@@ -193,10 +195,169 @@ class EntityAccessCheckResult:
         }
 
 
-# === 3. LEGAL ENTITY BOUNDARY GUARD ===
+# ============================================================================
+# BASE LEGAL ENTITY BOUNDARY GUARD (ABSTRACT)
+# ============================================================================
+
+class BaseLegalEntityBoundaryGuard(ABC):
+    """Base contract untuk Legal Entity Boundary Guard."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan guard."""
+        pass
+
+    @abstractmethod
+    def set_strict_mode(self, enabled: bool) -> None:
+        """Set strict mode."""
+        pass
+
+    @abstractmethod
+    def set_allowed_cross_entity_operations(self, operations: list[str]) -> None:
+        """Set daftar operasi yang diizinkan untuk cross-entity (non-strict mode)."""
+        pass
+
+    @abstractmethod
+    def clear_cache(self) -> None:
+        """Clear cache hasil check."""
+        pass
+
+    @abstractmethod
+    async def check_entity_access(
+        self,
+        target_entity_id: UUID,
+        user_id: str | None = None,
+        operation: str = "READ",
+        source_entity_id: UUID | None = None,
+        use_cache: bool = True,
+    ) -> EntityAccessCheckResult:
+        """Memeriksa apakah user memiliki akses ke entitas target."""
+        pass
+
+    @abstractmethod
+    async def check_multi_entity_access(
+        self,
+        entity_ids: list[UUID],
+        user_id: str | None = None,
+        operation: str = "READ",
+        require_all: bool = True,
+        source_entity_id: UUID | None = None,
+    ) -> tuple[bool, list[EntityAccessCheckResult]]:
+        """Memeriksa akses ke multiple entities."""
+        pass
+
+    @abstractmethod
+    async def enforce_current_entity(
+        self,
+        entity_id: UUID | None = None,
+        operation: str = "READ",
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> UUID:
+        """Memastikan entity_id sesuai context atau mengembalikan entity dari context."""
+        pass
+
+    @abstractmethod
+    async def enforce_cross_entity_transfer(
+        self,
+        from_entity_id: UUID,
+        to_entity_id: UUID,
+        amount: Decimal,
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, list[EntityAccessCheckResult]]:
+        """Menegakkan aturan untuk transfer antar entitas."""
+        pass
+
+    @abstractmethod
+    async def enforce_consolidation(
+        self,
+        parent_entity_id: UUID,
+        child_entity_ids: list[UUID],
+        user_id: str | None = None,
+        raise_on_violation: bool = True,
+    ) -> tuple[bool, list[EntityAccessCheckResult]]:
+        """Menegakkan aturan untuk konsolidasi entitas."""
+        pass
+
+    @abstractmethod
+    def get_check_history(
+        self,
+        limit: int = 100,
+        only_denied: bool = False,
+        user_id: str | None = None,
+        entity_id: UUID | None = None,
+        operation: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[EntityAccessCheckResult]:
+        """Mendapatkan history pemeriksaan akses entitas."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Mendapatkan statistik entity boundary guard."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset history dan cache (untuk testing)."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseLegalEntityBoundaryGuard:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseLegalEntityBoundaryGuard:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseLegalEntityBoundaryGuard:
+        """Touch instance (increment version)."""
+        pass
 
 
-class LegalEntityBoundaryGuard:
+# ============================================================================
+# LEGAL ENTITY BOUNDARY GUARD (CONCRETE)
+# ============================================================================
+
+class LegalEntityBoundaryGuard(BaseLegalEntityBoundaryGuard):
     """
     Guard untuk menjaga batasan antar entitas hukum.
 
@@ -219,26 +380,151 @@ class LegalEntityBoundaryGuard:
         self._enabled = True
         self._cache_ttl_seconds = 300  # Cache hasil check selama 5 menit
         self._cache: dict[str, tuple[EntityAccessCheckResult, datetime]] = {}
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        target_entity_id = context.get("target_entity_id")
+        user_id = context.get("user_id")
+        operation = context.get("operation", "READ")
+
+        if not target_entity_id:
+            errors.append("target_entity_id is required")
+        else:
+            try:
+                UUID(str(target_entity_id))
+            except Exception:
+                errors.append("target_entity_id must be a valid UUID")
+        if user_id:
+            if not isinstance(user_id, str):
+                errors.append("user_id must be a string")
+        if operation:
+            try:
+                EntityAccessOperation(operation.upper())
+            except ValueError:
+                errors.append(f"operation '{operation}' is not a valid EntityAccessOperation")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        if self._cache_ttl_seconds <= 0:
+            errors.append("cache_ttl_seconds must be positive")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "strict_mode": self._strict_mode,
+                "allowed_cross_entity_operations": list(self._allowed_cross_entity_operations),
+                "history_count": len(self._check_history),
+                "cache_size": len(self._cache),
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> LegalEntityBoundaryGuard:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._strict_mode = data.get("strict_mode", True)
+        instance._max_history = data.get("max_history", 10000)
+        instance._cache_ttl_seconds = data.get("cache_ttl_seconds", 300)
+        instance._version = data.get("version", 1)
+        ops = data.get("allowed_cross_entity_operations", ["READ", "REPORT", "AUDIT"])
+        if isinstance(ops, list):
+            instance._allowed_cross_entity_operations = set(ops)
+        return instance
+
+    def clone(self) -> LegalEntityBoundaryGuard:
+        """Clone instance."""
+        new_instance = LegalEntityBoundaryGuard()
+        new_instance._enabled = self._enabled
+        new_instance._strict_mode = self._strict_mode
+        new_instance._max_history = self._max_history
+        new_instance._cache_ttl_seconds = self._cache_ttl_seconds
+        new_instance._allowed_cross_entity_operations = self._allowed_cross_entity_operations.copy()
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "history_count": len(self._check_history),
+                "cache_size": len(self._cache),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> LegalEntityBoundaryGuard:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         """Mengaktifkan atau menonaktifkan guard."""
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"Legal entity boundary guard enabled: {enabled}")
 
     def set_strict_mode(self, enabled: bool) -> None:
         """Set strict mode (default True). Jika False, cross-entity read diizinkan dengan warning."""
         self._strict_mode = enabled
+        self._record_audit("SET_STRICT_MODE", "system", {"strict": enabled})
         logger.info(f"Legal entity boundary strict mode set to {enabled}")
 
     def set_allowed_cross_entity_operations(self, operations: list[str]) -> None:
         """Set daftar operasi yang diizinkan untuk cross-entity (non-strict mode)."""
         self._allowed_cross_entity_operations = set(operations)
+        self._record_audit("SET_ALLOWED_CROSS_OPS", "system", {"operations": operations})
         logger.info(f"Allowed cross-entity operations: {operations}")
 
     def clear_cache(self) -> None:
         """Clear cache hasil check."""
         with self._lock:
             self._cache.clear()
+        self._record_audit("CLEAR_CACHE", "system", {})
 
     def _get_cache_key(self, user_id: str, target_entity_id: UUID, operation: str) -> str:
         return f"{user_id}|{target_entity_id}|{operation}"
@@ -622,6 +908,7 @@ class LegalEntityBoundaryGuard:
                     "total_checks": 0,
                     "enabled": self._enabled,
                     "strict_mode": self._strict_mode,
+                    "version": self._version,
                 }
 
             denied = [r for r in self._check_history if not r.is_allowed]
@@ -665,6 +952,7 @@ class LegalEntityBoundaryGuard:
                 "enabled": self._enabled,
                 "allowed_cross_entity_operations": list(self._allowed_cross_entity_operations),
                 "cache_size": len(self._cache),
+                "version": self._version,
                 "latest_check": self._check_history[-1].timestamp.isoformat()
                 if self._check_history
                 else None,
@@ -675,6 +963,8 @@ class LegalEntityBoundaryGuard:
         with self._lock:
             self._check_history = []
             self._cache.clear()
+            self._version += 1
+            self._audit_trail = []
 
 
 # === 4. SINGLETON ACCESSOR ===

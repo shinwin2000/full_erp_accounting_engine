@@ -29,6 +29,25 @@ from __future__ import annotations
 __version__ = "1.0.0"
 
 # === SUPREME LAW ===
+from constitution.supreme_law import (
+    AmendmentRecord,
+    Constitution,
+    ConstitutionalPrinciple,
+    ConstitutionalRule,
+    ConstitutionalSeverity,
+    ConstitutionalSnapshot,
+    ConstitutionalViolationError,
+    ConstitutionAmendmentError,
+    EmergencyOverride,
+    EmergencyOverrideError,
+    EmergencyOverrideReason,
+    SovereigntyLevel,
+    SovereigntyViolationError,
+    SupremeLaw,
+    ViolationRecord,
+    get_supreme_law,
+)
+
 # === AMENDMENT PROTOCOL ===
 from constitution.amendment_protocol import (
     AmendmentConflictError,
@@ -116,24 +135,6 @@ from constitution.sovereignty_declaration import (
     SovereigntyGuardian,
     SovereigntyStatus,
     get_sovereignty_guardian,
-)
-from constitution.supreme_law import (
-    AmendmentRecord,
-    Constitution,
-    ConstitutionalPrinciple,
-    ConstitutionalRule,
-    ConstitutionalSeverity,
-    ConstitutionalSnapshot,
-    ConstitutionalViolationError,
-    ConstitutionAmendmentError,
-    EmergencyOverride,
-    EmergencyOverrideError,
-    EmergencyOverrideReason,
-    SovereigntyLevel,
-    SovereigntyViolationError,
-    SupremeLaw,
-    ViolationRecord,
-    get_supreme_law,
 )
 
 # === VERSION LOCK ===

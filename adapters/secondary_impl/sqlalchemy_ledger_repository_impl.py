@@ -224,7 +224,31 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
             raise LedgerRepositoryError(f"Failed to get balance: {e}") from e
 
     # ========================================================================
-    # FIX: METHOD YANG HILANG (get_account_balance_with_normal)
+    # FIX: METHOD YANG HILANG (get_balance sesuai port)
+    # ========================================================================
+
+    async def get_balance(self, account_id: UUID, as_of_date: date) -> Decimal:
+        """
+        Get account balance as of date (alias for get_account_balance).
+        This method fulfills the LedgerRepositoryPort contract.
+        """
+        return await self.get_account_balance(account_id, as_of_date)
+
+    # ========================================================================
+    # FIX: METHOD YANG HILANG (find_entries_by_account)
+    # ========================================================================
+
+    async def find_entries_by_account(
+        self, account_id: UUID, start_date: date, end_date: date
+    ) -> list[LedgerEntry]:
+        """
+        Find ledger entries for an account within a date range.
+        This method fulfills the LedgerRepositoryPort contract.
+        """
+        return await self.find_entries_by_account_and_date_range(account_id, start_date, end_date)
+
+    # ========================================================================
+    # FIX: METHOD YANG HILANG (get_account_balance_with_normal) - tambahan
     # ========================================================================
 
     async def get_account_balance_with_normal(

@@ -23,6 +23,7 @@ import functools
 import logging
 import random
 import time
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -81,9 +82,43 @@ def exponential_backoff(
     return backoff
 
 
+# ============================================================================
+# BASE CLASS ABSTRAK (CONTRACT)
+# ============================================================================
+class BaseRetryPolicy(ABC):
+    """
+    Base contract for Retry Policy.
+    Semua method yang wajib diimplementasikan oleh subclass.
+    """
+
+    @abstractmethod
+    def is_retryable(self, exception: Exception) -> bool:
+        """Check if an exception is retryable."""
+        pass
+
+    @abstractmethod
+    def get_wait_time(self, retry_count: int) -> float:
+        """Get the wait time for the next retry."""
+        pass
+
+    @abstractmethod
+    async def execute_with_retry(
+        self,
+        func: Callable[[], T],
+        context: dict[str, Any] | None = None,
+    ) -> T:
+        """Execute a function with retry logic."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics about retry attempts."""
+        pass
+
+
 # === 3. RETRY POLICY CONFIGURATION ===
 @dataclass
-class RetryPolicy:
+class RetryPolicy(BaseRetryPolicy):
     """
     Kebijakan retry.
     """
@@ -177,17 +212,6 @@ class RetryPolicy:
         self._version += 1
         self._record_audit("RESET", "system", {})
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "max_retries": self.max_retries,
-            "initial_delay_seconds": self.initial_delay_seconds,
-            "max_delay_seconds": self.max_delay_seconds,
-            "strategy": self.strategy.name,
-            "retryable_exceptions": [e.__name__ for e in self.retryable_exceptions],
-            "backoff_factor": self.backoff_factor,
-            "version": self._version,
-        }
-
     # ==================== METODA ENTITY DASAR ====================
     def validate(self) -> dict[str, Any]:
         errors = []
@@ -266,6 +290,17 @@ class RetryPolicy:
                 "details": details,
             }
         )
+
+    # ==================== IMPLEMENTASI get_statistics ====================
+    def get_statistics(self) -> dict[str, Any]:
+        """Kembalikan statistik retry untuk instance ini."""
+        return {
+            "retry_count": self._retry_count,
+            "current_delay": self._current_delay,
+            "max_retries": self.max_retries,
+            "strategy": self.strategy.name,
+            "version": self._version,
+        }
 
 
 # === 4. RETRY POLICY SERVICE ===
@@ -588,7 +623,7 @@ async def retry_async(
 
 def retry_sync(
     func: Callable[[], T],
-    max_retries: Int = 3,
+    max_retries: int = 3,
     initial_delay: float = 1.0,
     strategy: RetryStrategy = RetryStrategy.EXPONENTIAL_JITTER,
     retryable_exceptions: list[type] | None = None,

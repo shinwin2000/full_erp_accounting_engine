@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 """
 Module: depreciation_monthly_run.py
@@ -7,24 +8,7 @@ Layer: 8 - Application / Use Cases
 
 Responsibility:
     Use case untuk menjalankan depresiasi bulanan untuk semua aset tetap.
-    Mencakup:
-    - Mengambil semua aset aktif yang belum fully depreciated
-    - Menghitung depresiasi untuk bulan berjalan berdasarkan metode (straight-line, declining balance)
-    - Membuat jurnal depresiasi (debit depreciation expense, credit accumulated depreciation)
-    - Menyimpan detail depresiasi per aset ke tabel schedule
-    - Update nilai buku aset (net book value)
-    - Menangani aset yang diakuisisi di tengah bulan (prorata)
-    - Posting jurnal ke GL
-    - Audit trail untuk setiap transaksi depresiasi
-
-Dependencies:
-    - application/service_layer/service_fixed_asset.py (FixedAssetService)
-    - application/service_layer/service_journal.py (JournalService)
-    - application/commands_cqrs/command_bus_unified.py (Command, CommandResult)
-    - kernel/sealed_gate.py
-
-Audit:
-    Setiap run depresiasi dicatat dengan jumlah aset, total depresiasi, dan journal ID.
+    Dilengkapi dengan idempotensi untuk mencegah eksekusi ganda terhadap command yang sama.
 """
 
 from __future__ import annotations
@@ -32,6 +16,7 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 from decimal import Decimal
+from functools import wraps
 from typing import Any
 from uuid import UUID
 
@@ -39,21 +24,22 @@ from application.commands_cqrs.command_bus_unified import BaseCommand, CommandRe
 from application.service_layer.service_fixed_asset import FixedAssetService
 from application.service_layer.service_journal import JournalService
 from kernel.sealed_gate import SealedGate
+from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)
 
 
-class DepreciationMonthlyRunCommand(BaseCommand):
-    """Command untuk menjalankan depresiasi bulanan."""
+def transactional(method):
+    """Membungkus method dengan Unit of Work context."""
+    @wraps(method)
+    async def wrapper(self, *args, **kwargs):
+        async with self._uow:
+            return await method(self, *args, **kwargs)
+    return wrapper
 
-    __slots__ = (
-        "dry_run",
-        "legal_entity_id",
-        "period_month",
-        "period_year",
-        "posting_date",
-        "prorate_first_year",
-    )
+
+class DepreciationMonthlyRunCommand(BaseCommand):
+    __slots__ = ("dry_run", "legal_entity_id", "period_month", "period_year", "posting_date", "prorate_first_year")
 
     def __init__(
         self,
@@ -108,33 +94,40 @@ class DepreciationRunResult:
 
 
 class DepreciationMonthlyRunUseCase:
-    """
-    Use case untuk menjalankan depresiasi bulanan.
-    Semua dependensi diberikan melalui constructor (dependency injection).
-    """
-
     def __init__(
         self,
         fixed_asset_service: FixedAssetService,
         journal_service: JournalService,
+        uow: UnitOfWorkPort,
         sealed_gate: SealedGate | None = None,
     ):
         self._fa_service = fixed_asset_service
         self._journal_service = journal_service
+        self._uow = uow
         self._sealed_gate = sealed_gate
         self._stats = {"executed": 0, "succeeded": 0, "failed": 0}
+        # Penyimpanan hasil idempotensi (dalam memori, untuk demonstrasi)
+        self._idempotency_store: dict[str, CommandResult] = {}
 
+    @transactional
     async def execute(self, command: DepreciationMonthlyRunCommand) -> CommandResult:
+        # Idempotensi: cek apakah command_id sudah pernah diproses
+        cmd_id = getattr(command, "command_id", None)
+        if cmd_id is not None and cmd_id in self._idempotency_store:
+            logger.info(
+                "Idempotency hit for command %s, returning cached result",
+                cmd_id
+            )
+            return self._idempotency_store[cmd_id]
+
         self._stats["executed"] += 1
 
         try:
-            # 1. Ambil semua aset aktif per legal entity
             assets = await self._fa_service.list_assets(
                 legal_entity_id=command.legal_entity_id, status="ACTIVE", limit=10000
             )
-
             if not assets:
-                return CommandResult.success(
+                result = CommandResult.success(
                     command_id=command.command_id,
                     data={
                         "total_assets_processed": 0,
@@ -143,15 +136,15 @@ class DepreciationMonthlyRunUseCase:
                         "errors": ["No active assets found"],
                     },
                 )
+                if cmd_id is not None:
+                    self._idempotency_store[cmd_id] = result
+                return result
 
             period_start = date(command.period_year, command.period_month, 1)
-            # Hitung akhir bulan
             if command.period_month == 12:
                 period_end = date(command.period_year + 1, 1, 1) - timedelta(days=1)
             else:
-                period_end = date(command.period_year, command.period_month + 1, 1) - timedelta(
-                    days=1
-                )
+                period_end = date(command.period_year, command.period_month + 1, 1) - timedelta(days=1)
 
             depreciation_lines = []
             processed_count = 0
@@ -161,7 +154,6 @@ class DepreciationMonthlyRunUseCase:
             async def _process_asset(asset):
                 nonlocal processed_count, total_depreciation
                 try:
-                    # Hitung depresiasi untuk aset ini
                     dep_amount = await self._fa_service.calculate_asset_depreciation(
                         asset_id=asset.id,
                         period_start=period_start,
@@ -174,16 +166,12 @@ class DepreciationMonthlyRunUseCase:
                                 "asset_id": asset.id,
                                 "asset_code": asset.asset_code,
                                 "amount": dep_amount,
-                                "depreciation_expense_account": asset.depreciation_expense_account
-                                or "5-5200",
-                                "accumulated_depreciation_account": asset.accumulated_depreciation_account
-                                or "1-1900",
+                                "depreciation_expense_account": asset.depreciation_expense_account or "5-5200",
+                                "accumulated_depreciation_account": asset.accumulated_depreciation_account or "1-1900",
                             }
                         )
                         total_depreciation += dep_amount
                         processed_count += 1
-
-                        # Update aset: tambah accumulated depreciation, kurangi NBV
                         if not command.dry_run:
                             await self._fa_service.record_asset_depreciation(
                                 asset_id=asset.id,
@@ -196,15 +184,11 @@ class DepreciationMonthlyRunUseCase:
                 except Exception as e:
                     errors.append(f"Asset {asset.asset_code}: {e!s}")
 
-            # Proses semua aset (bisa paralel, tapi hati2)
             for asset in assets:
                 await _process_asset(asset)
 
-            # Buat jurnal depresiasi jika ada
             journal_id = None
             if not command.dry_run and depreciation_lines:
-                # Kelompokkan lines berdasarkan account (bisa multiple assets per account)
-                # Untuk sederhana, kita buat satu jurnal dengan banyak lines
                 lines = []
                 for line in depreciation_lines:
                     lines.append(
@@ -223,7 +207,6 @@ class DepreciationMonthlyRunUseCase:
                             "description": f"Accumulated depreciation - {line['asset_code']}",
                         }
                     )
-
                 journal_id = await self._journal_service.post_journal(
                     legal_entity_id=command.legal_entity_id,
                     journal_date=command.posting_date,
@@ -235,7 +218,7 @@ class DepreciationMonthlyRunUseCase:
                     correlation_id=command.correlation_id,
                 )
 
-            result = DepreciationRunResult(
+            dep_result = DepreciationRunResult(
                 total_assets_processed=processed_count,
                 total_depreciation_amount=total_depreciation,
                 journal_id=journal_id,
@@ -243,89 +226,69 @@ class DepreciationMonthlyRunUseCase:
             )
 
             self._stats["succeeded"] += 1
-            return CommandResult.success(
+            result = CommandResult.success(
                 command_id=command.command_id,
                 data={
-                    "total_assets_processed": result.total_assets_processed,
-                    "total_depreciation_amount": float(result.total_depreciation_amount),
-                    "journal_id": str(result.journal_id) if result.journal_id else None,
-                    "errors": result.errors,
+                    "total_assets_processed": dep_result.total_assets_processed,
+                    "total_depreciation_amount": float(dep_result.total_depreciation_amount),
+                    "journal_id": str(dep_result.journal_id) if dep_result.journal_id else None,
+                    "errors": dep_result.errors,
                 },
             )
+            if cmd_id is not None:
+                self._idempotency_store[cmd_id] = result
+            return result
 
         except Exception as e:
             self._stats["failed"] += 1
             logger.exception(f"Depreciation monthly run failed: {e}")
-            return CommandResult.failure(
+            result = CommandResult.failure(
                 command_id=command.command_id, error=str(e), error_code="DEPRECIATION_RUN_ERROR"
             )
+            if cmd_id is not None:
+                self._idempotency_store[cmd_id] = result
+            return result
 
     def get_stats(self) -> dict[str, int]:
         return self._stats
 
 
-# ============================================================================
-# Factory function (pure application layer, no infrastructure imports)
-# ============================================================================
-
-
-def create_depreciation_monthly_run_use_case(
+def build_depreciation_monthly_run_use_case(
     fixed_asset_service: FixedAssetService,
     journal_service: JournalService,
+    uow: UnitOfWorkPort,
     sealed_gate: SealedGate | None = None,
 ) -> DepreciationMonthlyRunUseCase:
     """
-    Factory untuk membuat instance use case.
-    Dependency injection: semua dependensi diberikan dari luar (oleh adapter/infrastructure).
+    Factory untuk membuat instance DepreciationMonthlyRunUseCase.
+    Fungsi ini bersifat pure factory dan tidak memiliki efek samping,
+    sehingga tidak memerlukan idempotensi.
     """
     return DepreciationMonthlyRunUseCase(
         fixed_asset_service=fixed_asset_service,
         journal_service=journal_service,
+        uow=uow,
         sealed_gate=sealed_gate,
     )
-
-
-# ============================================================================
-# Handler (untuk di-register ke command bus)
-# ============================================================================
 
 
 async def depreciation_monthly_run_handler(command: DepreciationMonthlyRunCommand) -> CommandResult:
     """
     Handler untuk command DepreciationMonthlyRunCommand.
-    Handler ini mengasumsikan bahwa use case sudah dibuat dan disimpan di suatu
-    tempat (misalnya dalam container DI) dan diakses melalui fungsi global
-    atau closure. Karena contoh ini tidak memiliki akses ke container,
-    maka handler akan membuat use case secara langsung dengan dependensi
-    yang diambil dari registry global (jika ada) atau raise error.
 
-    Untuk penggunaan nyata, sebaiknya handler ini menerima use case sebagai
-    parameter yang diinject oleh command bus.
+    Catatan: Handler ini belum diimplementasikan dengan dependency injection.
+    Untuk penggunaan nyata, gunakan factory dan panggil use case secara langsung.
     """
-    # Di sini Anda harus mengambil instance FixedAssetService dan JournalService
-    # dari container Anda, misalnya:
-    #
-    # fa_service = container.get(FixedAssetService)
-    # journal_service = container.get(JournalService)
-    #
-    # use_case = DepreciationMonthlyRunUseCase(fa_service, journal_service)
-    # return await use_case.execute(command)
-
     raise NotImplementedError(
         "Handler belum diimplementasikan dengan benar. "
-        "Harus mengakses FixedAssetService dan JournalService dari container "
-        "atau menggunakan dependency injection pada command bus."
+        "Harus mengakses FixedAssetService, JournalService, dan UnitOfWorkPort dari container."
     )
 
-
-# ============================================================================
-# Exports
-# ============================================================================
 
 __all__ = [
     "DepreciationMonthlyRunCommand",
     "DepreciationMonthlyRunUseCase",
     "DepreciationRunResult",
-    "create_depreciation_monthly_run_use_case",
-    "depreciation_monthly_run_handler",  # <-- ditambahkan
+    "build_depreciation_monthly_run_use_case",
+    "depreciation_monthly_run_handler",
 ]

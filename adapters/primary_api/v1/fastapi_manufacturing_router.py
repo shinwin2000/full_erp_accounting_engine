@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_manufacturing_router.py
@@ -23,9 +22,10 @@ Method Standards (ERP):
 - version_work_order()
 """
 
-
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -33,7 +33,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -45,6 +45,52 @@ from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -579,7 +625,7 @@ class OverheadAllocationResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_manufacturing_service(request: Request, ) -> Any:
+async def get_manufacturing_service(request: Request) -> Any:
     """Get Manufacturing Service instance."""
 
     from application.service_layer.service_manufacturing import ManufacturingService
@@ -618,12 +664,20 @@ router = APIRouter(prefix="/manufacturing", tags=["Manufacturing"])
 )
 async def create_bom(
     request: BOMCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("manufacturing:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_manufacturing_service),
 ) -> BOMResponseSchema:
     """Create a new Bill of Materials."""
+    method_name = "create_bom"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BOMResponseSchema(**cached)
+
     try:
         result = await service.create_bom(
             bom_code=request.bom_code,
@@ -639,7 +693,7 @@ async def create_bom(
             legal_entity_id=legal_entity_id,
         )
 
-        return BOMResponseSchema(
+        response = BOMResponseSchema(
             id=result.id,
             bom_code=result.bom_code,
             bom_name=result.bom_name,
@@ -659,6 +713,11 @@ async def create_bom(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -774,12 +833,20 @@ async def get_bom(
 async def update_bom(
     bom_id: UUID,
     request: BOMCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("manufacturing:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_manufacturing_service),
 ) -> BOMResponseSchema:
     """Update Bill of Materials."""
+    method_name = "update_bom"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return BOMResponseSchema(**cached)
+
     try:
         result = await service.update_bom(
             bom_id=bom_id,
@@ -796,7 +863,7 @@ async def update_bom(
         if not result:
             raise HTTPException(status_code=404, detail="BOM not found or cannot be updated")
 
-        return BOMResponseSchema(
+        response = BOMResponseSchema(
             id=result.id,
             bom_code=result.bom_code,
             bom_name=result.bom_name,
@@ -816,6 +883,11 @@ async def update_bom(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -871,12 +943,20 @@ async def deactivate_bom(
 )
 async def create_routing(
     request: RoutingCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("manufacturing:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_manufacturing_service),
 ) -> RoutingResponseSchema:
     """Create a new Routing."""
+    method_name = "create_routing"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return RoutingResponseSchema(**cached)
+
     try:
         result = await service.create_routing(
             routing_code=request.routing_code,
@@ -892,7 +972,7 @@ async def create_routing(
             legal_entity_id=legal_entity_id,
         )
 
-        return RoutingResponseSchema(
+        response = RoutingResponseSchema(
             id=result.id,
             routing_code=result.routing_code,
             routing_name=result.routing_name,
@@ -912,6 +992,11 @@ async def create_routing(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1030,12 +1115,20 @@ async def get_routing(
 )
 async def create_work_order(
     request: WorkOrderCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("manufacturing:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_manufacturing_service),
 ) -> WorkOrderResponseSchema:
     """Create a new Work Order."""
+    method_name = "create_work_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return WorkOrderResponseSchema(**cached)
+
     try:
         result = await service.create_work_order(
             work_order_number=request.work_order_number,
@@ -1052,7 +1145,7 @@ async def create_work_order(
             legal_entity_id=legal_entity_id,
         )
 
-        return WorkOrderResponseSchema(
+        response = WorkOrderResponseSchema(
             id=result.id,
             work_order_number=result.work_order_number,
             product_id=result.product_id,
@@ -1093,6 +1186,11 @@ async def create_work_order(
             version=result.version,
             is_locked=result.is_locked,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1254,12 +1352,20 @@ async def get_work_order(
 async def update_work_order(
     work_order_id: UUID,
     request: WorkOrderUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("manufacturing:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_manufacturing_service),
 ) -> WorkOrderResponseSchema:
     """Update Work Order (only PLANNED or DRAFT status)."""
+    method_name = "update_work_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return WorkOrderResponseSchema(**cached)
+
     try:
         result = await service.update_work_order(
             work_order_id=work_order_id,
@@ -1279,7 +1385,7 @@ async def update_work_order(
         if not result:
             raise HTTPException(status_code=404, detail="Work order not found or cannot be updated")
 
-        return WorkOrderResponseSchema(
+        response = WorkOrderResponseSchema(
             id=result.id,
             work_order_number=result.work_order_number,
             product_id=result.product_id,
@@ -1320,6 +1426,11 @@ async def update_work_order(
             version=result.version,
             is_locked=result.is_locked,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1336,12 +1447,20 @@ async def update_work_order(
 async def release_work_order(
     work_order_id: UUID,
     request: WorkOrderReleaseSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("manufacturing:release")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_manufacturing_service),
 ) -> WorkOrderResponseSchema:
     """Release a planned work order to production."""
+    method_name = "release_work_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return WorkOrderResponseSchema(**cached)
+
     try:
         result = await service.release_work_order(
             work_order_id=work_order_id,
@@ -1356,7 +1475,7 @@ async def release_work_order(
                 status_code=404, detail="Work order not found or cannot be released"
             )
 
-        return WorkOrderResponseSchema(
+        response = WorkOrderResponseSchema(
             id=result.id,
             work_order_number=result.work_order_number,
             product_id=result.product_id,
@@ -1397,6 +1516,11 @@ async def release_work_order(
             version=result.version,
             is_locked=result.is_locked,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1413,12 +1537,20 @@ async def release_work_order(
 async def complete_work_order(
     work_order_id: UUID,
     request: WorkOrderCompletionSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("manufacturing:complete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_manufacturing_service),
 ) -> WorkOrderResponseSchema:
     """Complete a work order (record finished goods)."""
+    method_name = "complete_work_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return WorkOrderResponseSchema(**cached)
+
     try:
         result = await service.complete_work_order(
             work_order_id=work_order_id,
@@ -1435,7 +1567,7 @@ async def complete_work_order(
                 status_code=404, detail="Work order not found or cannot be completed"
             )
 
-        return WorkOrderResponseSchema(
+        response = WorkOrderResponseSchema(
             id=result.id,
             work_order_number=result.work_order_number,
             product_id=result.product_id,
@@ -1476,6 +1608,11 @@ async def complete_work_order(
             version=result.version,
             is_locked=result.is_locked,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1492,12 +1629,20 @@ async def complete_work_order(
 async def cancel_work_order(
     work_order_id: UUID,
     reason: str = Query("", description="Cancellation reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("manufacturing:cancel")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_manufacturing_service),
 ) -> dict[str, Any]:
     """Cancel a work order (only PLANNED or RELEASED)."""
+    method_name = "cancel_work_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await service.cancel_work_order(
             work_order_id=work_order_id,
@@ -1511,12 +1656,17 @@ async def cancel_work_order(
                 status_code=404, detail="Work order not found or cannot be cancelled"
             )
 
-        return {
+        response = {
             "work_order_id": str(work_order_id),
             "work_order_number": result.work_order_number,
             "status": result.status,
             "message": "Work order cancelled",
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1532,12 +1682,20 @@ async def cancel_work_order(
 )
 async def close_work_order(
     work_order_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("manufacturing:close")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_manufacturing_service),
 ) -> WorkOrderResponseSchema:
     """Close a completed work order (prevent further changes)."""
+    method_name = "close_work_order"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return WorkOrderResponseSchema(**cached)
+
     try:
         result = await service.close_work_order(
             work_order_id=work_order_id,
@@ -1548,7 +1706,7 @@ async def close_work_order(
         if not result:
             raise HTTPException(status_code=404, detail="Work order not found or cannot be closed")
 
-        return WorkOrderResponseSchema(
+        response = WorkOrderResponseSchema(
             id=result.id,
             work_order_number=result.work_order_number,
             product_id=result.product_id,
@@ -1589,6 +1747,11 @@ async def close_work_order(
             version=result.version,
             is_locked=result.is_locked,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1665,12 +1828,20 @@ async def list_wip(
 )
 async def create_cost_card(
     request: CostCardCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("manufacturing:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     service: Any = Depends(get_manufacturing_service),
 ) -> CostCardResponseSchema:
     """Create a new Cost Card for standard costing."""
+    method_name = "create_cost_card"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return CostCardResponseSchema(**cached)
+
     try:
         result = await service.create_cost_card(
             cost_card_code=request.cost_card_code,
@@ -1689,7 +1860,7 @@ async def create_cost_card(
             legal_entity_id=legal_entity_id,
         )
 
-        return CostCardResponseSchema(
+        response = CostCardResponseSchema(
             id=result.id,
             cost_card_code=result.cost_card_code,
             product_id=result.product_id,
@@ -1715,6 +1886,11 @@ async def create_cost_card(
             created_by_name=result.created_by_name,
             version=result.version,
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1845,12 +2021,20 @@ async def get_variance_analysis(
 async def close_hpp_period(
     fiscal_year: int = Query(..., description="Fiscal year"),
     period: int = Query(..., ge=1, le=12, description="Period (month)"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("manufacturing:close")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     hpp_close_use_case: Any = Depends(get_hpp_close_use_case),
 ) -> dict[str, Any]:
     """Close HPP for period (calculate COGS from manufacturing)."""
+    method_name = "close_hpp"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await hpp_close_use_case.execute(
             legal_entity_id=legal_entity_id,
@@ -1859,13 +2043,18 @@ async def close_hpp_period(
             closed_by=current_user.user_id,
         )
 
-        return {
+        response = {
             "status": result.status,
             "journal_id": str(result.journal_id) if result.journal_id else None,
             "cogs_amount": float(result.cogs_amount),
             "work_orders_processed": result.work_orders_processed,
             "message": result.message,
         }
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

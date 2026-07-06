@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -69,7 +69,7 @@ class SalesOrderTable(Base):
 class SQLAlchemySalesRepository(SalesRepositoryPort):
     """
     Implementasi SQLAlchemy untuk SalesRepositoryPort.
-    Semua metode mengembalikan tipe Any (atau container of Any) sesuai kontrak port.
+    Semua return type mengikuti kontrak port: dict[str, Any] | None, list[dict[str, Any]], dll.
     """
 
     def __init__(self, session: AsyncSession | None = None):
@@ -81,8 +81,8 @@ class SQLAlchemySalesRepository(SalesRepositoryPort):
             self._session = await get_async_session()
         return self._session
 
-    def _row_to_dict(self, row: SalesOrderTable) -> Dict[str, Any]:
-        """Convert ORM row to a plain dict (Any)."""
+    def _row_to_dict(self, row: SalesOrderTable) -> dict[str, Any]:
+        """Convert ORM row to plain dict."""
         items = row.items if isinstance(row.items, list) else []
         return {
             "id": row.id,
@@ -103,8 +103,7 @@ class SQLAlchemySalesRepository(SalesRepositoryPort):
             "notes": row.notes,
         }
 
-    # ---------- Port methods ----------
-    # Semua return type menggunakan Any (atau list[Any]) seperti yang disyaratkan port.
+    # ---------- Port methods with explicit return types ----------
 
     async def save_transaction(self, transaction: Any) -> None:
         session = await self._get_session()
@@ -144,7 +143,7 @@ class SQLAlchemySalesRepository(SalesRepositoryPort):
                 )
                 session.add(new)
 
-    async def get_by_id(self, transaction_id: UUID) -> Any | None:
+    async def get_by_id(self, transaction_id: UUID) -> dict[str, Any] | None:
         session = await self._get_session()
         stmt = select(SalesOrderTable).where(SalesOrderTable.id == transaction_id)
         result = await session.execute(stmt)
@@ -153,10 +152,10 @@ class SQLAlchemySalesRepository(SalesRepositoryPort):
             return None
         return self._row_to_dict(row)
 
-    async def get_by_number(self, transaction_number: str, legal_entity_id: UUID) -> Any | None:
+    async def get_by_number(self, so_number: str, legal_entity_id: UUID) -> dict[str, Any] | None:
         session = await self._get_session()
         stmt = select(SalesOrderTable).where(
-            SalesOrderTable.so_number == transaction_number,
+            SalesOrderTable.so_number == so_number,
             SalesOrderTable.legal_entity_id == legal_entity_id,
         )
         result = await session.execute(stmt)
@@ -171,7 +170,7 @@ class SQLAlchemySalesRepository(SalesRepositoryPort):
         from_date: date,
         to_date: date,
         status: str | None = None,
-    ) -> List[Any]:
+    ) -> list[dict[str, Any]]:
         session = await self._get_session()
         stmt = select(SalesOrderTable).where(
             SalesOrderTable.legal_entity_id == legal_entity_id,
@@ -191,7 +190,7 @@ class SQLAlchemySalesRepository(SalesRepositoryPort):
         status: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Any]:
+    ) -> list[dict[str, Any]]:
         session = await self._get_session()
         stmt = select(SalesOrderTable).where(
             SalesOrderTable.customer_id == customer_id,
@@ -252,7 +251,7 @@ class SQLAlchemySalesRepository(SalesRepositoryPort):
         status: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Any]:
+    ) -> list[dict[str, Any]]:
         session = await self._get_session()
         search_pattern = f"%{query}%"
         stmt = select(SalesOrderTable).where(
@@ -275,7 +274,7 @@ class SQLAlchemySalesRepository(SalesRepositoryPort):
         from_date: date,
         to_date: date,
         status: str | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         session = await self._get_session()
         stmt_amount = select(func.sum(SalesOrderTable.total_amount)).where(
             SalesOrderTable.legal_entity_id == legal_entity_id,

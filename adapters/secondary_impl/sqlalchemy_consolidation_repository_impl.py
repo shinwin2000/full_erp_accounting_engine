@@ -154,6 +154,16 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
             elimination_journal_id=row.elimination_journal_id,
         )
 
+    async def _get_entities_for_group(self, group_id: UUID) -> list[ConsolidationEntityTable]:
+        """Helper untuk mengambil daftar entitas dalam grup."""
+        session = await self._get_session()
+        stmt = select(ConsolidationEntityTable).where(
+            ConsolidationEntityTable.group_id == group_id,
+            ConsolidationEntityTable.status == "active"
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
     # ========================================================================
     # PORT METHODS (sesuai signature)
     # ========================================================================
@@ -436,6 +446,110 @@ class SQLAlchemyConsolidationRepository(ConsolidationRepositoryPort):
             )
             session.add(new_tx)
         await session.flush()
+
+    # ========================================================================
+    # NEW: consolidate_entities (sesuai kontrak ConsolidationRepositoryPort)
+    # ========================================================================
+
+    async def consolidate_entities(
+        self,
+        group_id: UUID,
+        period_end_date: date,
+        currency: str = "IDR",
+        created_by: UUID | None = None,
+    ) -> dict[str, Any]:
+        """
+        Lakukan konsolidasi untuk grup tertentu pada tanggal tertentu.
+        Method ini memenuhi kontrak ConsolidationRepositoryPort.
+        Mengembalikan ringkasan hasil konsolidasi.
+        """
+        session = await self._get_session()
+
+        # 1. Ambil grup
+        group = await self.find_group(group_id)
+        if not group:
+            raise ValueError(f"Group with id {group_id} not found")
+
+        # 2. Ambil entitas dalam grup
+        entities = await self._get_entities_for_group(group_id)
+        if not entities:
+            raise ValueError(f"No active entities found for group {group_id}")
+
+        # 3. Kumpulkan ID entitas
+        entity_ids = [e.entity_id for e in entities]
+        parent_entity_id = next((e.entity_id for e in entities if e.is_parent), None)
+
+        # 4. Dapatkan transaksi antar perusahaan
+        transactions = await self.get_intercompany_transactions(entity_ids, period_end_date)
+
+        # 5. Hitung total ekuitas per entitas dan NCI
+        total_equity = Decimal(0)
+        nci_total = Decimal(0)
+        entity_equities = []
+        for entity in entities:
+            equity = await self.get_entity_equity(entity.entity_id, period_end_date)
+            entity_equities.append({
+                "entity_id": entity.entity_id,
+                "entity_name": entity.entity_name,
+                "ownership_percentage": entity.ownership_percentage,
+                "equity": equity,
+            })
+            total_equity += equity
+            # NCI: jika bukan parent, hitung (1 - ownership) * equity
+            if entity.entity_id != parent_entity_id:
+                nci_total += (Decimal(1) - entity.ownership_percentage) * equity
+
+        # 6. Buat elimination entries sederhana (untuk transaksi antar perusahaan)
+        eliminations: list[EliminationEntry] = []
+        for tx in transactions:
+            if not tx.eliminated:
+                # Buat entry eliminasi
+                elim = EliminationEntry(
+                    id=uuid.uuid4(),
+                    transaction_id=tx.id,
+                    from_entity_id=tx.from_entity_id,
+                    to_entity_id=tx.to_entity_id,
+                    amount=tx.amount,
+                    currency=tx.currency,
+                    description=f"Elimination of {tx.transaction_type} between {tx.from_entity_id} and {tx.to_entity_id}",
+                )
+                eliminations.append(elim)
+                # Tandai transaksi sebagai sudah dieliminasi
+                tx.eliminated = True
+                await self.save_intercompany_transaction(tx)
+
+        # 7. Simpan hasil konsolidasi
+        rows = entity_equities  # rows adalah list equity per entity
+        await self.save_consolidation(
+            id=group_id,
+            group_entity_id=parent_entity_id or group.parent_entity_id or group_id,
+            period_end_date=period_end_date,
+            currency=currency,
+            rows=rows,
+            eliminations=eliminations,
+            nci_total=nci_total,
+            created_at=datetime.utcnow(),
+        )
+
+        # 8. Kembalikan ringkasan
+        return {
+            "group_id": str(group_id),
+            "group_code": group.group_code,
+            "period_end_date": period_end_date.isoformat(),
+            "total_equity": float(total_equity),
+            "nci_total": float(nci_total),
+            "parent_entity_id": str(parent_entity_id) if parent_entity_id else None,
+            "entities": [
+                {
+                    "entity_id": str(e["entity_id"]),
+                    "entity_name": e["entity_name"],
+                    "ownership": float(e["ownership_percentage"]),
+                    "equity": float(e["equity"]),
+                }
+                for e in entity_equities
+            ],
+            "eliminations_count": len(eliminations),
+        }
 
     # ========================================================================
     # LEGACY/INTERNAL METHODS (untuk kompatibilitas)

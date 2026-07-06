@@ -7,11 +7,13 @@ Responsibility: REST API endpoint untuk Chart of Accounts (COA) management.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from fastapi import (
@@ -24,6 +26,7 @@ from fastapi import (
     Request,
     UploadFile,
     status,
+    Header,
 )
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -41,6 +44,52 @@ from application.dto_objects.coa_request import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: Dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> Optional[Dict[str, Any]]:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now(timezone.utc) - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: Dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now(timezone.utc))
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 # ============================================================================
 # CONSTANTS & ENUMS
@@ -295,11 +344,19 @@ def ping_coa() -> dict[str, str]:
 )
 async def create_account(
     request: AccountCreateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("coa:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountResponseSchema:
+    method_name = "create_account"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return AccountResponseSchema(**cached)
+
     try:
         create_dto = AccountCreateRequest(
             account_code=request.account_code,
@@ -321,7 +378,7 @@ async def create_account(
             legal_entity_id=legal_entity_id,
         )
         result = await coa_service.create_account(create_dto)
-        return AccountResponseSchema(
+        response = AccountResponseSchema(
             id=result.id,
             account_code=result.account_code,
             account_name=result.account_name,
@@ -349,6 +406,9 @@ async def create_account(
             version=result.version,
             children=None,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except PermissionError as e:
@@ -469,11 +529,19 @@ async def get_account_by_code(
 async def update_account(
     account_id: UUID,
     request: AccountUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("coa:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountResponseSchema:
+    method_name = "update_account"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return AccountResponseSchema(**cached)
+
     try:
         update_dto = AccountUpdateRequest(
             id=account_id,
@@ -493,7 +561,7 @@ async def update_account(
         result = await coa_service.update_account(update_dto)
         if not result:
             raise HTTPException(status_code=404, detail="Account not found or cannot be updated")
-        return AccountResponseSchema(
+        response = AccountResponseSchema(
             id=result.id,
             account_code=result.account_code,
             account_name=result.account_name,
@@ -521,6 +589,9 @@ async def update_account(
             version=result.version,
             children=None,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except PermissionError as e:
@@ -540,11 +611,19 @@ async def deactivate_account(
     account_id: UUID,
     permanent: bool = Query(False, description="Permanent deletion (void)"),
     reason: str = Query("", description="Reason for deactivation"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("coa:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> dict[str, str]:
+    method_name = "deactivate_account"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         if permanent:
             result = await coa_service.void_account(
@@ -558,7 +637,10 @@ async def deactivate_account(
             action = "deactivated"
         if not result:
             raise HTTPException(status_code=404, detail="Account not found or cannot be deactivated")
-        return {"message": f"Account {result.account_code} {action} successfully"}
+        response = {"message": f"Account {result.account_code} {action} successfully"}
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -574,18 +656,26 @@ async def deactivate_account(
 )
 async def activate_account(
     account_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("coa:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountResponseSchema:
+    method_name = "activate_account"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return AccountResponseSchema(**cached)
+
     try:
         result = await coa_service.activate_account(
             account_id, current_user.user_id, legal_entity_id
         )
         if not result:
             raise HTTPException(status_code=404, detail="Account not found or cannot be activated")
-        return AccountResponseSchema(
+        response = AccountResponseSchema(
             id=result.id,
             account_code=result.account_code,
             account_name=result.account_name,
@@ -613,6 +703,9 @@ async def activate_account(
             version=result.version,
             children=None,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -629,18 +722,26 @@ async def activate_account(
 async def lock_account(
     account_id: UUID,
     reason: str = Query("", description="Lock reason"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("coa:audit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountResponseSchema:
+    method_name = "lock_account"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return AccountResponseSchema(**cached)
+
     try:
         result = await coa_service.lock_account(
             account_id, current_user.user_id, legal_entity_id, reason
         )
         if not result:
             raise HTTPException(status_code=404, detail="Account not found")
-        return AccountResponseSchema(
+        response = AccountResponseSchema(
             id=result.id,
             account_code=result.account_code,
             account_name=result.account_name,
@@ -668,6 +769,9 @@ async def lock_account(
             version=result.version,
             children=None,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -683,16 +787,24 @@ async def lock_account(
 )
 async def unlock_account(
     account_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("coa:audit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> AccountResponseSchema:
+    method_name = "unlock_account"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return AccountResponseSchema(**cached)
+
     try:
         result = await coa_service.unlock_account(account_id, current_user.user_id, legal_entity_id)
         if not result:
             raise HTTPException(status_code=404, detail="Account not found")
-        return AccountResponseSchema(
+        response = AccountResponseSchema(
             id=result.id,
             account_code=result.account_code,
             account_name=result.account_name,
@@ -720,6 +832,9 @@ async def unlock_account(
             version=result.version,
             children=None,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -1014,11 +1129,19 @@ async def validate_account_code(
 )
 async def bulk_update_status(
     request: BulkStatusUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("coa:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> dict[str, Any]:
+    method_name = "bulk_update_status"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await coa_service.bulk_update_status(
             account_ids=request.account_ids,
@@ -1027,13 +1150,16 @@ async def bulk_update_status(
             updated_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        return {
+        response = {
             "total": result.total,
             "success_count": result.success_count,
             "failed_count": result.failed_count,
             "failed_ids": [str(fid) for fid in result.failed_ids],
             "errors": result.errors,
         }
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+        return response
     except Exception as e:
         logger.exception("Failed to bulk update status: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1047,11 +1173,19 @@ async def bulk_update_status(
 )
 async def bulk_update_parent(
     request: BulkParentUpdateSchema,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("coa:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> dict[str, Any]:
+    method_name = "bulk_update_parent"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return cached
+
     try:
         result = await coa_service.bulk_update_parent(
             account_ids=request.account_ids,
@@ -1059,13 +1193,16 @@ async def bulk_update_parent(
             updated_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        return {
+        response = {
             "total": result.total,
             "success_count": result.success_count,
             "failed_count": result.failed_count,
             "failed_ids": [str(fid) for fid in result.failed_ids],
             "errors": result.errors,
         }
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response)
+        return response
     except Exception as e:
         logger.exception("Failed to bulk update parent: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1120,11 +1257,19 @@ async def import_coa(
     file: UploadFile = File(..., description="COA file (JSON, CSV, or Excel)"),
     mode: str = Query("merge", pattern="^(merge|replace)$", description="Import mode"),
     validate_only: bool = Query(False, description="Only validate, don't save"),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     _permission: None = Depends(require_permission("coa:import")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     coa_service: Any = Depends(get_coa_service),
 ) -> ImportExportResultSchema:
+    method_name = "import_coa"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return ImportExportResultSchema(**cached)
+
     try:
         content = await file.read()
         file_content = content.decode("utf-8") if file.filename.endswith((".json", ".csv")) else content
@@ -1136,7 +1281,7 @@ async def import_coa(
             validate_only=validate_only,
             imported_by=current_user.user_id,
         )
-        return ImportExportResultSchema(
+        response = ImportExportResultSchema(
             success=result.success,
             message=result.message,
             imported_count=result.imported_count,
@@ -1144,6 +1289,9 @@ async def import_coa(
             skipped_count=result.skipped_count,
             errors=result.errors,
         )
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+        return response
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:

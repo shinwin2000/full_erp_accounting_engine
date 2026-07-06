@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -65,8 +66,6 @@ class _FallbackLedgerRepository:
         to_period_id: UUID,
     ) -> dict[UUID, Decimal]:
         result = {}
-        current = from_period_id
-        # Simplified - in production would iterate periods
         for (le, pid, acc), bal in self._balances.items():
             if le == legal_entity_id and acc == account_code:
                 result[pid] = bal
@@ -358,10 +357,209 @@ class ReconciliationHistory:
         }
 
 
-# === 3. GL SUPREMACY ENFORCER ===
+# ============================================================================
+# BASE GL SUPREMACY ENFORCER (ABSTRACT)
+# ============================================================================
+
+class BaseGLSupremacyEnforcer(ABC):
+    """Base contract untuk GL Supremacy Enforcer."""
+
+    @abstractmethod
+    def enable(self, enabled: bool = True) -> None:
+        """Mengaktifkan atau menonaktifkan enforcer."""
+        pass
+
+    @abstractmethod
+    def set_tolerance(self, tolerance: Decimal) -> None:
+        """Set tolerance for reconciliation."""
+        pass
+
+    @abstractmethod
+    def set_auto_correct_threshold(self, threshold: Decimal) -> None:
+        """Set auto-correct threshold."""
+        pass
+
+    @abstractmethod
+    async def enforce_gl_supremacy(
+        self,
+        legal_entity_id: UUID,
+        period_id: UUID,
+        account_code: str,
+        user_id: str | None = None,
+        auto_correct: bool = False,
+    ) -> ReconciliationResult:
+        """Enforce GL supremacy for a specific account."""
+        pass
+
+    @abstractmethod
+    async def reconcile_ar_to_gl(
+        self,
+        legal_entity_id: UUID,
+        period_id: UUID,
+        user_id: str | None = None,
+        auto_correct: bool = False,
+    ) -> ReconciliationResult:
+        """Reconcile AR subledger to GL."""
+        pass
+
+    @abstractmethod
+    async def reconcile_ap_to_gl(
+        self,
+        legal_entity_id: UUID,
+        period_id: UUID,
+        user_id: str | None = None,
+        auto_correct: bool = False,
+    ) -> ReconciliationResult:
+        """Reconcile AP subledger to GL."""
+        pass
+
+    @abstractmethod
+    async def reconcile_inventory_to_gl(
+        self,
+        legal_entity_id: UUID,
+        period_id: UUID,
+        user_id: str | None = None,
+        auto_correct: bool = False,
+    ) -> ReconciliationResult:
+        """Reconcile Inventory subledger to GL."""
+        pass
+
+    @abstractmethod
+    async def reconcile_fixed_asset_to_gl(
+        self,
+        legal_entity_id: UUID,
+        period_id: UUID,
+        user_id: str | None = None,
+        auto_correct: bool = False,
+    ) -> ReconciliationResult:
+        """Reconcile Fixed Asset subledger to GL."""
+        pass
+
+    @abstractmethod
+    async def reconcile_all_subledgers(
+        self,
+        legal_entity_id: UUID,
+        period_id: UUID,
+        user_id: str | None = None,
+    ) -> list[ReconciliationResult]:
+        """Reconcile all subledgers to GL."""
+        pass
+
+    @abstractmethod
+    async def get_reconciliation_status(
+        self,
+        legal_entity_id: UUID,
+        period_id: UUID,
+    ) -> ReconciliationHistory:
+        """Get reconciliation status for a period."""
+        pass
+
+    @abstractmethod
+    async def get_reconciliation_details(
+        self,
+        legal_entity_id: UUID,
+        period_id: UUID,
+        subledger_type: SubledgerType,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Get reconciliation details for a subledger."""
+        pass
+
+    @abstractmethod
+    async def create_adjustment_journal(
+        self,
+        reconciliation_result: ReconciliationResult,
+        adjustment_amount: Decimal,
+        adjustment_reason: str,
+        user_id: str | None = None,
+    ) -> UUID:
+        """Create adjustment journal for mismatch."""
+        pass
+
+    @abstractmethod
+    def get_reconciliation_history(
+        self,
+        limit: int = 100,
+        legal_entity_id: UUID | None = None,
+        period_id: UUID | None = None,
+        only_mismatched: bool = False,
+    ) -> list[ReconciliationResult]:
+        """Get reconciliation history."""
+        pass
+
+    @abstractmethod
+    def get_violations(
+        self,
+        limit: int = 100,
+        account_code: str | None = None,
+    ) -> list[GLSupremacyViolation]:
+        """Get violation history."""
+        pass
+
+    @abstractmethod
+    def get_statistics(self) -> dict[str, Any]:
+        """Get statistics."""
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Reset state."""
+        pass
+
+    # ==================== CHECKER METHODS ====================
+
+    @abstractmethod
+    def check(self, context: dict) -> list[str]:
+        """Sync check method untuk compliance checker."""
+        pass
+
+    @abstractmethod
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        pass
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict[str, Any]) -> BaseGLSupremacyEnforcer:
+        """Reconstruct dari dictionary."""
+        pass
+
+    @abstractmethod
+    def clone(self) -> BaseGLSupremacyEnforcer:
+        """Clone instance."""
+        pass
+
+    @abstractmethod
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        pass
+
+    @abstractmethod
+    def version(self) -> int:
+        """Dapatkan versi."""
+        pass
+
+    @abstractmethod
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        pass
+
+    @abstractmethod
+    def touch(self, touched_by: str) -> BaseGLSupremacyEnforcer:
+        """Touch instance (increment version)."""
+        pass
 
 
-class GLSupremacyEnforcer:
+# ============================================================================
+# GL SUPREMACY ENFORCER (CONCRETE)
+# ============================================================================
+
+class GLSupremacyEnforcer(BaseGLSupremacyEnforcer):
     """
     Enforcer untuk hukum GL supremacy.
 
@@ -401,19 +599,142 @@ class GLSupremacyEnforcer:
         self._tolerance = self.DEFAULT_TOLERANCE
         self._auto_correct_threshold = self.AUTO_CORRECT_THRESHOLD
         self._enabled = True
+        # Entity fields
+        self._version = 1
+        self._audit_trail: list[dict[str, Any]] = []
+
+    # ==================== SYNC CHECK METHOD (untuk checker compliance) ====================
+
+    def check(self, context: dict) -> list[str]:
+        """
+        Sync check method untuk compliance checker.
+        Memvalidasi context dan mengembalikan daftar error jika ada.
+        """
+        errors = []
+        legal_entity_id = context.get("legal_entity_id")
+        period_id = context.get("period_id")
+        account_code = context.get("account_code")
+
+        if not legal_entity_id:
+            errors.append("legal_entity_id is required")
+        else:
+            try:
+                UUID(str(legal_entity_id))
+            except Exception:
+                errors.append("legal_entity_id must be a valid UUID")
+        if not period_id:
+            errors.append("period_id is required")
+        else:
+            try:
+                UUID(str(period_id))
+            except Exception:
+                errors.append("period_id must be a valid UUID")
+        if not account_code:
+            errors.append("account_code is required")
+        return errors
+
+    # ==================== ENTITY METHODS (wajib) ====================
+
+    def validate(self) -> dict[str, Any]:
+        """Validasi internal state."""
+        errors = []
+        if self._max_history <= 0:
+            errors.append("max_history must be positive")
+        if self._tolerance < 0:
+            errors.append("tolerance cannot be negative")
+        if self._auto_correct_threshold < 0:
+            errors.append("auto_correct_threshold cannot be negative")
+        return {"is_valid": len(errors) == 0, "errors": errors}
+
+    def to_dict(self) -> dict[str, Any]:
+        """Konversi ke dictionary."""
+        with self._lock:
+            return {
+                "enabled": self._enabled,
+                "tolerance": str(self._tolerance),
+                "auto_correct_threshold": str(self._auto_correct_threshold),
+                "reconciliations_count": len(self._reconciliation_history),
+                "violations_count": len(self._violation_history),
+                "version": self._version,
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GLSupremacyEnforcer:
+        """Reconstruct dari dictionary."""
+        instance = cls()
+        instance._enabled = data.get("enabled", True)
+        instance._tolerance = Decimal(str(data.get("tolerance", 0.01)))
+        instance._auto_correct_threshold = Decimal(str(data.get("auto_correct_threshold", 1000)))
+        instance._max_history = data.get("max_history", 10000)
+        instance._version = data.get("version", 1)
+        return instance
+
+    def clone(self) -> GLSupremacyEnforcer:
+        """Clone instance."""
+        new_instance = GLSupremacyEnforcer()
+        new_instance._enabled = self._enabled
+        new_instance._tolerance = self._tolerance
+        new_instance._auto_correct_threshold = self._auto_correct_threshold
+        new_instance._max_history = self._max_history
+        new_instance._version = self._version + 1
+        return new_instance
+
+    def snapshot(self) -> dict[str, Any]:
+        """Ambil snapshot state."""
+        with self._lock:
+            return {
+                "version": self._version,
+                "reconciliations_count": len(self._reconciliation_history),
+                "violations_count": len(self._violation_history),
+                "enabled": self._enabled,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+    def version(self) -> int:
+        """Dapatkan versi."""
+        return self._version
+
+    def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Dapatkan audit trail."""
+        return self._audit_trail[-limit:]
+
+    def touch(self, touched_by: str) -> GLSupremacyEnforcer:
+        """Touch instance (increment version)."""
+        self._version += 1
+        self._audit_trail.append({
+            "action": "TOUCH",
+            "performed_by": touched_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+        })
+        return self
+
+    def _record_audit(self, action: str, performed_by: str, details: dict[str, Any]) -> None:
+        self._audit_trail.append({
+            "action": action,
+            "performed_by": performed_by,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "version": self._version,
+            "details": details,
+        })
+
+    # ==================== ORIGINAL BUSINESS METHODS ====================
 
     def enable(self, enabled: bool = True) -> None:
         self._enabled = enabled
+        self._record_audit("ENABLE", "system", {"enabled": enabled})
         logger.info(f"GL supremacy enforcer enabled: {enabled}")
 
     def set_tolerance(self, tolerance: Decimal) -> None:
         if tolerance < 0:
             raise ValueError("Tolerance cannot be negative")
         self._tolerance = tolerance
+        self._record_audit("SET_TOLERANCE", "system", {"tolerance": str(tolerance)})
         logger.info(f"GL-Subledger reconciliation tolerance set to {tolerance}")
 
     def set_auto_correct_threshold(self, threshold: Decimal) -> None:
         self._auto_correct_threshold = threshold
+        self._record_audit("SET_AUTO_CORRECT_THRESHOLD", "system", {"threshold": str(threshold)})
         logger.info(f"Auto-correct threshold set to {threshold}")
 
     def _get_subledger_type_from_account(self, account_code: str) -> SubledgerType | None:
@@ -738,6 +1059,12 @@ class GLSupremacyEnforcer:
             user_id = get_current_user() or "unknown"
 
         adjustment_journal_id = uuid4()
+        self._record_audit("CREATE_ADJUSTMENT_JOURNAL", user_id, {
+            "reconciliation_id": str(reconciliation_result.reconciliation_id),
+            "subledger_type": reconciliation_result.subledger_type.value,
+            "amount": str(adjustment_amount),
+            "reason": adjustment_reason,
+        })
         logger.warning(
             f"Adjustment journal created for {reconciliation_result.subledger_type.value}: "
             f"amount {adjustment_amount}, reason: {adjustment_reason} by {user_id}"
@@ -749,6 +1076,10 @@ class GLSupremacyEnforcer:
             self._violation_history.append(violation)
             if len(self._violation_history) > self._max_history:
                 self._violation_history = self._violation_history[-self._max_history :]
+            self._record_audit("VIOLATION", violation.user_id or "system", {
+                "account_code": violation.account_code,
+                "severity": violation.severity.name,
+            })
 
     def get_reconciliation_history(
         self,
@@ -786,6 +1117,7 @@ class GLSupremacyEnforcer:
                     "total_reconciliations": 0,
                     "total_violations": len(self._violation_history),
                     "enabled": self._enabled,
+                    "version": self._version,
                 }
 
             matched = len(
@@ -838,6 +1170,7 @@ class GLSupremacyEnforcer:
                 "auto_correct_threshold": str(self._auto_correct_threshold),
                 "enabled": self._enabled,
                 "total_violations": len(self._violation_history),
+                "version": self._version,
                 "latest_reconciliation": self._reconciliation_history[-1].reconciled_at.isoformat()
                 if self._reconciliation_history
                 else None,
@@ -850,6 +1183,8 @@ class GLSupremacyEnforcer:
             self._tolerance = self.DEFAULT_TOLERANCE
             self._auto_correct_threshold = self.AUTO_CORRECT_THRESHOLD
             self._enabled = True
+            self._version += 1
+            self._audit_trail = []
             if hasattr(self._ledger_repo, "clear"):
                 self._ledger_repo.clear()
             if hasattr(self._subledger_repo, "clear"):

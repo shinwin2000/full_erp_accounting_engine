@@ -9,13 +9,15 @@ Responsibility: Menyediakan REST API endpoint untuk mengelola Fiscal Period:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import date, datetime
 from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,6 +41,52 @@ from application.service_layer.service_fiscal_period import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# IDEMPOTENCY MANAGER (for write operations)
+# ============================================================================
+
+class IdempotencyManager:
+    """
+    Simple in-memory idempotency manager untuk FastAPI endpoints.
+    Menyimpan hasil operasi berdasarkan idempotency_key + method_name.
+    TTL 24 jam.
+    """
+
+    def __init__(self):
+        self._storage: dict[str, tuple[str, datetime]] = {}
+        self._ttl_seconds = 86400
+
+    def _get_key(self, idempotency_key: str, method_name: str) -> str:
+        raw = f"{method_name}:{idempotency_key}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        entry = self._storage.get(storage_key)
+        if entry is None:
+            return None
+        result_json, timestamp = entry
+        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+            del self._storage[storage_key]
+            return None
+        try:
+            return json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
+        storage_key = self._get_key(idempotency_key, method_name)
+        try:
+            result_json = json.dumps(result, default=str)
+        except TypeError:
+            result_json = json.dumps({"result": str(result)}, default=str)
+        self._storage[storage_key] = (result_json, datetime.now())
+
+
+# Global instance
+_idempotency_manager = IdempotencyManager()
+
 
 router = APIRouter()
 
@@ -147,12 +195,22 @@ def get_correlation_id(request: Request) -> str:
 async def create_period(
     request: Request,
     payload: CreatePeriodRequestModel,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: FiscalPeriodService = Depends(get_service(FiscalPeriodService)),
 ) -> PeriodResponseModel:
     """
     Create a new fiscal period. The period will be created with OPEN status.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "create_period"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return PeriodResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         req = CreatePeriodRequest(
@@ -165,7 +223,7 @@ async def create_period(
             created_by=user.user_id,
         )
         result = await service.create_period(req, correlation_id)
-        return PeriodResponseModel(
+        response = PeriodResponseModel(
             period_id=result.period_id,
             legal_entity_id=result.legal_entity_id,
             period_type=result.period_type.value,
@@ -181,6 +239,11 @@ async def create_period(
             updated_at=getattr(result, "updated_at", None),
             updated_by=getattr(result, "updated_by", None),
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except Exception as e:
         logger.error(f"Error creating fiscal period: {e}", exc_info=True)
         raise HTTPException(
@@ -298,13 +361,23 @@ async def update_period(
     request: Request,
     period_id: UUID,
     payload: UpdatePeriodRequestModel,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: FiscalPeriodService = Depends(get_service(FiscalPeriodService)),
 ) -> PeriodResponseModel:
     """
     Update fiscal period (start/end dates, period type).
     Only possible for OPEN period.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "update_period"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return PeriodResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         # Need to get the period first to know year/month
@@ -328,7 +401,7 @@ async def update_period(
             updated_by=user.user_id,
             correlation_id=correlation_id,
         )
-        return PeriodResponseModel(
+        response = PeriodResponseModel(
             period_id=result.period_id,
             legal_entity_id=result.legal_entity_id,
             period_type=result.period_type.value,
@@ -344,6 +417,11 @@ async def update_period(
             updated_at=getattr(result, "updated_at", None),
             updated_by=getattr(result, "updated_by", None),
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -368,12 +446,22 @@ async def open_period(
     legal_entity_id: UUID = Body(..., description="Legal entity ID"),
     year: int = Body(..., ge=2000, le=2100),
     month: int = Body(..., ge=1, le=12),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: FiscalPeriodService = Depends(get_service(FiscalPeriodService)),
 ) -> PeriodResponseModel:
     """
     Open an existing fiscal period (change status from DRAFT or CLOSED to OPEN).
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "open_period"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return PeriodResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.open_period(
@@ -383,7 +471,7 @@ async def open_period(
             opened_by=user.user_id,
             correlation_id=correlation_id,
         )
-        return PeriodResponseModel(
+        response = PeriodResponseModel(
             period_id=result.period_id,
             legal_entity_id=result.legal_entity_id,
             period_type=result.period_type.value,
@@ -399,6 +487,11 @@ async def open_period(
             updated_at=getattr(result, "updated_at", None),
             updated_by=getattr(result, "updated_by", None),
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except Exception as e:
         logger.error(f"Error opening fiscal period: {e}", exc_info=True)
         raise HTTPException(
@@ -415,12 +508,22 @@ async def open_period(
 async def lock_period(
     request: Request,
     payload: LockPeriodRequestModel,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: FiscalPeriodService = Depends(get_service(FiscalPeriodService)),
 ) -> PeriodResponseModel:
     """
     Lock a fiscal period. Only OPEN period can be locked.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "lock_period"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return PeriodResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         result = await service.lock_period(
@@ -430,7 +533,7 @@ async def lock_period(
             locked_by=user.user_id,
             correlation_id=correlation_id,
         )
-        return PeriodResponseModel(
+        response = PeriodResponseModel(
             period_id=result.period_id,
             legal_entity_id=result.legal_entity_id,
             period_type=result.period_type.value,
@@ -446,6 +549,11 @@ async def lock_period(
             updated_at=getattr(result, "updated_at", None),
             updated_by=getattr(result, "updated_by", None),
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except Exception as e:
         logger.error(f"Error locking fiscal period: {e}", exc_info=True)
         raise HTTPException(
@@ -462,12 +570,22 @@ async def lock_period(
 async def close_period(
     request: Request,
     payload: ClosePeriodRequestModel,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: FiscalPeriodService = Depends(get_service(FiscalPeriodService)),
 ) -> PeriodResponseModel:
     """
     Close a fiscal period. Period will be locked first if OPEN.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "close_period"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return PeriodResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         req = ClosePeriodRequest(
@@ -478,7 +596,7 @@ async def close_period(
             closed_at=payload.closed_at,
         )
         result = await service.close_period(req, correlation_id)
-        return PeriodResponseModel(
+        response = PeriodResponseModel(
             period_id=result.period_id,
             legal_entity_id=result.legal_entity_id,
             period_type=result.period_type.value,
@@ -494,6 +612,11 @@ async def close_period(
             updated_at=getattr(result, "updated_at", None),
             updated_by=getattr(result, "updated_by", None),
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except Exception as e:
         logger.error(f"Error closing fiscal period: {e}", exc_info=True)
         raise HTTPException(
@@ -510,12 +633,22 @@ async def close_period(
 async def reopen_period(
     request: Request,
     payload: ReopenPeriodRequestModel,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     user: TokenPayload = Depends(get_current_user),
     service: FiscalPeriodService = Depends(get_service(FiscalPeriodService)),
 ) -> PeriodResponseModel:
     """
     Reopen a closed fiscal period (must be CLOSED). Returns to OPEN status.
+
+    This endpoint is idempotent. Provide Idempotency-Key header to safely retry.
     """
+    method_name = "reopen_period"
+    if idempotency_key:
+        cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
+        if cached is not None:
+            logger.info(f"Idempotent cache hit: {method_name} key={idempotency_key[:8]}...")
+            return PeriodResponseModel(**cached)
+
     try:
         correlation_id = get_correlation_id(request)
         req = ReopenPeriodRequest(
@@ -526,7 +659,7 @@ async def reopen_period(
             reason=payload.reason,
         )
         result = await service.reopen_period(req, correlation_id)
-        return PeriodResponseModel(
+        response = PeriodResponseModel(
             period_id=result.period_id,
             legal_entity_id=result.legal_entity_id,
             period_type=result.period_type.value,
@@ -542,6 +675,11 @@ async def reopen_period(
             updated_at=getattr(result, "updated_at", None),
             updated_by=getattr(result, "updated_by", None),
         )
+
+        if idempotency_key:
+            _idempotency_manager.cache_result(idempotency_key, method_name, response.model_dump())
+
+        return response
     except Exception as e:
         logger.error(f"Error reopening fiscal period: {e}", exc_info=True)
         raise HTTPException(

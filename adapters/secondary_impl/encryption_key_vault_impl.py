@@ -14,7 +14,7 @@ from typing import Any
 
 from infrastructure.security.securitykey_management_vault import KeyManagementVault
 from infrastructure.telemetry.structured_json_logging import get_logger
-from ports.primary.encryption_key_vault_port import EncryptionKeyVaultPort, KeyAlgorithm
+from ports.primary.encryption_key_vault_port import EncryptionKeyVaultPort, KeyAlgorithm, KeyMetadata
 
 logger = get_logger(__name__)
 
@@ -38,7 +38,7 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
     async def create_key(
         self,
         key_id: str,
-        algorithm: KeyAlgorithm = KeyAlgorithm.AES_256_GCM,  # ← default sesuai port
+        algorithm: KeyAlgorithm = KeyAlgorithm.AES_256_GCM,
         key_size: int = 256,
         created_by: str | None = None,
         rotation_days: int | None = None,
@@ -47,7 +47,6 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         """
         Create a new key. Delegates to vault if available, else stub.
         """
-        # Convert enum to string if needed (vault might expect string)
         algo_str = algorithm.value if hasattr(algorithm, "value") else str(algorithm)
         return await self._vault.create_key(
             key_id, algo_str, key_size, created_by, rotation_days, tags
@@ -109,31 +108,26 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         logger.warning("export_key not implemented in vault; returning stub.")
         return base64.b64encode(b"stub_exported_key").decode("ascii")
 
+    # [FIX] Return type diubah menjadi None sesuai kontrak (bukan bool)
     async def import_key(
         self,
         key_id: str,
         version: str,
         encrypted_key_b64: str,
         passphrase: str,
-    ) -> bool:
+    ) -> None:
         """
         Import a key from encrypted base64 material.
-        Port signature: import_key(key_id, version, encrypted_key_b64, passphrase) -> bool
+        Port signature: import_key(key_id, version, encrypted_key_b64, passphrase) -> None
+        Jika gagal, raise ValueError.
         """
-        if hasattr(self._vault, "import_key"):
-            # Assume vault expects (key_id, encrypted_key_b64, passphrase) or similar
-            # We pass version along if needed; adapt to vault's signature if possible.
-            # If vault's import_key expects different, we need to call appropriately.
-            # For safety, we call with the four parameters if vault supports it.
-            if hasattr(self._vault, "import_key") and callable(self._vault.import_key):
-                # Try to determine signature - but we can't easily inspect.
-                # We'll assume vault's import_key expects (key_id, encrypted_key_b64, passphrase)
-                # and we ignore version for now.
-                return await self._vault.import_key(key_id, encrypted_key_b64, passphrase)
-        # Stub: decrypt the material (simulate) and store
+        if hasattr(self._vault, "import_key") and callable(self._vault.import_key):
+            # Asumsikan vault.import_key menerima (key_id, encrypted_key_b64, passphrase)
+            # dan mengembalikan None atau raise
+            await self._vault.import_key(key_id, encrypted_key_b64, passphrase)
+            return
+        # Stub: simpan
         try:
-            # In a real implementation, decrypt using passphrase to get key material
-            # For stub, we just store the encrypted material as is
             self._keys[key_id] = {"encrypted": encrypted_key_b64, "version": version}
             self._metadata[key_id] = {
                 "imported_at": datetime.utcnow().isoformat(),
@@ -146,10 +140,10 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
                 "version": version,
             })
             logger.info(f"Key {key_id} version {version} imported (stub)")
-            return True
+            return
         except Exception as e:
             logger.error(f"Import key failed: {e}")
-            return False
+            raise ValueError(f"Import key failed: {e}") from e
 
     async def rewrap_key(self, key_id: str, old_version: str, new_version: str) -> bytes:
         """
@@ -190,14 +184,35 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
         meta = self._metadata.get(key_id, {})
         return meta.get("current_version")
 
-    async def get_key_metadata(self, key_id: str, version: str | None = None) -> dict[str, Any]:
-        """Get metadata for a key."""
+    # [FIX] Return type diubah menjadi KeyMetadata sesuai kontrak
+    async def get_key_metadata(self, key_id: str, version: str | None = None) -> KeyMetadata:
+        """
+        Get metadata for a key. Return KeyMetadata object.
+        """
         if hasattr(self._vault, "get_key_metadata"):
-            return await self._vault.get_key_metadata(key_id, version)
+            result = await self._vault.get_key_metadata(key_id, version)
+            # Jika vault mengembalikan dict, konversi ke KeyMetadata
+            if isinstance(result, dict):
+                # Asumsikan KeyMetadata memiliki fields: key_id, version, algorithm, size, created_at, etc.
+                # Buat objek KeyMetadata dari dict
+                # Karena KeyMetadata mungkin dataclass, kita buat instance
+                # Saya asumsikan KeyMetadata memiliki __init__ yang menerima kwargs
+                return KeyMetadata(**result)
+            return result  # jika sudah KeyMetadata
+        # Stub: buat KeyMetadata dari metadata dict
         meta = self._metadata.get(key_id, {})
         if version:
-            return meta.get("versions", {}).get(version, {})
-        return meta
+            meta = meta.get("versions", {}).get(version, {})
+        # Buat objek KeyMetadata minimal
+        return KeyMetadata(
+            key_id=key_id,
+            version=version or "latest",
+            algorithm="AES_256_GCM",
+            size=256,
+            created_at=meta.get("imported_at", datetime.utcnow().isoformat()),
+            rotation_days=None,
+            tags={},
+        )
 
     async def key_exists(self, key_id: str) -> bool:
         """Check if a key exists."""
@@ -229,7 +244,7 @@ class EncryptionKeyVaultAdapter(EncryptionKeyVaultPort):
     async def start_auto_rotation(
         self,
         key_id: str,
-        rotation_days: int = 90,          # ← default sesuai port
+        rotation_days: int = 90,
         check_interval_hours: int = 24,
     ) -> bool:
         """

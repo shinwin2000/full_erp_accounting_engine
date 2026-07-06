@@ -3,6 +3,7 @@
 Module: sqlalchemy_cash_book_repository.py
 Layer: Adapters (Secondary Implementation)
 Responsibility: Implementasi CashBookRepositoryPort dengan SQLAlchemy.
+Perbaikan: Menghilangkan float() pada nilai moneter (diganti str()).
 """
 
 from __future__ import annotations
@@ -146,7 +147,8 @@ class SQLAlchemyCashBookRepository(CashBookRepositoryPort):
         existing.updated_at = datetime.utcnow()
         existing.updated_by = cash_book.updated_by
         await session.commit()
-        await self._log_audit("UPDATE", cash_book.id, cash_book.updated_by, {"balance": float(cash_book.current_balance)})
+        # ✅ Gunakan str() bukan float()
+        await self._log_audit("UPDATE", cash_book.id, cash_book.updated_by, {"balance": str(cash_book.current_balance)})
 
     async def record_transaction(
         self,
@@ -205,11 +207,12 @@ class SQLAlchemyCashBookRepository(CashBookRepositoryPort):
         )
         session.add(new_tx)
         await session.commit()
+        # ✅ Gunakan str() bukan float()
         await self._log_audit(
             "RECORD_TX",
             cash_book_id,
             user_id,
-            {"type": transaction_type, "amount": float(amount), "reference": reference_type},
+            {"type": transaction_type, "amount": str(amount), "reference": reference_type},
         )
         return tx
 

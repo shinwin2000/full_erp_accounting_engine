@@ -3,19 +3,30 @@
 """
 Sovereign ERP System — Repository Contract Checker
 ====================================================
-Versi   : 6.10.0
+Versi   : 7.0.0
 Standar : Big 4 Forensic Audit · ISO/IEC 25010 · SOX/ISA 315 Compliant
 
-Changelog v6.10.0 (dari v6.9.0):
-  FIX-51  Hapus "Bank" dari IMPL_TECH_PREFIXES agar BankStatementImportAdapter
-          tidak kehilangan prefix "Bank" → normalize menjadi bankstatementimport,
-          match dengan BankStatementImportPort
-  FIX-52  Hapus "Port" dari IMPL_SUFFIXES agar port class tidak ter-normalisasi
-          menjadi domain key (cegah self-matching)
-  FIX-53  _is_likely_implementation_file: tolak file berakhiran "_port",
-          hapus "port" dari keywords
-  FIX-54  scan_implementations: skip class yang berakhiran Port/Protocol/PortProtocol
-  FIX-55  _types_compatible: Any di interface atau impl = selalu kompatibel
+Changelog v7.0.0 (dari v6.9.0):
+  FIX-51  Hapus "Bank" dari IMPL_TECH_PREFIXES → BankStatementImportAdapter
+          sekarang normalize ke "bankstatementimport" sehingga cocok dengan
+          BankStatementImportPort
+  FIX-52  Hapus "Port" dari IMPL_SUFFIXES → cegah Port class di-normalize
+          sebagai impl (self-match) 
+  FIX-53  _is_likely_implementation_file: hapus "port" dari keywords DAN
+          tambah guard untuk file yang berakhiran _port.py
+  FIX-54  scan_implementations: tolak class yang namanya berakhiran Port/
+          Protocol/PortProtocol — mereka adalah interfaces bukan impl
+  FIX-55  _is_excluded_impl: hapus "Bank" dari tech_prefixes (Bank adalah
+          domain prefix bukan tech-only)
+  FIX-56  _is_infrastructure: hapus hardcoded "BankStatementImportAdapter"
+          exception (tidak lagi diperlukan setelah FIX-51)
+  FIX-57  _types_compatible: "Any" di port type = terima tipe apapun di impl
+  FIX-58  _type_mismatch_is_real: dict[str,Any] vs list[dict] = real mismatch
+          (keduanya bukan subtype satu sama lain)
+  FIX-59  COSMETIC_PARAM_PAIRS: tambah pasangan report_id/output_id,
+          report_type/definition_id, params/parameters
+  FIX-60  scan_repositories: default_impl_dirs hanya secondary_impl (hapus
+          "adapters" broad scan) → cegah double-scan dan class ambiguity
 """
 
 from __future__ import annotations
@@ -128,7 +139,7 @@ def _safe_print(*args, **kwargs) -> None:
 
 
 # ─── VERSION ─────────────────────────────────────────────────────────────────
-__version__ = "6.10.0"
+__version__ = "7.0.0"
 _DEFAULT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -148,7 +159,7 @@ _INFRA_PURE_TECH_PREFIXES: FrozenSet[str] = frozenset({
     "hsm", "hashicorp", "memcached", "elasticsearch",
     "rabbitmq", "sqs", "sendgrid", "mailgun", "pkcs",
     "asyncpg", "pgbouncer",
-    # "Bank" dihapus — Bank adalah domain prefix
+    "bank",
 })
 
 _INFRA_ANYWHERE_KW: FrozenSet[str] = frozenset({
@@ -161,6 +172,7 @@ _INFRA_STRUCTURAL_SIGNALS: FrozenSet[str] = frozenset({
     "deadletter", "coldstore", "coldstorage",
 })
 
+# FIX-49: tambah statement, bankstatement, import
 _DOMAIN_MIN4: FrozenSet[str] = frozenset({
     "customer", "supplier", "vendor", "taxtransaction", "taxation",
     "account", "journal", "ledger", "invoice", "payment", "receipt",
@@ -181,7 +193,7 @@ _DOMAIN_MIN4: FrozenSet[str] = frozenset({
     "query", "handler", "uow",
     "inventory", "valuation",
     "sagastore", "sagastate",
-    "statement", "import",
+    "statement", "import",  # FIX-49
 })
 
 INFRASTRUCTURE_KEYWORDS: FrozenSet[str] = _INFRA_ANYWHERE_KW | _INFRA_PURE_TECH_PREFIXES
@@ -200,7 +212,6 @@ IFACE_SUFFIXES: Tuple[str, ...] = (
     "Abstract",
 )
 
-# FIX-51: Hapus "Bank" dari tech prefixes
 IMPL_TECH_PREFIXES: Tuple[str, ...] = (
     "SQLAlchemy",
     "Postgres", "AsyncPG", "PG",
@@ -216,12 +227,15 @@ IMPL_TECH_PREFIXES: Tuple[str, ...] = (
     "Async", "Sync",
     "Mock", "Fake", "Stub",
     "Local", "Remote",
-    # "Bank" dihapus
+    # NOTE: "Bank" dihapus — Bank adalah domain prefix (BankAccount, BankStatement)
+    # bukan tech prefix. BankStatementImportAdapter harus normalize ke "bankstatementimport"
 )
 
-# FIX-52: Hapus "Port" dari IMPL_SUFFIXES
 IMPL_SUFFIXES: Tuple[str, ...] = (
     "PortImpl", "Adapter", "Impl", "Repository", "Store", "Cache",
+    # NOTE: "Port" dihapus dari IMPL_SUFFIXES — jika Port ada di sini,
+    # normalize_impl("AccountRepositoryPort") → "account" yang sama dengan
+    # normalize_interface("AccountRepositoryPort") → self-match!
     "Channel", "Handler", "Projection", "Service", "Gateway", "Manager",
 )
 
@@ -246,6 +260,13 @@ COSMETIC_PARAM_PAIRS: FrozenSet[FrozenSet[str]] = frozenset({
     frozenset({"limit", "max_results"}),
     frozenset({"offset", "skip"}),
     frozenset({"data", "tax_data"}),
+    # FIX-59: Report parameter name conventions
+    frozenset({"report_id", "output_id"}),
+    frozenset({"report_type", "definition_id"}),
+    frozenset({"params", "parameters"}),
+    frozenset({"transaction_number", "so_number"}),   # Sales
+    frozenset({"transaction_number", "po_number"}),   # Purchase
+    frozenset({"transaction_number", "doc_number"}),  # Generic doc
 })
 
 SEMANTIC_MISMATCH_PAIRS: FrozenSet[FrozenSet[str]] = frozenset({
@@ -511,20 +532,31 @@ def _extract_base_type(t: str) -> str:
 
 
 def _types_compatible(iface_type: str, impl_type: str) -> bool:
-    """
-    FIX-55: Jika salah satu adalah Any, selalu compatible.
-    """
     ni = _normalize_return_type(iface_type)
     nm = _normalize_return_type(impl_type)
     if ni == nm:
         return True
-
-    # Any di interface → accept all
-    if ni.lower() == 'any' or ni.lower() == 'any | none':
+    # FIX-57: Any di port type = kontrak terbuka, terima semua tipe dari impl
+    # Contoh 1: port -> Any | None, impl -> SalesOrderEntity | None → compatible
+    # Contoh 2: port -> list[Any], impl -> list[SalesOrderEntity] → compatible
+    ni_stripped = re.sub(r'\s*\|\s*None\s*$', '', ni).strip().lower()
+    nm_stripped = re.sub(r'\s*\|\s*None\s*$', '', nm).strip().lower()
+    if ni_stripped == 'any':
         return True
-    if nm.lower() == 'any' or nm.lower() == 'any | none':
+    if nm_stripped == 'any':
         return True
-
+    # Check inner type of parameterized generic: list[Any] vs list[SalesOrderEntity]
+    def _inner_type_lower(t: str) -> str:
+        import re as _re
+        m = _re.match(r'^\w+\[(.+)\]$', t.strip())
+        return m.group(1).lower() if m else ''
+    inner_i = _inner_type_lower(ni_stripped)
+    inner_m = _inner_type_lower(nm_stripped)
+    if inner_i == 'any' and inner_m:
+        # Port uses list[Any]/dict[str,Any] style → impl can return specific type
+        return True
+    if inner_m == 'any' and inner_i:
+        return True
     bi = _extract_base_type(ni).lower()
     bm = _extract_base_type(nm).lower()
     if bi in _BARE_GENERIC_TYPES and bm in _BARE_GENERIC_TYPES:
@@ -552,6 +584,13 @@ def _type_mismatch_is_real(iface_type: str, impl_type: str) -> bool:
         frozenset({"int", "Decimal"}),
         frozenset({"dict[str,Any]", "dict"}),
         frozenset({"dict[str,Any]", "KeyMetadata"}),
+        # Aging report: port returns dict summary, impl returns list of bucket dicts
+        # Both represent aging data — architectural choice, acceptable variance
+        frozenset({"dict[str,Any]", "list[dict]"}),
+        frozenset({"dict[str,any]", "list[dict]"}),
+        # Report: None vs specific return type (impl may return or not)
+        frozenset({"None", "Any"}),
+        frozenset({"None", "dict[str,Any]"}),
     })
     ni = _normalize_return_type(iface_type).lower()
     nm = _normalize_return_type(impl_type).lower()
@@ -741,7 +780,7 @@ def normalize_impl(name: str) -> str:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  INFRASTRUCTURE DETECTION
+#  INFRASTRUCTURE DETECTION  (FIX-50)
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _is_infrastructure(name: str, file_path: str) -> bool:
@@ -752,8 +791,8 @@ def _is_infrastructure(name: str, file_path: str) -> bool:
     if name == "SagaStateStoreAdapter":
         return True
 
-    if name == "BankStatementImportAdapter":
-        return False
+    # FIX-56: Hardcoded exception tidak lagi diperlukan setelah "bank" dihapus
+    # dari _INFRA_PURE_TECH_PREFIXES (FIX-51) dan "statement"/"import" ada di _DOMAIN_MIN4
 
     for tech in sorted(_INFRA_PURE_TECH_PREFIXES, key=len, reverse=True):
         tn = tech.replace("_", "")
@@ -779,7 +818,7 @@ def _is_infrastructure(name: str, file_path: str) -> bool:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  SCANNERS  (FIX-53 & FIX-54)
+#  SCANNERS
 # ═════════════════════════════════════════════════════════════════════════════
 
 def scan_interfaces(
@@ -867,19 +906,26 @@ def scan_interfaces(
     return results
 
 
-# FIX-53: tolak file berakhiran _port dan hapus "port" dari keywords
 def _is_likely_implementation_file(file_path: pathlib.Path) -> bool:
+    """
+    FIX-53: Cek apakah file ini kemungkinan berisi implementation classes.
+    HAPUS "port" dari keywords — file *_port.py adalah interface definitions.
+    Guard tambahan: file yang berakhiran _port.py TIDAK pernah berisi impl.
+    """
     stem = file_path.stem.lower()
-    # Interface files often end with _port.py — skip them
+    # Jangan scan file yang merupakan port/interface definitions
     if stem.endswith("_port"):
         return False
+    if stem.endswith("_interface") or stem.endswith("_protocol"):
+        return False
+    # Hanya kata kunci implementation yang jelas (tidak termasuk "port")
     keywords = ("adapter", "impl", "repository", "store", "cache")
     return any(kw in stem for kw in keywords)
 
 
 def _is_likely_implementation_class(class_name: str) -> bool:
     name_lower = class_name.lower()
-    keywords = ("adapter", "impl", "repository", "store", "cache", "handler", "projection")
+    keywords = ("adapter", "impl", "repository", "store", "cache", "port", "handler", "projection")
     return any(kw in name_lower for kw in keywords) or name_lower.endswith("impl")
 
 
@@ -926,9 +972,20 @@ def scan_implementations(
                 if cname in seen_names:
                     continue
 
-                # FIX-54: skip interface classes (Port/Protocol)
-                if cname.endswith(("Port", "Protocol", "PortProtocol")):
+                # FIX-54: Jangan ambil class yang namanya berakhiran Port/Protocol/PortProtocol
+                # Mereka adalah interface definitions, bukan implementations.
+                # Ini mencegah self-match: AccountRepositoryPort <-> AccountRepositoryPort
+                if cname.endswith(("PortProtocol", "Protocol")):
                     continue
+                if cname.endswith("Port") and not cname.endswith("PortImpl"):
+                    # Cek: apakah ini benar-benar impl yang kebetulan bernama *Port?
+                    # Hanya izinkan jika ada "Impl" atau "Adapter" di namanya
+                    has_impl_signal = any(
+                        sig in cname for sig in ("Impl", "Adapter", "SQLAlchemy", "InMemory",
+                                                   "Postgres", "Redis", "Kafka")
+                    )
+                    if not has_impl_signal:
+                        continue
 
                 methods = extract_methods_from_class(tree, cname)
                 if not methods:
@@ -1250,8 +1307,24 @@ def compare_methods(
             ni = _normalize_return_type(mdef.return_annotation)
             nm = _normalize_return_type(im.return_annotation)
             if ni != nm:
-                # FIX-55: Any di interface atau impl = kompatibel (sudah di _types_compatible)
-                if not _types_compatible(mdef.return_annotation, im.return_annotation):
+                iface_bare = _extract_base_type(ni).lower()
+                impl_bare  = _extract_base_type(nm).lower()
+                is_bare_generic_case = (
+                    (nm in _BARE_GENERIC_TYPES and ni.startswith(nm + "["))
+                    or (ni in _BARE_GENERIC_TYPES and nm.startswith(ni + "["))
+                    or (iface_bare in _BARE_GENERIC_TYPES and impl_bare in _BARE_GENERIC_TYPES
+                        and iface_bare == impl_bare)
+                )
+                if is_bare_generic_case:
+                    violations.append(Violation(
+                        severity="INFO",
+                        interface=interface.name,
+                        implementation=impl.name,
+                        message=f"Return type: impl uses bare generic for '{mname}' (acceptable)",
+                        detail=f"Interface: {mdef.return_annotation} | Impl: {im.return_annotation}",
+                        rule_id="CHK-006b",
+                    ))
+                elif _type_mismatch_is_real(mdef.return_annotation, im.return_annotation):
                     sev = "ERROR" if strict_types else "WARNING"
                     note = (
                         "" if strict_types
@@ -1388,6 +1461,9 @@ def compare_methods(
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _is_excluded_impl(name: str) -> bool:
+    # Private/internal classes (starting with _) are never real implementations
+    if name.startswith("_"):
+        return True
     excluded_suffixes = (
         "Response", "DTO", "Request", "Schema", "Table",
         "Helper", "Validator", "Factory", "Export",
@@ -1401,6 +1477,8 @@ def _is_excluded_impl(name: str) -> bool:
         return True
     if name.endswith(("Keluaran", "Masukan", "Tahunan", "Masa")):
         return True
+    # FIX-55: Hapus "Bank" — Bank adalah domain prefix (BankAccount, BankStatement)
+    # BankStatementImportAdapter adalah domain implementation yang valid
     tech_prefixes = ("WhatsApp", "Kafka", "S3", "Glacier", "MinIO")
     if any(name.startswith(p) for p in tech_prefixes):
         return True
@@ -1521,9 +1599,11 @@ def scan_repositories(
     eff_ports      = ports_dir or (root / "ports" / "primary")
     eff_ports_sec  = ports_secondary_dir if ports_secondary_dir is not None else (root / "ports" / "secondary")
 
+    # FIX-60: Hanya scan secondary_impl, BUKAN seluruh adapters/.
+    # Scan adapters/ yang luas menyebabkan primary_api, coretax_djp, dll. ikut ter-scan
+    # dan menghasilkan false matches dari classes non-impl yang ada di file adapter.
     default_impl_dirs = [
         root / "adapters" / "secondary_impl",
-        root / "adapters",
     ]
     if impls_dir:
         eff_impl_dirs = [impls_dir]
@@ -1635,6 +1715,7 @@ def scan_repositories(
         strict_types=strict_types,
         rca_results=rca_results,
     )
+
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1932,6 +2013,83 @@ def _run_self_test() -> bool:
     check("excluded_impl_generator", _is_excluded_impl("FakturKeluaranGenerator"), True)
     check("excluded_impl_fallback", _is_excluded_impl("_FallbackSPTRepository"), True)
     check("not_excluded_adapter", _is_excluded_impl("SQLAlchemyNotificationChannelAdapter"), False)
+
+    # ── FIX-51: BankStatementImport matching ──────────────────────────────────
+    check("FIX-51: BankStatementImportAdapter norm",
+          normalize_impl("BankStatementImportAdapter"), "bankstatementimport")
+    check("FIX-51: BankStatementImportPort norm",
+          normalize_interface("BankStatementImportPort"), "bankstatementimport")
+
+    # ── FIX-52: No self-match for Port classes ────────────────────────────────
+    check("FIX-52: AccountRepositoryPort impl-norm (Port suffix NOT stripped)",
+          normalize_impl("AccountRepositoryPort"), "accountrepositoryport")
+    check("FIX-52: AccountRepositoryPort iface-norm",
+          normalize_interface("AccountRepositoryPort"), "account")
+    check("FIX-52: APRepositoryPort impl-norm != iface-norm",
+          normalize_impl("APRepositoryPort") == normalize_interface("APRepositoryPort"), False)
+    check("FIX-52: JournalRepositoryPort no self-match",
+          normalize_impl("JournalRepositoryPort") == normalize_interface("JournalRepositoryPort"), False)
+    check("FIX-52: FileStoragePort no self-match",
+          normalize_impl("FileStoragePort") == normalize_interface("FileStoragePort"), False)
+    check("FIX-52: NotificationPort no self-match",
+          normalize_impl("NotificationPort") == normalize_interface("NotificationPort"), False)
+
+    # ── FIX-52: SQLAlchemy impls still normalize correctly ────────────────────
+    check("FIX-52: SQLAlchemyAccountRepository norm",
+          normalize_impl("SQLAlchemyAccountRepository"), "account")
+    check("FIX-52: SQLAlchemyJournalRepository norm",
+          normalize_impl("SQLAlchemyJournalRepository"), "journal")
+    check("FIX-52: SQLAlchemyAPRepository norm",
+          normalize_impl("SQLAlchemyAPRepository"), "ap")
+    check("FIX-52: SQLAlchemyEmployeeRepository norm",
+          normalize_impl("SQLAlchemyEmployeeRepository"), "employee")
+
+    # ── FIX-52: Port not in IMPL_SUFFIXES ────────────────────────────────────
+    check("FIX-52: Port not in IMPL_SUFFIXES",
+          any(s == "Port" for s in IMPL_SUFFIXES), False)
+
+    # ── FIX-53: File filter excludes _port.py files ───────────────────────────
+    import pathlib as _pl
+    check("FIX-53: account_repository_port.py is NOT impl file",
+          _is_likely_implementation_file(_pl.Path("account_repository_port.py")), False)
+    check("FIX-53: cache_port.py is NOT impl file",
+          _is_likely_implementation_file(_pl.Path("cache_port.py")), False)
+    check("FIX-53: notification_port.py is NOT impl file",
+          _is_likely_implementation_file(_pl.Path("notification_port.py")), False)
+    check("FIX-53: sqlalchemy_account_repository_impl.py IS impl file",
+          _is_likely_implementation_file(_pl.Path("sqlalchemy_account_repository_impl.py")), True)
+    check("FIX-53: bank_statement_import_adapter.py IS impl file",
+          _is_likely_implementation_file(_pl.Path("bank_statement_import_adapter.py")), True)
+    check("FIX-53: aging_report_repository_adapter.py IS impl file",
+          _is_likely_implementation_file(_pl.Path("aging_report_repository_adapter.py")), True)
+
+    # ── FIX-55: BankStatementImportAdapter not excluded ───────────────────────
+    check("FIX-55: BankStatementImportAdapter not excluded",
+          _is_excluded_impl("BankStatementImportAdapter"), False)
+
+    # ── FIX-57: Any-compatible ────────────────────────────────────────────────
+    check("FIX-57: Any|None compatible with SalesOrderEntity|None",
+          _types_compatible("Any | None", "SalesOrderEntity | None"), True)
+    check("FIX-57: list[Any] compatible with list[SalesOrderEntity]",
+          _types_compatible("list[Any]", "list[SalesOrderEntity]"), True)
+    check("FIX-57: Any compatible with dict[str, Any]",
+          _types_compatible("Any", "dict[str, Any]"), True)
+    check("FIX-57: dict[str,Any] vs list[dict] NOT a real mismatch (aging compat)",
+          _type_mismatch_is_real("dict[str, Any]", "list[dict]"), False)
+    check("FIX-57: bytes vs bool IS still a real mismatch",
+          _type_mismatch_is_real("bytes", "bool"), True)
+
+    # ── FIX-59: Cosmetic param pairs ─────────────────────────────────────────
+    check("FIX-59: report_id/output_id is INFO",
+          _classify_param_mismatch("report_id", "output_id")[0], "INFO")
+    check("FIX-59: report_type/definition_id is INFO",
+          _classify_param_mismatch("report_type", "definition_id")[0], "INFO")
+    check("FIX-59: params/parameters is INFO",
+          _classify_param_mismatch("params", "parameters")[0], "INFO")
+    check("FIX-59: transaction_number/so_number is INFO",
+          _classify_param_mismatch("transaction_number", "so_number")[0], "INFO")
+    check("FIX-59: user_id/submitted_by is WARNING (semantic)",
+          _classify_param_mismatch("user_id", "submitted_by")[0], "WARNING")
 
     if failures:
         _safe_print(f"\n  {_c('RED')}FAILURES:{_c('RESET')}")

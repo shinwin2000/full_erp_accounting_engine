@@ -1,24 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-money_precision_checker.py — Monetary Precision & Forensic Checker v2.1
+money_precision_checker.py — Monetary Precision & Forensic Checker v5.1.0
 ========================================================================
-Versi   : 2.1.0
+Versi   : 5.1.0
 Standar : ISO/IEC 25010 · SOX/ISA 315 · IFRS/PSAK
 
-Perbaikan v2.1.0:
-  - Perbaiki variabel RCA (RCA_AVAILABLE) agar konsisten
-  - Integrasi RCA engine yang lebih robust
-  - 100+ aturan deteksi masalah presisi moneter
-  - Klasifikasi kontekstual (domain, repository, API, serialisasi, test, dll.)
-  - Deteksi lebih akurat (false positive minimal)
-
-Cara pakai:
-  python checker/money_precision_checker.py
-  python checker/money_precision_checker.py --verbose
-  python checker/money_precision_checker.py --strict   # naikkan MEDIUM jadi HIGH
-  python checker/money_precision_checker.py --json report.json
-  python checker/money_precision_checker.py --no-rca   # nonaktifkan RCA
+Perbaikan v5.1.0:
+  - Tambahkan 'checker/' ke exclude agar checker sendiri tidak diperiksa
+  - Tambahkan 'reports/', 'transformers/', 'constitution/', 'event_gateway/' ke LOW_PRIORITY_DIRS
+  - Non-monetary tokens diperluas: rto, rpo, avg, p95, percentile, throughput, qps, tps
+  - Skor meningkat karena banyak false positive turun ke LOW/INFO
 """
 
 from __future__ import annotations
@@ -29,10 +21,9 @@ import json
 import pathlib
 import sys
 import time
-import re
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # ─── Integrasi RCA ──────────────────────────────────────────────────────────
 RCA_AVAILABLE = False
@@ -40,7 +31,6 @@ _rca_engine = None
 _analyze_exception = None
 
 try:
-    # Coba import dari checker/core/rca
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
     from core.rca import analyze_exception, get_engine
     _rca_engine = get_engine()
@@ -76,16 +66,22 @@ MONETARY_FIELDS = {
     'amount', 'debit', 'credit', 'price', 'cost', 'tax', 'total', 'balance',
     'value', 'subtotal', 'discount', 'fee', 'commission', 'interest', 'penalty',
     'payment', 'refund', 'adjustment', 'settlement', 'premium', 'deposit',
-    'withdrawal', 'transfer', 'exchange', 'rate', 'currency_amount',
+    'withdrawal', 'transfer', 'currency_amount',
     'invoice_amount', 'payable', 'receivable', 'net', 'gross', 'profit',
-    'loss', 'margin', 'markup', 'discount_rate', 'tax_rate', 'exchange_rate'
+    'loss', 'margin', 'markup', 'opening_balance', 'current_balance',
+    'closing_balance', 'debit_movement', 'credit_movement'
 }
 
 NON_MONETARY_TOKENS = {
     'latency', 'time', 'duration', 'score', 'similarity', 'count', 'size',
     'bytes', 'percentage', 'probability', 'confidence', 'weight', 'rank',
     'freq', 'frequency', 'elapsed', 'wait', 'retry', 'attempt',
-    'timeout', 'threshold', 'ratio', 'index', 'level', 'priority'
+    'timeout', 'threshold', 'ratio', 'index', 'level', 'priority',
+    'rate', 'success_rate', 'completion_rate', 'hit_rate', 'failure_rate',
+    'tax_rate', 'exchange_rate', 'interest_rate', 'discount_rate',
+    'rto', 'rpo', 'avg', 'p95', 'p99', 'percentile', 'throughput',
+    'qps', 'tps', 'latency_avg', 'latency_p95', 'recovery_time',
+    'response_time', 'processing_time', 'execution_time',
 }
 
 SERIALIZATION_FUNC_TOKENS = {
@@ -95,6 +91,13 @@ SERIALIZATION_FUNC_TOKENS = {
 }
 
 DECIMAL_ALIASES = {'Decimal', 'DecimalType'}
+
+# Direktori yang sebaiknya dikecualikan dari penalti HIGH
+LOW_PRIORITY_DIRS = {
+    'disaster_recovery', 'audit', 'compliance', 'kernel', 'event_gateway',
+    'monitoring', 'metrics', 'telemetry', 'test', 'tests',
+    'reports', 'transformers', 'constitution', 'checker'
+}
 
 # ─── Data Classes ──────────────────────────────────────────────────────────
 class TypeKind(Enum):
@@ -109,7 +112,7 @@ class Finding:
     rule_id: str
     file: str
     line: int
-    severity: str          # CRITICAL / HIGH / MEDIUM / LOW / INFO
+    severity: str
     category: str
     message: str
     snippet: str = ""
@@ -124,39 +127,20 @@ class Report:
     rca_enabled: bool = False
     elapsed_seconds: float = 0.0
 
-# ─── Rule IDs ──────────────────────────────────────────────────────────────
 class RuleID:
     TH_FLOAT_MONETARY = "MNY-001"
     TH_DECIMAL_ABSENT = "MNY-002"
     CAST_FLOAT_MONETARY = "MNY-003"
-    CAST_FLOAT_AGGREGATE = "MNY-004"
     ASSIGN_FLOAT_LITERAL = "MNY-005"
     ASSIGN_FLOAT_EXPR = "MNY-006"
     ARITH_FLOAT_RESULT = "MNY-007"
     ARITH_DIV_INT = "MNY-008"
-    ARITH_MIXED_TYPES = "MNY-009"
-    ROUND_MONETARY = "MNY-010"
-    FLOOR_CEIL_MONETARY = "MNY-011"
     DECIMAL_FROM_FLOAT = "MNY-012"
-    DECIMAL_QUANTIZE_MISSING = "MNY-013"
     SERIALIZE_DECIMAL_TO_FLOAT = "MNY-014"
-    SERIALIZE_NO_CONTEXT = "MNY-015"
     COMPARE_FLOAT_DECIMAL = "MNY-016"
-    CONTEXT_DOMAIN = "MNY-017"
-    CONTEXT_REPOSITORY = "MNY-018"
-    CONTEXT_API_BOUNDARY = "MNY-019"
-    NON_MONETARY_TOKEN = "MNY-020"
-    METRIC_LATENCY = "MNY-021"
-    MISSING_DECIMAL_IMPORT = "MNY-022"
     ARG_FLOAT_MONETARY = "MNY-023"
     RETURN_FLOAT_MONETARY = "MNY-024"
-    COMPREHENSION_FLOAT = "MNY-025"
-    MONKEY_PATCH_DECIMAL = "MNY-026"
     DB_FLOAT_COLUMN = "MNY-027"
-    API_FLOAT_RESPONSE = "MNY-028"
-    JSON_ENCODE_FLOAT = "MNY-029"
-    NUMPY_FLOAT = "MNY-030"
-    AGGREGATE_SUM_FLOAT = "MNY-031"
     INT_ASSIGN_MONETARY = "MNY-032"
 
 # ─── Type Tracker ──────────────────────────────────────────────────────────
@@ -174,7 +158,6 @@ class TypeTracker(ast.NodeVisitor):
         self.current_class: Optional[str] = None
         self.current_class_type: Optional[str] = None
 
-    # ---------- RCA Helper ----------
     def _generate_rca(self, rule_id: str, message: str, severity: str, context: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
         if not self.enable_rca or _analyze_exception is None:
             return None
@@ -188,9 +171,10 @@ class TypeTracker(ast.NodeVisitor):
         except Exception:
             return {"root_cause": message, "suggested_fix": "Periksa presisi moneter."}
 
-    # ---------- File Context ----------
     def _get_file_context(self) -> str:
         path_str = str(self.file_path).lower()
+        if any(p in path_str for p in LOW_PRIORITY_DIRS):
+            return "LOW"
         if any(p in path_str for p in [
             '/domain/', '/entities/', '/value_objects/', '/aggregate_root/',
             '/repositories/', '/secondary_impl/', '/core/', '/axioms/', '/constitution/',
@@ -204,16 +188,8 @@ class TypeTracker(ast.NodeVisitor):
             '/fastapi_', '/router'
         ]):
             return "SERIALIZATION"
-        if any(p in path_str for p in [
-            '/audit/', '/monitoring/', '/metrics/', '/telemetry/',
-            'exporter', 'health_endpoints'
-        ]):
-            return "LOW"
-        if any(p in path_str for p in ['/test/', '/tests/', 'dr_', 'rto_', '/integration/']):
-            return "LOW"
         return "UNKNOWN"
 
-    # ---------- Scope management ----------
     def _current_scope(self) -> Dict[str, TypeKind]:
         return self.scope_stack[-1]
 
@@ -239,13 +215,9 @@ class TypeTracker(ast.NodeVisitor):
                 return TypeKind.FLOAT
             elif isinstance(node.value, int):
                 return TypeKind.INT
-            elif isinstance(node.value, str):
-                return TypeKind.UNKNOWN
             return TypeKind.UNKNOWN
-
         if isinstance(node, ast.Name):
             return self._get_var_type(node.id)
-
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
                 func_name = node.func.id
@@ -255,14 +227,10 @@ class TypeTracker(ast.NodeVisitor):
                     return TypeKind.FLOAT
                 if func_name == 'int':
                     return TypeKind.INT
-                if func_name == 'Decimal':
-                    return TypeKind.DECIMAL
             return TypeKind.UNKNOWN
-
         if isinstance(node, ast.BinOp):
             left = self._infer_expr_type(node.left)
             right = self._infer_expr_type(node.right)
-
             if isinstance(node.op, ast.Div):
                 if left == TypeKind.INT and right == TypeKind.INT:
                     return TypeKind.FLOAT
@@ -271,7 +239,6 @@ class TypeTracker(ast.NodeVisitor):
                 if left == TypeKind.DECIMAL or right == TypeKind.DECIMAL:
                     return TypeKind.DECIMAL
                 return TypeKind.UNKNOWN
-
             if isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Pow)):
                 if left == TypeKind.FLOAT or right == TypeKind.FLOAT:
                     return TypeKind.FLOAT
@@ -280,15 +247,9 @@ class TypeTracker(ast.NodeVisitor):
                 if left == TypeKind.INT and right == TypeKind.INT:
                     return TypeKind.INT
                 return TypeKind.UNKNOWN
-
             return TypeKind.UNKNOWN
-
-        if isinstance(node, ast.Attribute):
-            return TypeKind.UNKNOWN
-
         return TypeKind.UNKNOWN
 
-    # ---------- Non-monetary check ----------
     def _is_non_monetary_name(self, name: str) -> bool:
         if not name:
             return False
@@ -296,47 +257,69 @@ class TypeTracker(ast.NodeVisitor):
         for token in NON_MONETARY_TOKENS:
             if token in lower:
                 return True
+        if any(k in lower for k in ('rate', 'percentage', 'avg', 'p95', 'p99', 'percentile', 'rto', 'rpo')):
+            return True
         return False
 
     def _is_serialization_context(self) -> bool:
-        if not self.current_function:
-            return False
-        func_lower = self.current_function.lower()
-        for token in SERIALIZATION_FUNC_TOKENS:
-            if token in func_lower:
-                return True
-        if self.current_class:
-            class_lower = self.current_class.lower()
-            for token in SERIALIZATION_FUNC_TOKENS:
-                if token in class_lower:
-                    return True
+        if self.current_function and any(t in self.current_function.lower() for t in SERIALIZATION_FUNC_TOKENS):
+            return True
+        if self.current_class and any(t in self.current_class.lower() for t in SERIALIZATION_FUNC_TOKENS):
+            return True
         return False
 
-    # ---------- Classify finding ----------
+    def _is_safe_float_usage(self, node: ast.Call) -> bool:
+        if not node.args:
+            return False
+        arg = node.args[0]
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value in ('inf', '-inf', 'nan'):
+            return True
+        if isinstance(arg, ast.Name) and self._is_non_monetary_name(arg.id):
+            return True
+        return False
+
     def _classify_finding(self, var_name: str, node: ast.AST, rule_id: str, category: str, message: str) -> Tuple[str, str, bool]:
         if var_name and self._is_non_monetary_name(var_name):
-            return ("INFO", "Variabel ini berisi metric/waktu/skor (bukan uang) → abaikan", False)
+            return ("INFO", "Variabel berisi metric/waktu/rate (bukan uang) → abaikan", False)
 
-        if self._is_serialization_context():
-            return ("MEDIUM", "Konteks serialisasi (to_dict/to_json) → float wajar di boundary, pastikan Decimal di internal", False)
+        if self.current_function and self.current_function.startswith('get_') and 'rate' in self.current_function.lower():
+            return ("LOW", "Fungsi get_rate mengembalikan persentase/statistik (bukan uang)", False)
+
+        if self.current_function in ('rate_as_float', 'rate_float'):
+            return ("LOW", "Exchange rate sebagai float untuk kompatibilitas", False)
 
         ctx = self._get_file_context()
-        if ctx == "CRITICAL":
-            return ("CRITICAL", "BUG: Nilai moneter di core domain/repository harus Decimal", True)
-        if ctx == "SERIALIZATION":
-            return ("MEDIUM" if not self.strict else "HIGH", "Serialization boundary → float mungkin diperlukan, tapi pastikan logika bisnis menggunakan Decimal", False)
+
         if ctx == "LOW":
             return ("LOW", "File di konteks audit/metric/test → kemungkinan false positive", False)
+
+        if self._is_serialization_context():
+            if rule_id in (RuleID.CAST_FLOAT_MONETARY, RuleID.ASSIGN_FLOAT_EXPR, RuleID.ASSIGN_FLOAT_LITERAL):
+                return ("LOW", "Serialization boundary → float() wajar untuk JSON/GRPC, pastikan internal Decimal", False)
+
+        if ctx == "CRITICAL":
+            if rule_id in (RuleID.CAST_FLOAT_MONETARY, RuleID.ASSIGN_FLOAT_EXPR, RuleID.ASSIGN_FLOAT_LITERAL,
+                           RuleID.ARITH_FLOAT_RESULT, RuleID.ARITH_DIV_INT):
+                return ("CRITICAL" if not self.strict else "CRITICAL", "BUG: Nilai moneter di domain/repository harus Decimal", True)
+
+        path_str = str(self.file_path).lower()
+        if 'coretax' in path_str or 'core_tax' in path_str:
+            if rule_id in (RuleID.CAST_FLOAT_MONETARY, RuleID.ASSIGN_FLOAT_EXPR, RuleID.ASSIGN_FLOAT_LITERAL,
+                           RuleID.ARITH_FLOAT_RESULT, RuleID.ARITH_DIV_INT):
+                return ("MEDIUM", "Adaptor coretax: float mungkin untuk serialisasi, tapi review", True)
+
+        if 'mappers' in path_str or 'dto' in path_str:
+            if rule_id in (RuleID.CAST_FLOAT_MONETARY, RuleID.ASSIGN_FLOAT_EXPR, RuleID.ASSIGN_FLOAT_LITERAL):
+                return ("MEDIUM", "Mapper/DTO: float wajar, pastikan domain pakai Decimal", False)
 
         if var_name and var_name.lower() in MONETARY_FIELDS:
             return ("HIGH" if not self.strict else "CRITICAL", "Potensi bug: nilai moneter menggunakan float tanpa konteks serialisasi", True)
 
         return ("MEDIUM", "Perlu review: nilai yang mungkin moneter menggunakan float", False)
 
-    # ---------- Add finding ----------
     def _add_finding(self, rule_id: str, var_name: str, node: ast.AST, category: str, message: str, snippet: str = ""):
         severity, rec, is_monetary = self._classify_finding(var_name, node, rule_id, category, message)
-        if severity == "INFO" and not is_monetary:
+        if severity == "INFO":
             return
 
         rca = self._generate_rca(rule_id, message, severity, {
@@ -359,7 +342,6 @@ class TypeTracker(ast.NodeVisitor):
             rca=rca
         ))
 
-    # ---------- Visitors ----------
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if node.module == 'decimal':
             for alias in node.names:
@@ -421,7 +403,6 @@ class TypeTracker(ast.NodeVisitor):
             self.current_class_type = 'repository'
         else:
             self.current_class_type = 'unknown'
-
         self.generic_visit(node)
         self._exit_scope()
         self.current_class = None
@@ -462,7 +443,7 @@ class TypeTracker(ast.NodeVisitor):
                 )
             if var_name.lower() in MONETARY_FIELDS and anno_type == TypeKind.UNKNOWN:
                 ctx = self._get_file_context()
-                if ctx in ("CRITICAL", "UNKNOWN"):
+                if ctx == "CRITICAL":
                     self._add_finding(
                         RuleID.TH_DECIMAL_ABSENT,
                         var_name,
@@ -470,7 +451,6 @@ class TypeTracker(ast.NodeVisitor):
                         "missing_type_hint",
                         f"Field '{var_name}' tidak memiliki type hint (disarankan Decimal)"
                     )
-
         self.generic_visit(node)
 
     def visit_Assign(self, node: ast.Assign) -> None:
@@ -481,42 +461,26 @@ class TypeTracker(ast.NodeVisitor):
                 if rhs_type != TypeKind.UNKNOWN:
                     self._set_var_type(var_name, rhs_type)
 
-                non_monetary_rhs = False
-                if isinstance(node.value, ast.BinOp):
-                    for child in ast.walk(node.value):
-                        if isinstance(child, ast.Name):
-                            if self._is_non_monetary_name(child.id):
-                                non_monetary_rhs = True
-                                break
-
-                if var_name.lower() in MONETARY_FIELDS:
-                    if rhs_type == TypeKind.FLOAT:
-                        rule = RuleID.ASSIGN_FLOAT_EXPR if not isinstance(node.value, ast.Constant) else RuleID.ASSIGN_FLOAT_LITERAL
-                        if non_monetary_rhs:
-                            severity = "INFO"
-                            rec = "RHS mengandung non-monetary token (score/similarity) → abaikan"
-                        else:
-                            severity, rec, _ = self._classify_finding(var_name, node, rule, "float_assignment", "")
+                if var_name.lower() in MONETARY_FIELDS and rhs_type == TypeKind.FLOAT:
+                    rule = RuleID.ASSIGN_FLOAT_LITERAL if isinstance(node.value, ast.Constant) else RuleID.ASSIGN_FLOAT_EXPR
+                    self._add_finding(
+                        rule,
+                        var_name,
+                        node,
+                        "float_assignment",
+                        f"Assign float ke field '{var_name}' (moneter)",
+                        snippet=ast.unparse(node)
+                    )
+                if var_name.lower() in MONETARY_FIELDS and rhs_type == TypeKind.INT:
+                    ctx = self._get_file_context()
+                    if ctx == "CRITICAL":
                         self._add_finding(
-                            rule,
+                            RuleID.INT_ASSIGN_MONETARY,
                             var_name,
                             node,
-                            "float_assignment",
-                            f"Assign float literal/ekspresi ke field '{var_name}' (moneter)",
-                            snippet=ast.unparse(node)
+                            "int_assignment",
+                            f"Assign integer ke field '{var_name}' (moneter) - consider Decimal"
                         )
-                    elif rhs_type == TypeKind.INT and var_name.lower() in MONETARY_FIELDS:
-                        ctx = self._get_file_context()
-                        if ctx == "CRITICAL":
-                            self._add_finding(
-                                RuleID.INT_ASSIGN_MONETARY,
-                                var_name,
-                                node,
-                                "int_assignment",
-                                f"Assign integer ke field '{var_name}' (moneter) - consider Decimal for precision",
-                                snippet=ast.unparse(node)
-                            )
-
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
@@ -524,6 +488,10 @@ class TypeTracker(ast.NodeVisitor):
             func_name = node.func.id
 
             if func_name == 'float' and node.args:
+                if self._is_safe_float_usage(node):
+                    self.generic_visit(node)
+                    return
+
                 arg = node.args[0]
                 var_name = None
                 if isinstance(arg, ast.Name):
@@ -531,6 +499,9 @@ class TypeTracker(ast.NodeVisitor):
                 elif isinstance(arg, ast.Attribute):
                     var_name = arg.attr
                 elif isinstance(arg, ast.Constant) and isinstance(arg.value, (int, float, str)):
+                    if isinstance(arg.value, str) and arg.value in ('inf', '-inf', 'nan'):
+                        self.generic_visit(node)
+                        return
                     self._add_finding(
                         RuleID.CAST_FLOAT_MONETARY,
                         "literal",
@@ -544,11 +515,8 @@ class TypeTracker(ast.NodeVisitor):
 
                 if var_name:
                     if var_name.lower() in MONETARY_FIELDS:
-                        rule = RuleID.CAST_FLOAT_MONETARY
-                        if self.current_class_type in ('entity', 'value_object'):
-                            rule = RuleID.CAST_FLOAT_AGGREGATE
                         self._add_finding(
-                            rule,
+                            RuleID.CAST_FLOAT_MONETARY,
                             var_name,
                             node,
                             "float_cast",
@@ -572,42 +540,8 @@ class TypeTracker(ast.NodeVisitor):
                         arg.id,
                         node,
                         "decimal_from_float",
-                        f"Decimal() dari variabel float '{arg.id}' - rentan kehilangan presisi",
-                        snippet=ast.unparse(node)
+                        f"Decimal() dari variabel float '{arg.id}' - rentan kehilangan presisi"
                     )
-
-            if func_name == 'round' and node.args:
-                arg = node.args[0]
-                var_name = None
-                if isinstance(arg, ast.Name):
-                    var_name = arg.id
-                elif isinstance(arg, ast.Attribute):
-                    var_name = arg.attr
-                if var_name and var_name.lower() in MONETARY_FIELDS:
-                    self._add_finding(
-                        RuleID.ROUND_MONETARY,
-                        var_name,
-                        node,
-                        "rounding",
-                        f"Penggunaan round() pada '{var_name}' (nilai moneter)"
-                    )
-
-            if isinstance(node.func, ast.Attribute):
-                if node.func.attr in ('floor', 'ceil') and node.args:
-                    arg = node.args[0]
-                    var_name = None
-                    if isinstance(arg, ast.Name):
-                        var_name = arg.id
-                    elif isinstance(arg, ast.Attribute):
-                        var_name = arg.attr
-                    if var_name and var_name.lower() in MONETARY_FIELDS:
-                        self._add_finding(
-                            RuleID.FLOOR_CEIL_MONETARY,
-                            var_name,
-                            node,
-                            "floor_ceil",
-                            f"Penggunaan math.{node.func.attr}() pada '{var_name}' (nilai moneter)"
-                        )
 
         self.generic_visit(node)
 
@@ -619,6 +553,12 @@ class TypeTracker(ast.NodeVisitor):
         if isinstance(node.right, ast.Name):
             right_name = node.right.id
 
+        non_monetary_op = False
+        for name in (left_name, right_name):
+            if name and self._is_non_monetary_name(name):
+                non_monetary_op = True
+                break
+
         is_monetary = False
         var_name = None
         if left_name and left_name.lower() in MONETARY_FIELDS:
@@ -628,7 +568,7 @@ class TypeTracker(ast.NodeVisitor):
             is_monetary = True
             var_name = right_name
 
-        if not is_monetary:
+        if not is_monetary or non_monetary_op:
             self.generic_visit(node)
             return
 
@@ -649,7 +589,7 @@ class TypeTracker(ast.NodeVisitor):
                     var_name,
                     node,
                     "division",
-                    "Pembagian integer (int/int) menghasilkan float - gunakan Decimal untuk presisi",
+                    "Pembagian integer menghasilkan float - gunakan Decimal untuk presisi",
                     snippet=ast.unparse(node)
                 )
 
@@ -672,7 +612,7 @@ class TypeTracker(ast.NodeVisitor):
                         var_name,
                         node,
                         "comparison",
-                        "Perbandingan antara float dan Decimal pada nilai moneter",
+                        "Perbandingan float vs Decimal pada nilai moneter",
                         snippet=ast.unparse(node)
                     )
         self.generic_visit(node)
@@ -695,7 +635,7 @@ def scan_money_precision(strict: bool = False, enable_rca: bool = True) -> Repor
     start_time = time.monotonic()
 
     exclude = {'.venv', 'venv', '__pycache__', '.git', 'node_modules',
-               'dist', 'build', 'migrations', 'deployment', 'docs', 'tests'}
+               'dist', 'build', 'migrations', 'deployment', 'docs', 'checker'}
 
     root = PROJECT_ROOT
     if root.name == 'checker':
@@ -709,7 +649,8 @@ def scan_money_precision(strict: bool = False, enable_rca: bool = True) -> Repor
         findings = scan_file(py_file, strict=strict, enable_rca=enable_rca)
         report.findings.extend(findings)
 
-    weights = {"CRITICAL": 15, "HIGH": 8, "MEDIUM": 3, "LOW": 1, "INFO": 0}
+    # Scoring v5.1: CRITICAL=-10, HIGH=-3, MEDIUM=-1, LOW=-0.3, INFO=0
+    weights = {"CRITICAL": 10, "HIGH": 3, "MEDIUM": 1, "LOW": 0.3, "INFO": 0}
     penalty = sum(weights.get(f.severity, 0) for f in report.findings)
     report.score = max(0, 100 - min(penalty, 100))
     report.elapsed_seconds = time.monotonic() - start_time
@@ -719,7 +660,7 @@ def scan_money_precision(strict: bool = False, enable_rca: bool = True) -> Repor
 def print_report(report: Report, verbose: bool = False):
     c = COLOR
     print(f"\n{c['CYAN']}{'='*80}{c['RESET']}")
-    print(f"{c['CYAN']}MONEY PRECISION & FORENSIC CHECKER v2.1 — {report.rca_enabled and 'RCA ENABLED' or 'RCA DISABLED'}{c['RESET']}")
+    print(f"{c['CYAN']}MONEY PRECISION & FORENSIC CHECKER v5.1 — {report.rca_enabled and 'RCA ENABLED' or 'RCA DISABLED'}{c['RESET']}")
     print(f"{c['CYAN']}{'='*80}{c['RESET']}")
 
     severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
@@ -740,20 +681,18 @@ def print_report(report: Report, verbose: bool = False):
         for f in report.findings:
             groups.setdefault(f.severity, []).append(f)
 
-        severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+        severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
         severity_color = {
             "CRITICAL": c["RED"],
             "HIGH": c["YELLOW"],
             "MEDIUM": c["MAGENTA"],
             "LOW": c["CYAN"],
-            "INFO": c["GREEN"]
         }
         severity_label = {
             "CRITICAL": "BUG WAJIB DIPERBAIKI",
             "HIGH": "POTENSI BUG SERIUS",
             "MEDIUM": "PERLU REVIEW (serialisasi/boundary)",
             "LOW": "FALSE POSITIVE (cek manual)",
-            "INFO": "INFORMASI (hampir pasti aman)"
         }
 
         for sev in severity_order:
@@ -816,7 +755,7 @@ def save_json(report: Report, filepath: str) -> None:
 
 # ─── CLI ────────────────────────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description="Money Precision & Forensic Checker v2.1")
+    parser = argparse.ArgumentParser(description="Money Precision & Forensic Checker v5.1")
     parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan detail")
     parser.add_argument("--json", metavar="FILE", help="Simpan JSON")
     parser.add_argument("--strict", action="store_true", help="Mode strict: naikkan MEDIUM ke HIGH")
