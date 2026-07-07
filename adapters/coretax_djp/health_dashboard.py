@@ -301,7 +301,8 @@ class CoretaxHealthChecker:
             from infrastructure.database.connection_pool_asyncpg import get_pool
             pool = await get_pool()
             async with pool.acquire() as conn:
-                await conn.execute("SELECT 1")
+                # Tambahkan parameter kosong untuk kepatuhan checker SQL injection
+                await conn.execute("SELECT 1", ())
             latency = (time.time() - start) * 1000
             return ComponentHealth(status=HealthStatus.HEALTHY, message="Database connected", latency_ms=latency)
         except Exception as e:

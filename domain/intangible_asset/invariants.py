@@ -11,7 +11,7 @@ import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -102,7 +102,7 @@ def validate_string_not_empty(
 
 
 def validate_date_not_future(dt: datetime, field_name: str = "Date") -> InvariantResult:
-    if dt > datetime.now():
+    if dt > datetime.now(UTC):
         return InvariantResult.failure(f"{field_name} cannot be in the future: {dt}")
     return InvariantResult.success()
 

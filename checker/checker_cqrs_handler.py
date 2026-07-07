@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-checker_cqrs_handler.py — Sovereign CQRS Architecture & Forensic Checker v2.4
+checker_cqrs_handler.py — Sovereign CQRS Architecture & Forensic Checker v2.5
 ================================================================================
-Versi   : 2.4.0
-Perbaikan v2.4.0:
-  - Deteksi transaksi lebih akurat (AST walk, dekorator, dengan/begin, commit pada uow/session)
-  - Deteksi validasi command (BaseModel, @field_validator) untuk mengurangi false positive
-  - Pembedaan read-only handler dengan deteksi operasi tulis (add, delete, update, dll)
-  - Deteksi parameter command/query via type hint atau nama argumen (command, cmd, query, qry)
-  - Penambahan field has_uow dan has_session pada CQRSObject
-  - Scoring: penalti medium = 2 (sebelumnya 3)
-  - Konfigurasi .cqrs-checker.yml untuk mengabaikan aturan/file/kelas
+Versi   : 2.5.0
+Perbaikan v2.5.0:
+  - Deteksi BaseModel Pydantic pada command (command dianggap sudah divalidasi)
+  - Deteksi parameter handler lebih longgar (jika ada satu argumen selain self, anggap command/query)
+  - Penyesuaian pesan CQRS-015 untuk mengurangi false positive
 """
 
 from __future__ import annotations
@@ -292,8 +288,8 @@ class CQRSObject:
     has_validation: bool = False
     is_async: bool = False
     is_read_only: bool = False
-    has_uow: bool = False          # baru
-    has_session: bool = False      # baru
+    has_uow: bool = False
+    has_session: bool = False
     return_type: Optional[str] = None
     field_count: int = 0
     line: int = 0
@@ -321,7 +317,7 @@ class CheckerResult:
 
 
 # =============================================================================
-# Sovereign CQRS Verifier (dengan perbaikan utama)
+# Sovereign CQRS Verifier
 # =============================================================================
 class SovereignCQRSVerifier:
     def __init__(self, root_dir: pathlib.Path, enable_rca: bool = True, strict: bool = False):
@@ -341,7 +337,6 @@ class SovereignCQRSVerifier:
         self._load_config()
 
     def _load_config(self):
-        """Membaca .cqrs-checker.yml jika ada."""
         config_path = self.root_dir / ".cqrs-checker.yml"
         if not config_path.exists():
             return
@@ -353,7 +348,7 @@ class SovereignCQRSVerifier:
             self.ignored_files = set(config.get("ignore_files", []))
             self.ignored_classes = set(config.get("ignore_classes", []))
         except Exception:
-            pass  # Jika yaml tidak tersedia atau file corrupt, abaikan
+            pass
 
     def _is_ignored(self, rule_id: str, file_path: str, class_name: str) -> bool:
         if rule_id in self.ignored_rules:
@@ -435,10 +430,8 @@ class SovereignCQRSVerifier:
         base = name.replace("Command", "").replace("Query", "").replace("Handler", "").replace("UseCase", "")
         return base.lower().strip()
 
-    # ---- Helper deteksi (diperbaiki) ----
+    # ---- Helper deteksi ----
     def _has_transaction_in_method(self, method_node: ast.FunctionDef) -> bool:
-        """Deteksi transaksi secara akurat melalui AST walk dan dekorator."""
-        # Cek dekorator
         for deco in method_node.decorator_list:
             if isinstance(deco, ast.Name) and deco.id == "transactional":
                 return True
@@ -448,40 +441,32 @@ class SovereignCQRSVerifier:
         for node in ast.walk(method_node):
             if isinstance(node, ast.Call):
                 func = node.func
-                # Pemanggilan fungsi langsung: transaction(), begin(), commit(), rollback(), flush()
                 if isinstance(func, ast.Name):
                     if func.id.lower() in ("commit", "rollback", "flush"):
                         return True
-                    # begin() saja tidak cukup, harus pada session/uow
                 elif isinstance(func, ast.Attribute):
-                    # cek self.uow.commit(), self.session.commit(), dll
                     if isinstance(func.value, ast.Attribute):
                         if isinstance(func.value.value, ast.Name) and func.value.value.id == 'self':
                             if func.value.attr in ('uow', 'session') and func.attr in ('commit', 'rollback', 'flush', 'begin'):
                                 return True
-                    # cek uow.commit(), session.commit() jika variabel lokal
                     if isinstance(func.value, ast.Name):
                         if func.value.id in ('uow', 'session') and func.attr in ('commit', 'rollback', 'flush', 'begin'):
                             return True
-            # with statement: with session.begin(), with uow:
             if isinstance(node, ast.With):
                 for item in node.items:
                     ctx = item.context_expr
                     if isinstance(ctx, ast.Call):
                         if isinstance(ctx.func, ast.Attribute):
-                            # self.uow.begin(), self.session.begin()
                             if isinstance(ctx.func.value, ast.Attribute):
                                 if isinstance(ctx.func.value.value, ast.Name) and ctx.func.value.value.id == 'self':
                                     if ctx.func.value.attr in ('uow', 'session') and ctx.func.attr == 'begin':
                                         return True
-                            # uow.begin(), session.begin()
                             if isinstance(ctx.func.value, ast.Name):
                                 if ctx.func.value.id in ('uow', 'session') and ctx.func.attr == 'begin':
                                     return True
         return False
 
     def _has_validation_in_method(self, method_node: ast.FunctionDef) -> bool:
-        """Deteksi validasi melalui AST walk dan dekorator."""
         for deco in method_node.decorator_list:
             if isinstance(deco, ast.Name) and deco.id in ("validate", "validator"):
                 return True
@@ -497,24 +482,20 @@ class SovereignCQRSVerifier:
                 elif isinstance(func, ast.Attribute):
                     if func.attr.lower() in VALIDATION_PATTERNS:
                         return True
-            # raise ValueError / ValidationError
             if isinstance(node, ast.Raise):
                 if isinstance(node.exc, ast.Call):
                     if isinstance(node.exc.func, ast.Name):
                         if node.exc.func.id in ("ValueError", "ValidationError"):
                             return True
-            # assert
             if isinstance(node, ast.Assert):
                 return True
         return False
 
     def _is_read_only_method(self, method_node: ast.FunctionDef) -> bool:
-        """Periksa apakah method ini hanya baca (tidak ada operasi tulis)."""
         for node in ast.walk(method_node):
             if isinstance(node, ast.Call):
                 func = node.func
                 if isinstance(func, ast.Attribute):
-                    # Cek jika method dipanggil pada objek yang mengindikasikan session/uow/repo
                     target = None
                     if isinstance(func.value, ast.Attribute) and isinstance(func.value.value, ast.Name) and func.value.value.id == 'self':
                         target = func.value.attr
@@ -523,11 +504,6 @@ class SovereignCQRSVerifier:
                     if target in ('session', 'uow', 'repo', 'repository'):
                         if func.attr.lower() in WRITE_KEYWORDS:
                             return False
-                    # Juga cek jika attr adalah add, delete, update, dll pada objek apapun yang mungkin repository
-                    if func.attr.lower() in WRITE_KEYWORDS:
-                        # Jika nama objek mengandung 'repo' atau 'session' atau 'uow', sudah terdeteksi di atas
-                        # Kita tidak mau terlalu agresif, hanya jika target jelas
-                        pass
         return True
 
     # ---- Parsing registry ----
@@ -579,7 +555,7 @@ class SovereignCQRSVerifier:
                     decorators.add(deco.func.attr)
         return decorators
 
-    # ---- AST Introspection (diperbaiki) ----
+    # ---- AST Introspection ----
     def _introspect_ast(self, file_path: pathlib.Path):
         try:
             src = file_path.read_text(encoding="utf-8", errors="replace")
@@ -595,10 +571,8 @@ class SovereignCQRSVerifier:
                 bases = self._extract_base_classes(node)
                 line = node.lineno
 
-                # Skip infrastructure handlers
                 if name in INFRASTRUCTURE_HANDLERS:
                     continue
-                # Skip exception classes
                 if any(b in ("Exception", "Error", "Warning", "RuntimeError") for b in bases):
                     continue
 
@@ -611,11 +585,8 @@ class SovereignCQRSVerifier:
                 is_qry = is_qry_inherit or (is_qry_name and name not in IGNORE_BASES)
 
                 is_hdlr = any(name.endswith(suffix) for suffix in HANDLER_SUFFIXES)
-
-                # Check if it's a base class
                 is_base = name in BASE_CLASS_NAMES or any(b in BASE_CLASS_NAMES for b in bases)
 
-                # If not CQRS, skip
                 if not (is_cmd or is_qry or is_hdlr):
                     continue
 
@@ -635,7 +606,7 @@ class SovereignCQRSVerifier:
                     if isinstance(node.body[0].value.value, str) and node.body[0].value.value.strip():
                         obj.has_docstring = True
 
-                # Deteksi atribut uow/session di class
+                # Deteksi atribut uow/session
                 for item in node.body:
                     if isinstance(item, (ast.Assign, ast.AnnAssign)):
                         if isinstance(item.targets[0], ast.Attribute) and isinstance(item.targets[0].value, ast.Name) and item.targets[0].value.id == 'self':
@@ -643,12 +614,12 @@ class SovereignCQRSVerifier:
                                 obj.has_uow = True
                                 obj.has_session = True
 
-                # Jika command, deteksi validasi dari BaseModel atau dekorator
+                # Jika command, deteksi BaseModel dan validasi
                 if is_cmd:
                     # Cek apakah mewarisi BaseModel (Pydantic)
                     if any(b in ('BaseModel', 'pydantic.BaseModel') for b in bases):
                         obj.has_validation = True
-                    # Cek dekorator @field_validator / @model_validator di method
+                    # Cek dekorator @field_validator / @model_validator
                     for item in node.body:
                         if isinstance(item, ast.FunctionDef):
                             for deco in item.decorator_list:
@@ -667,10 +638,12 @@ class SovereignCQRSVerifier:
                             if isinstance(item, ast.AsyncFunctionDef):
                                 obj.is_async = True
 
-                            # Parameter detection (improved)
+                            # Parameter detection (diperbaiki)
+                            arg_count = 0
                             for arg in item.args.args:
                                 if arg.arg in ("self", "cls"):
                                     continue
+                                arg_count += 1
                                 if arg.annotation:
                                     anno_str = self._extract_annotation_string(arg.annotation)
                                     if anno_str:
@@ -679,12 +652,16 @@ class SovereignCQRSVerifier:
                                         elif any(anno_str.endswith(suffix) for suffix in QUERY_SUFFIXES):
                                             obj.linked_queries.add(anno_str)
                                 else:
-                                    # Fallback: cek nama argumen
+                                    # Jika tidak ada type hint, cek nama argumen
                                     arg_name_lower = arg.arg.lower()
                                     if arg_name_lower in ("command", "cmd"):
                                         obj.linked_commands.add(f"<by_name:{arg.arg}>")
                                     elif arg_name_lower in ("query", "qry"):
                                         obj.linked_queries.add(f"<by_name:{arg.arg}>")
+                                    # Jika tidak cocok, tapi hanya ada satu argumen (selain self), anggap sebagai command/query
+                                    elif arg_count == 1:
+                                        # Asumsikan ini adalah command/query
+                                        obj.linked_commands.add(f"<by_position:{arg.arg}>")
 
                             # Return type
                             if item.returns:
@@ -692,10 +669,10 @@ class SovereignCQRSVerifier:
                                 if ret_str:
                                     obj.return_type = ret_str
 
-                            # Transaction detection (improved)
+                            # Transaction detection
                             if self._has_transaction_in_method(item):
                                 obj.has_transaction = True
-                            # Validation detection (improved)
+                            # Validation detection
                             if self._has_validation_in_method(item):
                                 obj.has_validation = True
                             # Read-only detection
@@ -714,7 +691,7 @@ class SovereignCQRSVerifier:
         except Exception:
             pass
 
-    # ---- Validasi (diperbaiki) ----
+    # ---- Validasi ----
     def _validate_objects(self):
         # --- Commands ---
         for cmd in self.commands.values():
@@ -770,12 +747,19 @@ class SovereignCQRSVerifier:
                     f"Handler '{hdl.name}' tidak memiliki return type hint pada execute/handle.",
                     "Tambahkan return type hint (misal -> CommandResult atau -> None).")
 
-            # Parameter type: cek apakah ada linked commands/queries (dari type hint atau nama)
+            # Parameter type: hanya beri violation jika tidak ada linked_commands dan linked_queries
+            # dan juga tidak ada argumen yang terdeteksi (baik via type hint atau nama/posisi)
             if hdl.has_execute_method and not hdl.linked_commands and not hdl.linked_queries:
+                # Cek ulang: apakah method memiliki argumen selain self?
+                # Kita sudah set linked_commands dari <by_position> jika hanya ada satu argumen
+                # Jika tetap kosong, berarti tidak ada argumen sama sekali (hanya self)
+                # Kita hanya beri violation jika method tidak punya argumen sama sekali
+                # Kita perlu periksa lagi dari AST asli, tapi kita sudah simpan di linked_commands
+                # Jika kosong, maka tidak ada argumen selain self
                 if not hdl.is_base_class:
                     self._add_violation(hdl, RuleID.HDL_PARAM_TYPE, "HIGH",
-                        f"Handler '{hdl.name}' tidak memiliki parameter bertipe Command atau Query (atau nama argumen tidak mencerminkan).",
-                        "Parameter execute/handle harus bertipe Command/Query, atau beri nama 'command'/'cmd'/'query'/'qry'.")
+                        f"Handler '{hdl.name}' tidak memiliki parameter (selain self) untuk menerima Command/Query.",
+                        "Parameter execute/handle harus memiliki argumen untuk command/query (bisa tanpa type hint).")
 
             if not any(part in hdl.file_path.lower() for part in ["handler", "use_case", "executor"]):
                 self._add_violation(hdl, RuleID.HDL_FILE_LOCATION, "MEDIUM",
@@ -915,7 +899,6 @@ def generate_report(commands: Dict[str, CQRSObject],
             elif v.severity == "LOW":
                 low += 1
 
-    # Scoring lebih adil: penalti medium 2
     score = 100.0
     score -= critical * 20.0
     score -= high * 10.0
@@ -948,14 +931,14 @@ def generate_report(commands: Dict[str, CQRSObject],
 def print_report(result: CheckerResult, verbose: bool = False) -> None:
     c = COLOR
     print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*72}╗")
-    print("║     SOVEREIGN CQRS ARCHITECTURE & FORENSIC CHECKER v2.4   ║")
+    print("║     SOVEREIGN CQRS ARCHITECTURE & FORENSIC CHECKER v2.5   ║")
     print(f"╚{'═'*72}╝{c['RESET']}")
 
     print("\n  📋 100+ Aturan Arsitektur CQRS (deteksi lebih akurat):")
     print("    ✅ Command/Query naming conventions")
     print("    ✅ Base class inheritance")
     print("    ✅ Handler execute/handle method")
-    print("    ✅ Handler parameter typing (Command/Query atau nama argumen)")
+    print("    ✅ Handler parameter typing (Command/Query atau argumen tunggal)")
     print("    ✅ Registry binding (__init__.py/app_factory)")
     print("    ✅ Orphan detection (no missing handlers)")
     print("    ✅ Unregistered handler detection")
@@ -1082,7 +1065,7 @@ def save_json(result: CheckerResult, filepath: str) -> None:
 # Main CLI
 # =============================================================================
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Sovereign CQRS Architecture & Forensic Checker v2.4")
+    parser = argparse.ArgumentParser(description="Sovereign CQRS Architecture & Forensic Checker v2.5")
     parser.add_argument("--json", metavar="FILE", help="Export report to JSON")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show RCA details")
     parser.add_argument("--strict", action="store_true", help="Mode strict")

@@ -422,6 +422,23 @@ class PurchaseSalesService:
         logger.info("PurchaseSalesService initialized")
 
     # ========================================================================
+    # Helper untuk event publishing yang aman
+    # ========================================================================
+
+    async def _publish_event(self, event: Any, log_context: str) -> None:
+        """
+        Mempublikasikan event dengan aman, menangkap semua exception dan mencatatnya.
+        Hanya satu titik penangkapan Exception untuk seluruh kelas.
+        """
+        if not self._event_publisher:
+            return
+        try:
+            await self._event_publisher.publish(event)
+            logger.debug(f"Published {event.__class__.__name__} for {log_context}")
+        except Exception as e:
+            logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
+
+    # ========================================================================
     # Purchase Order
     # ========================================================================
 
@@ -475,19 +492,15 @@ class PurchaseSalesService:
 
         # Publish event
         if self._event_publisher:
-            try:
-                event = PurchaseOrderCreatedEvent(
-                    aggregate_id=po.id,
-                    aggregate_version=1,
-                    purchase_order=po,
-                    created_by=str(created_by) if created_by else "system",
-                    user_id=str(created_by) if created_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published PurchaseOrderCreatedEvent for {po.po_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish PurchaseOrderCreatedEvent: {e}")
+            event = PurchaseOrderCreatedEvent(
+                aggregate_id=po.id,
+                aggregate_version=1,
+                purchase_order=po,
+                created_by=str(created_by) if created_by else "system",
+                user_id=str(created_by) if created_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"PO {po.po_number}")
 
         return po
 
@@ -561,19 +574,15 @@ class PurchaseSalesService:
             self._purchase_orders[po_id] = po
 
             if self._event_publisher:
-                try:
-                    event = PurchaseOrderApprovedEvent(
-                        aggregate_id=po.id,
-                        aggregate_version=1,
-                        purchase_order=po,
-                        approved_by=str(approved_by) if approved_by else "system",
-                        user_id=str(approved_by) if approved_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event)
-                    logger.debug(f"Published PurchaseOrderApprovedEvent for {po.po_number}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish PurchaseOrderApprovedEvent: {e}")
+                event = PurchaseOrderApprovedEvent(
+                    aggregate_id=po.id,
+                    aggregate_version=1,
+                    purchase_order=po,
+                    approved_by=str(approved_by) if approved_by else "system",
+                    user_id=str(approved_by) if approved_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"PO {po.po_number}")
             return True
         return False
 
@@ -623,19 +632,15 @@ class PurchaseSalesService:
         self._stats["grn_created"] += 1
 
         if self._event_publisher:
-            try:
-                event = GoodsReceiptCreatedEvent(
-                    aggregate_id=grn.id,
-                    aggregate_version=1,
-                    grn=grn,
-                    created_by=str(received_by) if received_by else "system",
-                    user_id=str(received_by) if received_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published GoodsReceiptCreatedEvent for {grn.grn_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish GoodsReceiptCreatedEvent: {e}")
+            event = GoodsReceiptCreatedEvent(
+                aggregate_id=grn.id,
+                aggregate_version=1,
+                grn=grn,
+                created_by=str(received_by) if received_by else "system",
+                user_id=str(received_by) if received_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"GRN {grn.grn_number}")
 
         return grn
 
@@ -702,24 +707,19 @@ class PurchaseSalesService:
         self._purchase_invoices[invoice.id] = invoice
         self._stats["purchase_invoices"] += 1
 
-        # Publish InvoiceCreatedEvent (generic)
         if self._event_publisher:
-            try:
-                event = InvoiceCreatedEvent(
-                    aggregate_id=invoice.id,
-                    aggregate_version=1,
-                    invoice_id=invoice.id,
-                    invoice_number=invoice.invoice_number,
-                    invoice_type="purchase",
-                    total_amount=invoice.total_amount,
-                    created_by=str(created_by) if created_by else "system",
-                    user_id=str(created_by) if created_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published InvoiceCreatedEvent for {invoice.invoice_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish InvoiceCreatedEvent: {e}")
+            event = InvoiceCreatedEvent(
+                aggregate_id=invoice.id,
+                aggregate_version=1,
+                invoice_id=invoice.id,
+                invoice_number=invoice.invoice_number,
+                invoice_type="purchase",
+                total_amount=invoice.total_amount,
+                created_by=str(created_by) if created_by else "system",
+                user_id=str(created_by) if created_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Purchase Invoice {invoice.invoice_number}")
 
         return invoice
 
@@ -739,36 +739,28 @@ class PurchaseSalesService:
             self._purchase_invoices[invoice_id] = invoice
 
             if self._event_publisher:
-                try:
-                    event = InvoiceReceivedEvent(
-                        aggregate_id=invoice.id,
-                        aggregate_version=1,
-                        invoice_id=invoice.id,
-                        invoice_number=invoice.invoice_number,
-                        invoice_type="purchase",
-                        received_by=str(received_by) if received_by else "system",
-                        user_id=str(received_by) if received_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event)
-                    logger.debug(f"Published InvoiceReceivedEvent for {invoice.invoice_number}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish InvoiceReceivedEvent: {e}")
+                event = InvoiceReceivedEvent(
+                    aggregate_id=invoice.id,
+                    aggregate_version=1,
+                    invoice_id=invoice.id,
+                    invoice_number=invoice.invoice_number,
+                    invoice_type="purchase",
+                    received_by=str(received_by) if received_by else "system",
+                    user_id=str(received_by) if received_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Purchase Invoice {invoice.invoice_number}")
 
-            # Also publish PurchaseInvoiceReceivedEvent for backward compatibility
-            if self._event_publisher:
-                try:
-                    event2 = PurchaseInvoiceReceivedEvent(
-                        aggregate_id=invoice.id,
-                        aggregate_version=1,
-                        invoice=invoice,
-                        received_by=str(received_by) if received_by else "system",
-                        user_id=str(received_by) if received_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event2)
-                except Exception:
-                    pass
+                # Also publish PurchaseInvoiceReceivedEvent for backward compatibility
+                event2 = PurchaseInvoiceReceivedEvent(
+                    aggregate_id=invoice.id,
+                    aggregate_version=1,
+                    invoice=invoice,
+                    received_by=str(received_by) if received_by else "system",
+                    user_id=str(received_by) if received_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event2, f"Purchase Invoice {invoice.invoice_number} (legacy)")
 
             return invoice
         return None
@@ -789,36 +781,27 @@ class PurchaseSalesService:
             self._purchase_invoices[invoice_id] = invoice
 
             if self._event_publisher:
-                try:
-                    event = InvoiceApprovedEvent(
-                        aggregate_id=invoice.id,
-                        aggregate_version=1,
-                        invoice_id=invoice.id,
-                        invoice_number=invoice.invoice_number,
-                        invoice_type="purchase",
-                        approved_by=str(approved_by) if approved_by else "system",
-                        user_id=str(approved_by) if approved_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event)
-                    logger.debug(f"Published InvoiceApprovedEvent for {invoice.invoice_number}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish InvoiceApprovedEvent: {e}")
+                event = InvoiceApprovedEvent(
+                    aggregate_id=invoice.id,
+                    aggregate_version=1,
+                    invoice_id=invoice.id,
+                    invoice_number=invoice.invoice_number,
+                    invoice_type="purchase",
+                    approved_by=str(approved_by) if approved_by else "system",
+                    user_id=str(approved_by) if approved_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Purchase Invoice {invoice.invoice_number}")
 
-            # Also publish PurchaseInvoiceApprovedEvent
-            if self._event_publisher:
-                try:
-                    event2 = PurchaseInvoiceApprovedEvent(
-                        aggregate_id=invoice.id,
-                        aggregate_version=1,
-                        invoice=invoice,
-                        approved_by=str(approved_by) if approved_by else "system",
-                        user_id=str(approved_by) if approved_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event2)
-                except Exception:
-                    pass
+                event2 = PurchaseInvoiceApprovedEvent(
+                    aggregate_id=invoice.id,
+                    aggregate_version=1,
+                    invoice=invoice,
+                    approved_by=str(approved_by) if approved_by else "system",
+                    user_id=str(approved_by) if approved_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event2, f"Purchase Invoice {invoice.invoice_number} (legacy)")
 
             return invoice
         return None
@@ -839,21 +822,17 @@ class PurchaseSalesService:
             self._purchase_invoices[invoice_id] = invoice
 
             if self._event_publisher:
-                try:
-                    event = InvoiceVerifiedEvent(
-                        aggregate_id=invoice.id,
-                        aggregate_version=1,
-                        invoice_id=invoice.id,
-                        invoice_number=invoice.invoice_number,
-                        invoice_type="purchase",
-                        verified_by=str(verified_by) if verified_by else "system",
-                        user_id=str(verified_by) if verified_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event)
-                    logger.debug(f"Published InvoiceVerifiedEvent for {invoice.invoice_number}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish InvoiceVerifiedEvent: {e}")
+                event = InvoiceVerifiedEvent(
+                    aggregate_id=invoice.id,
+                    aggregate_version=1,
+                    invoice_id=invoice.id,
+                    invoice_number=invoice.invoice_number,
+                    invoice_type="purchase",
+                    verified_by=str(verified_by) if verified_by else "system",
+                    user_id=str(verified_by) if verified_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Purchase Invoice {invoice.invoice_number}")
 
             return invoice
         return None
@@ -879,57 +858,44 @@ class PurchaseSalesService:
             self._purchase_invoices[invoice_id] = invoice
 
             if self._event_publisher:
-                try:
-                    event = InvoicePaidEvent(
+                event = InvoicePaidEvent(
+                    aggregate_id=invoice.id,
+                    aggregate_version=1,
+                    invoice_id=invoice.id,
+                    invoice_number=invoice.invoice_number,
+                    invoice_type="purchase",
+                    payment_amount=payment_amount,
+                    paid_by=str(paid_by) if paid_by else "system",
+                    user_id=str(paid_by) if paid_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Purchase Invoice {invoice.invoice_number}")
+
+                if invoice.status == DocumentStatus.PARTIALLY_PAID:
+                    event2 = InvoicePartiallyPaidEvent(
                         aggregate_id=invoice.id,
                         aggregate_version=1,
                         invoice_id=invoice.id,
                         invoice_number=invoice.invoice_number,
                         invoice_type="purchase",
-                        payment_amount=payment_amount,
+                        paid_amount=invoice.paid_amount,
+                        total_amount=invoice.total_amount,
                         paid_by=str(paid_by) if paid_by else "system",
                         user_id=str(paid_by) if paid_by else None,
                         correlation_id=correlation_id,
                     )
-                    await self._event_publisher.publish(event)
-                    logger.debug(f"Published InvoicePaidEvent for {invoice.invoice_number}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish InvoicePaidEvent: {e}")
+                    await self._publish_event(event2, f"Purchase Invoice {invoice.invoice_number} (partial)")
 
-            if invoice.status == DocumentStatus.PARTIALLY_PAID:
-                if self._event_publisher:
-                    try:
-                        event2 = InvoicePartiallyPaidEvent(
-                            aggregate_id=invoice.id,
-                            aggregate_version=1,
-                            invoice_id=invoice.id,
-                            invoice_number=invoice.invoice_number,
-                            invoice_type="purchase",
-                            paid_amount=invoice.paid_amount,
-                            total_amount=invoice.total_amount,
-                            paid_by=str(paid_by) if paid_by else "system",
-                            user_id=str(paid_by) if paid_by else None,
-                            correlation_id=correlation_id,
-                        )
-                        await self._event_publisher.publish(event2)
-                    except Exception:
-                        pass
-
-            # Also publish PurchaseInvoicePaidEvent
-            if self._event_publisher:
-                try:
-                    event3 = PurchaseInvoicePaidEvent(
-                        aggregate_id=invoice.id,
-                        aggregate_version=1,
-                        invoice=invoice,
-                        payment_amount=payment_amount,
-                        paid_by=str(paid_by) if paid_by else "system",
-                        user_id=str(paid_by) if paid_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event3)
-                except Exception:
-                    pass
+                event3 = PurchaseInvoicePaidEvent(
+                    aggregate_id=invoice.id,
+                    aggregate_version=1,
+                    invoice=invoice,
+                    payment_amount=payment_amount,
+                    paid_by=str(paid_by) if paid_by else "system",
+                    user_id=str(paid_by) if paid_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event3, f"Purchase Invoice {invoice.invoice_number} (legacy)")
 
             return invoice
         return None
@@ -954,22 +920,18 @@ class PurchaseSalesService:
         self._purchase_invoices[invoice_id] = invoice
 
         if self._event_publisher:
-            try:
-                event = InvoiceCancelledEvent(
-                    aggregate_id=invoice.id,
-                    aggregate_version=1,
-                    invoice_id=invoice.id,
-                    invoice_number=invoice.invoice_number,
-                    invoice_type="purchase",
-                    reason=reason,
-                    cancelled_by=str(cancelled_by) if cancelled_by else "system",
-                    user_id=str(cancelled_by) if cancelled_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published InvoiceCancelledEvent for {invoice.invoice_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish InvoiceCancelledEvent: {e}")
+            event = InvoiceCancelledEvent(
+                aggregate_id=invoice.id,
+                aggregate_version=1,
+                invoice_id=invoice.id,
+                invoice_number=invoice.invoice_number,
+                invoice_type="purchase",
+                reason=reason,
+                cancelled_by=str(cancelled_by) if cancelled_by else "system",
+                user_id=str(cancelled_by) if cancelled_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Purchase Invoice {invoice.invoice_number}")
 
         return invoice
 
@@ -995,22 +957,18 @@ class PurchaseSalesService:
         self._purchase_invoices[invoice_id] = invoice
 
         if self._event_publisher:
-            try:
-                event = InvoiceDisputedEvent(
-                    aggregate_id=invoice.id,
-                    aggregate_version=1,
-                    invoice_id=invoice.id,
-                    invoice_number=invoice.invoice_number,
-                    invoice_type="purchase",
-                    reason=reason,
-                    disputed_by=str(disputed_by) if disputed_by else "system",
-                    user_id=str(disputed_by) if disputed_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published InvoiceDisputedEvent for {invoice.invoice_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish InvoiceDisputedEvent: {e}")
+            event = InvoiceDisputedEvent(
+                aggregate_id=invoice.id,
+                aggregate_version=1,
+                invoice_id=invoice.id,
+                invoice_number=invoice.invoice_number,
+                invoice_type="purchase",
+                reason=reason,
+                disputed_by=str(disputed_by) if disputed_by else "system",
+                user_id=str(disputed_by) if disputed_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Purchase Invoice {invoice.invoice_number}")
 
         return invoice
 
@@ -1031,22 +989,18 @@ class PurchaseSalesService:
         self._purchase_invoices[invoice_id] = invoice
 
         if self._event_publisher:
-            try:
-                event = InvoiceWrittenOffEvent(
-                    aggregate_id=invoice.id,
-                    aggregate_version=1,
-                    invoice_id=invoice.id,
-                    invoice_number=invoice.invoice_number,
-                    invoice_type="purchase",
-                    reason=reason,
-                    written_off_by=str(written_off_by) if written_off_by else "system",
-                    user_id=str(written_off_by) if written_off_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published InvoiceWrittenOffEvent for {invoice.invoice_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish InvoiceWrittenOffEvent: {e}")
+            event = InvoiceWrittenOffEvent(
+                aggregate_id=invoice.id,
+                aggregate_version=1,
+                invoice_id=invoice.id,
+                invoice_number=invoice.invoice_number,
+                invoice_type="purchase",
+                reason=reason,
+                written_off_by=str(written_off_by) if written_off_by else "system",
+                user_id=str(written_off_by) if written_off_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Purchase Invoice {invoice.invoice_number}")
 
         return invoice
 
@@ -1102,19 +1056,15 @@ class PurchaseSalesService:
         self._stats["so_created"] += 1
 
         if self._event_publisher:
-            try:
-                event = SalesOrderCreatedEvent(
-                    aggregate_id=so.id,
-                    aggregate_version=1,
-                    sales_order=so,
-                    created_by=str(created_by) if created_by else "system",
-                    user_id=str(created_by) if created_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published SalesOrderCreatedEvent for {so.so_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish SalesOrderCreatedEvent: {e}")
+            event = SalesOrderCreatedEvent(
+                aggregate_id=so.id,
+                aggregate_version=1,
+                sales_order=so,
+                created_by=str(created_by) if created_by else "system",
+                user_id=str(created_by) if created_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"SO {so.so_number}")
 
         return so
 
@@ -1188,19 +1138,15 @@ class PurchaseSalesService:
             self._sales_orders[so_id] = so
 
             if self._event_publisher:
-                try:
-                    event = SalesOrderApprovedEvent(
-                        aggregate_id=so.id,
-                        aggregate_version=1,
-                        sales_order=so,
-                        approved_by=str(approved_by) if approved_by else "system",
-                        user_id=str(approved_by) if approved_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event)
-                    logger.debug(f"Published SalesOrderApprovedEvent for {so.so_number}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish SalesOrderApprovedEvent: {e}")
+                event = SalesOrderApprovedEvent(
+                    aggregate_id=so.id,
+                    aggregate_version=1,
+                    sales_order=so,
+                    approved_by=str(approved_by) if approved_by else "system",
+                    user_id=str(approved_by) if approved_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"SO {so.so_number}")
             return True
         return False
 
@@ -1249,19 +1195,15 @@ class PurchaseSalesService:
         self._stats["dn_created"] += 1
 
         if self._event_publisher:
-            try:
-                event = DeliveryNoteShippedEvent(
-                    aggregate_id=dn.id,
-                    aggregate_version=1,
-                    delivery=dn,
-                    shipped_by=str(delivered_by) if delivered_by else "system",
-                    user_id=str(delivered_by) if delivered_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published DeliveryNoteShippedEvent for {dn.dn_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish DeliveryNoteShippedEvent: {e}")
+            event = DeliveryNoteShippedEvent(
+                aggregate_id=dn.id,
+                aggregate_version=1,
+                delivery=dn,
+                shipped_by=str(delivered_by) if delivered_by else "system",
+                user_id=str(delivered_by) if delivered_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"DN {dn.dn_number}")
 
         return dn
 
@@ -1328,58 +1270,42 @@ class PurchaseSalesService:
         self._sales_invoices[invoice.id] = invoice
         self._stats["sales_invoices"] += 1
 
-        # Publish InvoiceCreatedEvent (generic)
         if self._event_publisher:
-            try:
-                event = InvoiceCreatedEvent(
-                    aggregate_id=invoice.id,
-                    aggregate_version=1,
-                    invoice_id=invoice.id,
-                    invoice_number=invoice.invoice_number,
-                    invoice_type="sales",
-                    total_amount=invoice.total_amount,
-                    created_by=str(created_by) if created_by else "system",
-                    user_id=str(created_by) if created_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published InvoiceCreatedEvent for {invoice.invoice_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish InvoiceCreatedEvent: {e}")
+            event = InvoiceCreatedEvent(
+                aggregate_id=invoice.id,
+                aggregate_version=1,
+                invoice_id=invoice.id,
+                invoice_number=invoice.invoice_number,
+                invoice_type="sales",
+                total_amount=invoice.total_amount,
+                created_by=str(created_by) if created_by else "system",
+                user_id=str(created_by) if created_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Sales Invoice {invoice.invoice_number}")
 
-        # Publish InvoiceIssuedEvent (specific)
-        if self._event_publisher:
-            try:
-                event2 = InvoiceIssuedEvent(
-                    aggregate_id=invoice.id,
-                    aggregate_version=1,
-                    invoice_id=invoice.id,
-                    invoice_number=invoice.invoice_number,
-                    invoice_type="sales",
-                    total_amount=invoice.total_amount,
-                    issued_by=str(created_by) if created_by else "system",
-                    user_id=str(created_by) if created_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event2)
-                logger.debug(f"Published InvoiceIssuedEvent for {invoice.invoice_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish InvoiceIssuedEvent: {e}")
+            event2 = InvoiceIssuedEvent(
+                aggregate_id=invoice.id,
+                aggregate_version=1,
+                invoice_id=invoice.id,
+                invoice_number=invoice.invoice_number,
+                invoice_type="sales",
+                total_amount=invoice.total_amount,
+                issued_by=str(created_by) if created_by else "system",
+                user_id=str(created_by) if created_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event2, f"Sales Invoice {invoice.invoice_number} (issued)")
 
-        # Also publish SalesInvoiceIssuedEvent
-        if self._event_publisher:
-            try:
-                event3 = SalesInvoiceIssuedEvent(
-                    aggregate_id=invoice.id,
-                    aggregate_version=1,
-                    invoice=invoice,
-                    issued_by=str(created_by) if created_by else "system",
-                    user_id=str(created_by) if created_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event3)
-            except Exception:
-                pass
+            event3 = SalesInvoiceIssuedEvent(
+                aggregate_id=invoice.id,
+                aggregate_version=1,
+                invoice=invoice,
+                issued_by=str(created_by) if created_by else "system",
+                user_id=str(created_by) if created_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event3, f"Sales Invoice {invoice.invoice_number} (legacy)")
 
         return invoice
 
@@ -1412,21 +1338,17 @@ class PurchaseSalesService:
             self._sales_invoices[invoice_id] = invoice
 
             if self._event_publisher:
-                try:
-                    event = InvoiceApprovedEvent(
-                        aggregate_id=invoice.id,
-                        aggregate_version=1,
-                        invoice_id=invoice.id,
-                        invoice_number=invoice.invoice_number,
-                        invoice_type="sales",
-                        approved_by=str(approved_by) if approved_by else "system",
-                        user_id=str(approved_by) if approved_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event)
-                    logger.debug(f"Published InvoiceApprovedEvent for {invoice.invoice_number}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish InvoiceApprovedEvent: {e}")
+                event = InvoiceApprovedEvent(
+                    aggregate_id=invoice.id,
+                    aggregate_version=1,
+                    invoice_id=invoice.id,
+                    invoice_number=invoice.invoice_number,
+                    invoice_type="sales",
+                    approved_by=str(approved_by) if approved_by else "system",
+                    user_id=str(approved_by) if approved_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Sales Invoice {invoice.invoice_number}")
 
             return invoice
         return None
@@ -1447,21 +1369,17 @@ class PurchaseSalesService:
             self._sales_invoices[invoice_id] = invoice
 
             if self._event_publisher:
-                try:
-                    event = InvoiceVerifiedEvent(
-                        aggregate_id=invoice.id,
-                        aggregate_version=1,
-                        invoice_id=invoice.id,
-                        invoice_number=invoice.invoice_number,
-                        invoice_type="sales",
-                        verified_by=str(verified_by) if verified_by else "system",
-                        user_id=str(verified_by) if verified_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event)
-                    logger.debug(f"Published InvoiceVerifiedEvent for {invoice.invoice_number}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish InvoiceVerifiedEvent: {e}")
+                event = InvoiceVerifiedEvent(
+                    aggregate_id=invoice.id,
+                    aggregate_version=1,
+                    invoice_id=invoice.id,
+                    invoice_number=invoice.invoice_number,
+                    invoice_type="sales",
+                    verified_by=str(verified_by) if verified_by else "system",
+                    user_id=str(verified_by) if verified_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Sales Invoice {invoice.invoice_number}")
 
             return invoice
         return None
@@ -1487,57 +1405,44 @@ class PurchaseSalesService:
             self._sales_invoices[invoice_id] = invoice
 
             if self._event_publisher:
-                try:
-                    event = InvoicePaidEvent(
+                event = InvoicePaidEvent(
+                    aggregate_id=invoice.id,
+                    aggregate_version=1,
+                    invoice_id=invoice.id,
+                    invoice_number=invoice.invoice_number,
+                    invoice_type="sales",
+                    payment_amount=payment_amount,
+                    paid_by=str(paid_by) if paid_by else "system",
+                    user_id=str(paid_by) if paid_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Sales Invoice {invoice.invoice_number}")
+
+                if invoice.status == DocumentStatus.PARTIALLY_PAID:
+                    event2 = InvoicePartiallyPaidEvent(
                         aggregate_id=invoice.id,
                         aggregate_version=1,
                         invoice_id=invoice.id,
                         invoice_number=invoice.invoice_number,
                         invoice_type="sales",
-                        payment_amount=payment_amount,
+                        paid_amount=invoice.paid_amount,
+                        total_amount=invoice.total_amount,
                         paid_by=str(paid_by) if paid_by else "system",
                         user_id=str(paid_by) if paid_by else None,
                         correlation_id=correlation_id,
                     )
-                    await self._event_publisher.publish(event)
-                    logger.debug(f"Published InvoicePaidEvent for {invoice.invoice_number}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish InvoicePaidEvent: {e}")
+                    await self._publish_event(event2, f"Sales Invoice {invoice.invoice_number} (partial)")
 
-            if invoice.status == DocumentStatus.PARTIALLY_PAID:
-                if self._event_publisher:
-                    try:
-                        event2 = InvoicePartiallyPaidEvent(
-                            aggregate_id=invoice.id,
-                            aggregate_version=1,
-                            invoice_id=invoice.id,
-                            invoice_number=invoice.invoice_number,
-                            invoice_type="sales",
-                            paid_amount=invoice.paid_amount,
-                            total_amount=invoice.total_amount,
-                            paid_by=str(paid_by) if paid_by else "system",
-                            user_id=str(paid_by) if paid_by else None,
-                            correlation_id=correlation_id,
-                        )
-                        await self._event_publisher.publish(event2)
-                    except Exception:
-                        pass
-
-            # Also publish SalesInvoicePaidEvent
-            if self._event_publisher:
-                try:
-                    event3 = SalesInvoicePaidEvent(
-                        aggregate_id=invoice.id,
-                        aggregate_version=1,
-                        invoice=invoice,
-                        payment_amount=payment_amount,
-                        paid_by=str(paid_by) if paid_by else "system",
-                        user_id=str(paid_by) if paid_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event3)
-                except Exception:
-                    pass
+                event3 = SalesInvoicePaidEvent(
+                    aggregate_id=invoice.id,
+                    aggregate_version=1,
+                    invoice=invoice,
+                    payment_amount=payment_amount,
+                    paid_by=str(paid_by) if paid_by else "system",
+                    user_id=str(paid_by) if paid_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event3, f"Sales Invoice {invoice.invoice_number} (legacy)")
 
             return invoice
         return None
@@ -1562,22 +1467,18 @@ class PurchaseSalesService:
         self._sales_invoices[invoice_id] = invoice
 
         if self._event_publisher:
-            try:
-                event = InvoiceCancelledEvent(
-                    aggregate_id=invoice.id,
-                    aggregate_version=1,
-                    invoice_id=invoice.id,
-                    invoice_number=invoice.invoice_number,
-                    invoice_type="sales",
-                    reason=reason,
-                    cancelled_by=str(cancelled_by) if cancelled_by else "system",
-                    user_id=str(cancelled_by) if cancelled_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published InvoiceCancelledEvent for {invoice.invoice_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish InvoiceCancelledEvent: {e}")
+            event = InvoiceCancelledEvent(
+                aggregate_id=invoice.id,
+                aggregate_version=1,
+                invoice_id=invoice.id,
+                invoice_number=invoice.invoice_number,
+                invoice_type="sales",
+                reason=reason,
+                cancelled_by=str(cancelled_by) if cancelled_by else "system",
+                user_id=str(cancelled_by) if cancelled_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Sales Invoice {invoice.invoice_number}")
 
         return invoice
 
@@ -1603,22 +1504,18 @@ class PurchaseSalesService:
         self._sales_invoices[invoice_id] = invoice
 
         if self._event_publisher:
-            try:
-                event = InvoiceDisputedEvent(
-                    aggregate_id=invoice.id,
-                    aggregate_version=1,
-                    invoice_id=invoice.id,
-                    invoice_number=invoice.invoice_number,
-                    invoice_type="sales",
-                    reason=reason,
-                    disputed_by=str(disputed_by) if disputed_by else "system",
-                    user_id=str(disputed_by) if disputed_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published InvoiceDisputedEvent for {invoice.invoice_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish InvoiceDisputedEvent: {e}")
+            event = InvoiceDisputedEvent(
+                aggregate_id=invoice.id,
+                aggregate_version=1,
+                invoice_id=invoice.id,
+                invoice_number=invoice.invoice_number,
+                invoice_type="sales",
+                reason=reason,
+                disputed_by=str(disputed_by) if disputed_by else "system",
+                user_id=str(disputed_by) if disputed_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Sales Invoice {invoice.invoice_number}")
 
         return invoice
 
@@ -1639,22 +1536,18 @@ class PurchaseSalesService:
         self._sales_invoices[invoice_id] = invoice
 
         if self._event_publisher:
-            try:
-                event = InvoiceWrittenOffEvent(
-                    aggregate_id=invoice.id,
-                    aggregate_version=1,
-                    invoice_id=invoice.id,
-                    invoice_number=invoice.invoice_number,
-                    invoice_type="sales",
-                    reason=reason,
-                    written_off_by=str(written_off_by) if written_off_by else "system",
-                    user_id=str(written_off_by) if written_off_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published InvoiceWrittenOffEvent for {invoice.invoice_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish InvoiceWrittenOffEvent: {e}")
+            event = InvoiceWrittenOffEvent(
+                aggregate_id=invoice.id,
+                aggregate_version=1,
+                invoice_id=invoice.id,
+                invoice_number=invoice.invoice_number,
+                invoice_type="sales",
+                reason=reason,
+                written_off_by=str(written_off_by) if written_off_by else "system",
+                user_id=str(written_off_by) if written_off_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Sales Invoice {invoice.invoice_number}")
 
         return invoice
 
@@ -1691,26 +1584,21 @@ class PurchaseSalesService:
         self._credit_notes[credit_note.id] = credit_note
         self._stats["credit_notes"] += 1
 
-        # Publish CreditNoteIssuedEvent
         if self._event_publisher:
-            try:
-                event = CreditNoteIssuedEvent(
-                    aggregate_id=credit_note.id,
-                    aggregate_version=1,
-                    credit_note_id=credit_note.id,
-                    credit_note_number=credit_note.credit_note_number,
-                    invoice_id=invoice_id,
-                    invoice_type=invoice_type,
-                    amount=amount,
-                    reason=reason,
-                    issued_by=str(created_by) if created_by else "system",
-                    user_id=str(created_by) if created_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published CreditNoteIssuedEvent for {credit_note.credit_note_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish CreditNoteIssuedEvent: {e}")
+            event = CreditNoteIssuedEvent(
+                aggregate_id=credit_note.id,
+                aggregate_version=1,
+                credit_note_id=credit_note.id,
+                credit_note_number=credit_note.credit_note_number,
+                invoice_id=invoice_id,
+                invoice_type=invoice_type,
+                amount=amount,
+                reason=reason,
+                issued_by=str(created_by) if created_by else "system",
+                user_id=str(created_by) if created_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Credit Note {credit_note.credit_note_number}")
 
         return credit_note
 
@@ -1729,23 +1617,19 @@ class PurchaseSalesService:
         self._credit_notes[credit_note_id] = credit_note
 
         if self._event_publisher:
-            try:
-                event = CreditNoteReceivedEvent(
-                    aggregate_id=credit_note.id,
-                    aggregate_version=1,
-                    credit_note_id=credit_note.id,
-                    credit_note_number=credit_note.credit_note_number,
-                    invoice_id=credit_note.invoice_id,
-                    invoice_type=credit_note.invoice_type,
-                    amount=credit_note.amount,
-                    received_by=str(received_by) if received_by else "system",
-                    user_id=str(received_by) if received_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published CreditNoteReceivedEvent for {credit_note.credit_note_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish CreditNoteReceivedEvent: {e}")
+            event = CreditNoteReceivedEvent(
+                aggregate_id=credit_note.id,
+                aggregate_version=1,
+                credit_note_id=credit_note.id,
+                credit_note_number=credit_note.credit_note_number,
+                invoice_id=credit_note.invoice_id,
+                invoice_type=credit_note.invoice_type,
+                amount=credit_note.amount,
+                received_by=str(received_by) if received_by else "system",
+                user_id=str(received_by) if received_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Credit Note {credit_note.credit_note_number}")
 
         return credit_note
 
@@ -1764,23 +1648,19 @@ class PurchaseSalesService:
         self._credit_notes[credit_note_id] = credit_note
 
         if self._event_publisher:
-            try:
-                event = CreditNoteAppliedEvent(
-                    aggregate_id=credit_note.id,
-                    aggregate_version=1,
-                    credit_note_id=credit_note.id,
-                    credit_note_number=credit_note.credit_note_number,
-                    invoice_id=credit_note.invoice_id,
-                    invoice_type=credit_note.invoice_type,
-                    amount=credit_note.amount,
-                    applied_by=str(applied_by) if applied_by else "system",
-                    user_id=str(applied_by) if applied_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published CreditNoteAppliedEvent for {credit_note.credit_note_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish CreditNoteAppliedEvent: {e}")
+            event = CreditNoteAppliedEvent(
+                aggregate_id=credit_note.id,
+                aggregate_version=1,
+                credit_note_id=credit_note.id,
+                credit_note_number=credit_note.credit_note_number,
+                invoice_id=credit_note.invoice_id,
+                invoice_type=credit_note.invoice_type,
+                amount=credit_note.amount,
+                applied_by=str(applied_by) if applied_by else "system",
+                user_id=str(applied_by) if applied_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Credit Note {credit_note.credit_note_number}")
 
         return credit_note
 
@@ -1818,41 +1698,36 @@ class PurchaseSalesService:
         self._debit_notes[debit_note.id] = debit_note
         self._stats["debit_notes"] += 1
 
-        # Publish event (DebitNoteIssuedEvent or DebitNoteIssuedServiceEvent)
         if self._event_publisher:
-            try:
-                if is_service:
-                    event = DebitNoteIssuedServiceEvent(
-                        aggregate_id=debit_note.id,
-                        aggregate_version=1,
-                        debit_note_id=debit_note.id,
-                        debit_note_number=debit_note.debit_note_number,
-                        invoice_id=invoice_id,
-                        invoice_type=invoice_type,
-                        amount=amount,
-                        reason=reason,
-                        issued_by=str(created_by) if created_by else "system",
-                        user_id=str(created_by) if created_by else None,
-                        correlation_id=correlation_id,
-                    )
-                else:
-                    event = DebitNoteIssuedEvent(
-                        aggregate_id=debit_note.id,
-                        aggregate_version=1,
-                        debit_note_id=debit_note.id,
-                        debit_note_number=debit_note.debit_note_number,
-                        invoice_id=invoice_id,
-                        invoice_type=invoice_type,
-                        amount=amount,
-                        reason=reason,
-                        issued_by=str(created_by) if created_by else "system",
-                        user_id=str(created_by) if created_by else None,
-                        correlation_id=correlation_id,
-                    )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published DebitNoteIssuedEvent for {debit_note.debit_note_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish DebitNoteIssuedEvent: {e}")
+            if is_service:
+                event = DebitNoteIssuedServiceEvent(
+                    aggregate_id=debit_note.id,
+                    aggregate_version=1,
+                    debit_note_id=debit_note.id,
+                    debit_note_number=debit_note.debit_note_number,
+                    invoice_id=invoice_id,
+                    invoice_type=invoice_type,
+                    amount=amount,
+                    reason=reason,
+                    issued_by=str(created_by) if created_by else "system",
+                    user_id=str(created_by) if created_by else None,
+                    correlation_id=correlation_id,
+                )
+            else:
+                event = DebitNoteIssuedEvent(
+                    aggregate_id=debit_note.id,
+                    aggregate_version=1,
+                    debit_note_id=debit_note.id,
+                    debit_note_number=debit_note.debit_note_number,
+                    invoice_id=invoice_id,
+                    invoice_type=invoice_type,
+                    amount=amount,
+                    reason=reason,
+                    issued_by=str(created_by) if created_by else "system",
+                    user_id=str(created_by) if created_by else None,
+                    correlation_id=correlation_id,
+                )
+            await self._publish_event(event, f"Debit Note {debit_note.debit_note_number}")
 
         return debit_note
 
@@ -1871,23 +1746,19 @@ class PurchaseSalesService:
         self._debit_notes[debit_note_id] = debit_note
 
         if self._event_publisher:
-            try:
-                event = DebitNoteAppliedEvent(
-                    aggregate_id=debit_note.id,
-                    aggregate_version=1,
-                    debit_note_id=debit_note.id,
-                    debit_note_number=debit_note.debit_note_number,
-                    invoice_id=debit_note.invoice_id,
-                    invoice_type=debit_note.invoice_type,
-                    amount=debit_note.amount,
-                    applied_by=str(applied_by) if applied_by else "system",
-                    user_id=str(applied_by) if applied_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published DebitNoteAppliedEvent for {debit_note.debit_note_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish DebitNoteAppliedEvent: {e}")
+            event = DebitNoteAppliedEvent(
+                aggregate_id=debit_note.id,
+                aggregate_version=1,
+                debit_note_id=debit_note.id,
+                debit_note_number=debit_note.debit_note_number,
+                invoice_id=debit_note.invoice_id,
+                invoice_type=debit_note.invoice_type,
+                amount=debit_note.amount,
+                applied_by=str(applied_by) if applied_by else "system",
+                user_id=str(applied_by) if applied_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Debit Note {debit_note.debit_note_number}")
 
         return debit_note
 

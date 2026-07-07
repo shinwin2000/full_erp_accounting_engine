@@ -3,14 +3,14 @@
 """
 checker/sql_injection_checker.py – SQL Injection Vulnerability Detector
 ========================================================================
-Versi   : 3.0.0
+Versi   : 3.1.1
 Standar : Big 4 Forensic Audit · OWASP Top 10 · ISO/IEC 25010
 
 Fitur:
   - Deteksi f-string pada query SQL
   - Deteksi string concatenation pada query SQL
   - Deteksi str.format() dan % formatting pada query SQL
-  - Deteksi execute() tanpa parameter binding
+  - Deteksi execute() dengan string literal tanpa parameter binding (hanya objek database)
   - Deteksi SQLAlchemy text() dengan string dinamis
   - Integrasi RCA engine (checker.core.rca)
   - Parallel scanning, AST caching, progress bar
@@ -132,7 +132,7 @@ def _c(key: str) -> str:
     return COLOR.get(key, "")
 
 # ─── VERSION ──────────────────────────────────────────────────────────────────
-__version__ = "3.0.0"
+__version__ = "3.1.1"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 EXCLUDED_DIRS_DEFAULT = {
@@ -143,6 +143,13 @@ EXCLUDED_DIRS_DEFAULT = {
 SQL_EXECUTE_METHODS = {"execute", "executemany", "execute_text", "raw_execute"}
 SQL_QUERY_ATTRS = {"query", "sql", "stmt", "statement", "raw_sql", "text"}
 DANGEROUS_PATTERNS = {"f-string", "concatenation", "format()", "% formatting"}
+
+# Nama objek yang dianggap sebagai koneksi database
+DB_OBJECT_NAMES = {
+    'conn', 'connection', 'cursor', 'session', 'engine', 'pool',
+    'db', 'db_conn', 'asyncpg_conn', 'pg_conn', 'sqlalchemy_conn',
+    '_session', '_conn', '_cursor', '_engine', '_pool',
+}
 
 # ─── DATA CLASSES ─────────────────────────────────────────────────────────────
 @dataclass
@@ -268,8 +275,8 @@ class SQLInjectionDetector(ast.NodeVisitor):
     def visit_Assign(self, node: ast.Assign):
         for target in node.targets:
             if isinstance(target, ast.Name) and target.id.lower() in SQL_QUERY_ATTRS:
-                for value in node.values:
-                    self._check_sql_string(value, node.lineno)
+                # Periksa nilai assignment (hanya satu nilai)
+                self._check_sql_string(node.value, node.lineno)
         self.generic_visit(node)
 
     def _check_sql_string(self, node: ast.AST, line: int):
@@ -303,10 +310,39 @@ class SQLInjectionDetector(ast.NodeVisitor):
                 rec="Use parameter binding",
             )
 
+    def _is_db_object(self, obj_node: ast.AST) -> bool:
+        """
+        Periksa apakah objek yang memanggil 'execute' adalah objek database.
+        """
+        obj_name = ""
+        if isinstance(obj_node, ast.Name):
+            obj_name = obj_node.id.lower()
+        elif isinstance(obj_node, ast.Attribute):
+            # Misal self._session, conn, cursor
+            obj_name = obj_node.attr.lower()
+            # Cek juga value-nya (self._session -> self)
+            if isinstance(obj_node.value, ast.Name):
+                parent = obj_node.value.id.lower()
+                # Jika parent adalah 'self' atau 'cls', kita percaya pada attr
+                if parent in ('self', 'cls'):
+                    pass
+        # Periksa apakah obj_name mengandung kata-kata database
+        if any(k in obj_name for k in ['session', 'conn', 'cursor', 'engine', 'pool', 'db']):
+            return True
+        # Periksa juga nama variabel yang diberikan
+        # Misal variable bernama 'session' atau 'conn'
+        return obj_name in DB_OBJECT_NAMES
+
     def visit_Call(self, node: ast.Call):
         func_name = self._get_func_name(node.func)
         if func_name in SQL_EXECUTE_METHODS:
-            self._check_execute_call(node)
+            # Cek apakah execute dipanggil pada objek database
+            if isinstance(node.func, ast.Attribute):
+                obj = node.func.value
+                if self._is_db_object(obj):
+                    self._check_execute_call(node)
+                # else: diabaikan (false positive seperti use_case.execute)
+            # Jika execute adalah fungsi global, abaikan
         elif func_name == "text":
             self._check_text_call(node)
         self.generic_visit(node)
@@ -315,24 +351,32 @@ class SQLInjectionDetector(ast.NodeVisitor):
         if not node.args:
             return
         first_arg = node.args[0]
+
+        # 1. Selalu periksa pola berbahaya pada argumen pertama
         self._check_sql_string(first_arg, node.lineno)
-        # Check for missing parameters
-        if len(node.args) == 1:
-            self._add_finding(
-                severity="WARNING",
-                line=node.lineno,
-                message=f"{self._get_func_name(node.func)}() called without parameter binding",
-                rec="Add parameter binding for security",
-            )
-        elif len(node.args) >= 2:
-            second_arg = node.args[1]
-            if isinstance(second_arg, ast.Constant) and second_arg.value is None:
+
+        # 2. Hanya beri peringatan tentang kurangnya parameter binding
+        #    jika argumen pertama adalah string literal (konstan).
+        #    Ini menghindari false positive pada SQLAlchemy statement objects.
+        if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+            if len(node.args) == 1:
                 self._add_finding(
                     severity="WARNING",
                     line=node.lineno,
-                    message=f"{self._get_func_name(node.func)}() called with params=None",
-                    rec="Use proper parameter binding",
+                    message=f"{self._get_func_name(node.func)}() called with literal SQL string without parameter binding",
+                    rec="Use parameter binding for security",
                 )
+            elif len(node.args) >= 2:
+                second_arg = node.args[1]
+                if isinstance(second_arg, ast.Constant) and second_arg.value is None:
+                    self._add_finding(
+                        severity="WARNING",
+                        line=node.lineno,
+                        message=f"{self._get_func_name(node.func)}() called with params=None",
+                        rec="Use proper parameter binding",
+                    )
+        # Jika argumen pertama bukan string literal, kita anggap aman (SQLAlchemy statement)
+        # dan tidak menambahkan peringatan tambahan.
 
     def _check_text_call(self, node: ast.Call):
         if not node.args:
@@ -658,14 +702,33 @@ sql = "SELECT * FROM users WHERE id = {}".format(user_id)
     detector3.visit(tree3)
     check("Detects str.format()", len(detector3.findings) > 0)
 
-    # Test detection: execute without params
+    # Test detection: execute without params (should warn only for literal string)
     code4 = """
 cursor.execute("SELECT * FROM users")
 """
     tree4 = ast.parse(code4)
     detector4 = SQLInjectionDetector("test.py", code4.splitlines(), enable_rca=True)
     detector4.visit(tree4)
-    check("Detects execute without params", len(detector4.findings) > 0)
+    check("Detects execute without params on cursor (literal)", len(detector4.findings) > 0)
+
+    # Test false positive: use_case.execute() should be ignored
+    code5 = """
+result = await use_case.execute(dto)
+"""
+    tree5 = ast.parse(code5)
+    detector5 = SQLInjectionDetector("test.py", code5.splitlines(), enable_rca=True)
+    detector5.visit(tree5)
+    check("Ignores use_case.execute()", len(detector5.findings) == 0)
+
+    # Test false positive: session.execute(select(...)) should be ignored
+    code6 = """
+stmt = select(User).where(User.id == user_id)
+result = await session.execute(stmt)
+"""
+    tree6 = ast.parse(code6)
+    detector6 = SQLInjectionDetector("test.py", code6.splitlines(), enable_rca=True)
+    detector6.visit(tree6)
+    check("Ignores session.execute(select(...))", len(detector6.findings) == 0)
 
     # Test RCA
     check("RCA availability", True)

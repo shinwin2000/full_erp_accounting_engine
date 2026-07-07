@@ -1,4 +1,6 @@
 # service_goodwill.py - Complete rewrite with full event publishing
+# v5.9.0 - Refactored event publishing into single _publish_event method to reduce
+#          broad-except warnings and improve maintainability.
 
 #!/usr/bin/env python3
 
@@ -179,6 +181,21 @@ class GoodwillService:
 
         logger.info("GoodwillService initialized")
 
+    # ==================== EVENT PUBLISHING HELPER ====================
+
+    async def _publish_event(self, event: Any, log_context: str, correlation_id: str | None = None) -> None:
+        """
+        Publish an event safely, catching and logging any exception.
+        Preserves the two-argument publish signature (event, correlation_id).
+        """
+        if not self._event_publisher:
+            return
+        try:
+            await self._event_publisher.publish(event, correlation_id)
+            logger.debug(f"Published {event.__class__.__name__} for {log_context}")
+        except Exception as e:
+            logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
+
     # ========================================================================
     # Goodwill Recognition
     # ========================================================================
@@ -226,23 +243,19 @@ class GoodwillService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher and goodwill_amount > 0:
-            try:
-                event = GoodwillRecognizedEvent(
-                    aggregate_id=goodwill.id,
-                    aggregate_version=goodwill.version,
-                    goodwill_id=goodwill.id,
-                    goodwill_number=goodwill.goodwill_number,
-                    amount=goodwill_amount,
-                    acquisition_date=request.acquisition_date,
-                    legal_entity_id=request.legal_entity_id,
-                    recognized_by=str(request.created_by) if request.created_by else "system",
-                    user_id=str(request.created_by) if request.created_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published GoodwillRecognizedEvent for {goodwill_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish GoodwillRecognizedEvent: {e}")
+            event = GoodwillRecognizedEvent(
+                aggregate_id=goodwill.id,
+                aggregate_version=goodwill.version,
+                goodwill_id=goodwill.id,
+                goodwill_number=goodwill.goodwill_number,
+                amount=goodwill_amount,
+                acquisition_date=request.acquisition_date,
+                legal_entity_id=request.legal_entity_id,
+                recognized_by=str(request.created_by) if request.created_by else "system",
+                user_id=str(request.created_by) if request.created_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Goodwill {goodwill_number} (recognized)", correlation_id)
 
         logger.info(f"Goodwill {goodwill_number} recognized: {goodwill_amount}")
         return self._to_response(goodwill)
@@ -301,21 +314,17 @@ class GoodwillService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = GoodwillUpdatedEvent(
-                    aggregate_id=goodwill.id,
-                    aggregate_version=goodwill.version,
-                    goodwill_id=goodwill.id,
-                    goodwill_number=goodwill.goodwill_number,
-                    changes=changes,
-                    updated_by=str(updated_by),
-                    user_id=str(updated_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published GoodwillUpdatedEvent for {goodwill.goodwill_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish GoodwillUpdatedEvent: {e}")
+            event = GoodwillUpdatedEvent(
+                aggregate_id=goodwill.id,
+                aggregate_version=goodwill.version,
+                goodwill_id=goodwill.id,
+                goodwill_number=goodwill.goodwill_number,
+                changes=changes,
+                updated_by=str(updated_by),
+                user_id=str(updated_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Goodwill {goodwill.goodwill_number} (updated)", correlation_id)
 
         return self._to_response(goodwill)
 
@@ -382,24 +391,20 @@ class GoodwillService:
 
             # --- PUBLISH IMPAIRMENT EVENT ---
             if self._event_publisher:
-                try:
-                    event = GoodwillImpairedEvent(
-                        aggregate_id=goodwill.id,
-                        aggregate_version=goodwill.version,
-                        goodwill_id=goodwill.id,
-                        goodwill_number=goodwill.goodwill_number,
-                        impairment_loss=impairment_loss,
-                        new_carrying_amount=new_carrying,
-                        old_carrying_amount=carrying,
-                        test_date=request.test_date,
-                        impaired_by=str(request.created_by) if request.created_by else "system",
-                        user_id=str(request.created_by) if request.created_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event)
-                    logger.debug(f"Published GoodwillImpairedEvent for {goodwill.goodwill_number}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish GoodwillImpairedEvent: {e}")
+                event = GoodwillImpairedEvent(
+                    aggregate_id=goodwill.id,
+                    aggregate_version=goodwill.version,
+                    goodwill_id=goodwill.id,
+                    goodwill_number=goodwill.goodwill_number,
+                    impairment_loss=impairment_loss,
+                    new_carrying_amount=new_carrying,
+                    old_carrying_amount=carrying,
+                    test_date=request.test_date,
+                    impaired_by=str(request.created_by) if request.created_by else "system",
+                    user_id=str(request.created_by) if request.created_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Goodwill {goodwill.goodwill_number} (impaired)", correlation_id)
 
             logger.warning(f"Goodwill {goodwill.goodwill_number} impaired: loss {impairment_loss}")
         else:
@@ -508,25 +513,21 @@ class GoodwillService:
 
         # --- PUBLISH REVERSAL EVENT ---
         if self._event_publisher and actual_reversal > 0:
-            try:
-                event = GoodwillImpairmentReversedEvent(
-                    aggregate_id=goodwill.id,
-                    aggregate_version=goodwill.version,
-                    goodwill_id=goodwill.id,
-                    goodwill_number=goodwill.goodwill_number,
-                    reversal_amount=actual_reversal,
-                    new_carrying_amount=new_carrying,
-                    old_carrying_amount=old_carrying,
-                    reversal_date=reversal_date,
-                    reason=reason,
-                    reversed_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published GoodwillImpairmentReversedEvent for {goodwill.goodwill_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish GoodwillImpairmentReversedEvent: {e}")
+            event = GoodwillImpairmentReversedEvent(
+                aggregate_id=goodwill.id,
+                aggregate_version=goodwill.version,
+                goodwill_id=goodwill.id,
+                goodwill_number=goodwill.goodwill_number,
+                reversal_amount=actual_reversal,
+                new_carrying_amount=new_carrying,
+                old_carrying_amount=old_carrying,
+                reversal_date=reversal_date,
+                reason=reason,
+                reversed_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Goodwill {goodwill.goodwill_number} (impairment reversed)", correlation_id)
 
         logger.info(f"Goodwill {goodwill.goodwill_number} impairment reversed by {actual_reversal}")
         return actual_reversal
@@ -575,25 +576,21 @@ class GoodwillService:
 
         # --- PUBLISH AMORTIZATION EVENT ---
         if self._event_publisher and amortization_amount > 0:
-            try:
-                event = GoodwillAmortizedEvent(
-                    aggregate_id=goodwill.id,
-                    aggregate_version=goodwill.version,
-                    goodwill_id=goodwill.id,
-                    goodwill_number=goodwill.goodwill_number,
-                    amortization_amount=amortization_amount,
-                    period=period,
-                    new_carrying_amount=goodwill.carrying_amount,
-                    old_carrying_amount=old_carrying,
-                    is_fully_amortized=goodwill.status == GoodwillStatus.FULLY_AMORTIZED,
-                    amortized_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published GoodwillAmortizedEvent for {goodwill.goodwill_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish GoodwillAmortizedEvent: {e}")
+            event = GoodwillAmortizedEvent(
+                aggregate_id=goodwill.id,
+                aggregate_version=goodwill.version,
+                goodwill_id=goodwill.id,
+                goodwill_number=goodwill.goodwill_number,
+                amortization_amount=amortization_amount,
+                period=period,
+                new_carrying_amount=goodwill.carrying_amount,
+                old_carrying_amount=old_carrying,
+                is_fully_amortized=goodwill.status == GoodwillStatus.FULLY_AMORTIZED,
+                amortized_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Goodwill {goodwill.goodwill_number} (amortized)", correlation_id)
 
         logger.info(f"Goodwill {goodwill.goodwill_number} amortized by {amortization_amount}")
         return goodwill.carrying_amount
@@ -635,25 +632,21 @@ class GoodwillService:
 
         # --- PUBLISH DISPOSAL EVENT ---
         if self._event_publisher:
-            try:
-                event = GoodwillDisposedEvent(
-                    aggregate_id=goodwill.id,
-                    aggregate_version=goodwill.version,
-                    goodwill_id=goodwill.id,
-                    goodwill_number=goodwill.goodwill_number,
-                    disposal_date=request.disposal_date,
-                    disposal_amount=request.proceeds,
-                    carrying_amount=old_carrying,
-                    gain_loss=gain_loss,
-                    reason=request.reason,
-                    disposed_by=str(request.disposed_by) if request.disposed_by else "system",
-                    user_id=str(request.disposed_by) if request.disposed_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published GoodwillDisposedEvent for {goodwill.goodwill_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish GoodwillDisposedEvent: {e}")
+            event = GoodwillDisposedEvent(
+                aggregate_id=goodwill.id,
+                aggregate_version=goodwill.version,
+                goodwill_id=goodwill.id,
+                goodwill_number=goodwill.goodwill_number,
+                disposal_date=request.disposal_date,
+                disposal_amount=request.proceeds,
+                carrying_amount=old_carrying,
+                gain_loss=gain_loss,
+                reason=request.reason,
+                disposed_by=str(request.disposed_by) if request.disposed_by else "system",
+                user_id=str(request.disposed_by) if request.disposed_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Goodwill {goodwill.goodwill_number} (disposed)", correlation_id)
 
         logger.info(f"Goodwill {goodwill.goodwill_number} disposed. Gain/Loss: {gain_loss}")
         return self._to_response(goodwill)

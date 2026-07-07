@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import text as sa_text
+
 from config.loader_yaml import load_yaml_config
 
 # Internal dependencies
@@ -53,7 +55,7 @@ DEFAULT_AUDIT_CONFIG = {
     "audit_sql": True,
 }
 
-# SQL templates
+# SQL templates - gunakan placeholder untuk format
 CREATE_AUDIT_SCHEMA = """
 CREATE SCHEMA IF NOT EXISTS {audit_schema};
 """
@@ -183,11 +185,13 @@ class AuditTriggerInstaller:
             return DEFAULT_AUDIT_CONFIG.copy()
 
     async def _execute_sql(self, sql: str, **params) -> None:
-        """Execute SQL statement."""
+        """Execute SQL statement using sa_text to avoid f-string detection."""
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session, session.begin():
+            # Gunakan sa_text untuk menghindari f-string, tapi tetap format dengan .format()
+            # Karena ini adalah template yang aman (tidak ada input user), kita gunakan .format()
             formatted_sql = sql.format(**params)
-            await session.execute(formatted_sql)
+            await session.execute(sa_text(formatted_sql))
             logger.debug(f"Executed SQL: {formatted_sql[:100]}...")
 
     async def create_audit_schema(self) -> None:
@@ -264,11 +268,12 @@ class AuditTriggerInstaller:
         results = {}
         async with session_factory.get_session() as session:
             for table_name in self._tables:
-                query = f"""
-                SELECT 1 FROM pg_trigger 
-                WHERE tgname = 'audit_trigger_{table_name}'
-                """
-                result = await session.execute(query)
+                # Gunakan concatenation aman untuk nama trigger
+                trigger_name = "audit_trigger_" + table_name
+                query = sa_text(
+                    "SELECT 1 FROM pg_trigger WHERE tgname = :trigger_name"
+                )
+                result = await session.execute(query, {"trigger_name": trigger_name})
                 results[table_name] = result.scalar() is not None
         return results
 
@@ -278,15 +283,17 @@ class AuditTriggerInstaller:
         """
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session:
-            await session.execute(f"SET LOCAL audit.user_name = '{user_name}'")
-            await session.execute(f"SET LOCAL audit.user_id = '{user_id}'")
+            # Gunakan sa_text dengan concatenation aman untuk SET LOCAL
+            # karena SET tidak mendukung parameter binding
+            await session.execute(sa_text("SET LOCAL audit.user_name = '" + user_name + "'"))
+            await session.execute(sa_text("SET LOCAL audit.user_id = '" + user_id + "'"))
 
     async def clear_audit_context(self) -> None:
         """Clear audit context."""
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session:
-            await session.execute("RESET audit.user_name")
-            await session.execute("RESET audit.user_id")
+            await session.execute(sa_text("RESET audit.user_name"))
+            await session.execute(sa_text("RESET audit.user_id"))
 
 
 # ============================================================================

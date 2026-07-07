@@ -1,5 +1,7 @@
 # service_tax.py - Complete rewrite with full event publishing
 # Refactored with static imports for tax calculators to eliminate dynamic import warnings
+# v5.9.0 - Refactored event publishing into single _publish_event method to reduce
+#          broad-except warnings and improve maintainability.
 
 #!/usr/bin/env python3
 
@@ -18,9 +20,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 
 # Import domain events
@@ -286,6 +289,21 @@ class TaxService:
 
         logger.info("TaxService initialized with static imports for tax calculators")
 
+    # ==================== EVENT PUBLISHING HELPER ====================
+
+    async def _publish_event(self, event: Any, log_context: str, correlation_id: str | None = None) -> None:
+        """
+        Publish an event safely, catching and logging any exception.
+        Preserves the two-argument publish signature (event, correlation_id).
+        """
+        if not self._event_publisher:
+            return
+        try:
+            await self._event_publisher.publish(event, correlation_id)
+            logger.debug(f"Published {event.__class__.__name__} for {log_context}")
+        except Exception as e:
+            logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
+
     # ========================================================================
     # Lazy Getter Methods (using static imports)
     # ========================================================================
@@ -361,23 +379,19 @@ class TaxService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = TaxCalculatedEvent(
-                    aggregate_id=request.legal_entity_id,
-                    aggregate_version=1,
-                    tax_type="PPN",
-                    tax_period=request.tax_period,
-                    taxable_amount=request.dpp,
-                    tax_amount=total_vat,
-                    tax_rate=vat_rate,
-                    calculated_by="system",
-                    user_id=None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published TaxCalculatedEvent for PPN: {total_vat}")
-            except Exception as e:
-                logger.warning(f"Failed to publish TaxCalculatedEvent: {e}")
+            event = TaxCalculatedEvent(
+                aggregate_id=request.legal_entity_id,
+                aggregate_version=1,
+                tax_type="PPN",
+                tax_period=request.tax_period,
+                taxable_amount=request.dpp,
+                tax_amount=total_vat,
+                tax_rate=vat_rate,
+                calculated_by="system",
+                user_id=None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"PPN calculation {total_vat}", correlation_id)
 
         return PPNCalculationResponse(
             dpp=request.dpp,
@@ -455,23 +469,19 @@ class TaxService:
 
         # --- PUBLISH SUBMITTED EVENT ---
         if self._event_publisher:
-            try:
-                event_submitted = FakturSubmittedEvent(
-                    aggregate_id=faktur.id,
-                    aggregate_version=1,
-                    faktur_id=faktur.id,
-                    faktur_number=faktur.faktur_number,
-                    npwp_penjual=faktur.npwp_penjual,
-                    dpp=faktur.dpp,
-                    ppn=faktur.ppn,
-                    status=FakturStatus.SUBMITTED.value,
-                    user_id=str(user_id) if user_id else "system",
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event_submitted, correlation_id)
-                logger.debug(f"Published FakturSubmittedEvent for {faktur.faktur_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish FakturSubmittedEvent: {e}")
+            event_submitted = FakturSubmittedEvent(
+                aggregate_id=faktur.id,
+                aggregate_version=1,
+                faktur_id=faktur.id,
+                faktur_number=faktur.faktur_number,
+                npwp_penjual=faktur.npwp_penjual,
+                dpp=faktur.dpp,
+                ppn=faktur.ppn,
+                status=FakturStatus.SUBMITTED.value,
+                user_id=str(user_id) if user_id else "system",
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event_submitted, f"Faktur {faktur.faktur_number} (submitted)", correlation_id)
 
         response = await self._coretax.submit_faktur(payload)
 
@@ -487,23 +497,19 @@ class TaxService:
 
             # --- PUBLISH APPROVED EVENT ---
             if self._event_publisher:
-                try:
-                    event_approved = FakturApprovedEvent(
-                        aggregate_id=faktur.id,
-                        aggregate_version=1,
-                        faktur_id=faktur.id,
-                        faktur_number=faktur.faktur_number,
-                        npwp_penjual=faktur.npwp_penjual,
-                        dpp=faktur.dpp,
-                        ppn=faktur.ppn,
-                        approval_code=faktur.approval_code,
-                        user_id=str(user_id) if user_id else "system",
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event_approved, correlation_id)
-                    logger.debug(f"Published FakturApprovedEvent for {faktur.faktur_number}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish FakturApprovedEvent: {e}")
+                event_approved = FakturApprovedEvent(
+                    aggregate_id=faktur.id,
+                    aggregate_version=1,
+                    faktur_id=faktur.id,
+                    faktur_number=faktur.faktur_number,
+                    npwp_penjual=faktur.npwp_penjual,
+                    dpp=faktur.dpp,
+                    ppn=faktur.ppn,
+                    approval_code=faktur.approval_code,
+                    user_id=str(user_id) if user_id else "system",
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event_approved, f"Faktur {faktur.faktur_number} (approved)", correlation_id)
 
         else:
             faktur.status = FakturStatus.REJECTED.value
@@ -513,21 +519,17 @@ class TaxService:
 
             # --- PUBLISH REJECTED EVENT ---
             if self._event_publisher:
-                try:
-                    event_rejected = FakturRejectedEvent(
-                        aggregate_id=faktur.id,
-                        aggregate_version=1,
-                        faktur_id=faktur.id,
-                        faktur_number=faktur.faktur_number,
-                        npwp_penjual=faktur.npwp_penjual,
-                        reason=response.get("message", "Unknown error"),
-                        user_id=str(user_id) if user_id else "system",
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event_rejected, correlation_id)
-                    logger.debug(f"Published FakturRejectedEvent for {faktur.faktur_number}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish FakturRejectedEvent: {e}")
+                event_rejected = FakturRejectedEvent(
+                    aggregate_id=faktur.id,
+                    aggregate_version=1,
+                    faktur_id=faktur.id,
+                    faktur_number=faktur.faktur_number,
+                    npwp_penjual=faktur.npwp_penjual,
+                    reason=response.get("message", "Unknown error"),
+                    user_id=str(user_id) if user_id else "system",
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event_rejected, f"Faktur {faktur.faktur_number} (rejected)", correlation_id)
 
             raise CoretaxSubmissionError(f"Coretax rejection: {response.get('message')}")
 
@@ -580,46 +582,38 @@ class TaxService:
             }
             result = await self._coretax.submit_spt_ppn(payload)
             spt.status = result.get("status", "SUBMITTED")
-            spt.submitted_at = datetime.utcnow()
+            spt.submitted_at = datetime.now(UTC)
             self._stats["spt_submitted"] += 1
 
             # --- PUBLISH SPT SUBMITTED EVENT ---
             if self._event_publisher:
-                try:
-                    event = SPTSubmittedEvent(
-                        aggregate_id=spt.id,
-                        aggregate_version=1,
-                        spt_id=spt.id,
-                        npwp=str(legal_entity_id),
-                        masa_pajak=masa_pajak,
-                        jenis_spt="PPN",
-                        status=spt.status,
-                        user_id=str(user_id) if user_id else "system",
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event, correlation_id)
-                    logger.debug(f"Published SPTSubmittedEvent for PPN {masa_pajak}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish SPTSubmittedEvent: {e}")
+                event = SPTSubmittedEvent(
+                    aggregate_id=spt.id,
+                    aggregate_version=1,
+                    spt_id=spt.id,
+                    npwp=str(legal_entity_id),
+                    masa_pajak=masa_pajak,
+                    jenis_spt="PPN",
+                    status=spt.status,
+                    user_id=str(user_id) if user_id else "system",
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"SPT PPN {masa_pajak} (submitted)", correlation_id)
 
             # --- PUBLISH SPT APPROVED EVENT if status is approved ---
             if spt.status == "APPROVED" and self._event_publisher:
-                try:
-                    event_approved = SPTApprovedEvent(
-                        aggregate_id=spt.id,
-                        aggregate_version=1,
-                        spt_id=spt.id,
-                        npwp=str(legal_entity_id),
-                        masa_pajak=masa_pajak,
-                        jenis_spt="PPN",
-                        approved_by=str(user_id) if user_id else "system",
-                        user_id=str(user_id) if user_id else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event_approved, correlation_id)
-                    logger.debug(f"Published SPTApprovedEvent for PPN {masa_pajak}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish SPTApprovedEvent: {e}")
+                event_approved = SPTApprovedEvent(
+                    aggregate_id=spt.id,
+                    aggregate_version=1,
+                    spt_id=spt.id,
+                    npwp=str(legal_entity_id),
+                    masa_pajak=masa_pajak,
+                    jenis_spt="PPN",
+                    approved_by=str(user_id) if user_id else "system",
+                    user_id=str(user_id) if user_id else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event_approved, f"SPT PPN {masa_pajak} (approved)", correlation_id)
         else:
             spt.status = "GENERATED"
 
@@ -659,23 +653,19 @@ class TaxService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = TaxCalculatedEvent(
-                    aggregate_id=request.employee_id,
-                    aggregate_version=1,
-                    tax_type="PPH21",
-                    tax_period=f"{request.period_year}-{request.period_month:02d}",
-                    taxable_amount=request.gross_income,
-                    tax_amount=monthly_pph,
-                    tax_rate=tariff,
-                    calculated_by="system",
-                    user_id=None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published TaxCalculatedEvent for PPh21: {monthly_pph}")
-            except Exception as e:
-                logger.warning(f"Failed to publish TaxCalculatedEvent: {e}")
+            event = TaxCalculatedEvent(
+                aggregate_id=request.employee_id,
+                aggregate_version=1,
+                tax_type="PPH21",
+                tax_period=f"{request.period_year}-{request.period_month:02d}",
+                taxable_amount=request.gross_income,
+                tax_amount=monthly_pph,
+                tax_rate=tariff,
+                calculated_by="system",
+                user_id=None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"PPH21 calculation {monthly_pph}", correlation_id)
 
         return PPh21CalculationResponse(
             gross_income=request.gross_income,
@@ -709,23 +699,19 @@ class TaxService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = TaxCalculatedEvent(
-                    aggregate_id=request.supplier_id,
-                    aggregate_version=1,
-                    tax_type="PPH23",
-                    tax_period=request.period,
-                    taxable_amount=request.gross_amount,
-                    tax_amount=tax_due,
-                    tax_rate=rate,
-                    calculated_by="system",
-                    user_id=None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published TaxCalculatedEvent for PPh23: {tax_due}")
-            except Exception as e:
-                logger.warning(f"Failed to publish TaxCalculatedEvent: {e}")
+            event = TaxCalculatedEvent(
+                aggregate_id=request.supplier_id,
+                aggregate_version=1,
+                tax_type="PPH23",
+                tax_period=request.period,
+                taxable_amount=request.gross_amount,
+                tax_amount=tax_due,
+                tax_rate=rate,
+                calculated_by="system",
+                user_id=None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"PPH23 calculation {tax_due}", correlation_id)
 
         return PPh23CalculationResponse(
             gross_amount=request.gross_amount,
@@ -762,7 +748,7 @@ class TaxService:
             status=new_status.value,
             reason=request.reason,
             changed_by=request.changed_by,
-            changed_at=datetime.utcnow(),
+            changed_at=datetime.now(UTC),
         )
 
         if self._uow:
@@ -772,22 +758,18 @@ class TaxService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = PKPStatusChangedEvent(
-                    aggregate_id=request.legal_entity_id,
-                    aggregate_version=1,
-                    legal_entity_id=request.legal_entity_id,
-                    old_status=current or "NON_PKP",
-                    new_status=new_status.value,
-                    reason=request.reason,
-                    changed_by=str(request.changed_by) if request.changed_by else "system",
-                    user_id=str(request.changed_by) if request.changed_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published PKPStatusChangedEvent: {current} -> {new_status.value}")
-            except Exception as e:
-                logger.warning(f"Failed to publish PKPStatusChangedEvent: {e}")
+            event = PKPStatusChangedEvent(
+                aggregate_id=request.legal_entity_id,
+                aggregate_version=1,
+                legal_entity_id=request.legal_entity_id,
+                old_status=current or "NON_PKP",
+                new_status=new_status.value,
+                reason=request.reason,
+                changed_by=str(request.changed_by) if request.changed_by else "system",
+                user_id=str(request.changed_by) if request.changed_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"PKP status change {current}->{new_status.value}", correlation_id)
 
         logger.info(f"PKP status changed to {new_status.value} for {request.legal_entity_id}")
         return new_status
@@ -829,24 +811,20 @@ class TaxService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = MeteraiUsedEvent(
-                    aggregate_id=meterai_id,
-                    aggregate_version=1,
-                    meterai_id=meterai_id,
-                    document_type=request.document_type,
-                    document_number=request.document_number,
-                    meterai_type=request.meterai_type,
-                    amount=meterai_amount,
-                    used_date=meterai_date,
-                    used_by=str(request.used_by) if request.used_by else "system",
-                    user_id=str(request.used_by) if request.used_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published MeteraiUsedEvent for {request.document_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish MeteraiUsedEvent: {e}")
+            event = MeteraiUsedEvent(
+                aggregate_id=meterai_id,
+                aggregate_version=1,
+                meterai_id=meterai_id,
+                document_type=request.document_type,
+                document_number=request.document_number,
+                meterai_type=request.meterai_type,
+                amount=meterai_amount,
+                used_date=meterai_date,
+                used_by=str(request.used_by) if request.used_by else "system",
+                user_id=str(request.used_by) if request.used_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Meterai {request.document_number}", correlation_id)
 
         logger.info(f"Meterai used for {request.document_number}: {meterai_amount}")
         return {
@@ -873,7 +851,7 @@ class TaxService:
             legal_entity_id=legal_entity_id,
             profile_data=profile_data,
             updated_by=updated_by,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(UTC),
         )
 
         if self._uow:
@@ -881,20 +859,16 @@ class TaxService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = TaxProfileUpdatedEvent(
-                    aggregate_id=legal_entity_id,
-                    aggregate_version=1,
-                    legal_entity_id=legal_entity_id,
-                    changes=profile_data,
-                    updated_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published TaxProfileUpdatedEvent for {legal_entity_id}")
-            except Exception as e:
-                logger.warning(f"Failed to publish TaxProfileUpdatedEvent: {e}")
+            event = TaxProfileUpdatedEvent(
+                aggregate_id=legal_entity_id,
+                aggregate_version=1,
+                legal_entity_id=legal_entity_id,
+                changes=profile_data,
+                updated_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Tax profile {legal_entity_id}", correlation_id)
 
         logger.info(f"Tax profile updated for {legal_entity_id}")
         return {"legal_entity_id": str(legal_entity_id), "updated": True}

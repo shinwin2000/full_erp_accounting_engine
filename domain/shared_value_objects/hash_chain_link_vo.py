@@ -84,14 +84,16 @@ class IdempotencyManager:
         if entry is None:
             return None
         result, timestamp = entry
-        if (datetime.now() - timestamp).total_seconds() > self._ttl_seconds:
+        # Fixed: use UTC timezone
+        if (datetime.now(UTC) - timestamp).total_seconds() > self._ttl_seconds:
             del self._storage[storage_key]
             return None
         return result
 
     def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
         storage_key = self._get_key(idempotency_key, method_name)
-        self._storage[storage_key] = (result, datetime.now())
+        # Fixed: use UTC timezone
+        self._storage[storage_key] = (result, datetime.now(UTC))
 
 
 _idempotency_manager = IdempotencyManager()
@@ -636,7 +638,7 @@ def combine_hashes(hash1: str, hash2: str) -> str:
 
 __all__ = [
     "HashChainError",
-    "HashChainLink",  # alias for backward compatibility
+    "HashChainLink",  
     "HashChainLinkVO",
     "HashVerificationError",
     "InvalidHashError",

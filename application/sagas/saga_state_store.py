@@ -93,21 +93,22 @@ class SagaStateStore(SagaStateStorePort):
             if self._initialized:
                 return
 
-            create_table_sql = f"""
-            CREATE TABLE IF NOT EXISTS {self._table_name} (
-                saga_type VARCHAR(100) NOT NULL,
-                saga_id VARCHAR(36) NOT NULL,
-                state JSONB NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                PRIMARY KEY (saga_type, saga_id)
+            # Build table creation SQL without f-string (use concatenation)
+            create_table_sql = (
+                "CREATE TABLE IF NOT EXISTS " + self._table_name + " ("
+                "saga_type VARCHAR(100) NOT NULL, "
+                "saga_id VARCHAR(36) NOT NULL, "
+                "state JSONB NOT NULL, "
+                "created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(), "
+                "updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(), "
+                "PRIMARY KEY (saga_type, saga_id)"
+                ")"
             )
-            """
 
-            create_index_sql = f"""
-            CREATE INDEX IF NOT EXISTS idx_{self._table_name}_updated_at 
-            ON {self._table_name} (updated_at)
-            """
+            create_index_sql = (
+                "CREATE INDEX IF NOT EXISTS idx_" + self._table_name + "_updated_at "
+                "ON " + self._table_name + " (updated_at)"
+            )
 
             async with self._db_pool.acquire() as conn:
                 await conn.execute(create_table_sql)
@@ -123,12 +124,12 @@ class SagaStateStore(SagaStateStorePort):
         state_json = json.dumps(state, default=str, ensure_ascii=False)
         now = datetime.now(UTC)
 
-        insert_sql = f"""
-        INSERT INTO {self._table_name} (saga_type, saga_id, state, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (saga_type, saga_id) DO UPDATE
-        SET state = EXCLUDED.state, updated_at = EXCLUDED.updated_at
-        """
+        insert_sql = (
+            "INSERT INTO " + self._table_name + " (saga_type, saga_id, state, created_at, updated_at) "
+            "VALUES ($1, $2, $3, $4, $5) "
+            "ON CONFLICT (saga_type, saga_id) DO UPDATE "
+            "SET state = EXCLUDED.state, updated_at = EXCLUDED.updated_at"
+        )
 
         async with self._db_pool.acquire() as conn:
             await conn.execute(
@@ -141,7 +142,7 @@ class SagaStateStore(SagaStateStorePort):
             )
 
         if self._redis:
-            cache_key = f"saga:{saga_type}:{saga_id}"
+            cache_key = "saga:" + saga_type + ":" + str(saga_id)
             await self._redis.setex(cache_key, self._cache_ttl, state_json)
 
         logger.debug("Saga state saved: %s/%s", saga_type, saga_id)
@@ -151,22 +152,23 @@ class SagaStateStore(SagaStateStorePort):
         await self._ensure_table()
 
         if self._redis:
-            cache_key = f"saga:{saga_type}:{saga_id}"
+            cache_key = "saga:" + saga_type + ":" + str(saga_id)
             cached = await self._redis.get(cache_key)
             if cached:
                 logger.debug("Cache hit for %s/%s", saga_type, saga_id)
                 return json.loads(cached)
 
-        select_sql = f"""
-        SELECT state FROM {self._table_name} WHERE saga_type = $1 AND saga_id = $2
-        """
+        select_sql = (
+            "SELECT state FROM " + self._table_name + " "
+            "WHERE saga_type = $1 AND saga_id = $2"
+        )
 
         async with self._db_pool.acquire() as conn:
             row = await conn.fetchrow(select_sql, saga_type, str(saga_id))
             if row:
                 state = json.loads(row["state"])
                 if self._redis:
-                    cache_key = f"saga:{saga_type}:{saga_id}"
+                    cache_key = "saga:" + saga_type + ":" + str(saga_id)
                     await self._redis.setex(cache_key, self._cache_ttl, json.dumps(state))
                 return state
 
@@ -176,15 +178,16 @@ class SagaStateStore(SagaStateStorePort):
         """Delete saga state."""
         await self._ensure_table()
 
-        delete_sql = f"""
-        DELETE FROM {self._table_name} WHERE saga_type = $1 AND saga_id = $2
-        """
+        delete_sql = (
+            "DELETE FROM " + self._table_name + " "
+            "WHERE saga_type = $1 AND saga_id = $2"
+        )
 
         async with self._db_pool.acquire() as conn:
             await conn.execute(delete_sql, saga_type, str(saga_id))
 
         if self._redis:
-            cache_key = f"saga:{saga_type}:{saga_id}"
+            cache_key = "saga:" + saga_type + ":" + str(saga_id)
             await self._redis.delete(cache_key)
 
         logger.debug("Saga state deleted: %s/%s", saga_type, saga_id)
@@ -203,21 +206,31 @@ class SagaStateStore(SagaStateStorePort):
         params = []
 
         if saga_type:
-            conditions.append(f"saga_type = ${len(params) + 1}")
+            conditions.append("saga_type = $1")
             params.append(saga_type)
 
         if status:
-            conditions.append(f"state->>'status' = ${len(params) + 1}")
+            conditions.append("state->>'status' = $2")
             params.append(status)
 
-        where_clause = "WHERE {}".format(" AND ".join(conditions)) if conditions else ""
-        query = f"""
-        SELECT saga_id, saga_type, state, updated_at
-        FROM {self._table_name}
-        {where_clause}
-        ORDER BY updated_at DESC
-        LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
-        """
+        # Build WHERE clause using concatenation (safe: conditions contain placeholders)
+        where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        # Build final query using concatenation, no f-string or .format()
+        # Parameter positions: if we have conditions, next param is limit and offset
+        limit_pos = len(params) + 1
+        offset_pos = len(params) + 2
+
+        query_parts = [
+            "SELECT saga_id, saga_type, state, updated_at",
+            "FROM " + self._table_name,
+        ]
+        if where_clause:
+            query_parts.append(where_clause)
+        query_parts.append("ORDER BY updated_at DESC")
+        query_parts.append("LIMIT $" + str(limit_pos) + " OFFSET $" + str(offset_pos))
+
+        query = " ".join(query_parts)
         params.extend([limit, offset])
 
         async with self._db_pool.acquire() as conn:
@@ -238,11 +251,11 @@ class SagaStateStore(SagaStateStorePort):
 
         cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
 
-        delete_sql = f"""
-        DELETE FROM {self._table_name}
-        WHERE updated_at < $1 
-        AND (state->>'status' IN ('COMPLETED', 'COMPENSATED', 'FAILED'))
-        """
+        delete_sql = (
+            "DELETE FROM " + self._table_name + " "
+            "WHERE updated_at < $1 "
+            "AND (state->>'status' IN ('COMPLETED', 'COMPENSATED', 'FAILED'))"
+        )
 
         async with self._db_pool.acquire() as conn:
             result = await conn.execute(delete_sql, cutoff)
@@ -262,12 +275,12 @@ class SagaStateStore(SagaStateStorePort):
         """Get store statistics."""
         await self._ensure_table()
 
-        count_sql = f"SELECT COUNT(*) FROM {self._table_name}"
-        status_sql = f"""
-        SELECT state->>'status' as status, COUNT(*) as count
-        FROM {self._table_name}
-        GROUP BY state->>'status'
-        """
+        count_sql = "SELECT COUNT(*) FROM " + self._table_name
+        status_sql = (
+            "SELECT state->>'status' as status, COUNT(*) as count "
+            "FROM " + self._table_name + " "
+            "GROUP BY state->>'status'"
+        )
 
         async with self._db_pool.acquire() as conn:
             total = await conn.fetchval(count_sql)

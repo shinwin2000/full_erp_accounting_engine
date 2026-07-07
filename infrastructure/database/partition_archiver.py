@@ -26,6 +26,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import DDL, DropTable, MetaData, Table
+
 from config.loader_yaml import load_yaml_config
 
 # Internal dependencies
@@ -167,7 +169,7 @@ class PartitionArchiver:
 
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session:
-            # Get partitions from pg_inherits
+            # Get partitions from pg_inherits - menggunakan parameter binding (aman)
             query = """
             SELECT 
                 inhrelid::regclass::text as partition_name,
@@ -204,7 +206,9 @@ class PartitionArchiver:
         """
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session, session.begin():
-            await session.execute(f"ALTER TABLE {table_name} DETACH PARTITION {partition_name}")
+            # Menggunakan DDL dengan placeholder untuk menghindari concatenation
+            stmt = DDL("ALTER TABLE %(table)s DETACH PARTITION %(partition)s")
+            await session.execute(stmt, {"table": table_name, "partition": partition_name})
             logger.info(f"Detached partition {partition_name} from {table_name}")
 
     async def _export_partition(self, partition_name: str, output_path: Path) -> None:
@@ -300,7 +304,9 @@ class PartitionArchiver:
         """
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session, session.begin():
-            await session.execute(f"DROP TABLE IF EXISTS {partition_name}")
+            # Menggunakan DropTable dengan if_exists=True untuk keamanan
+            table_obj = Table(partition_name, MetaData())
+            await session.execute(DropTable(table_obj, if_exists=True))
             logger.info(f"Dropped partition {partition_name}")
 
     async def archive_partition(self, table_config: dict, partition: dict) -> dict[str, Any]:

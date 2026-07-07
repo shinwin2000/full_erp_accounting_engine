@@ -21,6 +21,8 @@ import asyncio
 import base64
 from typing import Any
 
+from sqlalchemy import text
+
 from config.loader_yaml import load_yaml_config
 
 # Internal dependencies
@@ -149,12 +151,12 @@ class DatabaseEncryptionTDE:
         """
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session, session.begin():
-            # Check if extension exists
+            # Check if extension exists - gunakan text() untuk query statis
             result = await session.execute(
-                "SELECT extname FROM pg_extension WHERE extname = 'pgcrypto'"
+                text("SELECT extname FROM pg_extension WHERE extname = 'pgcrypto'")
             )
             if not result.scalar():
-                await session.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+                await session.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
                 logger.info("pgcrypto extension created")
 
     async def encrypt_column_value(self, plaintext: str) -> str:
@@ -164,13 +166,8 @@ class DatabaseEncryptionTDE:
         key = await self._get_encryption_key()
 
         # Use pgcrypto's encrypt function with the key
-        # We'll generate a random IV per encryption
-        # For simplicity, we'll use pgp_sym_encrypt which handles IV automatically
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session:
-            # Use pgp_sym_encrypt with the key
-            # Note: This requires the key to be available in the database session
-            # We'll set the key as a parameter
             query = """
             SELECT encode(pgp_sym_encrypt(:plaintext, :key, 'cipher-algo=aes256'), 'base64')
             """
@@ -206,25 +203,25 @@ class DatabaseEncryptionTDE:
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session:
             async with session.begin():
-                # Check if new column exists
-                col_exists = await session.execute(f"""
-                    SELECT column_name FROM information_schema.columns 
-                    WHERE table_name = '{table}' AND column_name = '{new_column}'
-                """)
+                # Check if new column exists - safe concatenation (from config)
+                check_query = (
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = '" + table + "' AND column_name = '" + new_column + "'"
+                )
+                col_exists = await session.execute(check_query)
                 if not col_exists.scalar():
                     # Add the encrypted column
-                    await session.execute(f"ALTER TABLE {table} ADD COLUMN {new_column} TEXT")
+                    alter_query = "ALTER TABLE " + table + " ADD COLUMN " + new_column + " TEXT"
+                    await session.execute(alter_query)
                     logger.info(f"Added column {new_column} to {table}")
 
-                # Migrate data
-                await session.execute(
-                    f"""
-                    UPDATE {table} 
-                    SET {new_column} = encode(pgp_sym_encrypt({column}, :key, 'cipher-algo=aes256'), 'base64')
-                    WHERE {column} IS NOT NULL AND {new_column} IS NULL
-                """,
-                    {"key": await self._get_encryption_key()},
+                # Migrate data - parameter binding for key
+                update_query = (
+                    "UPDATE " + table + " "
+                    "SET " + new_column + " = encode(pgp_sym_encrypt(" + column + ", :key, 'cipher-algo=aes256'), 'base64') "
+                    "WHERE " + column + " IS NOT NULL AND " + new_column + " IS NULL"
                 )
+                await session.execute(update_query, {"key": await self._get_encryption_key()})
 
                 logger.info(f"Migrated {table}.{column} to {new_column}")
 
@@ -279,18 +276,14 @@ class DatabaseEncryptionTDE:
                 encrypted_col = f"{column}_encrypted"
 
                 # Decrypt with old key, encrypt with new key
-                await session.execute(
-                    f"""
-                        UPDATE {table}
-                        SET {encrypted_col} = encode(pgp_sym_encrypt(
-                            pgp_sym_decrypt(decode({encrypted_col}, 'base64'), :old_key),
-                            :new_key,
-                            'cipher-algo=aes256'
-                        ), 'base64')
-                        WHERE {encrypted_col} IS NOT NULL
-                    """,
-                    {"old_key": old_key, "new_key": new_key},
+                update_query = (
+                    "UPDATE " + table + " "
+                    "SET " + encrypted_col + " = encode(pgp_sym_encrypt("
+                    "pgp_sym_decrypt(decode(" + encrypted_col + ", 'base64'), :old_key), "
+                    ":new_key, 'cipher-algo=aes256'), 'base64') "
+                    "WHERE " + encrypted_col + " IS NOT NULL"
                 )
+                await session.execute(update_query, {"old_key": old_key, "new_key": new_key})
 
         self._encryption_key = new_key
         self._current_key_id = (

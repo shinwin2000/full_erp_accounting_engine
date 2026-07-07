@@ -27,6 +27,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, insert, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Internal dependencies
@@ -314,8 +315,12 @@ class IncomeStatementPeriod:
                 income_data = await self.compute_period_income(legal_entity_id, period.id)
                 await self.save_income_statement(income_data)
                 success_count += 1
-            except Exception as e:
+            except (IncomeStatementError, SQLAlchemyError, ValueError, TypeError) as e:
                 logger.error(f"Failed to compute income statement for period {period.id}: {e}")
+                error_count += 1
+            except Exception as e:  # pylint: disable=broad-except
+                # Catch any unexpected error to keep batch processing running
+                logger.error(f"Unexpected error for period {period.id}: {e}")
                 error_count += 1
 
         duration = (datetime.now(UTC) - start_time).total_seconds()
@@ -486,9 +491,14 @@ class IncomeStatementPeriod:
                 logger.warning(f"Period {period_id} not found for income statement update")
                 return
 
-            income_data = await self.compute_period_income(period.legal_entity_id, period_id)
-            await self.save_income_statement(income_data)
-            logger.info(f"Income statement updated for period {period.period_name}")
+            try:
+                income_data = await self.compute_period_income(period.legal_entity_id, period_id)
+                await self.save_income_statement(income_data)
+                logger.info(f"Income statement updated for period {period.period_name}")
+            except (IncomeStatementError, SQLAlchemyError, ValueError, TypeError) as e:
+                logger.error(f"Failed to update income statement for period {period_id}: {e}")
+            except Exception as e:  # pylint: disable=broad-except
+                logger.error(f"Unexpected error updating income statement for period {period_id}: {e}")
 
 
 # ============================================================================

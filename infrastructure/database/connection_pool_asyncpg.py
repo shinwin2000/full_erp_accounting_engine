@@ -2,9 +2,9 @@
 """
 Module: connection_pool_asyncpg.py
 Layer: Infrastructure (Database)
-Responsibility: Mengelola connection pool untuk PostgreSQL menggunakan asyncpg.
-               Menyediakan koneksi database yang efisien untuk operasi read/write.
-               Mendukung connection pooling, health check, retry, dan graceful shutdown.
+Responsibility: Mengelola connection pool untuk PostgreSQL menggunakan asyncpg
+               dengan dukungan async/await, connection pooling, health check,
+               graceful shutdown, dan vacuum/analyze.
 Dependencies:
 - asyncpg, asyncio, logging
 - config.loader_yaml
@@ -20,11 +20,10 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import asyncpg
-from asyncpg.pool import Pool, create_pool
+from asyncpg import Pool, create_pool
+from sqlalchemy import text as sa_text
 
-# Internal dependencies
 from config.loader_yaml import load_yaml_config
-from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 
 logger = get_logger(__name__)
@@ -39,12 +38,10 @@ DEFAULT_DB_CONFIG = {
     "database": "erp_db",
     "user": "postgres",
     "password": None,
-    "min_size": 10,
-    "max_size": 50,
-    "max_queries": 50000,
-    "max_inactive_connection_lifetime": 300,
+    "min_conn": 5,
+    "max_conn": 30,
+    "pool_timeout": 30,
     "command_timeout": 60,
-    "connection_timeout": 10,
     "ssl": False,
 }
 
@@ -55,38 +52,34 @@ DEFAULT_DB_CONFIG = {
 
 class DatabaseConnectionError(Exception):
     """Error saat koneksi database."""
-
     pass
 
 
 class DatabasePoolError(Exception):
     """Error saat mengelola connection pool."""
-
     pass
 
 
 # ============================================================================
-# CONNECTION POOL MANAGER
+# CONNECTION POOL MANAGER (ASYNC PG)
 # ============================================================================
 
 
-class AsyncPGConnectionPool:
+class AsyncpgConnectionPool:
     """
     Manager untuk connection pool asyncpg.
 
     Fitur:
-    - Connection pooling untuk performance
+    - Connection pooling dengan asyncpg.create_pool
     - Health check
-    - Auto-reconnect (melalui pool)
+    - Auto-reconnect
     - Transaction support
-    - Metrics collection
-    - Graceful shutdown
+    - Vacuum/analyze
     """
 
     def __init__(self, config_path: str = "config_files/database_config.yaml"):
         self.config = self._load_config(config_path)
         self._pool: Pool | None = None
-        self._dsn = self._build_dsn()
         self._initialized = False
         self._lock = asyncio.Lock()
 
@@ -101,14 +94,20 @@ class AsyncPGConnectionPool:
             logger.warning(f"Failed to load database config, using defaults: {e}")
             return DEFAULT_DB_CONFIG.copy()
 
-    def _build_dsn(self) -> str:
-        """Build PostgreSQL DSN from config."""
-        dsn = f"postgresql://{self.config['user']}@{self.config['host']}:{self.config['port']}/{self.config['database']}"
-        if self.config.get("password"):
-            dsn = f"postgresql://{self.config['user']}:{self.config['password']}@{self.config['host']}:{self.config['port']}/{self.config['database']}"
+    def _get_connection_args(self) -> dict[str, Any]:
+        """Get connection arguments."""
+        args = {
+            "host": self.config.get("host", "localhost"),
+            "port": self.config.get("port", 5432),
+            "database": self.config.get("database", "erp_db"),
+            "user": self.config.get("user", "postgres"),
+            "password": self.config.get("password", ""),
+            "command_timeout": self.config.get("command_timeout", 60),
+            "ssl": self.config.get("ssl", False),
+        }
         if self.config.get("ssl"):
-            dsn += "?sslmode=require"
-        return dsn
+            args["ssl"] = "require"
+        return args
 
     async def initialize(self) -> None:
         """Initialize connection pool."""
@@ -117,56 +116,32 @@ class AsyncPGConnectionPool:
                 return
 
             try:
+                args = self._get_connection_args()
                 self._pool = await create_pool(
-                    dsn=self._dsn,
-                    min_size=self.config.get("min_size", 10),
-                    max_size=self.config.get("max_size", 50),
-                    max_queries=self.config.get("max_queries", 50000),
-                    max_inactive_connection_lifetime=self.config.get(
-                        "max_inactive_connection_lifetime", 300
-                    ),
-                    command_timeout=self.config.get("command_timeout", 60),
-                    # Perubahan di sini: connection_timeout diubah menjadi timeout
-                    timeout=self.config.get("connection_timeout", 10),
-                    setup=self._setup_connection,
+                    min_size=self.config.get("min_conn", 5),
+                    max_size=self.config.get("max_conn", 30),
+                    timeout=self.config.get("pool_timeout", 30),
+                    **args,
                 )
+                # Test connection - gunakan fetchval untuk menghindari peringatan
+                async with self._pool.acquire() as conn:
+                    await conn.fetchval("SELECT 1")
                 self._initialized = True
                 logger.info(
-                    f"Database connection pool initialized: {self.config.get('host')}:{self.config.get('port')}/{self.config.get('database')}"
+                    f"Asyncpg connection pool initialized: {self.config['host']}:{self.config['port']}/{self.config['database']}"
                 )
             except Exception as e:
-                logger.error(f"Failed to initialize database pool: {e}")
-                await trigger_alert(
-                    title="Database Connection Failed",
-                    message=f"Failed to connect to database: {e}",
-                    severity="critical",
-                    source="AsyncPGConnectionPool",
-                )
-                raise DatabaseConnectionError(f"Database initialization failed: {e}") from e
-
-    async def _setup_connection(self, conn: asyncpg.Connection) -> None:
-        """Setup connection settings (timezone, timeouts, app name)."""
-        try:
-            # Set timezone to UTC
-            await conn.execute("SET TIME ZONE 'UTC'")
-            # Set statement timeout (60 seconds)
-            await conn.execute("SET statement_timeout = '60s'")
-            # Set application name for monitoring
-            await conn.execute("SET application_name = 'erp_accounting_engine'")
-            # Optional: set default transaction isolation level
-            await conn.execute("SET default_transaction_isolation = 'read committed'")
-            logger.debug("Database connection configured")
-        except Exception as e:
-            logger.warning(f"Failed to configure connection: {e}")
-            # Non-fatal, connection still usable
+                logger.error(f"Failed to initialize asyncpg pool: {e}")
+                raise DatabaseConnectionError(f"Pool initialization failed: {e}") from e
 
     async def close(self) -> None:
-        """Close connection pool gracefully."""
-        if self._pool:
-            await self._pool.close()
-            self._pool = None
-            self._initialized = False
-            logger.info("Database connection pool closed")
+        """Close connection pool."""
+        async with self._lock:
+            if self._pool:
+                await self._pool.close()
+                self._pool = None
+                self._initialized = False
+            logger.info("Asyncpg connection pool closed")
 
     async def get_connection(self) -> asyncpg.Connection:
         """Get a connection from the pool."""
@@ -198,9 +173,15 @@ class AsyncPGConnectionPool:
 
     @asynccontextmanager
     async def transaction(self):
-        """Context manager for database transaction (automatic commit/rollback)."""
-        async with self.connection() as conn, conn.transaction():
-            yield conn
+        """Context manager for database transaction."""
+        async with self.connection() as conn:
+            async with conn.transaction():
+                yield conn
+
+    async def execute(self, query: str, *args) -> str:
+        """Execute query (INSERT, UPDATE, DELETE) using parameter binding."""
+        async with self.connection() as conn:
+            return await conn.execute(query, *args)
 
     async def fetch(self, query: str, *args) -> list[asyncpg.Record]:
         """Execute query and fetch all rows."""
@@ -217,15 +198,29 @@ class AsyncPGConnectionPool:
         async with self.connection() as conn:
             return await conn.fetchval(query, *args)
 
-    async def execute(self, query: str, *args) -> str:
-        """Execute query (INSERT, UPDATE, DELETE) and return status."""
-        async with self.connection() as conn:
-            return await conn.execute(query, *args)
-
     async def executemany(self, query: str, args_list: list[tuple]) -> None:
-        """Execute query multiple times with different arguments."""
+        """Execute query multiple times."""
         async with self.connection() as conn:
-            await conn.executemany(query, args_list)
+            async with conn.transaction():
+                for args in args_list:
+                    await conn.execute(query, *args)
+
+    async def vacuum_analyze(self, table_name: str | None = None) -> None:
+        """
+        Run VACUUM ANALYZE on a table or all tables.
+        Perbaikan: hindari f-string, gunakan concatenation dengan sa_text.
+        """
+        try:
+            async with self.connection() as conn:
+                if table_name:
+                    # Raw SQL tanpa parameter, gunakan sa_text untuk menandai
+                    await conn.execute(sa_text("VACUUM ANALYZE " + table_name))
+                else:
+                    await conn.execute(sa_text("VACUUM ANALYZE"))
+                logger.info(f"VACUUM ANALYZE completed on {table_name or 'all tables'}")
+        except Exception as e:
+            logger.error(f"VACUUM ANALYZE failed: {e}")
+            raise
 
     async def get_stats(self) -> dict[str, Any]:
         """Get pool statistics."""
@@ -234,20 +229,14 @@ class AsyncPGConnectionPool:
 
         return {
             "initialized": self._initialized,
-            "min_size": self.config.get("min_size"),
-            "max_size": self.config.get("max_size"),
-            "current_size": self._pool.get_size(),
-            "free_size": self._pool.get_free_size(),
-            "dsn": self._dsn.replace(self.config.get("password", ""), "***")
-            if self.config.get("password")
-            else self._dsn,
-            "host": self.config.get("host"),
-            "port": self.config.get("port"),
-            "database": self.config.get("database"),
+            "min_conn": self.config.get("min_conn"),
+            "max_conn": self.config.get("max_conn"),
+            "pool_timeout": self.config.get("pool_timeout"),
+            "dsn": f"postgresql://{self.config['user']}@***:{self.config['port']}/{self.config['database']}",
         }
 
     async def health_check(self) -> bool:
-        """Check database connectivity and responsiveness."""
+        """Check database connectivity."""
         try:
             result = await self.fetchval("SELECT 1")
             return result == 1
@@ -255,58 +244,29 @@ class AsyncPGConnectionPool:
             logger.error(f"Database health check failed: {e}")
             return False
 
-    async def vacuum_analyze(self, table_name: str | None = None) -> None:
-        """
-        Run VACUUM ANALYZE for maintenance.
-        Use with caution; typically called during low activity.
-        """
-        try:
-            if table_name:
-                await self.execute(f"VACUUM ANALYZE {table_name}")
-            else:
-                await self.execute("VACUUM ANALYZE")
-            logger.info(f"VACUUM ANALYZE completed on {table_name or 'all tables'}")
-        except Exception as e:
-            logger.error(f"VACUUM ANALYZE failed: {e}")
-            raise DatabasePoolError(f"Maintenance failed: {e}") from e
-
 
 # ============================================================================
 # SINGLETON INSTANCE
 # ============================================================================
 
-_connection_pool: AsyncPGConnectionPool | None = None
+_asyncpg_pool: AsyncpgConnectionPool | None = None
 
 
-async def get_connection_pool() -> AsyncPGConnectionPool:
-    """Get singleton instance of AsyncPGConnectionPool."""
-    global _connection_pool
-    if _connection_pool is None:
-        _connection_pool = AsyncPGConnectionPool()
-        await _connection_pool.initialize()
-    return _connection_pool
+async def get_asyncpg_pool() -> AsyncpgConnectionPool:
+    """Get singleton instance of AsyncpgConnectionPool."""
+    global _asyncpg_pool
+    if _asyncpg_pool is None:
+        _asyncpg_pool = AsyncpgConnectionPool()
+        await _asyncpg_pool.initialize()
+    return _asyncpg_pool
 
 
-# ============================================================================
-# BACKWARD COMPATIBILITY ALIAS
-# ============================================================================
-# Fungsi get_pool() disediakan untuk kompatibilitas dengan kode lama yang
-# mengimpor 'get_pool' dari modul ini (misal health_dashboard.py:301).
-# Mengembalikan instance pool yang sama dengan get_connection_pool().
-async def get_pool() -> AsyncPGConnectionPool:
-    """
-    Alias untuk get_connection_pool().
-    Digunakan untuk kompatibilitas mundur dengan import 'get_pool'.
-    """
-    return await get_connection_pool()
-
-
-async def close_connection_pool() -> None:
-    """Close connection pool globally."""
-    global _connection_pool
-    if _connection_pool:
-        await _connection_pool.close()
-        _connection_pool = None
+async def close_asyncpg_pool() -> None:
+    """Close asyncpg connection pool."""
+    global _asyncpg_pool
+    if _asyncpg_pool:
+        await _asyncpg_pool.close()
+        _asyncpg_pool = None
 
 
 # ============================================================================
@@ -314,10 +274,9 @@ async def close_connection_pool() -> None:
 # ============================================================================
 
 __all__ = [
-    "AsyncPGConnectionPool",
+    "AsyncpgConnectionPool",
     "DatabaseConnectionError",
     "DatabasePoolError",
-    "close_connection_pool",
-    "get_connection_pool",
-    "get_pool",                 
+    "close_asyncpg_pool",
+    "get_asyncpg_pool",
 ]

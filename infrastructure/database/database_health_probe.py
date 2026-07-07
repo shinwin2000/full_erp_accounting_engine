@@ -21,6 +21,8 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import text
+
 from config.loader_yaml import load_yaml_config
 
 # Internal dependencies
@@ -116,7 +118,7 @@ class DatabaseHealthProbe:
         try:
             session = await self._get_session()
             async with session:
-                result = await session.execute("SELECT 1")
+                result = await session.execute(text("SELECT 1"))
                 await result.fetchone()
                 latency_ms = (time.time() - start_time) * 1000
                 return {
@@ -154,7 +156,7 @@ class DatabaseHealthProbe:
             try:
                 session = await self._get_session()
                 async with session:
-                    result = await session.execute(query)
+                    result = await session.execute(text(query))
                     await result.fetchall()
                     query_time_ms = (time.time() - start_time) * 1000
 
@@ -183,7 +185,7 @@ class DatabaseHealthProbe:
             session = await self._get_session()
             async with session:
                 # Check if this is a replica
-                result = await session.execute("SELECT pg_is_in_recovery()")
+                result = await session.execute(text("SELECT pg_is_in_recovery()"))
                 is_replica = result.scalar()
 
                 if not is_replica:
@@ -194,10 +196,10 @@ class DatabaseHealthProbe:
                     }
 
                 # Get replication lag
-                result = await session.execute("""
+                result = await session.execute(text("""
                     SELECT 
                         EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())) as lag_seconds
-                """)
+                """))
                 lag_seconds = result.scalar() or 0
 
                 status = HEALTH_STATUS_HEALTHY
@@ -256,7 +258,7 @@ class DatabaseHealthProbe:
         try:
             session = await self._get_session()
             async with session:
-                result = await session.execute("SHOW transaction_isolation")
+                result = await session.execute(text("SHOW transaction_isolation"))
                 isolation = result.scalar()
                 return {"status": HEALTH_STATUS_HEALTHY, "isolation_level": isolation}
         except Exception as e:

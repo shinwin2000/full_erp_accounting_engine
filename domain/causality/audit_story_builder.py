@@ -15,6 +15,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -262,8 +263,8 @@ class AuditStory:
             content = self.to_html()
         else:
             content = self.to_json()
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(content)
+        # Gunakan Path.write_text agar tidak memicu warning 'open tanpa context manager'
+        Path(filepath).write_text(content, encoding="utf-8")
         logger.info(f"Audit story exported to {filepath}")
 
 

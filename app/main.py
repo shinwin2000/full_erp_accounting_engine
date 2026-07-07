@@ -52,7 +52,7 @@ from prometheus_client import (
     Histogram,
     generate_latest,
 )
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import (
@@ -75,7 +75,7 @@ except ImportError:
     RCA_KERNEL_AVAILABLE = False
     logger = logging.getLogger("erp_engine")
     logger.warning("kernel.error_analysis not found; using fallback RCA.")
-    
+
     def analyze_error(exc: Exception, context: Optional[Dict] = None) -> Any:
         """Fallback: return dict sederhana."""
         return {
@@ -94,7 +94,7 @@ except ImportError:
                 "confidence": 0.0,
             }
         }
-    
+
     def log_rca_result(logger_obj, rca_result, prefix=""):
         """Fallback logging."""
         if rca_result is None:
@@ -179,14 +179,14 @@ class Settings(BaseSettings):
             raise ValueError(f"log_level must be one of {valid}")
         return upper
 
-    @field_validator("secret_key", mode="after")
-    @classmethod
-    def validate_secret_key(cls, v: SecretStr) -> SecretStr:
-        if not v.get_secret_value():
+    @model_validator(mode="after")
+    def validate_secret_key(self) -> Settings:
+        """Validate secret_key after all fields are validated."""
+        if not self.secret_key.get_secret_value():
             raise ValueError("SECRET_KEY environment variable is required")
-        if v.get_secret_value() == "change-this-in-production" and cls.app_env == "production":
+        if self.secret_key.get_secret_value() == "change-this-in-production" and self.app_env == "production":
             raise ValueError("SECRET_KEY must not be the default value in production")
-        return v
+        return self
 
     @field_validator("minio_access_key", "minio_secret_key", mode="after")
     @classmethod

@@ -615,6 +615,13 @@ class JournalEntity:
         Raises:
             ValueError: If the journal is locked, not editable, or posted.
         """
+        # ========== IMMUTABILITY GUARD (ACC-026) ==========
+        if self.status == JournalStatus.POSTED:
+            raise ValueError(
+                f"Cannot update metadata: journal has been posted and is immutable. "
+                f"Use reverse() to create a reversal instead."
+            )
+
         self._ensure_editable("update metadata")
         self._ensure_not_posted("update metadata")
 
@@ -688,6 +695,13 @@ class JournalEntity:
         Raises:
             ValueError: If the journal is locked, not editable, posted, or unbalanced.
         """
+        # ========== IMMUTABILITY GUARD (ACC-026) ==========
+        if self.status == JournalStatus.POSTED:
+            raise ValueError(
+                f"Cannot update totals: journal has been posted and is immutable. "
+                f"Use reverse() to create a reversal instead."
+            )
+
         self._ensure_editable("update totals")
         self._ensure_not_posted("update totals")
 

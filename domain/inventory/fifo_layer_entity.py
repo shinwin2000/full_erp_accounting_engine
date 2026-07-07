@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -63,7 +63,7 @@ class FIFOLayer:
     def _record_audit(self, action: str, details: dict[str, Any]) -> None:
         """Record audit trail entry for checker compliance."""
         self._audit_trail.append({
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),  # Fixed: timezone-aware
             "action": action,
             "details": details,
             "layer_id": str(self.id),

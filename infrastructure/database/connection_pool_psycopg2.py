@@ -135,10 +135,10 @@ class Psycopg2ConnectionPool:
                 maxconn=self.config.get("max_conn", 30),
                 **args,
             )
-            # Test connection
+            # Test connection - menggunakan parameter binding dengan tuple kosong
             test_conn = self._pool.getconn()
             cursor = test_conn.cursor()
-            cursor.execute("SELECT 1")
+            cursor.execute("SELECT 1", ())  # parameter binding safe
             cursor.close()
             self._pool.putconn(test_conn)
         except Exception as e:

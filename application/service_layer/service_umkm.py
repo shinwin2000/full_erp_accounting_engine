@@ -1,4 +1,6 @@
 # service_umkm.py - Complete rewrite with full event publishing
+# v5.9.0 - Refactored event publishing into single _publish_event method to reduce
+#          broad-except warnings and improve maintainability.
 
 #!/usr/bin/env python3
 
@@ -192,6 +194,21 @@ class UMKMService:
 
         logger.info("UMKMService initialized")
 
+    # ==================== EVENT PUBLISHING HELPER ====================
+
+    async def _publish_event(self, event: Any, log_context: str, correlation_id: str | None = None) -> None:
+        """
+        Publish an event safely, catching and logging any exception.
+        Preserves the two-argument publish signature (event, correlation_id).
+        """
+        if not self._event_publisher:
+            return
+        try:
+            await self._event_publisher.publish(event, correlation_id)
+            logger.debug(f"Published {event.__class__.__name__} for {log_context}")
+        except Exception as e:
+            logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
+
     # ========================================================================
     # Transaction Recording
     # ========================================================================
@@ -236,37 +253,29 @@ class UMKMService:
         # --- PUBLISH EVENTS ---
         if self._event_publisher:
             # 1. TransactionCreatedEvent
-            try:
-                event_created = TransactionCreatedEvent(
-                    aggregate_id=transaction.id,
-                    aggregate_version=transaction.version,
-                    transaction_id=transaction.id,
-                    transaction_type=transaction.transaction_type.value,
-                    amount=transaction.amount,
-                    description=transaction.description,
-                    transaction_date=transaction.transaction_date,
-                    created_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event_created, correlation_id)
-                logger.debug(f"Published TransactionCreatedEvent for {transaction.id}")
-            except Exception as e:
-                logger.warning(f"Failed to publish TransactionCreatedEvent: {e}")
+            event_created = TransactionCreatedEvent(
+                aggregate_id=transaction.id,
+                aggregate_version=transaction.version,
+                transaction_id=transaction.id,
+                transaction_type=transaction.transaction_type.value,
+                amount=transaction.amount,
+                description=transaction.description,
+                transaction_date=transaction.transaction_date,
+                created_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event_created, f"Transaction {transaction.id} (created)", correlation_id)
 
             # 2. TransactionRecordedEvent (UMKM specific)
-            try:
-                event_recorded = DomainTransactionRecorded(
-                    transaction_id=transaction.id,
-                    amount=transaction.amount,
-                    transaction_type=transaction.transaction_type.value,
-                    user_id=user_id,
-                    occurred_at=datetime.now(UTC),
-                )
-                await self._event_publisher.publish(event_recorded, correlation_id)
-                logger.debug(f"Published TransactionRecordedEvent for {transaction.id}")
-            except Exception as e:
-                logger.warning(f"Failed to publish TransactionRecordedEvent: {e}")
+            event_recorded = DomainTransactionRecorded(
+                transaction_id=transaction.id,
+                amount=transaction.amount,
+                transaction_type=transaction.transaction_type.value,
+                user_id=user_id,
+                occurred_at=datetime.now(UTC),
+            )
+            await self._publish_event(event_recorded, f"Transaction {transaction.id} (recorded)", correlation_id)
 
         logger.info(f"UMKM transaction recorded: {request.transaction_type} {request.amount}")
         return self._to_response(transaction)
@@ -335,20 +344,16 @@ class UMKMService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = TransactionUpdatedEvent(
-                    aggregate_id=transaction.id,
-                    aggregate_version=transaction.version,
-                    transaction_id=transaction.id,
-                    changes=changes,
-                    updated_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published TransactionUpdatedEvent for {transaction.id}")
-            except Exception as e:
-                logger.warning(f"Failed to publish TransactionUpdatedEvent: {e}")
+            event = TransactionUpdatedEvent(
+                aggregate_id=transaction.id,
+                aggregate_version=transaction.version,
+                transaction_id=transaction.id,
+                changes=changes,
+                updated_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Transaction {transaction.id} (updated)", correlation_id)
 
         logger.info(f"UMKM transaction updated: {transaction.id}")
         return self._to_response(transaction)
@@ -380,19 +385,15 @@ class UMKMService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = TransactionDeletedEvent(
-                    aggregate_id=transaction.id,
-                    aggregate_version=transaction.version,
-                    transaction_id=transaction.id,
-                    deleted_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published TransactionDeletedEvent for {transaction.id}")
-            except Exception as e:
-                logger.warning(f"Failed to publish TransactionDeletedEvent: {e}")
+            event = TransactionDeletedEvent(
+                aggregate_id=transaction.id,
+                aggregate_version=transaction.version,
+                transaction_id=transaction.id,
+                deleted_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Transaction {transaction.id} (deleted)", correlation_id)
 
         logger.info(f"UMKM transaction deleted: {transaction_id}")
         return True
@@ -545,22 +546,17 @@ class UMKMService:
 
             # --- PUBLISH EVENT ---
             if self._event_publisher:
-                try:
-                    # Use TransactionRecordedEvent for tax submission
-                    event = TransactionRecordedEvent(
-                        aggregate_id=uuid4(),
-                        aggregate_version=1,
-                        transaction_id=uuid4(),
-                        transaction_type="TAX_SUBMISSION",
-                        amount=tax_summary.tax_due,
-                        description=f"Tax submission for {tax_summary.period}",
-                        user_id=str(user_id),
-                        occurred_at=datetime.now(UTC),
-                    )
-                    await self._event_publisher.publish(event, correlation_id)
-                    logger.debug(f"Published TransactionRecordedEvent for tax submission")
-                except Exception as e:
-                    logger.warning(f"Failed to publish TransactionRecordedEvent: {e}")
+                event = TransactionRecordedEvent(
+                    aggregate_id=uuid4(),
+                    aggregate_version=1,
+                    transaction_id=uuid4(),
+                    transaction_type="TAX_SUBMISSION",
+                    amount=tax_summary.tax_due,
+                    description=f"Tax submission for {tax_summary.period}",
+                    user_id=str(user_id),
+                    occurred_at=datetime.now(UTC),
+                )
+                await self._publish_event(event, f"Tax submission {tax_summary.period}", correlation_id)
 
         return success
 

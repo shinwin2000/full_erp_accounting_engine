@@ -1,0 +1,3209 @@
+{
+  "score": 75,
+  "files_scanned": 329,
+  "gl_functions_found": 5,
+  "gl_functions_checked": 5,
+  "gl_functions_list": [
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\equity_retained\\aggregate_root.py",
+      "function": "post_capital_contribution"
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\equity_retained\\aggregate_root.py",
+      "function": "post_capital_withdrawal"
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "function": "post_journal_entry"
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "function": "post_approved_journal"
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "function": "reverse_journal"
+    }
+  ],
+  "total_findings": 353,
+  "scan_time": 4.33148810000057,
+  "findings": [
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\bank_account_entity.py",
+      "line": 923,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'mark_reconciled' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\bank_reconciliation_engine.py",
+      "line": 189,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'reconcile' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\bank_reconciliation_engine.py",
+      "line": 508,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'get_reconciliation_summary' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\bank_reconciliation_engine.py",
+      "line": 540,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'suggest_matching' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\bank_reconciliation_engine.py",
+      "line": 578,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'auto_reconcile' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\bank_reconciliation_engine.py",
+      "line": 617,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'find_matching_candidates' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\invariants.py",
+      "line": 147,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'validate_reconciliation' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\invariants.py",
+      "line": 277,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'enforce_reconciliation' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\bank_transaction_entity.py",
+      "line": 493,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'mark_as_reconciled' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\bank_transaction_entity.py",
+      "line": 602,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'get_unreconciled' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\bank_aggregate_root.py",
+      "line": 588,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'reconcile_transaction' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\bank_aggregate_root.py",
+      "line": 679,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'get_unreconciled_transactions' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\bank_aggregate_root.py",
+      "line": 727,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'reconcile' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\bank_cash\\cash_book_entity.py",
+      "line": 1090,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\causality\\audit_story_builder.py",
+      "line": 265,
+      "severity": "WARNING",
+      "category": "Resource Management",
+      "message": "'open' digunakan tanpa context manager ('with')",
+      "detail": "Gunakan 'with open(...) as f:' untuk menjamin file ditutup.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\causality\\causal_chain_builder.py",
+      "line": 178,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\causality\\causal_chain_builder.py",
+      "line": 265,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\causality\\causal_chain_builder.py",
+      "line": 401,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\causality\\causal_chain_builder.py",
+      "line": 492,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\causality\\why_query_engine.py",
+      "line": 348,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\causality\\why_query_engine.py",
+      "line": 274,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\coa\\account_code_vo.py",
+      "line": 435,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'matches_pattern' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\coa\\optimistic_lock.py",
+      "line": 271,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\customer_supplier_employee\\customer_credit_limit_vo.py",
+      "line": 619,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\customer_supplier_employee\\customer_credit_limit_vo.py",
+      "line": 93,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\equity_retained\\aggregate_root.py",
+      "line": 902,
+      "severity": "WARNING",
+      "category": "Posting Integrity (Atomicity)",
+      "message": "Fungsi GL 'post_capital_contribution' tidak menggunakan transaksi/Unit of Work",
+      "detail": "Gunakan transaksi database untuk memastikan atomicity posting GL (gunakan 'with transaction:' atau UnitOfWork).",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\equity_retained\\aggregate_root.py",
+      "line": 925,
+      "severity": "WARNING",
+      "category": "Posting Integrity (Atomicity)",
+      "message": "Fungsi GL 'post_capital_withdrawal' tidak menggunakan transaksi/Unit of Work",
+      "detail": "Gunakan transaksi database untuk memastikan atomicity posting GL (gunakan 'with transaction:' atau UnitOfWork).",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\equity_retained\\capital_contribution_entity.py",
+      "line": 120,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\equity_retained\\capital_contribution_entity.py",
+      "line": 133,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\equity_retained\\capital_withdrawal_entity.py",
+      "line": 120,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\equity_retained\\dividend_declaration_entity.py",
+      "line": 222,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\fixed_asset\\revaluation_entity.py",
+      "line": 192,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\fixed_asset\\revaluation_entity.py",
+      "line": 197,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\fixed_asset\\asset_entity.py",
+      "line": 260,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\fixed_asset\\asset_entity.py",
+      "line": 271,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\fixed_asset\\asset_entity.py",
+      "line": 284,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\fixed_asset\\asset_entity.py",
+      "line": 299,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\fixed_asset\\asset_entity.py",
+      "line": 317,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\fixed_asset\\asset_entity.py",
+      "line": 332,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\fixed_asset\\disposal_entity.py",
+      "line": 188,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\fixed_asset\\disposal_entity.py",
+      "line": 200,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\forex\\exchange_rate_vo.py",
+      "line": 63,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\hedge\\hedge_effectiveness_tester.py",
+      "line": 336,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'critical_terms_match_test' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\hedge\\hedge_effectiveness_tester.py",
+      "line": 185,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\hedge\\hedge_effectiveness_tester.py",
+      "line": 196,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\hedge\\hedge_effectiveness_tester.py",
+      "line": 258,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\hedge\\hedge_effectiveness_tester.py",
+      "line": 269,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\hedge\\hedge_effectiveness_tester.py",
+      "line": 322,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\hedge\\hedge_effectiveness_tester.py",
+      "line": 333,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\iam\\permission_vo.py",
+      "line": 100,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'matches' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\iam\\permission_vo.py",
+      "line": 173,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'matches' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\iam\\permission_vo.py",
+      "line": 329,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'matches' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\iam\\permission_vo.py",
+      "line": 363,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'matches_string' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\iam\\permission_vo.py",
+      "line": 371,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'matches_resource' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\iam\\permission_vo.py",
+      "line": 379,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'matches_action' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\iam\\password_hashed_vo.py",
+      "line": 365,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\iam\\password_hashed_vo.py",
+      "line": 389,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\iam\\password_hashed_vo.py",
+      "line": 494,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\iam\\password_hashed_vo.py",
+      "line": 329,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intangible_asset\\asset_entity.py",
+      "line": 168,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intangible_asset\\asset_entity.py",
+      "line": 179,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intangible_asset\\asset_entity.py",
+      "line": 192,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intangible_asset\\asset_entity.py",
+      "line": 209,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intangible_asset\\invariants.py",
+      "line": 105,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\context_enricher.py",
+      "line": 32,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\context_enricher.py",
+      "line": 42,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\cryptographic_signer.py",
+      "line": 30,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\cryptographic_signer.py",
+      "line": 106,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\cryptographic_signer.py",
+      "line": 143,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\cryptographic_signer.py",
+      "line": 219,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\cryptographic_signer.py",
+      "line": 174,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\risk_assessor.py",
+      "line": 501,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\risk_assessor.py",
+      "line": 540,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\risk_assessor.py",
+      "line": 612,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\risk_assessor.py",
+      "line": 619,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\risk_assessor.py",
+      "line": 626,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\risk_assessor.py",
+      "line": 676,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\void_processor.py",
+      "line": 45,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\capture_service.py",
+      "line": 41,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\intent\\audit_trail_writer.py",
+      "line": 229,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\inventory\\aggregate_root.py",
+      "line": 277,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'reconcile' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\inventory\\fifo_layer_entity.py",
+      "line": 66,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\inventory\\stock_adjustment_entity.py",
+      "line": 177,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'reconcile' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\inventory\\movement_entity.py",
+      "line": 220,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'reconcile' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\journal\\journal_entry.py",
+      "line": 172,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\journal\\domain_events.py",
+      "line": 624,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\manufacturing\\invariants.py",
+      "line": 727,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\manufacturing\\invariants.py",
+      "line": 618,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\payroll\\invariants.py",
+      "line": 216,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\reality\\asset_existence_validator.py",
+      "line": 50,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\reality\\asset_existence_validator.py",
+      "line": 291,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\reality\\asset_existence_validator.py",
+      "line": 371,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\reality\\asset_existence_validator.py",
+      "line": 444,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\reality\\asset_existence_validator.py",
+      "line": 479,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\reality\\asset_existence_validator.py",
+      "line": 305,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\reality\\asset_existence_validator.py",
+      "line": 331,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\reality\\reality_validation_service.py",
+      "line": 55,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\shared_value_objects\\cost_center_vo.py",
+      "line": 300,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'matches_code_pattern' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\shared_value_objects\\hash_chain_link_vo.py",
+      "line": 94,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\shared_value_objects\\hash_chain_link_vo.py",
+      "line": 87,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\shared_value_objects\\money_vo.py",
+      "line": 340,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'compare' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\shared_value_objects\\percentage_vo.py",
+      "line": 264,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'compare' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\shared_value_objects\\quantity_vo.py",
+      "line": 511,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'compare' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\subledger_ap\\domain_events.py",
+      "line": 896,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\subledger_ap\\invariants.py",
+      "line": 156,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'validate_three_way_match' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\subledger_ap\\invariants.py",
+      "line": 248,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'enforce_three_way_match' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\subledger_ap\\three_way_match_engine.py",
+      "line": 101,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'match' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\subledger_ap\\three_way_match_engine.py",
+      "line": 207,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'match_with_line_items' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\subledger_ar\\aggregate_root.py",
+      "line": 555,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\tax_transaction\\invariants.py",
+      "line": 85,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\tax_transaction\\invariants.py",
+      "line": 201,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\umkm_simplified\\invariants.py",
+      "line": 135,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\umkm_simplified\\invariants.py",
+      "line": 53,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\domain\\umkm_simplified\\invariants.py",
+      "line": 180,
+      "severity": "WARNING",
+      "category": "Timezone",
+      "message": "'datetime.now()' tanpa timezone",
+      "detail": "Gunakan 'datetime.now(UTC)' atau 'datetime.now(timezone.utc)'.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\period_close.py",
+      "line": 313,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\period_close.py",
+      "line": 346,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\post_journal_entry.py",
+      "line": 394,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\post_journal_entry.py",
+      "line": 268,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\year_end_closing.py",
+      "line": 306,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\post_closing_journal.py",
+      "line": 342,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\hpp_manufacturing_close.py",
+      "line": 256,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\fiscal_reconciliation.py",
+      "line": 347,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'fiscal_reconciliation_handler' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\fiscal_reconciliation.py",
+      "line": 305,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi '_generate_reconciliation_report' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\fiscal_reconciliation.py",
+      "line": 223,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\fiscal_reconciliation.py",
+      "line": 339,
+      "severity": "WARNING",
+      "category": "Resource Management",
+      "message": "'open' digunakan tanpa context manager ('with')",
+      "detail": "Gunakan 'with open(...) as f:' untuk menjamin file ditutup.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\aml_screening_transaction.py",
+      "line": 244,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\approve_journal_four_eyes.py",
+      "line": 124,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\bank_reconciliation.py",
+      "line": 350,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'bank_reconciliation_handler' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\bank_reconciliation.py",
+      "line": 216,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi '_perform_matching' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\bank_reconciliation.py",
+      "line": 209,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\budget_vs_actual_analysis.py",
+      "line": 295,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\budget_vs_actual_analysis.py",
+      "line": 365,
+      "severity": "WARNING",
+      "category": "Resource Management",
+      "message": "'open' digunakan tanpa context manager ('with')",
+      "detail": "Gunakan 'with open(...) as f:' untuk menjamin file ditutup.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\cogs_calculation.py",
+      "line": 217,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\consolidation_group_report.py",
+      "line": 265,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\consolidation_group_report.py",
+      "line": 342,
+      "severity": "WARNING",
+      "category": "Resource Management",
+      "message": "'open' digunakan tanpa context manager ('with')",
+      "detail": "Gunakan 'with open(...) as f:' untuk menjamin file ditutup.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\consolidation_group_report.py",
+      "line": 347,
+      "severity": "WARNING",
+      "category": "Resource Management",
+      "message": "'open' digunakan tanpa context manager ('with')",
+      "detail": "Gunakan 'with open(...) as f:' untuk menjamin file ditutup.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\coretax_bulk_submission.py",
+      "line": 289,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\coretax_bulk_submission.py",
+      "line": 223,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\disaster_recovery_replay.py",
+      "line": 235,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\disaster_recovery_replay.py",
+      "line": 201,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\financial_statement_generation.py",
+      "line": 317,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\financial_statement_generation.py",
+      "line": 277,
+      "severity": "WARNING",
+      "category": "Resource Management",
+      "message": "'open' digunakan tanpa context manager ('with')",
+      "detail": "Gunakan 'with open(...) as f:' untuk menjamin file ditutup.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\forex_revaluation.py",
+      "line": 274,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\hedge_accounting_execution.py",
+      "line": 218,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\impairment_testing_annual.py",
+      "line": 245,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\intercompany_elimination.py",
+      "line": 296,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi '_check_unmatched_balances' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\intercompany_elimination.py",
+      "line": 206,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\payroll_monthly_run.py",
+      "line": 229,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\payroll_monthly_run.py",
+      "line": 178,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\payroll_monthly_run.py",
+      "line": 188,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\payroll_monthly_run.py",
+      "line": 198,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\payroll_monthly_run.py",
+      "line": 311,
+      "severity": "WARNING",
+      "category": "Resource Management",
+      "message": "'open' digunakan tanpa context manager ('with')",
+      "detail": "Gunakan 'with open(...) as f:' untuk menjamin file ditutup.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\post_adjusting_journal.py",
+      "line": 178,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\reverse_journal.py",
+      "line": 186,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\stock_opname_cycle.py",
+      "line": 272,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\tax_filing_submission.py",
+      "line": 224,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\depreciation_monthly_run.py",
+      "line": 242,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\depreciation_monthly_run.py",
+      "line": 184,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\period_reopen_with_audit.py",
+      "line": 184,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\ap_payment_run.py",
+      "line": 273,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\ap_payment_run.py",
+      "line": 351,
+      "severity": "WARNING",
+      "category": "Resource Management",
+      "message": "'open' digunakan tanpa context manager ('with')",
+      "detail": "Gunakan 'with open(...) as f:' untuk menjamin file ditutup.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\amortization_monthly_run.py",
+      "line": 116,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\ar_collection_workflow.py",
+      "line": 183,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\use_cases\\hpp_manufacturing_close_use_case.py",
+      "line": 107,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_umkm.py",
+      "line": 254,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_umkm.py",
+      "line": 268,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_umkm.py",
+      "line": 350,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_umkm.py",
+      "line": 394,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_umkm.py",
+      "line": 666,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_umkm.py",
+      "line": 562,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_audit.py",
+      "line": 324,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_tax.py",
+      "line": 379,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_tax.py",
+      "line": 473,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_tax.py",
+      "line": 677,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_tax.py",
+      "line": 727,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_tax.py",
+      "line": 789,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_tax.py",
+      "line": 848,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_tax.py",
+      "line": 896,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_tax.py",
+      "line": 505,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_tax.py",
+      "line": 529,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_tax.py",
+      "line": 602,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_tax.py",
+      "line": 621,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 489,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 637,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 721,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 971,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1012,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1048,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1116,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1263,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1347,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1366,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1381,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1579,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1620,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1656,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1712,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1747,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1782,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1854,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1889,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 575,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 755,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 770,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 805,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 820,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 855,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 896,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 931,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1202,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1428,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1463,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1504,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1539,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 915,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_purchase_sales.py",
+      "line": 1523,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 264,
+      "severity": "WARNING",
+      "category": "Posting Integrity (Atomicity)",
+      "message": "Fungsi GL 'post_journal_entry' tidak menggunakan transaksi/Unit of Work",
+      "detail": "Gunakan transaksi database untuk memastikan atomicity posting GL (gunakan 'with transaction:' atau UnitOfWork).",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 499,
+      "severity": "WARNING",
+      "category": "Posting Integrity (Atomicity)",
+      "message": "Fungsi GL 'post_approved_journal' tidak menggunakan transaksi/Unit of Work",
+      "detail": "Gunakan transaksi database untuk memastikan atomicity posting GL (gunakan 'with transaction:' atau UnitOfWork).",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 698,
+      "severity": "WARNING",
+      "category": "Posting Integrity (Atomicity)",
+      "message": "Fungsi GL 'reverse_journal' tidak menggunakan transaksi/Unit of Work",
+      "detail": "Gunakan transaksi database untuk memastikan atomicity posting GL (gunakan 'with transaction:' atau UnitOfWork).",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 904,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 938,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 358,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 375,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 416,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 456,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 492,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 533,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 617,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 655,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 691,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 784,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 819,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_journal.py",
+      "line": 854,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_ledger.py",
+      "line": 212,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_ledger.py",
+      "line": 361,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_ledger.py",
+      "line": 394,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_ap.py",
+      "line": 534,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'perform_three_way_match' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_ap.py",
+      "line": 547,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi '_perform_three_way_match' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_ap.py",
+      "line": 616,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_bank_cash.py",
+      "line": 646,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'reconcile_bank_account' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_bank_cash.py",
+      "line": 834,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coa.py",
+      "line": 700,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coa.py",
+      "line": 641,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coa.py",
+      "line": 682,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_consolidation.py",
+      "line": 612,
+      "severity": "WARNING",
+      "category": "Reconciliation",
+      "message": "Fungsi 'reconcile_intercompany' tidak melakukan rekonsiliasi GL vs sub-ledger",
+      "detail": "Implementasikan proses rekonsiliasi untuk memastikan konsistensi GL.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coretax.py",
+      "line": 176,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coretax.py",
+      "line": 316,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coretax.py",
+      "line": 208,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coretax.py",
+      "line": 238,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coretax.py",
+      "line": 357,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coretax.py",
+      "line": 406,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coretax.py",
+      "line": 425,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coretax.py",
+      "line": 485,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coretax.py",
+      "line": 504,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coretax.py",
+      "line": 564,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_coretax.py",
+      "line": 583,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_intangible_asset.py",
+      "line": 331,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_system_settings.py",
+      "line": 858,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_system_settings.py",
+      "line": 656,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_system_settings.py",
+      "line": 715,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_system_settings.py",
+      "line": 764,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_system_settings.py",
+      "line": 855,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_iam.py",
+      "line": 1150,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_iam.py",
+      "line": 1200,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_goodwill.py",
+      "line": 244,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_goodwill.py",
+      "line": 317,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_goodwill.py",
+      "line": 528,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_goodwill.py",
+      "line": 595,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_goodwill.py",
+      "line": 655,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_goodwill.py",
+      "line": 401,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_forex.py",
+      "line": 215,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_forex.py",
+      "line": 315,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_forex.py",
+      "line": 391,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_forex.py",
+      "line": 513,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_project.py",
+      "line": 351,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_project.py",
+      "line": 456,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_project.py",
+      "line": 533,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_project.py",
+      "line": 661,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_project.py",
+      "line": 708,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_project.py",
+      "line": 820,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_project.py",
+      "line": 875,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_project.py",
+      "line": 1030,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_project.py",
+      "line": 948,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 401,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 421,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 512,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 596,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 613,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 657,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 673,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 714,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 755,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 830,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 905,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 949,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 533,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_legal_entity.py",
+      "line": 554,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_asset_group.py",
+      "line": 134,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_asset_group.py",
+      "line": 216,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 153,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 185,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 207,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 231,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 262,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 286,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 308,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 332,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 365,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 398,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 464,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 496,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 526,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 552,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 424,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_capital.py",
+      "line": 440,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_supplier.py",
+      "line": 178,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_supplier.py",
+      "line": 327,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_supplier.py",
+      "line": 261,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_customer.py",
+      "line": 164,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_customer.py",
+      "line": 256,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_customer.py",
+      "line": 299,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_customer.py",
+      "line": 340,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_payment.py",
+      "line": 182,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_payment.py",
+      "line": 233,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_payment.py",
+      "line": 264,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_payment.py",
+      "line": 295,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_payment.py",
+      "line": 326,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_payment.py",
+      "line": 377,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_payment.py",
+      "line": 411,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_payment.py",
+      "line": 444,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_payment.py",
+      "line": 477,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_employee.py",
+      "line": 180,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_employee.py",
+      "line": 260,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_employee.py",
+      "line": 324,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_employee.py",
+      "line": 381,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_employee.py",
+      "line": 427,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_employee.py",
+      "line": 468,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_hierarchy.py",
+      "line": 172,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_hierarchy.py",
+      "line": 235,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_hierarchy.py",
+      "line": 289,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_hierarchy.py",
+      "line": 332,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_account.py",
+      "line": 116,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_account.py",
+      "line": 154,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_standard_cost.py",
+      "line": 136,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_standard_cost.py",
+      "line": 182,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_retainer.py",
+      "line": 176,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_document.py",
+      "line": 419,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\application\\service_layer\\service_report.py",
+      "line": 343,
+      "severity": "WARNING",
+      "category": "Resource Management",
+      "message": "'open' digunakan tanpa context manager ('with')",
+      "detail": "Gunakan 'with open(...) as f:' untuk menjamin file ditutup.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\projections\\ledger\\equity_statement.py",
+      "line": 376,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\projections\\ledger\\fiscal_income_statement.py",
+      "line": 231,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\projections\\ledger\\general_ledger_table.py",
+      "line": 167,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\projections\\ledger\\balance_sheet_snapshot.py",
+      "line": 216,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    },
+    {
+      "file": "E:\\full_erp_accounting_engine\\projections\\ledger\\income_statement_period.py",
+      "line": 317,
+      "severity": "INFO",
+      "category": "Exception Handling",
+      "message": "Menangkap 'Exception' terlalu luas",
+      "detail": "Pertimbangkan untuk menangkap exception yang lebih spesifik.",
+      "rca_summary": ""
+    }
+  ]
+}

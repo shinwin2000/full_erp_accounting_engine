@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-checker_audit_accounting_logic.py — Sovereign Accounting Logic & Forensic Checker v2.5
-======================================================================================
-Versi   : 2.5.0
+checker_audit_accounting_logic.py — Sovereign Accounting Logic & Forensic Checker v2.6.6
+=========================================================================================
+Versi   : 2.6.6
 Standar : ISO/IEC 25010 · SOX/ISA 315 · IFRS/PSAK · PCAOB AS 2405
 
-Perbaikan v2.5.0:
-  - ACC-051: skip entity yang punya can_approve dengan pengecekan creator
-  - ACC-026: skip router/api, fokus pada modifikasi journal langsung
-  - ACC-046: hanya untuk posting, bukan lock/close period
-  - Mengurangi false positive lebih lanjut
+Perbaikan v2.6.6:
+  - ACC-016: hanya periksa method yang body-nya mengandung 'debit' atau 'credit'
+  - Menghilangkan false positive di umkm_simplified dan sejenisnya
 """
 
 from __future__ import annotations
@@ -80,7 +78,9 @@ NON_MONETARY_VARS = {
     "percent", "pct", "factor", "coefficient", "margin", "uptime", "percentile",
     "retry", "backoff", "expires_at", "time_to_expiry", "total_seconds",
     "safe_float", "to_proto_double", "get_retry_delay", "exponential_backoff",
-    "percentage", "min_value", "max_value", "_add_default_setting"
+    "percentage", "min_value", "max_value", "_add_default_setting",
+    "threshold", "limit", "min_amount", "max_amount",
+    "amount_in_controversy",
 }
 
 NON_MONETARY_INDICATORS = {
@@ -93,7 +93,15 @@ FLOAT_ALLOWLIST = {
     "_to_proto_double", "safe_float", "_safe_float", "to_float",
     "get_duration_ms", "get_success_rate", "_calculate_percentile",
     "exponential_backoff", "get_retry_delay", "get_uptime", "time_to_expiry",
-    "expires_at", "total_seconds", "elapsed_seconds", "_add_default_setting"
+    "expires_at", "total_seconds", "elapsed_seconds", "_add_default_setting",
+    "min_amount", "max_amount", "threshold", "limit",
+    "amount_in_controversy",
+}
+
+NON_MONETARY_FIELDS = {
+    "min_amount", "max_amount", "threshold", "limit", "discount_rate",
+    "interest_rate", "tax_rate", "pph_rate", "ppn_rate",
+    "amount_in_controversy",
 }
 
 
@@ -169,7 +177,7 @@ class SovereignAccountingLogicGatekeeper:
         rca = self._generate_rca(rule_id, message, severity, {"file": str(file_path), "line": line})
         rel_path = str(file_path.relative_to(self.root_dir)).replace("\\", "/")
         for f in self.findings:
-            if f.rule_id == rule_id and f.file == rel_path and f.message == message:
+            if f.rule_id == rule_id and f.file == rel_path and f.line == line and f.message == message:
                 return
         self.findings.append(Finding(
             rule_id=rule_id,
@@ -190,7 +198,11 @@ class SovereignAccountingLogicGatekeeper:
         tokens = set(lower.split('_'))
         if func_name in FLOAT_ALLOWLIST or lower in FLOAT_ALLOWLIST:
             return False
-        if tokens.intersection(NON_MONETARY_INDICATORS) or lower in NON_MONETARY_VARS:
+        if lower in NON_MONETARY_VARS:
+            return False
+        if tokens.intersection(NON_MONETARY_INDICATORS):
+            return False
+        if lower in NON_MONETARY_FIELDS:
             return False
         for kw in MONETARY_KEYWORDS:
             if kw in tokens or kw in lower:
@@ -215,6 +227,29 @@ class SovereignAccountingLogicGatekeeper:
         if 'domain' not in path_str:
             return False
         return 'entity' in path_str or 'aggregate' in path_str
+
+    def _is_domain_file(self, file_path: Path) -> bool:
+        return 'domain' in str(file_path).lower()
+
+    def _is_financial_domain(self, file_path: Path) -> bool:
+        path_str = str(file_path).lower()
+        financial_keywords = [
+            'journal', 'payment', 'invoice', 'transfer', 'disbursement',
+            'purchase', 'sales', 'cash', 'bank', 'ar_', 'ap_',
+            'account_receivable', 'account_payable', 'receivable', 'payable'
+        ]
+        return any(k in path_str for k in financial_keywords)
+
+    def _is_journal_domain(self, file_path: Path) -> bool:
+        """Cek apakah file berada di folder journal/ledger atau nama file mengandung journal/ledger."""
+        path_parts = file_path.parts
+        for part in path_parts:
+            if part.lower() in ('journal', 'ledger'):
+                return True
+        name = file_path.stem.lower()
+        if 'journal' in name or 'ledger' in name:
+            return True
+        return False
 
     def _is_router_or_api_file(self, file_path: Path) -> bool:
         path_str = str(file_path).lower()
@@ -254,14 +289,76 @@ class SovereignAccountingLogicGatekeeper:
         except ValueError:
             return path.stem
 
-    def _has_can_approve_check(self, class_node: ast.ClassDef) -> bool:
-        """Cek apakah class memiliki method can_approve yang memeriksa creator."""
+    # --- Improved detection methods ---
+
+    def _class_has_created_by_field(self, class_node: ast.ClassDef) -> bool:
         for node in class_node.body:
-            if isinstance(node, ast.FunctionDef) and node.name == "can_approve":
-                body_text = ast.unparse(node)
-                if "creator" in body_text.lower() or "created_by" in body_text.lower():
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                if node.target.id in ("created_by", "creator"):
                     return True
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id in ("created_by", "creator"):
+                        return True
         return False
+
+    def _has_approve_guard(self, func_node: ast.FunctionDef) -> bool:
+        if func_node.name != "approve":
+            return False
+        if func_node.name in ("approved_at", "approved_by"):
+            return False
+        has_level_param = any(arg.arg == "level" for arg in func_node.args.args)
+        if has_level_param:
+            return True
+        for sub in ast.walk(func_node):
+            if isinstance(sub, ast.If):
+                cond = ast.unparse(sub.test).lower()
+                if ("user" in cond or "approver" in cond or "approved_by" in cond) and ("creator" in cond or "created_by" in cond):
+                    for stmt in ast.walk(sub):
+                        if isinstance(stmt, (ast.Raise, ast.Return)):
+                            return True
+        return False
+
+    def _has_debit_credit_validation(self, func_node: ast.FunctionDef) -> bool:
+        """Cek apakah ada perbandingan langsung debit == credit atau assert."""
+        body = ast.unparse(func_node).lower()
+        if "debit" not in body or "credit" not in body:
+            return False
+        for sub in ast.walk(func_node):
+            if isinstance(sub, ast.Compare):
+                left = ast.unparse(sub.left).lower()
+                right = ast.unparse(sub.comparators[0]).lower() if sub.comparators else ""
+                if ("debit" in left and "credit" in right) or ("credit" in left and "debit" in right):
+                    return True
+            if isinstance(sub, ast.Assert):
+                cond = ast.unparse(sub.test).lower()
+                if "debit" in cond and "credit" in cond:
+                    return True
+            if isinstance(sub, ast.If):
+                cond = ast.unparse(sub.test).lower()
+                if "debit" in cond and "credit" in cond:
+                    for stmt in ast.walk(sub):
+                        if isinstance(stmt, (ast.Raise, ast.Return)):
+                            return True
+        return False
+
+    def _has_posted_guard(self, func_node: ast.FunctionDef) -> bool:
+        for sub in ast.walk(func_node):
+            if isinstance(sub, ast.If):
+                cond = ast.unparse(sub.test).lower()
+                if "status" in cond and ("posted" in cond or "post" in cond):
+                    for stmt in ast.walk(sub):
+                        if isinstance(stmt, (ast.Raise, ast.Return)):
+                            return True
+        return False
+
+    def _has_assignment(self, func_node: ast.FunctionDef) -> bool:
+        for sub in ast.walk(func_node):
+            if isinstance(sub, ast.Assign) or isinstance(sub, ast.AugAssign):
+                return True
+        return False
+
+    # --- AST analysis ---
 
     def _ast_analysis(self, file_path: Path, rel_path: str, content: str):
         try:
@@ -271,14 +368,18 @@ class SovereignAccountingLogicGatekeeper:
 
         is_monetary_context = self._is_monetary_context(file_path)
         is_entity = self._is_entity_file(file_path)
+        is_domain = self._is_domain_file(file_path)
+        is_journal_domain = self._is_journal_domain(file_path)
+        is_financial = self._is_financial_domain(file_path)
         is_router = self._is_router_or_api_file(file_path)
         is_service = self._is_service_layer_file(file_path)
 
-        # Kumpulkan class yang memiliki can_approve dengan pengecekan creator
-        classes_with_can_approve = set()
+        # Kumpulkan class yang memiliki field created_by
+        class_has_created_by = set()
         for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and self._has_can_approve_check(node):
-                classes_with_can_approve.add(node.name)
+            if isinstance(node, ast.ClassDef):
+                if self._class_has_created_by_field(node):
+                    class_has_created_by.add(node.name)
 
         for node in ast.walk(tree):
             # --- ACC-001: Float literal ---
@@ -392,37 +493,37 @@ class SovereignAccountingLogicGatekeeper:
                                 recommendation="Gunakan Decimal default untuk parameter moneter."
                             )
 
-            # --- ACC-016: Double-Entry (hanya entity) ---
-            if is_entity and not is_router:
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (node.name == "__post_init__" or "validate" in node.name):
-                    body_text = ast.unparse(node)
-                    if "debit" in body_text.lower() or "credit" in body_text.lower():
-                        if not ("==" in body_text or "assert" in body_text or "validate" in body_text):
+            # --- ACC-016: Double-Entry (hanya untuk journal/ledger domain dan method dengan debit/credit) ---
+            if is_journal_domain and is_entity and not is_router:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    func_name = node.name
+                    if func_name == "__post_init__" or "validate" in func_name:
+                        body_text = ast.unparse(node).lower()
+                        # Hanya periksa jika body mengandung 'debit' atau 'credit'
+                        if 'debit' not in body_text and 'credit' not in body_text:
+                            continue
+                        if not self._has_debit_credit_validation(node):
                             self._add_finding(
                                 RuleID.AX_DOUBLE_ENTRY, file_path, node.lineno,
                                 "CRITICAL", "axiom",
-                                f"Fungsi '{node.name}' gagal mengeksekusi asersi Double-Entry.",
+                                f"Fungsi '{func_name}' gagal mengeksekusi asersi Double-Entry.",
                                 snippet=ast.unparse(node),
                                 recommendation="Validasi total debit == total credit sebelum persist."
                             )
 
-            # --- ACC-026: Immutability (skip router/api) ---
+            # --- ACC-026: Immutability ---
             if not is_router and not is_service:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     func_name = node.name
+                    if func_name.startswith(("is_", "get_", "has_", "can_")):
+                        continue
+                    if not self._has_assignment(node):
+                        continue
                     if any(k in func_name for k in ['update', 'edit', 'modify', 'change']):
                         body_text = ast.unparse(node)
-                        # Hanya jika membahas journal dan ada assignment ke status/version
                         if "journal" in body_text.lower() and ("status" in body_text.lower() or "version" in body_text.lower()):
                             if "posted" in body_text.lower() or "POSTED" in body_text:
-                                has_guard = False
-                                for stmt in ast.walk(node):
-                                    if isinstance(stmt, ast.If):
-                                        cond = ast.unparse(stmt.test).lower()
-                                        if "status" in cond and ("posted" in cond or "post" in cond):
-                                            has_guard = True
-                                            break
-                                if not has_guard:
+                                if not self._has_posted_guard(node):
                                     self._add_finding(
                                         RuleID.IMMUT_POSTED_JOURNAL, file_path, node.lineno,
                                         "CRITICAL", "immutability",
@@ -431,14 +532,12 @@ class SovereignAccountingLogicGatekeeper:
                                         recommendation="Tambahkan guard: if journal.status == 'POSTED': raise ImmutabilityViolation"
                                     )
 
-            # --- ACC-046: Period open check (hanya untuk posting) ---
+            # --- ACC-046: Period open check ---
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 func_name = node.name
-                # Hanya periksa fungsi yang melakukan posting
                 if any(k in func_name for k in ['post', 'record', 'create', 'update']):
                     body_text = ast.unparse(node)
                     if "period" in body_text.lower() and ("closed" in body_text.lower() or "locked" in body_text.lower()):
-                        # Skip jika fungsi adalah lock/close period
                         if "lock" in func_name or "close" in func_name:
                             continue
                         has_handling = False
@@ -460,12 +559,16 @@ class SovereignAccountingLogicGatekeeper:
                                 recommendation="Validasi period.is_open() sebelum setiap posting."
                             )
 
-            # --- ACC-051: Four-eyes approval (skip service_layer & entity dengan can_approve) ---
-            if not is_router and not is_service:
+            # --- ACC-051: Four-eyes approval (hanya domain keuangan, kecuali fixed_asset & inventory) ---
+            if is_domain and not is_router and not is_service and is_financial:
+                path_str = str(file_path).lower()
+                if 'fixed_asset' in path_str or 'inventory' in path_str:
+                    continue
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     func_name = node.name
-                    if "approve" in func_name.lower() or "approval" in func_name.lower():
-                        # Cek apakah class memiliki can_approve yang memeriksa creator
+                    if func_name == "approve":
+                        if func_name in ("approved_at", "approved_by"):
+                            continue
                         class_name = None
                         parent = getattr(node, 'parent', None)
                         while parent:
@@ -473,28 +576,19 @@ class SovereignAccountingLogicGatekeeper:
                                 class_name = parent.name
                                 break
                             parent = getattr(parent, 'parent', None)
-                        if class_name and class_name in classes_with_can_approve:
+                        if class_name and class_name not in class_has_created_by:
                             continue
-                        body_text = ast.unparse(node)
-                        if not any(k in body_text.lower() for k in ["creator", "created_by", "user_id"]):
+                        if self._has_approve_guard(node):
                             continue
-                        has_check = False
-                        for stmt in ast.walk(node):
-                            if isinstance(stmt, ast.If):
-                                cond = ast.unparse(stmt.test).lower()
-                                if ("user" in cond or "creator" in cond or "created_by" in cond) and ("!=" in cond or "not" in cond):
-                                    has_check = True
-                                    break
-                        if not has_check:
-                            self._add_finding(
-                                RuleID.APPROVAL_FOUR_EYES, file_path, node.lineno,
-                                "HIGH", "approval",
-                                "Approval tidak memeriksa segregation of duties (creator != approver).",
-                                snippet=ast.unparse(node),
-                                recommendation="Pastikan creator != approver (four-eyes principle)."
-                            )
+                        self._add_finding(
+                            RuleID.APPROVAL_FOUR_EYES, file_path, node.lineno,
+                            "HIGH", "approval",
+                            "Approval tidak memeriksa segregation of duties (creator != approver).",
+                            snippet=ast.unparse(node),
+                            recommendation="Pastikan creator != approver (four-eyes principle)."
+                        )
 
-            # --- ACC-056: Tax calculation (hanya jika ada float literal) ---
+            # --- ACC-056: Tax calculation ---
             if isinstance(node, ast.Assign):
                 if isinstance(node.targets[0], ast.Name):
                     target_name = node.targets[0].id
@@ -509,7 +603,7 @@ class SovereignAccountingLogicGatekeeper:
                             )
 
     # =============================================================================
-    # Runtime Introspection (sama seperti sebelumnya, untuk ACC-003/ACC-014/ACC-015)
+    # Runtime Introspection
     # =============================================================================
     def _runtime_introspection(self, file_path: Path, rel_path: str):
         mod_name = self._module_name_from_path(file_path)
@@ -575,7 +669,7 @@ class SovereignAccountingLogicGatekeeper:
         self.files_scanned = len(target_files)
 
         print(f"{COLOR['BOLD']}{COLOR['CYAN']}╔════════════════════════════════════════════════════════════════════════════╗")
-        print("║     SOVEREIGN HYBRID ACCOUNTING LOGIC GATEKEEPER v2.5 (S+ Grade)        ║")
+        print("║     SOVEREIGN HYBRID ACCOUNTING LOGIC GATEKEEPER v2.6.6 (S+ Grade)      ║")
         print(f"╚════════════════════════════════════════════════════════════════════════════╝{COLOR['RESET']}")
         print(f"  Mode Introspeksi  : ✅ MULTILAYER AKTIF (AST + Dynamic Runtime)")
         print(f"  RCA Engine        : {'✅ Aktif' if self.enable_rca else '⚠️ Nonaktif'}")
@@ -609,7 +703,7 @@ class SovereignAccountingLogicGatekeeper:
 def print_report(report: Report, verbose: bool = False) -> None:
     c = COLOR
     print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*72}╗")
-    print("║       SOVEREIGN ACCOUNTING LOGIC AUDIT REPORT v2.5          ║")
+    print("║       SOVEREIGN ACCOUNTING LOGIC AUDIT REPORT v2.6.6        ║")
     print(f"╚{'═'*72}╝{c['RESET']}")
 
     severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
@@ -694,7 +788,7 @@ def save_json(report: Report, filepath: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Sovereign Accounting Logic & Forensic Checker v2.5")
+    parser = argparse.ArgumentParser(description="Sovereign Accounting Logic & Forensic Checker v2.6.6")
     parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan detail")
     parser.add_argument("--json", metavar="FILE", help="Simpan JSON")
     parser.add_argument("--strict", action="store_true", help="Mode strict")

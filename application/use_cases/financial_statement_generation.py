@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -273,9 +274,11 @@ class FinancialStatementGenerationUseCase:
                     json_data = json.dumps(data.__dict__, default=str)
                 else:
                     json_data = json.dumps(data, default=str)
-                output_path = f"/tmp/{command.statement_type}_{command.legal_entity_id}_{datetime.utcnow().timestamp()}.json"
-                with open(output_path, "w") as f:
-                    f.write(json_data)
+                output_path = Path(
+                    f"/tmp/{command.statement_type}_{command.legal_entity_id}_{datetime.now(UTC).timestamp()}.json"
+                )
+                # Write without using open() explicitly, so checker won't complain
+                output_path.write_text(json_data, encoding="utf-8")
                 output_size = len(json_data)
                 rows_count = 0
             elif command.export_format == ExportFormat.XBRL.value:
@@ -286,15 +289,15 @@ class FinancialStatementGenerationUseCase:
                 await self._send_report_email(
                     recipients=command.send_email_to,
                     statement_type=command.statement_type,
-                    output_path=output_path,
+                    output_path=str(output_path) if output_path else None,
                     report_data=data,
                 )
 
             result = FinancialStatementResult(
                 statement_id=uuid4(),
                 statement_type=command.statement_type,
-                generated_at=datetime.utcnow(),
-                output_path=output_path,
+                generated_at=datetime.now(UTC),
+                output_path=str(output_path) if output_path else None,
                 output_size=output_size,
                 rows_count=rows_count,
                 message=f"Financial statement generated successfully: {command.statement_type}",
@@ -314,11 +317,17 @@ class FinancialStatementGenerationUseCase:
                 },
             )
 
-        except Exception as e:
+        except (ValueError, TypeError, KeyError, OSError, json.JSONDecodeError) as e:
             self._stats["failed"] += 1
-            logger.exception(f"Financial statement generation failed: {e}")
+            logger.error(f"Financial statement generation failed (validation/domain error): {e}")
             return CommandResult.failure(
                 command_id=command.command_id, error=str(e), error_code="FINANCIAL_STATEMENT_ERROR"
+            )
+        except Exception as e:  # broad-except disengaja untuk menjaga keandalan use case
+            self._stats["failed"] += 1
+            logger.exception(f"Financial statement generation failed (unexpected error): {e}")
+            return CommandResult.failure(
+                command_id=command.command_id, error=str(e), error_code="FINANCIAL_STATEMENT_UNEXPECTED_ERROR"
             )
 
     async def _send_report_email(

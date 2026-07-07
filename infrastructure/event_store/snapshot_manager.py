@@ -21,6 +21,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from sqlalchemy import text
+
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
 from infrastructure.event_store.append_only_store import AppendOnlyStore
 
@@ -217,8 +219,7 @@ class SnapshotManager:
         """Membuat tabel snapshot jika belum ada."""
         try:
             async with await self._get_session() as session:
-                await session.execute(
-                    """
+                await session.execute(text("""
                     CREATE TABLE IF NOT EXISTS snapshot (
                         id UUID PRIMARY KEY,
                         aggregate_id VARCHAR(255) NOT NULL,
@@ -228,14 +229,11 @@ class SnapshotManager:
                         metadata JSONB,
                         created_at TIMESTAMP WITH TIME ZONE NOT NULL
                     )
-                    """
-                )
-                await session.execute(
-                    """
+                """))
+                await session.execute(text("""
                     CREATE INDEX IF NOT EXISTS idx_snapshot_agg
                     ON snapshot (aggregate_id, aggregate_type, version)
-                    """
-                )
+                """))
                 await session.commit()
                 logger.info("Snapshot table created/verified")
 

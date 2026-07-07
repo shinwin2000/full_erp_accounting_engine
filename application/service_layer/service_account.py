@@ -1,4 +1,5 @@
 # service_account.py - Complete service for Account merging and splitting
+# v5.9.1 - Refactored event publishing into single _publish_event method
 
 #!/usr/bin/env python3
 
@@ -17,6 +18,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from ports.primary.event_publisher_port import EventPublisherPort
@@ -84,6 +86,23 @@ class AccountService:
 
         logger.info("AccountService initialized")
 
+    # ==================== EVENT PUBLISHING HELPER ====================
+
+    async def _publish_event(self, event: Any, log_context: str, correlation_id: str | None = None) -> None:
+        """
+        Publish an event safely, catching and logging any exception.
+        Preserves the publish signature (event, correlation_id).
+        """
+        if not self._event_publisher:
+            return
+        try:
+            await self._event_publisher.publish(event, correlation_id)
+            logger.debug(f"Published {event.__class__.__name__} for {log_context}")
+        except Exception as e:
+            logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
+
+    # ========================================================================
+
     async def merge_accounts(
         self,
         request: AccountMergeRequest,
@@ -99,22 +118,18 @@ class AccountService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = AccountMergedEvent(
-                    aggregate_id=request.source_account_id,
-                    aggregate_version=1,
-                    source_account_id=request.source_account_id,
-                    target_account_id=request.target_account_id,
-                    merge_date=request.merge_date,
-                    reason=request.reason,
-                    merged_by=str(request.merged_by),
-                    user_id=str(request.merged_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published AccountMergedEvent for {request.source_account_id} -> {request.target_account_id}")
-            except Exception as e:
-                logger.warning(f"Failed to publish AccountMergedEvent: {e}")
+            event = AccountMergedEvent(
+                aggregate_id=request.source_account_id,
+                aggregate_version=1,
+                source_account_id=request.source_account_id,
+                target_account_id=request.target_account_id,
+                merge_date=request.merge_date,
+                reason=request.reason,
+                merged_by=str(request.merged_by),
+                user_id=str(request.merged_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"{request.source_account_id}->{request.target_account_id}", correlation_id)
 
         self._stats["merges"] += 1
         return {
@@ -137,22 +152,18 @@ class AccountService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = AccountSplitEvent(
-                    aggregate_id=request.source_account_id,
-                    aggregate_version=1,
-                    source_account_id=request.source_account_id,
-                    target_account_ids=request.target_account_ids,
-                    split_date=request.split_date,
-                    reason=request.reason,
-                    split_by=str(request.split_by),
-                    user_id=str(request.split_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published AccountSplitEvent for {request.source_account_id}")
-            except Exception as e:
-                logger.warning(f"Failed to publish AccountSplitEvent: {e}")
+            event = AccountSplitEvent(
+                aggregate_id=request.source_account_id,
+                aggregate_version=1,
+                source_account_id=request.source_account_id,
+                target_account_ids=request.target_account_ids,
+                split_date=request.split_date,
+                reason=request.reason,
+                split_by=str(request.split_by),
+                user_id=str(request.split_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"{request.source_account_id} split", correlation_id)
 
         self._stats["splits"] += 1
         return {

@@ -1,4 +1,7 @@
 # service_system_settings.py - Complete rewrite with full event publishing
+# v5.9.0 - Refactored event publishing into single _publish_event method to reduce
+#          broad-except warnings and improve maintainability.
+# v5.9.1 - Replaced broad except with specific exception handling in bulk operations.
 
 #!/usr/bin/env python3
 """
@@ -292,6 +295,23 @@ class SystemSettingsService:
 
         logger.info("SystemSettingsService initialized")
 
+    # ==================== EVENT PUBLISHING HELPER ====================
+
+    async def _publish_event(self, event: Any, log_context: str, correlation_id: str | None = None) -> None:
+        """
+        Publish an event safely, catching and logging any exception.
+        Preserves the publish signature (event, correlation_id=correlation_id).
+        """
+        if not self._event_publisher:
+            return
+        try:
+            await self._event_publisher.publish(event, correlation_id=correlation_id)
+            logger.debug(f"Published {event.__class__.__name__} for {log_context}")
+        except Exception as e:
+            logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
+
+    # ==================== INIT ====================
+
     def _init_default_settings(self) -> None:
         """Initialize default system settings."""
         default_settings = [
@@ -359,6 +379,10 @@ class SystemSettingsService:
                 self._settings[key] = {}
             self._settings[key][None] = setting
 
+    # ========================================================================
+    # CRUD Operations
+    # ========================================================================
+
     async def create_setting(
         self,
         key: str,
@@ -420,8 +444,7 @@ class SystemSettingsService:
                 created_by=str(created_by) if created_by else None,
                 timestamp=datetime.now(UTC),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
-            logger.debug(f"Published SettingAddedEvent for {key}")
+            await self._publish_event(event, f"Setting {key} (added)", correlation_id)
 
         return setting
 
@@ -527,8 +550,7 @@ class SystemSettingsService:
                 updated_by=str(updated_by) if updated_by else None,
                 timestamp=datetime.now(UTC),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
-            logger.debug(f"Published SettingChangedEvent for {key}")
+            await self._publish_event(event, f"Setting {key} (changed)", correlation_id)
 
         return setting
 
@@ -567,8 +589,7 @@ class SystemSettingsService:
                 removed_by=str(updated_by) if updated_by else None,
                 timestamp=datetime.now(UTC),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
-            logger.debug(f"Published SettingRemovedEvent for {key}")
+            await self._publish_event(event, f"Setting {key} (removed)", correlation_id)
 
         return True
 
@@ -611,10 +632,13 @@ class SystemSettingsService:
                     reset_by=str(updated_by) if updated_by else None,
                     timestamp=datetime.now(UTC),
                 )
-                await self._event_publisher.publish(event, correlation_id=correlation_id)
-                logger.debug(f"Published SettingResetEvent for {key}")
+                await self._publish_event(event, f"Setting {key} (reset)", correlation_id)
 
         return setting
+
+    # ========================================================================
+    # Bulk Operations (Lock/Unlock/Update)
+    # ========================================================================
 
     async def lock_settings(
         self,
@@ -653,7 +677,8 @@ class SystemSettingsService:
                 success_count += 1
                 self._stats["locked"] += 1
 
-            except Exception as e:
+            except (SettingNotFoundError, SettingReadonlyError) as e:
+                # These are expected and already handled above, but catch just in case
                 failed_count += 1
                 failed_keys.append(key)
                 errors[key] = str(e)
@@ -665,8 +690,7 @@ class SystemSettingsService:
                 locked_by=str(locked_by) if locked_by else None,
                 timestamp=datetime.now(UTC),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
-            logger.debug(f"Published SettingsLockedEvent for {success_count} settings")
+            await self._publish_event(event, f"Lock {success_count} settings", correlation_id)
 
         return BulkUpdateResult(
             success_count=success_count,
@@ -712,7 +736,7 @@ class SystemSettingsService:
                 success_count += 1
                 self._stats["unlocked"] += 1
 
-            except Exception as e:
+            except (SettingNotFoundError, SettingReadonlyError) as e:
                 failed_count += 1
                 failed_keys.append(key)
                 errors[key] = str(e)
@@ -724,8 +748,7 @@ class SystemSettingsService:
                 unlocked_by=str(unlocked_by) if unlocked_by else None,
                 timestamp=datetime.now(UTC),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
-            logger.debug(f"Published SettingsUnlockedEvent for {success_count} settings")
+            await self._publish_event(event, f"Unlock {success_count} settings", correlation_id)
 
         return BulkUpdateResult(
             success_count=success_count,
@@ -761,7 +784,7 @@ class SystemSettingsService:
                 )
                 success_count += 1
                 updated_keys.append(key)
-            except Exception as e:
+            except (SettingNotFoundError, SettingReadonlyError, SettingLockedError, SettingValidationError) as e:
                 failed_count += 1
                 failed_keys.append(key)
                 errors[key] = str(e)
@@ -773,8 +796,7 @@ class SystemSettingsService:
                 updated_by=str(updated_by) if updated_by else None,
                 timestamp=datetime.now(UTC),
             )
-            await self._event_publisher.publish(event, correlation_id=correlation_id)
-            logger.debug(f"Published SettingsBulkUpdatedEvent for {success_count} settings")
+            await self._publish_event(event, f"Bulk update {success_count} settings", correlation_id)
 
         return BulkUpdateResult(
             success_count=success_count,
@@ -782,6 +804,10 @@ class SystemSettingsService:
             failed_keys=failed_keys,
             errors=errors,
         )
+
+    # ========================================================================
+    # Export / Import
+    # ========================================================================
 
     async def export_settings(
         self, legal_entity_id: UUID | None = None, format: str = "json"
@@ -825,7 +851,10 @@ class SystemSettingsService:
 
         try:
             if format == "json":
-                settings_data = json.loads(data) if data else []
+                try:
+                    settings_data = json.loads(data) if data else []
+                except json.JSONDecodeError as e:
+                    return ImportResult(success=False, errors=[f"Invalid JSON: {e}"])
                 if isinstance(settings_data, dict):
                     settings_data = [{"key": k, "value": v} for k, v in settings_data.items()]
             else:
@@ -833,8 +862,11 @@ class SystemSettingsService:
                 import csv
                 import io
 
-                reader = csv.DictReader(io.StringIO(data or ""))
-                settings_data = list(reader)
+                try:
+                    reader = csv.DictReader(io.StringIO(data or ""))
+                    settings_data = list(reader)
+                except csv.Error as e:
+                    return ImportResult(success=False, errors=[f"Invalid CSV: {e}"])
 
             for item in settings_data:
                 try:
@@ -852,11 +884,14 @@ class SystemSettingsService:
                         correlation_id=correlation_id,
                     )
                     imported_count += 1
-                except Exception as e:
+                except (SettingNotFoundError, SettingReadonlyError, SettingLockedError, SettingValidationError) as e:
                     errors.append(f"Failed to import {item.get('key')}: {e}")
+                except KeyError as e:
+                    errors.append(f"Missing required field: {e}")
 
         except Exception as e:
-            return ImportResult(success=False, errors=[str(e)])
+            # Catch any unexpected error at the top level to prevent crash
+            return ImportResult(success=False, errors=[f"Unexpected error: {str(e)}"])
 
         return ImportResult(
             success=len(errors) == 0,

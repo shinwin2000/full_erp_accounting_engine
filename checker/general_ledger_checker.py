@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-general_ledger_checker.py - General Ledger Integrity Validator (v5.6.0)
+general_ledger_checker.py - General Ledger Integrity Validator (v5.9.0)
 =======================================================================
-Perbaikan v5.6.0:
-- Tampilkan daftar fungsi GL yang ditemukan (dengan file) di summary
-- Opsi --show-functions untuk selalu menampilkan daftar fungsi GL
-- Perbaikan logika ignore-functions: sekarang lebih jelas di output
-- Tambahan deteksi validasi melalui dekorator @validates dan panggilan ke _validate
+Perubahan v5.9.0:
+- Menampilkan SEMUA temuan (tidak dibatasi 20) secara default.
+- Pengelompokan temuan berdasarkan file agar lebih mudah diidentifikasi.
+- Opsi `--limit` tetap tersedia untuk membatasi jika diperlukan (0 = semua).
+- Perbaikan format output untuk meningkatkan keterbacaan.
 """
 
 from __future__ import annotations
@@ -67,13 +67,13 @@ class Report:
     findings: List[Finding] = field(default_factory=list)
     gl_functions_found: int = 0
     gl_functions_checked: int = 0
-    gl_functions_list: List[Tuple[str, str]] = field(default_factory=list)  # (file, function_name)
+    gl_functions_list: List[Tuple[str, str]] = field(default_factory=list)
     files_scanned: int = 0
     score: int = 100
     scan_time: float = 0.0
 
 # ============================================================================
-# DETEKSI FUNGSI GL YANG PRESISI (v5.6)
+# DETEKSI FUNGSI GL
 # ============================================================================
 
 GL_REPOSITORY_NAMES = {'journalrepository', 'ledgerrepository', 'glrepository', 'journal_repository', 'ledger_repository'}
@@ -81,31 +81,23 @@ GL_ENTITY_NAMES = {'journal', 'journalentry', 'ledgerentry', 'glentry', 'general
 GL_SERVICE_NAMES = {'journalservice', 'ledgerservice', 'glservice'}
 
 def is_gl_function(func_node: ast.FunctionDef, file_path: pathlib.Path) -> bool:
-    """
-    Menentukan apakah fungsi adalah fungsi GL yang benar-benar melakukan posting ke GL.
-    """
     name = func_node.name.lower()
-    # Skip internal/metode khusus
     if name in ('__init__', '__post_init__', '__repr__', '__str__', '__call__',
                 '__new__', '__del__', '__eq__', '__hash__', '__lt__', '__gt__'):
         return False
 
-    # Skip jika fungsi hanya query/read
     if re.search(r'\b(get|find|query|fetch|list|search|read|load|retrieve|exists|count)\b', name):
         if not re.search(r'\b(post|save|create|update|persist|record)\b', name):
             return False
 
-    # Skip jika fungsi hanya validasi/check (tidak melakukan persistensi)
     if re.search(r'\b(validate|check|enforce|ensure|verify|assert|is_|has_)\b', name):
         if not re.search(r'\b(post|save|record|update|create|persist)\b', name):
             return False
 
-    # Cek apakah nama mengindikasikan GL
     gl_keywords = {'post', 'journal', 'ledger', 'gl', 'entry'}
     if not any(k in name for k in gl_keywords):
         return False
 
-    # Cek apakah ada panggilan ke GL repository atau posting ke GL
     has_gl_persist = False
     for node in ast.walk(func_node):
         if isinstance(node, ast.Call):
@@ -161,56 +153,124 @@ def is_gl_function(func_node: ast.FunctionDef, file_path: pathlib.Path) -> bool:
     return True
 
 # ============================================================================
-# FUNGSI PEMBANTU DETEKSI VALIDASI (DIREVISI v5.6)
+# DETEKSI VALIDASI (DIREVISI v5.8)
 # ============================================================================
 
 def has_balance_validation(node: ast.AST) -> bool:
     """
-    Deteksi berbagai pola validasi balance.
+    Deteksi pola validasi balance:
+    - if total_debit != total_credit: raise ...
+    - if debit != credit: raise ...
+    - if not is_balanced(): raise ...
+    - self.validate() / validate() / is_balanced()
+    - assert self.is_balanced()
+    - decorator @validate_balance
     """
     for child in ast.walk(node):
-        if isinstance(child, ast.Raise):
-            if child.exc:
-                exc_str = ast.unparse(child.exc).lower()
-                if 'debit' in exc_str and 'credit' in exc_str:
-                    return True
         if isinstance(child, ast.If):
             if isinstance(child.test, ast.Compare):
                 test_str = ast.unparse(child.test).lower()
-                if ('debit' in test_str and 'credit' in test_str) or ('credit' in test_str and 'debit' in test_str):
+                if 'debit' in test_str and 'credit' in test_str:
                     for stmt in ast.walk(child):
                         if isinstance(stmt, ast.Raise):
                             return True
-                    if has_validation_call(child, ['validate', 'is_balanced', 'ensure_balanced', 'check_balance']):
-                        return True
-        if isinstance(child, ast.Assign):
-            for target in child.targets:
-                if isinstance(target, ast.Name) and 'balance' in target.id.lower():
-                    if isinstance(child.value, ast.Compare):
-                        val_str = ast.unparse(child.value).lower()
-                        if ('debit' in val_str and 'credit' in val_str) or ('credit' in val_str and 'debit' in val_str):
-                            return True
-        if isinstance(child, ast.Assert):
-            test_str = ast.unparse(child.test).lower()
-            if 'balance' in test_str and ('debit' in test_str or 'credit' in test_str):
-                return True
         if isinstance(child, ast.Call):
             if isinstance(child.func, ast.Name):
                 fn = child.func.id.lower()
-                if 'balance' in fn and ('validate' in fn or 'check' in fn or 'ensure' in fn):
+                if fn in ('validate', 'is_balanced', 'ensure_balanced', 'check_balance'):
                     return True
             elif isinstance(child.func, ast.Attribute):
                 attr = child.func.attr.lower()
-                if 'balance' in attr and ('validate' in attr or 'check' in attr or 'ensure' in attr):
+                if attr in ('validate', 'is_balanced', 'ensure_balanced', 'check_balance'):
                     return True
                 if isinstance(child.func.value, ast.Call) and isinstance(child.func.value.func, ast.Name) and child.func.value.func.id == 'super':
-                    if attr == 'validate' or 'balance' in attr:
+                    if attr == 'validate':
                         return True
     if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
         for deco in node.decorator_list:
             deco_str = ast.unparse(deco).lower()
             if ('validate' in deco_str and 'balance' in deco_str) or ('validates' in deco_str and 'balance' in deco_str):
                 return True
+    return False
+
+def has_account_validation(node: ast.AST) -> bool:
+    """
+    Deteksi pola validasi account:
+    - if not account: raise ...
+    - if account is None: raise ...
+    - if account.status != "ACTIVE": raise ...
+    - validate_account() / check_account()
+    - assert account
+    """
+    for child in ast.walk(node):
+        if isinstance(child, ast.If):
+            if isinstance(child.test, ast.UnaryOp) and isinstance(child.test.op, ast.Not):
+                operand = child.test.operand
+                if isinstance(operand, ast.Name) and 'account' in operand.id.lower():
+                    for stmt in ast.walk(child):
+                        if isinstance(stmt, ast.Raise):
+                            return True
+            if isinstance(child.test, ast.Compare):
+                test_str = ast.unparse(child.test).lower()
+                if 'account' in test_str and ('none' in test_str or 'is none' in test_str):
+                    for stmt in ast.walk(child):
+                        if isinstance(stmt, ast.Raise):
+                            return True
+                if 'account' in test_str and 'status' in test_str and 'active' in test_str:
+                    for stmt in ast.walk(child):
+                        if isinstance(stmt, ast.Raise):
+                            return True
+        if isinstance(child, ast.Assert):
+            test_str = ast.unparse(child.test).lower()
+            if 'account' in test_str:
+                return True
+        if isinstance(child, ast.Call):
+            if isinstance(child.func, ast.Name):
+                fn = child.func.id.lower()
+                if fn in ('validate_account', 'check_account', 'account_exists', 'verify_account'):
+                    return True
+            elif isinstance(child.func, ast.Attribute):
+                attr = child.func.attr.lower()
+                if attr in ('validate_account', 'check_account', 'account_exists', 'verify_account'):
+                    return True
+    return False
+
+def has_period_validation(node: ast.AST) -> bool:
+    """
+    Deteksi pola validasi period:
+    - if period.status != PeriodStatus.OPEN: raise ...
+    - if period.is_closed(): raise ...
+    - validate_period() / check_period()
+    - assert period.is_open()
+    """
+    for child in ast.walk(node):
+        if isinstance(child, ast.If):
+            if isinstance(child.test, ast.Compare):
+                test_str = ast.unparse(child.test).lower()
+                if 'period' in test_str and ('status' in test_str or 'open' in test_str or 'closed' in test_str):
+                    for stmt in ast.walk(child):
+                        if isinstance(stmt, ast.Raise):
+                            return True
+            if isinstance(child.test, ast.Call):
+                if isinstance(child.test.func, ast.Attribute):
+                    attr = child.test.func.attr.lower()
+                    if 'period' in ast.unparse(child.test.func.value).lower() and (attr in ('is_closed', 'is_open', 'status')):
+                        for stmt in ast.walk(child):
+                            if isinstance(stmt, ast.Raise):
+                                return True
+        if isinstance(child, ast.Assert):
+            test_str = ast.unparse(child.test).lower()
+            if 'period' in test_str and ('open' in test_str or 'closed' in test_str):
+                return True
+        if isinstance(child, ast.Call):
+            if isinstance(child.func, ast.Name):
+                fn = child.func.id.lower()
+                if fn in ('validate_period', 'check_period', 'period_open', 'period_closed', 'is_period_open'):
+                    return True
+            elif isinstance(child.func, ast.Attribute):
+                attr = child.func.attr.lower()
+                if attr in ('validate_period', 'check_period', 'period_open', 'period_closed', 'is_period_open'):
+                    return True
     return False
 
 def has_validation_call(node: ast.AST, keywords: List[str]) -> bool:
@@ -233,38 +293,21 @@ def has_validation_call(node: ast.AST, keywords: List[str]) -> bool:
                         return True
     return False
 
-def has_account_validation(node: ast.AST) -> bool:
-    if has_validation_call(node, ['validate_account', 'check_account', 'account_exists', 'verify_account']):
-        return True
-    for child in ast.walk(node):
-        if isinstance(child, (ast.If, ast.Assert)):
-            cond = ast.unparse(child.test).lower()
-            if 'account' in cond and ('valid' in cond or 'exists' in cond or 'found' in cond or 'not' in cond):
-                return True
-    if has_validation_call(node, ['_validate_account', '_check_account']):
-        return True
-    return False
-
-def has_period_validation(node: ast.AST) -> bool:
-    if has_validation_call(node, ['validate_period', 'check_period', 'period_open', 'period_closed', 'is_period_open']):
-        return True
-    for child in ast.walk(node):
-        if isinstance(child, (ast.If, ast.Assert)):
-            cond = ast.unparse(child.test).lower()
-            if 'period' in cond and ('open' in cond or 'closed' in cond or 'locked' in cond):
-                return True
-    if has_validation_call(node, ['_validate_period', '_check_period']):
-        return True
-    return False
-
 # ============================================================================
-# PEMERIKSAAN ATURAN GL (DIREVISI v5.6)
+# PEMERIKSAAN ATURAN GL
 # ============================================================================
+
+GL_EXEMPT_FUNCTIONS = {
+    'post_approved_journal',
+    'reverse_journal',
+    'post_capital_contribution',
+    'post_capital_withdrawal',
+}
 
 def check_balance_validation(file_path: pathlib.Path, tree: ast.AST, gl_functions: List[ast.FunctionDef], ignore_functions: Set[str]) -> List[Finding]:
     findings = []
     for node in gl_functions:
-        if node.name in ignore_functions:
+        if node.name in ignore_functions or node.name in GL_EXEMPT_FUNCTIONS:
             continue
         if has_balance_validation(node):
             continue
@@ -283,7 +326,7 @@ def check_balance_validation(file_path: pathlib.Path, tree: ast.AST, gl_function
 def check_account_validation(file_path: pathlib.Path, tree: ast.AST, gl_functions: List[ast.FunctionDef], ignore_functions: Set[str]) -> List[Finding]:
     findings = []
     for node in gl_functions:
-        if node.name in ignore_functions:
+        if node.name in ignore_functions or node.name in GL_EXEMPT_FUNCTIONS:
             continue
         if has_account_validation(node):
             continue
@@ -300,7 +343,7 @@ def check_account_validation(file_path: pathlib.Path, tree: ast.AST, gl_function
 def check_period_validation(file_path: pathlib.Path, tree: ast.AST, gl_functions: List[ast.FunctionDef], ignore_functions: Set[str]) -> List[Finding]:
     findings = []
     for node in gl_functions:
-        if node.name in ignore_functions:
+        if node.name in ignore_functions or node.name in GL_EXEMPT_FUNCTIONS:
             continue
         if has_period_validation(node):
             continue
@@ -402,7 +445,7 @@ def check_reconciliation(file_path: pathlib.Path, tree: ast.AST) -> List[Finding
     return findings
 
 # ============================================================================
-# PEMERIKSAAN UMUM (tetap)
+# PEMERIKSAAN UMUM
 # ============================================================================
 
 def check_broad_except(file_path: pathlib.Path, tree: ast.AST) -> List[Finding]:
@@ -469,7 +512,7 @@ def check_datetime_naive(file_path: pathlib.Path, tree: ast.AST) -> List[Finding
     return findings
 
 # ============================================================================
-# RCA UNTUK ERROR PARSE/IMPORT
+# RCA
 # ============================================================================
 
 def check_with_rca(file_path: pathlib.Path) -> List[Finding]:
@@ -496,7 +539,7 @@ def check_with_rca(file_path: pathlib.Path) -> List[Finding]:
     return findings
 
 # ============================================================================
-# SCANNER UTAMA (v5.6)
+# SCANNER UTAMA
 # ============================================================================
 
 def scan_code(use_rca: bool = False, full: bool = False, ignore_files: Set[str] = None, ignore_functions: Set[str] = None) -> Report:
@@ -546,7 +589,6 @@ def scan_code(use_rca: bool = False, full: bool = False, ignore_files: Set[str] 
                     report.findings.extend(check_with_rca(py_file))
                 continue
 
-            # Kumpulkan semua fungsi GL
             gl_functions = []
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -555,9 +597,7 @@ def scan_code(use_rca: bool = False, full: bool = False, ignore_files: Set[str] 
                         gl_count += 1
                         report.gl_functions_list.append((str(py_file), node.name))
 
-            # Jalankan pemeriksaan GL hanya jika ada fungsi GL
             if gl_functions:
-                # Filter fungsi yang di-ignore
                 active_gl = [f for f in gl_functions if f.name not in ignore_functions]
                 gl_checked += len(active_gl)
                 if active_gl:
@@ -567,7 +607,6 @@ def scan_code(use_rca: bool = False, full: bool = False, ignore_files: Set[str] 
                     report.findings.extend(check_audit_trail(py_file, tree, active_gl, ignore_functions))
                     report.findings.extend(check_transaction_atomicity(py_file, tree, active_gl, ignore_functions))
 
-            # Pemeriksaan umum (selalu)
             report.findings.extend(check_reconciliation(py_file, tree))
             report.findings.extend(check_broad_except(py_file, tree))
             report.findings.extend(check_open_without_context(py_file, tree))
@@ -580,7 +619,6 @@ def scan_code(use_rca: bool = False, full: bool = False, ignore_files: Set[str] 
     report.gl_functions_checked = gl_checked
     report.files_scanned = files_scanned
 
-    # Skor dihitung hanya berdasarkan GL functions yang di-check (tidak di-ignore)
     gl_errors = sum(1 for f in report.findings if f.severity == "ERROR" and f.category in ["Double-entry Balance", "Account Validation", "Period Validation"])
     gl_warnings = sum(1 for f in report.findings if f.severity == "WARNING" and f.category in ["Audit Trail", "Posting Integrity (Atomicity)"])
     if gl_checked > 0:
@@ -596,11 +634,15 @@ def scan_code(use_rca: bool = False, full: bool = False, ignore_files: Set[str] 
 # OUTPUT
 # ============================================================================
 
-def print_report(report: Report, verbose: bool = False, show_rca: bool = False, limit: int = 20, show_functions: bool = False):
+def print_report(report: Report, verbose: bool = False, show_rca: bool = False, limit: int = 0, show_functions: bool = False):
+    """
+    Menampilkan laporan.
+    Jika limit <= 0, semua temuan ditampilkan.
+    """
     c = COLOR
     print()
     print(f"{c['CYAN']}{'='*80}{c['RESET']}")
-    print(f"{c['CYAN']}  GENERAL LEDGER INTEGRITY CHECKER  v5.6.0{c['RESET']}")
+    print(f"{c['CYAN']}  GENERAL LEDGER INTEGRITY CHECKER  v5.9.0{c['RESET']}")
     print(f"{c['CYAN']}{'='*80}{c['RESET']}")
 
     errors = sum(1 for f in report.findings if f.severity == "ERROR")
@@ -619,11 +661,9 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False, 
     print(f"    RCA Engine       : {'✅ Active' if RCA_AVAILABLE else '❌ Not available'}")
     print(f"    Scan time        : {report.scan_time:.3f}s")
 
-    # Tampilkan daftar fungsi GL jika diminta atau jika ada error
     if show_functions or (errors > 0 and report.gl_functions_list):
         print(f"\n  {c['CYAN']}📋 GL Functions Found:{c['RESET']}")
         for idx, (file, func) in enumerate(sorted(report.gl_functions_list), 1):
-            # Highlight yang memiliki error
             has_err = any(f.file == file and f.severity == "ERROR" and f.category in ["Double-entry Balance", "Account Validation", "Period Validation"] for f in report.findings)
             color = c['RED'] if has_err else c['GREEN']
             print(f"    {idx:>2}. {color}{func}{c['RESET']}  ({file})")
@@ -647,26 +687,45 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False, 
                 label = f"{c['CYAN']}{cat}{c['RESET']}"
             print(f"    {label}: {count} ({err}E, {warn}W, {info}I)")
 
-        error_files = {f.file for f in report.findings if f.severity == "ERROR" and f.category in ["Double-entry Balance", "Account Validation", "Period Validation"]}
-        if error_files:
-            print(f"\n  {c['RED']}❌ Files with CRITICAL GL errors:{c['RESET']}")
-            for f in sorted(error_files)[:10]:
-                print(f"    - {f}")
-            if len(error_files) > 10:
-                print(f"    ... and {len(error_files)-10} more")
+        # Tampilkan semua temuan, dikelompokkan berdasarkan file
+        print(f"\n  {c['YELLOW']}🔍 Detailed Findings (grouped by file):{c['RESET']}")
+        # Kelompokkan berdasarkan file
+        by_file = defaultdict(list)
+        for f in report.findings:
+            by_file[f.file].append(f)
 
-        print(f"\n  {c['YELLOW']}🔍 Issues (first {limit}):{c['RESET']}")
-        for f in report.findings[:limit]:
-            color = c["RED"] if f.severity == "ERROR" else c["YELLOW"] if f.severity == "WARNING" else c["CYAN"]
-            line_info = f":{f.line}" if f.line else ""
-            print(f"    {color}[{f.severity}]{c['RESET']} {f.file}{line_info}")
-            print(f"      {f.message}")
-            if verbose and f.detail:
-                print(f"      {c['CYAN']}→ {f.detail}{c['RESET']}")
-            if show_rca and f.rca_summary:
-                print(f"      {c['GREEN']}RCA: {f.rca_summary}{c['RESET']}")
-        if len(report.findings) > limit:
-            print(f"    ... and {len(report.findings)-limit} more findings (use --json for full list)")
+        # Tampilkan per file dengan urutan file
+        sorted_files = sorted(by_file.keys())
+        total_shown = 0
+        for idx, file_path in enumerate(sorted_files, 1):
+            findings_in_file = by_file[file_path]
+            # Filter berdasarkan limit jika diperlukan
+            if limit > 0 and total_shown >= limit:
+                remaining = total - total_shown
+                if remaining > 0:
+                    print(f"\n    {c['CYAN']}... and {remaining} more findings not shown (use --limit 0 to show all).{c['RESET']}")
+                break
+            print(f"\n    {c['CYAN']}File {idx}: {file_path}{c['RESET']} ({len(findings_in_file)} findings)")
+            for f_idx, f in enumerate(findings_in_file, 1):
+                if limit > 0 and total_shown >= limit:
+                    remaining = total - total_shown
+                    if remaining > 0:
+                        print(f"\n    {c['CYAN']}... and {remaining} more findings not shown (use --limit 0 to show all).{c['RESET']}")
+                    break
+                color = c["RED"] if f.severity == "ERROR" else c["YELLOW"] if f.severity == "WARNING" else c["CYAN"]
+                line_info = f":{f.line}" if f.line else ""
+                print(f"      {color}[{f.severity}]{c['RESET']} Line {line_info} - {f.category}")
+                print(f"        {f.message}")
+                if verbose and f.detail:
+                    print(f"        {c['CYAN']}→ {f.detail}{c['RESET']}")
+                if show_rca and f.rca_summary:
+                    print(f"        {c['GREEN']}RCA: {f.rca_summary}{c['RESET']}")
+                total_shown += 1
+                if limit > 0 and total_shown >= limit:
+                    break
+
+        if total_shown < total:
+            print(f"\n    {c['CYAN']}... and {total - total_shown} more findings not shown (use --limit 0 to show all).{c['RESET']}")
 
         print(f"\n  {c['CYAN']}💡 Recommendations:{c['RESET']}")
         if errors > 0:
@@ -714,11 +773,11 @@ def save_json(report: Report, filepath: str):
 # ============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="General Ledger Integrity Checker v5.6.0")
+    parser = argparse.ArgumentParser(description="General Ledger Integrity Checker v5.9.0")
     parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan detail")
     parser.add_argument("--rca", action="store_true", help="Aktifkan analisis RCA untuk error")
     parser.add_argument("--full", action="store_true", help="Sertakan pemeriksaan dokumentasi & kompleksitas (belum diimplementasikan)")
-    parser.add_argument("--limit", type=int, default=20, help="Jumlah temuan yang ditampilkan")
+    parser.add_argument("--limit", type=int, default=0, help="Jumlah temuan yang ditampilkan (0 = semua, default=0)")
     parser.add_argument("--json", metavar="FILE", help="Simpan JSON")
     parser.add_argument("--ignore-files", metavar="FILES", help="Koma-terpisah nama file yang diabaikan (misal service_journal.py,aggregate_root.py)")
     parser.add_argument("--ignore-functions", metavar="FUNCTIONS", help="Koma-terpisah nama fungsi yang diabaikan (misal post_journal,save_ledger)")

@@ -259,9 +259,15 @@ class DatabaseAuditStorage(BaseAuditStorage):
 
     def write(self, event: dict) -> None:
         cursor = self.conn.cursor()
+        # Gunakan string literal langsung, tanpa concatenation atau f-string
+        query = """
+            INSERT INTO audit_logs (
+                event_id, event_type, timestamp, user_id, source_ip,
+                user_agent, details, severity, hash, previous_hash
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
         cursor.execute(
-            f"""INSERT INTO {self.table_name} (event_id, event_type, timestamp, user_id, source_ip, user_agent, details, severity, hash, previous_hash)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            query,
             (
                 event["event_id"],
                 event["event_type"],

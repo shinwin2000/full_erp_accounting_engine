@@ -3,12 +3,14 @@
 Module: journal_entry.py
 Layer: Domain / Journal
 Responsibility: Journal entry and line entities (simplified).
+
+All datetime.now() replaced with datetime.now(UTC) for timezone awareness.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
@@ -169,7 +171,7 @@ class JournalEntry:
             source_system=source_system,
             status=JournalEntryStatus.DRAFT,
             created_by=created_by,
-            created_at=datetime.now(),
+            created_at=datetime.now(UTC),  # Fixed: timezone-aware
             lines=lines,
             reference=reference,
         )

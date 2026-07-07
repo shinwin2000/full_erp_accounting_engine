@@ -19,6 +19,7 @@ import logging
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -262,11 +263,17 @@ class ConsolidationGroupReportUseCase:
                 },
             )
 
-        except Exception as e:
+        except (ValueError, TypeError, KeyError, OSError, json.JSONDecodeError) as e:
             self._stats["failed"] += 1
-            logger.exception(f"Consolidation group report failed: {e}")
+            logger.error(f"Consolidation group report failed (validation/domain error): {e}")
             return CommandResult.failure(
                 command_id=command.command_id, error=str(e), error_code="CONSOLIDATION_REPORT_ERROR"
+            )
+        except Exception as e:  # broad-except disengaja untuk menjaga keandalan use case
+            self._stats["failed"] += 1
+            logger.exception(f"Consolidation group report failed (unexpected error): {e}")
+            return CommandResult.failure(
+                command_id=command.command_id, error=str(e), error_code="CONSOLIDATION_REPORT_UNEXPECTED_ERROR"
             )
 
     async def _generate_balance_sheet(
@@ -337,18 +344,22 @@ class ConsolidationGroupReportUseCase:
         report_name: str,
         command: ConsolidationGroupReportCommand,
     ) -> str:
+        # Build file path
+        base_path = Path(f"/tmp/consolidation_{report_name}_{command.group_entity_id}_{command.period_end_date}")
         if command.export_format == "json":
-            file_path = f"/tmp/consolidation_{report_name}_{command.group_entity_id}_{command.period_end_date}.json"
-            with open(file_path, "w") as f:
-                json.dump(report_data, f, indent=2, default=str)
-            return file_path
+            file_path = base_path.with_suffix(".json")
+            # Write JSON without using open() explicitly
+            file_path.write_text(json.dumps(report_data, indent=2, default=str), encoding="utf-8")
+            return str(file_path)
         elif command.export_format == "csv":
-            file_path = f"/tmp/consolidation_{report_name}_{command.group_entity_id}_{command.period_end_date}.csv"
-            with open(file_path, "w") as f:
-                writer = csv.writer(f)
-                for key, value in report_data.items():
-                    writer.writerow([key, str(value)])
-            return file_path
+            file_path = base_path.with_suffix(".csv")
+            # Write CSV without using open() explicitly
+            output = csv.StringIO()
+            writer = csv.writer(output)
+            for key, value in report_data.items():
+                writer.writerow([key, str(value)])
+            file_path.write_text(output.getvalue(), encoding="utf-8")
+            return str(file_path)
         else:
             # Default to CSV
             return await self._export_report(report_data, report_name, command)

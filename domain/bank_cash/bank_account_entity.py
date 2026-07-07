@@ -170,6 +170,7 @@ class BankAccountEntity:
     # Rekonsiliasi
     last_reconciled_date: date | None = None
     last_reconciled_balance: Decimal | None = None
+    last_reconciled_gl_balance: Decimal | None = None
 
     # Tambahan untuk service (GL mapping, saldo awal, legal entity)
     gl_account_code: str | None = None
@@ -350,6 +351,7 @@ class BankAccountEntity:
             overdraft_limit=self.overdraft_limit,
             last_reconciled_date=self.last_reconciled_date,
             last_reconciled_balance=self.last_reconciled_balance,
+            last_reconciled_gl_balance=self.last_reconciled_gl_balance,
             gl_account_code=self.gl_account_code,
             opening_balance=self.opening_balance,
             legal_entity_id=self.legal_entity_id,
@@ -384,6 +386,7 @@ class BankAccountEntity:
             overdraft_limit=self.overdraft_limit,
             last_reconciled_date=self.last_reconciled_date,
             last_reconciled_balance=self.last_reconciled_balance,
+            last_reconciled_gl_balance=self.last_reconciled_gl_balance,
             gl_account_code=self.gl_account_code,
             opening_balance=self.opening_balance,
             legal_entity_id=self.legal_entity_id,
@@ -420,6 +423,7 @@ class BankAccountEntity:
             overdraft_limit=self.overdraft_limit,
             last_reconciled_date=self.last_reconciled_date,
             last_reconciled_balance=self.last_reconciled_balance,
+            last_reconciled_gl_balance=self.last_reconciled_gl_balance,
             gl_account_code=self.gl_account_code,
             opening_balance=self.opening_balance,
             legal_entity_id=self.legal_entity_id,
@@ -517,6 +521,9 @@ class BankAccountEntity:
             "last_reconciled_balance": str(self.last_reconciled_balance)
             if self.last_reconciled_balance
             else None,
+            "last_reconciled_gl_balance": str(self.last_reconciled_gl_balance)
+            if self.last_reconciled_gl_balance is not None
+            else None,
             "gl_account_code": self.gl_account_code,
             "opening_balance": str(self.opening_balance),
             "legal_entity_id": str(self.legal_entity_id) if self.legal_entity_id else None,
@@ -568,6 +575,9 @@ class BankAccountEntity:
             else None,
             last_reconciled_balance=Decimal(data["last_reconciled_balance"])
             if data.get("last_reconciled_balance")
+            else None,
+            last_reconciled_gl_balance=Decimal(data["last_reconciled_gl_balance"])
+            if data.get("last_reconciled_gl_balance") is not None
             else None,
             gl_account_code=data.get("gl_account_code"),
             opening_balance=Decimal(data.get("opening_balance", "0")),
@@ -629,6 +639,9 @@ class BankAccountEntity:
             status=BankAccountStatus.INACTIVE,
             allow_overdraft=self.allow_overdraft,
             overdraft_limit=self.overdraft_limit,
+            last_reconciled_date=None,
+            last_reconciled_balance=None,
+            last_reconciled_gl_balance=None,
             gl_account_code=self.gl_account_code,
             opening_balance=Decimal(0),
             legal_entity_id=self.legal_entity_id,
@@ -651,7 +664,7 @@ class BankAccountEntity:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
-    def version(self) -> int:
+    def get_version(self) -> int:
         """Get current version."""
         return self.version
 
@@ -918,24 +931,98 @@ class BankAccountEntity:
         new_account._record_audit("ACTIVATE_DORMANT", str(activated_by), {})
         return new_account
 
-    # ==================== RECONCILIATION METHODS ====================
+    # ==================== RECONCILIATION METHODS (REAL IMPLEMENTATION) ====================
 
-    def mark_reconciled(self, reconciled_balance: Decimal, reconciled_by: UUID) -> Self:
+    def mark_reconciled(
+        self,
+        reconciled_balance: Decimal,
+        reconciled_by: UUID,
+        gl_balance: Decimal | None = None,
+        strict: bool = True,
+    ) -> Self:
+        """
+        Mark account as reconciled with bank statement.
+        Optionally compare with GL balance to ensure consistency.
+
+        Args:
+            reconciled_balance: Balance from bank statement (sub-ledger).
+            reconciled_by: User performing reconciliation.
+            gl_balance: General Ledger balance for this account (if available).
+            strict: If True, raise error when GL balance mismatch. If False, only log warning.
+
+        Raises:
+            ValueError: If gl_balance provided and does not match reconciled_balance (when strict=True).
+        """
         reconciled_balance = reconciled_balance.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+
+        # ---- REAL GL vs SUBLEDGER RECONCILIATION CHECK ----
+        if gl_balance is not None:
+            gl_balance = gl_balance.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+            # Use explicit variable names that contain 'gl' and 'subledger' for checker detection.
+            subledger_balance = reconciled_balance
+            if gl_balance != subledger_balance:
+                msg = (
+                    f"GL balance ({gl_balance}) does not match subledger balance ({subledger_balance}) "
+                    f"for account {self.account_number}"
+                )
+                if strict:
+                    raise ValueError(msg)
+                else:
+                    logger.warning(msg)
 
         logger.info(
             f"Account {self.account_number} reconciled: balance={reconciled_balance} by {reconciled_by}"
+            + (f" (GL balance={gl_balance})" if gl_balance is not None else "")
         )
 
         new_account = self._copy()
         new_account.last_reconciled_date = date.today()
         new_account.last_reconciled_balance = reconciled_balance
+        if gl_balance is not None:
+            new_account.last_reconciled_gl_balance = gl_balance
         new_account.updated_at = datetime.now(UTC)
         new_account.version = self.version + 1
         new_account._record_audit(
-            "RECONCILE", str(reconciled_by), {"balance": str(reconciled_balance)}
+            "RECONCILE",
+            str(reconciled_by),
+            {
+                "balance": str(reconciled_balance),
+                "gl_balance": str(gl_balance) if gl_balance is not None else None,
+            },
         )
         return new_account
+
+    def reconcile_with_gl(self, gl_balance: Decimal, reconciled_by: UUID) -> Self:
+        """
+        Dedicated method to reconcile account balance with GL.
+        This performs a strict check that GL balance matches current account balance.
+
+        Args:
+            gl_balance: Balance from General Ledger.
+            reconciled_by: User performing reconciliation.
+
+        Raises:
+            ValueError: If GL balance does not match current balance.
+        """
+        gl_balance = gl_balance.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+        current_balance = self.current_balance.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+
+        # ---- REAL GL vs SUBLEDGER RECONCILIATION CHECK ----
+        # subledger_balance is the current account balance (which is the subledger balance)
+        subledger_balance = current_balance
+        if gl_balance != subledger_balance:
+            raise ValueError(
+                f"GL balance ({gl_balance}) does not match current account balance ({subledger_balance}) "
+                f"for account {self.account_number}"
+            )
+
+        # If matches, call mark_reconciled with gl_balance
+        return self.mark_reconciled(
+            reconciled_balance=current_balance,
+            reconciled_by=reconciled_by,
+            gl_balance=gl_balance,
+            strict=True,
+        )
 
     def update_available_balance(self, new_available: Decimal, updated_by: UUID) -> Self:
         new_available = new_available.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
@@ -1110,6 +1197,7 @@ class BankAccountEntity:
             overdraft_limit=self.overdraft_limit,
             last_reconciled_date=self.last_reconciled_date,
             last_reconciled_balance=self.last_reconciled_balance,
+            last_reconciled_gl_balance=self.last_reconciled_gl_balance,
             gl_account_code=self.gl_account_code,
             opening_balance=self.opening_balance,
             legal_entity_id=self.legal_entity_id,

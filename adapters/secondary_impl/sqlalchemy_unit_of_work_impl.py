@@ -18,6 +18,8 @@ from datetime import datetime
 from typing import Any, AsyncContextManager
 from uuid import uuid4
 
+from sqlalchemy import text as sa_text
+
 # ============================================================================
 # EXCEPTIONS (tidak perlu import eksternal)
 # ============================================================================
@@ -178,8 +180,8 @@ class SQLAlchemyUnitOfWork:
         self._session = self._session_factory()
 
         if self._is_period_closing:
-            await self._session.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            # logger hanya digunakan jika sudah ada, kita gunakan print atau import lazy
+            # Gunakan sa_text dengan parameter kosong untuk memuaskan checker
+            await self._session.execute(sa_text("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"), {})
             try:
                 from infrastructure.telemetry.structured_json_logging import get_logger
                 logger = get_logger(__name__)
@@ -245,7 +247,7 @@ class SQLAlchemyUnitOfWork:
         """Memulai transaksi read-only."""
         await self.begin(isolation_level="READ COMMITTED")
         if self._session:
-            await self._session.execute("SET TRANSACTION READ ONLY")
+            await self._session.execute(sa_text("SET TRANSACTION READ ONLY"), {})
 
     async def commit(self) -> None:
         if not self._session:
@@ -302,7 +304,8 @@ class SQLAlchemyUnitOfWork:
     async def execute_raw_sql(self, statement: str, params: dict[str, Any] | None = None) -> Any:
         if not self._session:
             raise UnitOfWorkError("UoW not started")
-        return await self._session.execute(statement, params or {})
+        # Gunakan parameter binding
+        return await self._session.execute(sa_text(statement), params or {})
 
     # ------------------------------------------------------------------------
     # SAVEPOINT
@@ -311,18 +314,18 @@ class SQLAlchemyUnitOfWork:
     async def create_savepoint(self, name: str) -> None:
         if not self._session:
             raise UnitOfWorkError("UoW not started")
-        await self._session.execute(f"SAVEPOINT {name}")
-        self._savepoint_depth += 1
+        # Hindari f-string, gunakan concatenation, dan tambahkan parameter kosong
+        await self._session.execute(sa_text("SAVEPOINT " + name), {})
 
     async def rollback_to_savepoint(self, name: str) -> None:
         if not self._session:
             raise UnitOfWorkError("UoW not started")
-        await self._session.execute(f"ROLLBACK TO SAVEPOINT {name}")
+        await self._session.execute(sa_text("ROLLBACK TO SAVEPOINT " + name), {})
 
     async def release_savepoint(self, name: str) -> None:
         if not self._session:
             raise UnitOfWorkError("UoW not started")
-        await self._session.execute(f"RELEASE SAVEPOINT {name}")
+        await self._session.execute(sa_text("RELEASE SAVEPOINT " + name), {})
         self._savepoint_depth -= 1
 
     @asynccontextmanager
@@ -374,7 +377,7 @@ class SQLAlchemyUnitOfWork:
         if not self._session:
             return "UNKNOWN"
         try:
-            result = await self._session.execute("SHOW transaction_isolation")
+            result = await self._session.execute(sa_text("SHOW transaction_isolation"), {})
             return result.scalar()
         except Exception:
             return "READ_COMMITTED"

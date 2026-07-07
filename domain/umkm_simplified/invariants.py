@@ -10,7 +10,7 @@ Metode entity dasar untuk InvariantResult dan enforcer.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from decimal import Decimal
 from typing import Any
 
@@ -50,7 +50,7 @@ class InvariantResult:
             {
                 "action": action,
                 "performed_by": performed_by,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "version": self._version,
                 "details": details,
             }
@@ -132,7 +132,7 @@ class UMKMInvariants:
     ) -> InvariantResult:
         result = InvariantResult(True)
         if current_date is None:
-            current_date = datetime.now()
+            current_date = datetime.now(UTC)
         if transaction_date > current_date:
             result.add_error("Transaction date cannot be in the future")
         return result
@@ -177,7 +177,7 @@ class UMKMInvariantEnforcer:
             {
                 "action": action,
                 "performed_by": performed_by,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "version": self._version,
                 "details": details,
             }

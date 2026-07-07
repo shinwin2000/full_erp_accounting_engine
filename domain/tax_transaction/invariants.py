@@ -8,12 +8,15 @@ Metode yang ditambahkan:
 - InvariantResult dengan metode entity dasar.
 - TaxInvariants dengan berbagai validasi.
 - TaxInvariantEnforcer dengan enforcer methods.
+
+All datetime.now() replaced with datetime.now(UTC) for timezone awareness.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -82,7 +85,7 @@ class InvariantResult:
             {
                 "action": action,
                 "performed_by": performed_by,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "version": self._version,
                 "details": details,
             }
@@ -140,11 +143,27 @@ class TaxInvariants:
         return result
 
     @staticmethod
-    def validate_tax_amount(dpp: float, ppn: float, rate: float = 11.0) -> InvariantResult:
+    def validate_tax_amount(
+        dpp: Decimal, ppn: Decimal, rate: Decimal = Decimal("11.0")
+    ) -> InvariantResult:
+        """
+        Validate tax amount with Decimal precision.
+
+        Args:
+            dpp: Dasar Pengenaan Pajak (Decimal)
+            ppn: PPN amount (Decimal)
+            rate: Tax rate in percentage (Decimal), default 11.0%
+
+        Returns:
+            InvariantResult with validation errors if any.
+        """
         result = InvariantResult(True)
-        expected_ppn = dpp * (rate / 100)
-        if abs(ppn - expected_ppn) > 0.01:
-            result.add_error(f"PPN calculation mismatch: expected {expected_ppn}, got {ppn}")
+        expected_ppn = dpp * (rate / Decimal("100"))
+        tolerance = Decimal("0.01")
+        if abs(ppn - expected_ppn) > tolerance:
+            result.add_error(
+                f"PPN calculation mismatch: expected {expected_ppn:.2f}, got {ppn:.2f}"
+            )
         return result
 
 
@@ -163,9 +182,24 @@ class TaxInvariantEnforcer:
         npwp_penjual: str,
         npwp_pembeli: str,
         nsfp: str,
-        dpp: float,
-        ppn: float,
+        dpp: Decimal,
+        ppn: Decimal,
     ) -> InvariantResult:
+        """
+        Enforce faktur creation invariants with Decimal precision.
+
+        Args:
+            faktur_number: Faktur number string.
+            faktur_date: Faktur date.
+            npwp_penjual: Seller NPWP.
+            npwp_pembeli: Buyer NPWP.
+            nsfp: NSFP number.
+            dpp: Dasar Pengenaan Pajak (Decimal).
+            ppn: PPN amount (Decimal).
+
+        Returns:
+            InvariantResult with validation result.
+        """
         result = InvariantResult(True)
         result.merge(self._invariants.validate_faktur_date(faktur_date))
         result.merge(self._invariants.validate_npwp_format(npwp_penjual))
@@ -198,7 +232,7 @@ class TaxInvariantEnforcer:
             {
                 "action": action,
                 "performed_by": performed_by,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "version": self._version,
                 "details": details,
             }

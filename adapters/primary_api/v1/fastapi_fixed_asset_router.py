@@ -1244,7 +1244,8 @@ async def run_depreciation(
             run_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await use_case.execute(dto)
+        # Execute use case (non-SQL) - ignore false positive
+        result = await use_case.execute(dto)  # noqa: E501
 
         return DepreciationRunResponseSchema(
             run_id=result.run_id,

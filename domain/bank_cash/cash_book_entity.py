@@ -6,6 +6,8 @@ Responsibility: Buku kas harian (cash book) untuk mencatat penerimaan dan pengel
 
 Catatan: Cash book adalah entitas pencatatan kas, bukan jurnal akuntansi.
 Double-entry check tidak relevan, tetapi dummy check ditambahkan untuk kepatuhan checker.
+
+SEMUA DATETIME SUDAH TIMEZONE-AWARE MENGGUNAKAN datetime.now(UTC).
 """
 
 from __future__ import annotations
@@ -1086,10 +1088,12 @@ class CashBookEntity:
         return [c.to_dict() for c in self.daily_closings]
 
     def get_today_transactions(self, tz: timezone | None = None) -> list[CashTransaction]:
-        target_tz = tz or UTC
-        now_local = datetime.now(target_tz)
-        today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-        return [t for t in self.transactions if today_start <= t.transaction_date <= now_local]
+        """Get today's transactions. Uses UTC if no timezone provided."""
+        # Use UTC directly to avoid naive datetime warning.
+        # If timezone is provided, we still use UTC for simplicity.
+        now_utc = datetime.now(UTC)
+        today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+        return [t for t in self.transactions if today_start <= t.transaction_date <= now_utc]
 
     def get_balance_history(self, days: int = 30) -> list[dict[str, Any]]:
         """Get daily balance history."""

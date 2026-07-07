@@ -3,22 +3,10 @@
 """
 checker/outbox_checker.py
 ==========================
-Sovereign ERP System — Outbox Pattern Compliance & Forensic Checker v10.0
+Sovereign ERP System — Outbox Pattern Compliance & Forensic Checker v10.1
 Auditor-grade: full AST traversal, deteksi sangat luas, zero false positive.
-
-Fixes v10.0 (berdasarkan false positive yang teridentifikasi):
-  - Deteksi transaction: async with session.begin(), async with get_async_session() as session, session.begin()
-  - Deteksi DLQ: OUTBOX_STATUS_DEAD_LETTER, _mark_as_failed, dead_letter status
-  - Deteksi broker: KafkaProducerWrapper, get_kafka_producer, send_event, MessageBrokerPort
-  - Deteksi lock: setnx, expire, _acquire_lock, advisory_lock
-  - Deteksi ordering: order_by, asc, desc, created_at
-  - Deteksi backoff: retry_delay_seconds, list of delays, RetryPolicy
-  - Deteksi timeout: asyncio.timeout, timeout
-  - Deteksi idempotency: idempotency_key, event_uuid, correlation_id di headers
-  - Deteksi logging: get_logger, logger, logging
-  - Deteksi health: health_check, readiness, liveness
-  - Deteksi metrics: Counter, Histogram, Gauge, MeterProvider, prometheus
-  - Full AST scan untuk assignments, imports, calls, decorators, string constants
+v10.1: Added informative output – show scanned files, per‑component features,
+       aggregated statistics, and detailed fields/methods.
 """
 
 from __future__ import annotations
@@ -188,7 +176,6 @@ ASYNC_KEYWORDS = {"async", "await"}
 SCHEMA_KEYWORDS = {"schema", "validate", "pydantic", "validator", "ValidationError", "BaseModel"}
 RECONNECT_KEYWORDS = {"reconnect", "auto_reconnect"}
 
-# Broker API (v10.0: tambah lebih banyak pola)
 BROKER_KEYWORDS = {
     "broker", "kafka", "rabbit", "message_bus", "mq", "pulsar",
     "BrokerPort", "EventBus", "MessagePublisher", "Dispatcher", "Mediator",
@@ -278,10 +265,12 @@ class CheckerResult:
     score: float
     rca_enabled: bool
     elapsed_seconds: float
+    scanned_files_count: int = 0
+    scanned_files: List[str] = field(default_factory=list)
 
 
 # =============================================================================
-# CHECKER CLASS (v10.0 - enhanced detection)
+# CHECKER CLASS (v10.1 - enhanced output)
 # =============================================================================
 
 class OutboxChecker:
@@ -289,6 +278,7 @@ class OutboxChecker:
         self.root_dir = root_dir
         self.enable_rca = enable_rca and _RCA_AVAILABLE
         self.components: List[OutboxInfo] = []
+        self.scanned_files: List[Path] = []
 
     # -------------------------------------------------------------------------
     # File & AST Utilities
@@ -306,6 +296,7 @@ class OutboxChecker:
                 if p.name.startswith(("test_", "conftest", "__init__")):
                     continue
                 py_files.append(p)
+        self.scanned_files = py_files
         return py_files
 
     def _get_fields_and_methods(self, node: ast.ClassDef) -> Tuple[Set[str], Set[str]]:
@@ -427,7 +418,6 @@ class OutboxChecker:
                     ctx_str = ast.unparse(item.context_expr).lower()
                     if any(kw in ctx_str for kw in keywords):
                         return True
-                    # Cek apakah context_expr adalah call seperti session.begin()
                     if isinstance(item.context_expr, ast.Call):
                         call_str = ast.unparse(item.context_expr.func).lower()
                         if any(kw in call_str for kw in keywords):
@@ -458,7 +448,6 @@ class OutboxChecker:
                     return True
                 has_loop = any(isinstance(n, (ast.While, ast.For)) for n in ast.walk(item))
                 if has_loop:
-                    # Cek apakah ada fetch/poll
                     for n in ast.walk(item):
                         if isinstance(n, ast.Call):
                             call_str = ast.unparse(n.func).lower()
@@ -467,7 +456,6 @@ class OutboxChecker:
         return False
 
     def _has_transaction(self, node: ast.ClassDef) -> bool:
-        # Cek khusus untuk async with get_async_session() as session: async with session.begin():
         for item in ast.walk(node):
             if isinstance(item, ast.AsyncWith):
                 for w_item in item.items:
@@ -483,7 +471,6 @@ class OutboxChecker:
         fields, _ = self._get_fields_and_methods(node)
         if any(f in fields for f in IDEMPOTENCY_ALIASES):
             return True
-        # Cek headers untuk idempotency_key
         for item in ast.walk(node):
             if isinstance(item, ast.Dict) and any(
                 isinstance(k, ast.Constant) and isinstance(k.value, str) and "idempotency" in k.value.lower()
@@ -499,7 +486,6 @@ class OutboxChecker:
         fields, methods = self._get_fields_and_methods(node)
         if any(f in fields for f in ("dead_letter", "dlq", "dead_letter_queue")):
             return True
-        # Cek konstanta OUTBOX_STATUS_DEAD_LETTER
         for item in node.body:
             if isinstance(item, ast.Assign):
                 if any(kw in ast.unparse(target).lower() for target in item.targets for kw in ("dead_letter", "OUTBOX_STATUS_DEAD_LETTER")):
@@ -518,7 +504,6 @@ class OutboxChecker:
         return self._has_feature_full_ast(node, LOGGING_KEYWORDS)
 
     def _has_broker_api(self, node: ast.ClassDef) -> bool:
-        # Cek import KafkaProducerWrapper atau get_kafka_producer
         for item in ast.walk(node):
             if isinstance(item, ast.ImportFrom):
                 if item.module and "kafka_producer_wrapper" in item.module.lower():
@@ -1198,7 +1183,8 @@ class OutboxChecker:
     # -------------------------------------------------------------------------
     def scan(self) -> List[OutboxInfo]:
         self.components = []
-        for file_path in self._get_python_files():
+        py_files = self._get_python_files()
+        for file_path in py_files:
             try:
                 content = file_path.read_text(encoding="utf-8")
                 tree = ast.parse(content, filename=str(file_path))
@@ -1241,7 +1227,7 @@ class OutboxChecker:
 # REPORTING
 # =============================================================================
 
-def generate_report(components: List[OutboxInfo]) -> CheckerResult:
+def generate_report(components: List[OutboxInfo], scanned_files: List[Path], root_dir: Path) -> CheckerResult:
     total = len(components)
     total_violations = 0
     critical = high = medium = low = info = 0
@@ -1267,6 +1253,9 @@ def generate_report(components: List[OutboxInfo]) -> CheckerResult:
     score -= low * 1.0
     score = max(0.0, min(100.0, score))
 
+    # relative paths for scanned files
+    scanned_rel = [str(p.relative_to(root_dir)) for p in scanned_files]
+
     return CheckerResult(
         components=components,
         total_components=total,
@@ -1279,16 +1268,18 @@ def generate_report(components: List[OutboxInfo]) -> CheckerResult:
         score=score,
         rca_enabled=_RCA_AVAILABLE,
         elapsed_seconds=0.0,
+        scanned_files_count=len(scanned_files),
+        scanned_files=scanned_rel,
     )
 
 
-def print_report(result: CheckerResult, verbose: bool = False) -> None:
+def print_report(result: CheckerResult, verbose: bool = False, show_files: bool = False) -> None:
     c = COLOR
     print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*72}╗")
-    print("║     OUTBOX PATTERN COMPLIANCE & FORENSIC CHECKER v10.0      ║")
+    print("║     OUTBOX PATTERN COMPLIANCE & FORENSIC CHECKER v10.1      ║")
     print(f"╚{'═'*72}╝{c['RESET']}")
 
-    print("\n  📋 Aturan Outbox (v10.0 – full AST traversal, deteksi super luas):")
+    print("\n  📋 Aturan Outbox (v10.1 – full AST traversal, deteksi super luas):")
     print("    ✅ Hanya komponen dengan 'Outbox' di nama atau path yang diproses")
     print("    ✅ Checkpoint/Metrics/Partition table diabaikan")
     print("    ✅ DeadLetter table dikenali sebagai deadletter")
@@ -1305,7 +1296,13 @@ def print_report(result: CheckerResult, verbose: bool = False) -> None:
     print("    ✅ Deteksi metrics: Counter, Histogram, MeterProvider")
     print("    ✅ Scoring: CRITICAL=-20, HIGH=-8, MEDIUM=-3, LOW=-1, INFO=0")
 
-    print(f"\n  {c['CYAN']}Total Outbox Components Ditemukan: {result.total_components}{c['RESET']}")
+    print(f"\n  {c['CYAN']}📁 File Python dipindai: {result.scanned_files_count}{c['RESET']}")
+    if show_files:
+        print(f"  {c['DIM']}Daftar file:{c['RESET']}")
+        for f in result.scanned_files:
+            print(f"    {f}")
+
+    print(f"  {c['CYAN']}Total Outbox Components Ditemukan: {result.total_components}{c['RESET']}")
     print(f"  Total Violations: {result.total_violations}")
     print(f"    {c['RED']}CRITICAL: {result.critical_count}{c['RESET']}")
     print(f"    {c['YELLOW']}HIGH: {result.high_count}{c['RESET']}")
@@ -1317,15 +1314,84 @@ def print_report(result: CheckerResult, verbose: bool = False) -> None:
     print(f"\n  📈 Skor Kepatuhan: {score_color}{c['BOLD']}{result.score:.1f}/100{c['RESET']}")
     print(f"  RCA Engine: {'✅ Aktif' if result.rca_enabled else '⚠️ Tidak tersedia'}")
 
+    # ---- Aggregated feature stats ----
     if result.components:
-        print(f"\n{c['CYAN']}─── DAFTAR KOMPONEN ───{c['RESET']}")
+        stats = {
+            "transaction": 0,
+            "retry": 0,
+            "idempotency": 0,
+            "dead_letter": 0,
+            "monitoring": 0,
+            "health": 0,
+            "logging": 0,
+            "lock": 0,
+            "batch": 0,
+            "ordering": 0,
+            "shutdown": 0,
+            "async": 0,
+            "schema_validation": 0,
+            "circuit_breaker": 0,
+            "rate_limit": 0,
+            "timeout": 0,
+            "backoff": 0,
+            "max_retries": 0,
+            "error_classification": 0,
+            "auto_reconnect": 0,
+            "broker_integration": 0,
+        }
         for comp in result.components:
-            if comp.violations:
-                status = f"{c['RED']}✖ {len(comp.violations)} violations{c['RESET']}"
-            else:
-                status = f"{c['GREEN']}✓ Compliant{c['RESET']}"
-            print(f"  {comp.component_name} ({comp.component_type}) @ {comp.file_path} {status}")
+            if comp.has_transaction: stats["transaction"] += 1
+            if comp.has_retry: stats["retry"] += 1
+            if comp.has_idempotency: stats["idempotency"] += 1
+            if comp.has_dead_letter: stats["dead_letter"] += 1
+            if comp.has_monitoring: stats["monitoring"] += 1
+            if comp.has_health: stats["health"] += 1
+            if comp.has_logging: stats["logging"] += 1
+            if comp.has_lock: stats["lock"] += 1
+            if comp.has_batch: stats["batch"] += 1
+            if comp.has_ordering: stats["ordering"] += 1
+            if comp.has_shutdown: stats["shutdown"] += 1
+            if comp.has_async: stats["async"] += 1
+            if comp.has_schema_validation: stats["schema_validation"] += 1
+            if comp.has_circuit_breaker: stats["circuit_breaker"] += 1
+            if comp.has_rate_limit: stats["rate_limit"] += 1
+            if comp.has_timeout: stats["timeout"] += 1
+            if comp.has_backoff: stats["backoff"] += 1
+            if comp.has_max_retries: stats["max_retries"] += 1
+            if comp.has_error_classification: stats["error_classification"] += 1
+            if comp.has_auto_reconnect: stats["auto_reconnect"] += 1
+            if comp.has_broker_integration: stats["broker_integration"] += 1
 
+        print(f"\n  {c['CYAN']}─── RINGKASAN FITUR PER KOMPONEN ───{c['RESET']}")
+        for k, v in stats.items():
+            label = k.replace('_', ' ').title()
+            print(f"    {label}: {v}/{result.total_components}")
+
+    # ---- Daftar komponen dengan detail ----
+    print(f"\n{c['CYAN']}─── DAFTAR KOMPONEN OUTBOX ───{c['RESET']}")
+    for comp in result.components:
+        if comp.violations:
+            status = f"{c['RED']}✖ {len(comp.violations)} violations{c['RESET']}"
+        else:
+            status = f"{c['GREEN']}✓ Compliant{c['RESET']}"
+        print(f"  {comp.component_name} ({comp.component_type}) @ {comp.file_path} {status}")
+        if verbose:
+            print(f"    Fields: {', '.join(sorted(comp.fields)) if comp.fields else '(none)'}")
+            print(f"    Methods: {', '.join(sorted(comp.methods)) if comp.methods else '(none)'}")
+            # tampilkan fitur boolean yang bernilai True
+            features = []
+            for attr in ['has_transaction', 'has_retry', 'has_idempotency', 'has_dead_letter',
+                         'has_monitoring', 'has_health', 'has_logging', 'has_lock',
+                         'has_batch', 'has_ordering', 'has_shutdown', 'has_async',
+                         'has_schema_validation', 'has_circuit_breaker', 'has_rate_limit',
+                         'has_timeout', 'has_backoff', 'has_max_retries',
+                         'has_error_classification', 'has_auto_reconnect', 'has_broker_integration']:
+                if getattr(comp, attr, False):
+                    features.append(attr.replace('has_', '').replace('_', ' ').title())
+            if features:
+                print(f"    Features: {', '.join(features)}")
+
+    # ---- Violations (sample) ----
     all_violations = []
     for comp in result.components:
         all_violations.extend(comp.violations)
@@ -1343,6 +1409,8 @@ def print_report(result: CheckerResult, verbose: bool = False) -> None:
                     print(f"    🔧 Fix: {v.rca_result['suggested_fix'][:150]}")
         if len(all_violations) > 30:
             print(f"  ... and {len(all_violations)-30} more violations (use --json for full list)")
+    else:
+        print(f"\n  {c['GREEN']}✅ Semua komponen patuh — tidak ada pelanggaran!{c['RESET']}")
 
 
 def save_json(result: CheckerResult, filepath: str) -> None:
@@ -1355,6 +1423,7 @@ def save_json(result: CheckerResult, filepath: str) -> None:
             "rca_enabled": result.rca_enabled,
             "total_components": result.total_components,
             "total_violations": result.total_violations,
+            "scanned_files_count": result.scanned_files_count,
             "severity_counts": {
                 "critical": result.critical_count,
                 "high": result.high_count,
@@ -1391,10 +1460,11 @@ def save_json(result: CheckerResult, filepath: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Outbox Pattern Compliance & Forensic Checker v10.0 (full AST traversal)"
+        description="Outbox Pattern Compliance & Forensic Checker v10.1 (full AST traversal)"
     )
     parser.add_argument("--json", metavar="FILE", help="Export report to JSON")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Show RCA details")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed component info (fields, methods, features)")
+    parser.add_argument("--show-files", action="store_true", help="Show list of all scanned Python files")
     parser.add_argument("--no-rca", action="store_true", help="Disable RCA analysis")
     args = parser.parse_args()
 
@@ -1408,10 +1478,10 @@ def main() -> None:
     components = checker.scan()
     elapsed = time.monotonic() - start
 
-    result = generate_report(components)
+    result = generate_report(components, checker.scanned_files, checker.root_dir)
     result.elapsed_seconds = elapsed
 
-    print_report(result, verbose=args.verbose)
+    print_report(result, verbose=args.verbose, show_files=args.show_files)
 
     if args.json:
         save_json(result, args.json)

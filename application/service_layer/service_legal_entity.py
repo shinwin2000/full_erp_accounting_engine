@@ -1,4 +1,6 @@
 # service_legal_entity.py - Complete rewrite with full event publishing
+# v5.9.0 - Refactored event publishing into single _publish_event method to reduce
+#          broad-except warnings and improve maintainability.
 
 #!/usr/bin/env python3
 """
@@ -340,6 +342,21 @@ class LegalEntityService:
 
         logger.info("LegalEntityService initialized")
 
+    # ==================== EVENT PUBLISHING HELPER ====================
+
+    async def _publish_event(self, event: Any, log_context: str, correlation_id: str | None = None) -> None:
+        """
+        Publish an event safely, catching and logging any exception.
+        Preserves the two-argument publish signature (event, correlation_id).
+        """
+        if not self._event_publisher:
+            return
+        try:
+            await self._event_publisher.publish(event, correlation_id)
+            logger.debug(f"Published {event.__class__.__name__} for {log_context}")
+        except Exception as e:
+            logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
+
     # ========================================================================
     # Legal Entity CRUD
     # ========================================================================
@@ -383,43 +400,35 @@ class LegalEntityService:
         # --- PUBLISH EVENTS ---
         if self._event_publisher:
             # LegalEntityCreatedEvent
-            try:
-                event = LegalEntityCreatedEvent(
-                    aggregate_id=entity.id,
-                    aggregate_version=entity.version,
-                    entity_id=entity.id,
-                    entity_code=entity.registration_number or entity.id.hex[:8],
-                    entity_name=entity.legal_name,
-                    parent_id=entity.parent_company_id,
-                    currency=entity.base_currency,
-                    created_by=str(created_by) if created_by else "system",
-                    user_id=str(created_by) if created_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published LegalEntityCreatedEvent for {entity.legal_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish LegalEntityCreatedEvent: {e}")
+            event = LegalEntityCreatedEvent(
+                aggregate_id=entity.id,
+                aggregate_version=entity.version,
+                entity_id=entity.id,
+                entity_code=entity.registration_number or entity.id.hex[:8],
+                entity_name=entity.legal_name,
+                parent_id=entity.parent_company_id,
+                currency=entity.base_currency,
+                created_by=str(created_by) if created_by else "system",
+                user_id=str(created_by) if created_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"LegalEntity {entity.legal_name} (created)", correlation_id)
 
             # CompanyRegisteredEvent
-            try:
-                event_company = CompanyRegisteredEvent(
-                    aggregate_id=entity.id,
-                    aggregate_version=entity.version,
-                    company_id=entity.id,
-                    company_name=entity.legal_name,
-                    registration_number=entity.registration_number,
-                    npwp=entity.npwp,
-                    address=entity.address,
-                    country=entity.country,
-                    registered_by=str(created_by) if created_by else "system",
-                    user_id=str(created_by) if created_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event_company, correlation_id)
-                logger.debug(f"Published CompanyRegisteredEvent for {entity.legal_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish CompanyRegisteredEvent: {e}")
+            event_company = CompanyRegisteredEvent(
+                aggregate_id=entity.id,
+                aggregate_version=entity.version,
+                company_id=entity.id,
+                company_name=entity.legal_name,
+                registration_number=entity.registration_number,
+                npwp=entity.npwp,
+                address=entity.address,
+                country=entity.country,
+                registered_by=str(created_by) if created_by else "system",
+                user_id=str(created_by) if created_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event_company, f"Company {entity.legal_name} (registered)", correlation_id)
 
         logger.info(f"Legal entity created with ID {entity.id}")
         return entity
@@ -496,63 +505,51 @@ class LegalEntityService:
         # --- PUBLISH EVENTS ---
         if self._event_publisher:
             # LegalEntityUpdatedEvent
-            try:
-                event = LegalEntityUpdatedEvent(
+            event = LegalEntityUpdatedEvent(
+                aggregate_id=entity.id,
+                aggregate_version=entity.version,
+                entity_id=entity.id,
+                entity_code=entity.registration_number or entity.id.hex[:8],
+                changes=changes,
+                updated_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"LegalEntity {entity.legal_name} (updated)", correlation_id)
+
+            # CompanyAddressUpdatedEvent if address changed
+            if "address" in changes or "city" in changes:
+                event_addr = CompanyAddressUpdatedEvent(
                     aggregate_id=entity.id,
                     aggregate_version=entity.version,
-                    entity_id=entity.id,
-                    entity_code=entity.registration_number or entity.id.hex[:8],
-                    changes=changes,
+                    company_id=entity.id,
+                    company_name=entity.legal_name,
+                    old_address=changes.get("address", {}).get("old") if "address" in changes else None,
+                    new_address=entity.address,
+                    old_city=changes.get("city", {}).get("old") if "city" in changes else None,
+                    new_city=entity.city,
                     updated_by=str(updated_by) if updated_by else "system",
                     user_id=str(updated_by) if updated_by else None,
                     correlation_id=correlation_id,
                 )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published LegalEntityUpdatedEvent for {entity.legal_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish LegalEntityUpdatedEvent: {e}")
-
-            # CompanyAddressUpdatedEvent if address changed
-            if "address" in changes or "city" in changes:
-                try:
-                    event_addr = CompanyAddressUpdatedEvent(
-                        aggregate_id=entity.id,
-                        aggregate_version=entity.version,
-                        company_id=entity.id,
-                        company_name=entity.legal_name,
-                        old_address=changes.get("address", {}).get("old") if "address" in changes else None,
-                        new_address=entity.address,
-                        old_city=changes.get("city", {}).get("old") if "city" in changes else None,
-                        new_city=entity.city,
-                        updated_by=str(updated_by) if updated_by else "system",
-                        user_id=str(updated_by) if updated_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event_addr, correlation_id)
-                    logger.debug(f"Published CompanyAddressUpdatedEvent for {entity.legal_name}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish CompanyAddressUpdatedEvent: {e}")
+                await self._publish_event(event_addr, f"Company {entity.legal_name} (address updated)", correlation_id)
 
             # CompanyContactUpdatedEvent if phone or email changed
             if "phone" in changes or "email" in changes:
-                try:
-                    event_contact = CompanyContactUpdatedEvent(
-                        aggregate_id=entity.id,
-                        aggregate_version=entity.version,
-                        company_id=entity.id,
-                        company_name=entity.legal_name,
-                        old_phone=changes.get("phone", {}).get("old") if "phone" in changes else None,
-                        new_phone=entity.phone,
-                        old_email=changes.get("email", {}).get("old") if "email" in changes else None,
-                        new_email=entity.email,
-                        updated_by=str(updated_by) if updated_by else "system",
-                        user_id=str(updated_by) if updated_by else None,
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event_contact, correlation_id)
-                    logger.debug(f"Published CompanyContactUpdatedEvent for {entity.legal_name}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish CompanyContactUpdatedEvent: {e}")
+                event_contact = CompanyContactUpdatedEvent(
+                    aggregate_id=entity.id,
+                    aggregate_version=entity.version,
+                    company_id=entity.id,
+                    company_name=entity.legal_name,
+                    old_phone=changes.get("phone", {}).get("old") if "phone" in changes else None,
+                    new_phone=entity.phone,
+                    old_email=changes.get("email", {}).get("old") if "email" in changes else None,
+                    new_email=entity.email,
+                    updated_by=str(updated_by) if updated_by else "system",
+                    user_id=str(updated_by) if updated_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event_contact, f"Company {entity.legal_name} (contact updated)", correlation_id)
 
         return entity
 
@@ -581,37 +578,29 @@ class LegalEntityService:
         # --- PUBLISH EVENTS ---
         if self._event_publisher:
             # LegalEntityDeactivatedEvent
-            try:
-                event = LegalEntityDeactivatedEvent(
-                    aggregate_id=entity.id,
-                    aggregate_version=entity.version,
-                    entity_id=entity.id,
-                    reason=reason or "Deactivated",
-                    deactivated_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published LegalEntityDeactivatedEvent for {entity.legal_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish LegalEntityDeactivatedEvent: {e}")
+            event = LegalEntityDeactivatedEvent(
+                aggregate_id=entity.id,
+                aggregate_version=entity.version,
+                entity_id=entity.id,
+                reason=reason or "Deactivated",
+                deactivated_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"LegalEntity {entity.legal_name} (deactivated)", correlation_id)
 
             # CompanySuspendedEvent (since deactivation is like suspension)
-            try:
-                event_suspend = CompanySuspendedEvent(
-                    aggregate_id=entity.id,
-                    aggregate_version=entity.version,
-                    company_id=entity.id,
-                    company_name=entity.legal_name,
-                    reason=reason or "Deactivated",
-                    suspended_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event_suspend, correlation_id)
-                logger.debug(f"Published CompanySuspendedEvent for {entity.legal_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish CompanySuspendedEvent: {e}")
+            event_suspend = CompanySuspendedEvent(
+                aggregate_id=entity.id,
+                aggregate_version=entity.version,
+                company_id=entity.id,
+                company_name=entity.legal_name,
+                reason=reason or "Deactivated",
+                suspended_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event_suspend, f"Company {entity.legal_name} (suspended)", correlation_id)
 
         return True
 
@@ -641,37 +630,29 @@ class LegalEntityService:
         # --- PUBLISH EVENTS ---
         if self._event_publisher:
             # LegalEntity reactivation (via update event)
-            try:
-                event = LegalEntityUpdatedEvent(
-                    aggregate_id=entity.id,
-                    aggregate_version=entity.version,
-                    entity_id=entity.id,
-                    entity_code=entity.registration_number or entity.id.hex[:8],
-                    changes={"status": {"old": "INACTIVE", "new": "ACTIVE"}},
-                    updated_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published LegalEntityUpdatedEvent for {entity.legal_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish LegalEntityUpdatedEvent: {e}")
+            event = LegalEntityUpdatedEvent(
+                aggregate_id=entity.id,
+                aggregate_version=entity.version,
+                entity_id=entity.id,
+                entity_code=entity.registration_number or entity.id.hex[:8],
+                changes={"status": {"old": "INACTIVE", "new": "ACTIVE"}},
+                updated_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"LegalEntity {entity.legal_name} (reactivated)", correlation_id)
 
             # CompanyReactivatedEvent
-            try:
-                event_react = CompanyReactivatedEvent(
-                    aggregate_id=entity.id,
-                    aggregate_version=entity.version,
-                    company_id=entity.id,
-                    company_name=entity.legal_name,
-                    reactivated_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event_react, correlation_id)
-                logger.debug(f"Published CompanyReactivatedEvent for {entity.legal_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish CompanyReactivatedEvent: {e}")
+            event_react = CompanyReactivatedEvent(
+                aggregate_id=entity.id,
+                aggregate_version=entity.version,
+                company_id=entity.id,
+                company_name=entity.legal_name,
+                reactivated_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event_react, f"Company {entity.legal_name} (reactivated)", correlation_id)
 
         return True
 
@@ -698,21 +679,17 @@ class LegalEntityService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = CompanySuspendedEvent(
-                    aggregate_id=entity.id,
-                    aggregate_version=entity.version,
-                    company_id=entity.id,
-                    company_name=entity.legal_name,
-                    reason=reason,
-                    suspended_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published CompanySuspendedEvent for {entity.legal_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish CompanySuspendedEvent: {e}")
+            event = CompanySuspendedEvent(
+                aggregate_id=entity.id,
+                aggregate_version=entity.version,
+                company_id=entity.id,
+                company_name=entity.legal_name,
+                reason=reason,
+                suspended_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Company {entity.legal_name} (suspended)", correlation_id)
 
         return True
 
@@ -739,21 +716,17 @@ class LegalEntityService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = CompanyDissolvedEvent(
-                    aggregate_id=entity.id,
-                    aggregate_version=entity.version,
-                    company_id=entity.id,
-                    company_name=entity.legal_name,
-                    reason=reason,
-                    dissolved_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published CompanyDissolvedEvent for {entity.legal_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish CompanyDissolvedEvent: {e}")
+            event = CompanyDissolvedEvent(
+                aggregate_id=entity.id,
+                aggregate_version=entity.version,
+                company_id=entity.id,
+                company_name=entity.legal_name,
+                reason=reason,
+                dissolved_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Company {entity.legal_name} (dissolved)", correlation_id)
 
         return True
 
@@ -814,21 +787,17 @@ class LegalEntityService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = LegalEntityUpdatedEvent(
-                    aggregate_id=entity.id,
-                    aggregate_version=entity.version,
-                    entity_id=entity.id,
-                    entity_code=entity.registration_number or entity.id.hex[:8],
-                    changes=changes,
-                    updated_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published LegalEntityUpdatedEvent for {entity.legal_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish LegalEntityUpdatedEvent: {e}")
+            event = LegalEntityUpdatedEvent(
+                aggregate_id=entity.id,
+                aggregate_version=entity.version,
+                entity_id=entity.id,
+                entity_code=entity.registration_number or entity.id.hex[:8],
+                changes=changes,
+                updated_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"LegalEntity {entity.legal_name} (tax profile updated)", correlation_id)
 
         return entity
 
@@ -889,21 +858,17 @@ class LegalEntityService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = LegalEntityUpdatedEvent(
-                    aggregate_id=entity.id,
-                    aggregate_version=entity.version,
-                    entity_id=entity.id,
-                    entity_code=entity.registration_number or entity.id.hex[:8],
-                    changes={"consolidation_group_id": {"old": None, "new": str(group_id)}},
-                    updated_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published LegalEntityUpdatedEvent for {entity.legal_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish LegalEntityUpdatedEvent: {e}")
+            event = LegalEntityUpdatedEvent(
+                aggregate_id=entity.id,
+                aggregate_version=entity.version,
+                entity_id=entity.id,
+                entity_code=entity.registration_number or entity.id.hex[:8],
+                changes={"consolidation_group_id": {"old": None, "new": str(group_id)}},
+                updated_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"LegalEntity {entity.legal_name} (added to group)", correlation_id)
 
         return True
 
@@ -933,21 +898,17 @@ class LegalEntityService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = LegalEntityUpdatedEvent(
-                    aggregate_id=entity.id,
-                    aggregate_version=entity.version,
-                    entity_id=entity.id,
-                    entity_code=entity.registration_number or entity.id.hex[:8],
-                    changes={"consolidation_group_id": {"old": str(group_id), "new": None}},
-                    updated_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published LegalEntityUpdatedEvent for {entity.legal_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish LegalEntityUpdatedEvent: {e}")
+            event = LegalEntityUpdatedEvent(
+                aggregate_id=entity.id,
+                aggregate_version=entity.version,
+                entity_id=entity.id,
+                entity_code=entity.registration_number or entity.id.hex[:8],
+                changes={"consolidation_group_id": {"old": str(group_id), "new": None}},
+                updated_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"LegalEntity {entity.legal_name} (removed from group)", correlation_id)
 
         return True
 

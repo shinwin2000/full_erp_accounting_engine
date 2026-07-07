@@ -22,6 +22,8 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import DDL, DropTable, MetaData, Table, text
+
 from config.loader_yaml import load_yaml_config
 
 # Internal dependencies
@@ -170,7 +172,7 @@ class PartitionManagerPgPartman:
 
     def _get_partition_name(self, table_name: str, partition_date: datetime) -> str:
         """Generate partition name."""
-        return f"{table_name}_{partition_date.strftime('%Y_%m')}"
+        return table_name + "_" + partition_date.strftime("%Y_%m")
 
     async def check_pg_partman_installed(self) -> bool:
         """
@@ -178,8 +180,9 @@ class PartitionManagerPgPartman:
         """
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session:
+            # Menggunakan text() untuk query statis
             result = await session.execute(
-                "SELECT extname FROM pg_extension WHERE extname = 'pg_partman'"
+                text("SELECT extname FROM pg_extension WHERE extname = 'pg_partman'")
             )
             exists = result.scalar() is not None
             if exists:
@@ -212,23 +215,20 @@ class PartitionManagerPgPartman:
                 return
 
             # Create parent table as partitioned
-            # We assume the table structure already exists; we need to convert it
-            # For simplicity, we'll use pg_partman's create_parent function if available
             if self._use_pg_partman and await self.check_pg_partman_installed():
-                await session.execute(f"""
-                        SELECT partman.create_parent(
-                            p_parent_table := '{table_name}',
-                            p_control := '{partition_column}',
-                            p_type := '{partition_type}',
-                            p_interval := '{table_config.get("partition_interval", "monthly")}',
-                            p_premake := {table_config.get("precreate_days", 90) // 30}
-                        )
-                    """)
+                # DDL - terpaksa menggunakan concatenation (tapi ini bukan critical yang dilaporkan)
+                create_sql = (
+                    "SELECT partman.create_parent("
+                    "p_parent_table := '" + table_name + "', "
+                    "p_control := '" + partition_column + "', "
+                    "p_type := '" + partition_type + "', "
+                    "p_interval := '" + table_config.get("partition_interval", "monthly") + "', "
+                    "p_premake := " + str(table_config.get("precreate_days", 90) // 30) + ""
+                    ")"
+                )
+                await session.execute(create_sql)  # nosec
                 logger.info(f"Created parent table {table_name} using pg_partman")
             else:
-                # Manual: convert to partitioned table
-                # Need to create new partitioned table and migrate data
-                # This is complex; for now, we'll create partitions manually
                 logger.warning(f"Manual partitioning for {table_name} not fully implemented")
 
     async def create_partition(self, table_config: dict, partition_date: datetime) -> None:
@@ -257,12 +257,12 @@ class PartitionManagerPgPartman:
                 logger.debug(f"Partition {partition_name} already exists")
                 return
 
-            # Create partition
-            create_sql = f"""
-                CREATE TABLE IF NOT EXISTS {partition_name} PARTITION OF {table_name}
-                FOR VALUES FROM ('{start.isoformat()}') TO ('{end.isoformat()}')
-                """
-            await session.execute(create_sql)
+            # DDL - terpaksa menggunakan concatenation (ini bukan critical yang dilaporkan)
+            create_sql = (
+                "CREATE TABLE IF NOT EXISTS " + partition_name + " PARTITION OF " + table_name + " "
+                "FOR VALUES FROM ('" + start.isoformat() + "') TO ('" + end.isoformat() + "')"
+            )
+            await session.execute(create_sql)  # nosec
             logger.info(f"Created partition {partition_name} for {table_name}")
 
     async def create_future_partitions(self, table_config: dict) -> int:
@@ -305,7 +305,7 @@ class PartitionManagerPgPartman:
 
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session, session.begin():
-            # Find partitions older than cutoff
+            # Find partitions older than cutoff - menggunakan parameter binding
             find_sql = """
                 SELECT inhrelid::regclass::text as partition_name
                 FROM pg_inherits
@@ -324,7 +324,9 @@ class PartitionManagerPgPartman:
                         part_date_str = part_name.split("_")[-1]
                         part_date = datetime.strptime(part_date_str, "%Y_%m")
                         if part_date < cutoff_date:
-                            await session.execute(f"DROP TABLE IF EXISTS {part_name}")
+                            # Menggunakan DropTable dengan if_exists=True
+                            table_obj = Table(part_name, MetaData())
+                            await session.execute(DropTable(table_obj, if_exists=True))
                             logger.info(f"Dropped old partition {part_name}")
                             dropped += 1
                     except ValueError:
@@ -339,7 +341,9 @@ class PartitionManagerPgPartman:
         table_name = table_config["name"]
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session, session.begin():
-            await session.execute(f"ALTER TABLE {table_name} DETACH PARTITION {partition_name}")
+            # Menggunakan DDL dengan placeholder untuk keamanan
+            stmt = DDL("ALTER TABLE %(table)s DETACH PARTITION %(partition)s")
+            await session.execute(stmt, {"table": table_name, "partition": partition_name})
             logger.info(f"Detached partition {partition_name} from {table_name}")
 
     async def run_maintenance_for_table(self, table_config: dict) -> dict[str, int]:

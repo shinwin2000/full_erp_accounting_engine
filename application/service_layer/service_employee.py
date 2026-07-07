@@ -1,4 +1,6 @@
 # service_employee.py - Complete rewrite with full event publishing
+# v5.9.0 - Refactored event publishing into single _publish_event method to reduce
+#          broad-except warnings and improve maintainability.
 
 #!/usr/bin/env python3
 
@@ -19,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 
 from ports.primary.event_publisher_port import EventPublisherPort
@@ -119,6 +122,23 @@ class EmployeeService:
 
         logger.info("EmployeeService initialized")
 
+    # ==================== EVENT PUBLISHING HELPER ====================
+
+    async def _publish_event(self, event: Any, log_context: str, correlation_id: str | None = None) -> None:
+        """
+        Publish an event safely, catching and logging any exception.
+        Preserves the two-argument publish signature (event, correlation_id).
+        """
+        if not self._event_publisher:
+            return
+        try:
+            await self._event_publisher.publish(event, correlation_id)
+            logger.debug(f"Published {event.__class__.__name__} for {log_context}")
+        except Exception as e:
+            logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
+
+    # ========================================================================
+
     async def create_employee(
         self,
         legal_entity_id: UUID,
@@ -163,22 +183,18 @@ class EmployeeService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = EmployeeCreatedEvent(
-                    aggregate_id=employee.id,
-                    aggregate_version=employee.version,
-                    employee_id=employee.id,
-                    employee_code=employee.employee_code,
-                    employee_name=employee.full_name,
-                    legal_entity_id=employee.legal_entity_id,
-                    created_by=str(created_by) if created_by else "system",
-                    user_id=str(created_by) if created_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published EmployeeCreatedEvent for {employee.employee_code}")
-            except Exception as e:
-                logger.warning(f"Failed to publish EmployeeCreatedEvent: {e}")
+            event = EmployeeCreatedEvent(
+                aggregate_id=employee.id,
+                aggregate_version=employee.version,
+                employee_id=employee.id,
+                employee_code=employee.employee_code,
+                employee_name=employee.full_name,
+                legal_entity_id=employee.legal_entity_id,
+                created_by=str(created_by) if created_by else "system",
+                user_id=str(created_by) if created_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Employee {employee.employee_code} (created)", correlation_id)
 
         return employee
 
@@ -243,22 +259,18 @@ class EmployeeService:
 
         # --- PUBLISH EVENT (EmployeeStructureUpdatedEvent) ---
         if self._event_publisher:
-            try:
-                event = EmployeeStructureUpdatedEvent(
-                    aggregate_id=employee.id,
-                    aggregate_version=employee.version,
-                    employee_id=employee.id,
-                    employee_name=employee.full_name,
-                    old_basic_salary=employee.basic_salary,  # not changed, but included
-                    new_basic_salary=employee.basic_salary,
-                    updated_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published EmployeeStructureUpdatedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish EmployeeStructureUpdatedEvent: {e}")
+            event = EmployeeStructureUpdatedEvent(
+                aggregate_id=employee.id,
+                aggregate_version=employee.version,
+                employee_id=employee.id,
+                employee_name=employee.full_name,
+                old_basic_salary=employee.basic_salary,
+                new_basic_salary=employee.basic_salary,
+                updated_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Employee {employee.employee_code} (structure updated)", correlation_id)
 
         return employee
 
@@ -307,22 +319,18 @@ class EmployeeService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = EmployeeStructureUpdatedEvent(
-                    aggregate_id=employee.id,
-                    aggregate_version=employee.version,
-                    employee_id=employee.id,
-                    employee_name=employee.full_name,
-                    old_basic_salary=old_basic,
-                    new_basic_salary=employee.basic_salary,
-                    updated_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published EmployeeStructureUpdatedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish EmployeeStructureUpdatedEvent: {e}")
+            event = EmployeeStructureUpdatedEvent(
+                aggregate_id=employee.id,
+                aggregate_version=employee.version,
+                employee_id=employee.id,
+                employee_name=employee.full_name,
+                old_basic_salary=old_basic,
+                new_basic_salary=employee.basic_salary,
+                updated_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Employee {employee.employee_code} (salary structure updated)", correlation_id)
 
         return employee
 
@@ -365,21 +373,17 @@ class EmployeeService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = EmployeeBPJSUpdatedEvent(
-                    aggregate_id=employee.id,
-                    aggregate_version=employee.version,
-                    employee_id=employee.id,
-                    employee_code=employee.employee_code,
-                    changes=changes,
-                    updated_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published EmployeeBPJSUpdatedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish EmployeeBPJSUpdatedEvent: {e}")
+            event = EmployeeBPJSUpdatedEvent(
+                aggregate_id=employee.id,
+                aggregate_version=employee.version,
+                employee_id=employee.id,
+                employee_code=employee.employee_code,
+                changes=changes,
+                updated_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Employee {employee.employee_code} (BPJS updated)", correlation_id)
 
         return employee
 
@@ -408,24 +412,20 @@ class EmployeeService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = EmployeePTKPUpdatedEvent(
-                    aggregate_id=employee.id,
-                    aggregate_version=employee.version,
-                    employee_id=employee.id,
-                    employee_code=employee.employee_code,
-                    old_marital_status=old_marital,
-                    new_marital_status=employee.marital_status.value,
-                    old_dependents=old_dependents,
-                    new_dependents=employee.dependents,
-                    updated_by=str(updated_by) if updated_by else "system",
-                    user_id=str(updated_by) if updated_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published EmployeePTKPUpdatedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish EmployeePTKPUpdatedEvent: {e}")
+            event = EmployeePTKPUpdatedEvent(
+                aggregate_id=employee.id,
+                aggregate_version=employee.version,
+                employee_id=employee.id,
+                employee_code=employee.employee_code,
+                old_marital_status=old_marital,
+                new_marital_status=employee.marital_status.value,
+                old_dependents=old_dependents,
+                new_dependents=employee.dependents,
+                updated_by=str(updated_by) if updated_by else "system",
+                user_id=str(updated_by) if updated_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Employee {employee.employee_code} (PTKP updated)", correlation_id)
 
         return employee
 
@@ -451,22 +451,18 @@ class EmployeeService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = EmployeeResignedEvent(
-                    aggregate_id=employee.id,
-                    aggregate_version=employee.version,
-                    employee_id=employee.id,
-                    employee_code=employee.employee_code,
-                    resignation_date=resignation_date,
-                    reason=reason,
-                    resigned_by=str(resigned_by) if resigned_by else "system",
-                    user_id=str(resigned_by) if resigned_by else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published EmployeeResignedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish EmployeeResignedEvent: {e}")
+            event = EmployeeResignedEvent(
+                aggregate_id=employee.id,
+                aggregate_version=employee.version,
+                employee_id=employee.id,
+                employee_code=employee.employee_code,
+                resignation_date=resignation_date,
+                reason=reason,
+                resigned_by=str(resigned_by) if resigned_by else "system",
+                user_id=str(resigned_by) if resigned_by else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Employee {employee.employee_code} (resigned)", correlation_id)
 
         return employee
 

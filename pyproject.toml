@@ -114,6 +114,7 @@ exclude = [
 [tool.pytest.ini_options]
 testpaths       = ["tests"]
 asyncio_mode    = "auto"
+pythonpath      = ["."]                      # <── TAMBAHKAN INI
 addopts         = [
     "--strict-markers",
     "--strict-config",
@@ -149,6 +150,7 @@ omit    = [
     "tests/*",
     "docs/*",
     "migrations/*",
+    "deployment/*",
     "*/__init__.py",
     "*/exceptions.py",
 ]
@@ -242,7 +244,6 @@ ignore = [
 "migrations/*" = ["ALL"]
 
 # ── mypy ─────────────────────────────────────────────────────
-# Konfigurasi minimal agar tidak error saat memeriksa direktori
 # Catatan: Jangan gunakan "mypy ." karena akan mencoba mengimpor nama proyek.
 # Gunakan "mypy app adapters application domain infrastructure kernel ports" sebagai gantinya.
 [tool.mypy]

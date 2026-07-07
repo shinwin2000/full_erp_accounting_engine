@@ -1,4 +1,6 @@
 # service_project.py - Complete rewrite with full event publishing
+# v5.9.0 - Refactored event publishing into single _publish_event method to reduce
+#          broad-except warnings and improve maintainability.
 
 #!/usr/bin/env python3
 
@@ -16,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
 from typing import Any
@@ -287,6 +289,21 @@ class ProjectService:
 
         logger.info("ProjectService initialized")
 
+    # ==================== EVENT PUBLISHING HELPER ====================
+
+    async def _publish_event(self, event: Any, log_context: str, correlation_id: str | None = None) -> None:
+        """
+        Publish an event safely, catching and logging any exception.
+        Uses the publish method with correlation_id (second argument).
+        """
+        if not self._event_publisher:
+            return
+        try:
+            await self._event_publisher.publish(event, correlation_id)
+            logger.debug(f"Published {event.__class__.__name__} for {log_context}")
+        except Exception as e:
+            logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
+
     # ========================================================================
     # Project Master
     # ========================================================================
@@ -319,7 +336,7 @@ class ProjectService:
             total_recognized_revenue=Decimal("0"),
             description=request.description,
             created_by=user_id,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
             updated_at=None,
             version=1,
         )
@@ -332,24 +349,20 @@ class ProjectService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = ProjectCreatedEvent(
-                    aggregate_id=project.id,
-                    aggregate_version=project.version,
-                    project_id=project.id,
-                    project_code=project.project_code,
-                    name=project.name,
-                    customer_id=project.customer_id,
-                    budget_amount=project.budget_amount,
-                    start_date=project.start_date,
-                    created_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published ProjectCreatedEvent for {project.project_code}")
-            except Exception as e:
-                logger.warning(f"Failed to publish ProjectCreatedEvent: {e}")
+            event = ProjectCreatedEvent(
+                aggregate_id=project.id,
+                aggregate_version=project.version,
+                project_id=project.id,
+                project_code=project.project_code,
+                name=project.name,
+                customer_id=project.customer_id,
+                budget_amount=project.budget_amount,
+                start_date=project.start_date,
+                created_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Project {project.project_code} (created)", correlation_id)
 
         logger.info(f"Project created: {project.project_code} - {project.name}")
         return self._to_response(project)
@@ -396,7 +409,7 @@ class ProjectService:
         if not changes:
             return self._to_response(project)
 
-        project.updated_at = datetime.utcnow()
+        project.updated_at = datetime.now(UTC)
         project.updated_by = user_id
         project.version += 1
 
@@ -405,7 +418,7 @@ class ProjectService:
             await self._uow.commit()
 
         # No specific event for project update, but we could publish ProjectUpdatedEvent
-        # For now, use ProjectActivatedEvent or similar? We'll skip for now.
+        # For now, skip.
 
         return self._to_response(project)
 
@@ -428,7 +441,7 @@ class ProjectService:
 
         old_status = project.status
         project.status = ProjectStatus.ACTIVE
-        project.updated_at = datetime.utcnow()
+        project.updated_at = datetime.now(UTC)
         project.updated_by = user_id
         project.version += 1
 
@@ -440,21 +453,17 @@ class ProjectService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = ProjectActivatedEvent(
-                    aggregate_id=project.id,
-                    aggregate_version=project.version,
-                    project_id=project.id,
-                    project_code=project.project_code,
-                    name=project.name,
-                    activated_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published ProjectActivatedEvent for {project.project_code}")
-            except Exception as e:
-                logger.warning(f"Failed to publish ProjectActivatedEvent: {e}")
+            event = ProjectActivatedEvent(
+                aggregate_id=project.id,
+                aggregate_version=project.version,
+                project_id=project.id,
+                project_code=project.project_code,
+                name=project.name,
+                activated_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Project {project.project_code} (activated)", correlation_id)
 
         logger.info(f"Project activated: {project.project_code}")
         return self._to_response(project)
@@ -474,7 +483,7 @@ class ProjectService:
             raise ProjectServiceError(f"Cannot start project in status {project.status.value}")
 
         project.status = ProjectStatus.IN_PROGRESS
-        project.updated_at = datetime.utcnow()
+        project.updated_at = datetime.now(UTC)
         project.updated_by = user_id
         project.version += 1
 
@@ -505,7 +514,7 @@ class ProjectService:
         old_status = project.status
         project.status = ProjectStatus.COMPLETED
         project.end_date = date.today()
-        project.updated_at = datetime.utcnow()
+        project.updated_at = datetime.now(UTC)
         project.updated_by = user_id
         project.version += 1
 
@@ -517,21 +526,17 @@ class ProjectService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = ProjectCompletedEvent(
-                    aggregate_id=project.id,
-                    aggregate_version=project.version,
-                    project_id=project.id,
-                    project_code=project.project_code,
-                    name=project.name,
-                    completed_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published ProjectCompletedEvent for {project.project_code}")
-            except Exception as e:
-                logger.warning(f"Failed to publish ProjectCompletedEvent: {e}")
+            event = ProjectCompletedEvent(
+                aggregate_id=project.id,
+                aggregate_version=project.version,
+                project_id=project.id,
+                project_code=project.project_code,
+                name=project.name,
+                completed_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Project {project.project_code} (completed)", correlation_id)
 
         logger.info(f"Project completed: {project.project_code}")
         return self._to_response(project)
@@ -553,7 +558,7 @@ class ProjectService:
 
         project.status = ProjectStatus.CANCELLED
         project.cancel_reason = reason
-        project.updated_at = datetime.utcnow()
+        project.updated_at = datetime.now(UTC)
         project.updated_by = user_id
         project.version += 1
 
@@ -598,7 +603,7 @@ class ProjectService:
             description=request.description,
             status=TimeEntryStatus.DRAFT,
             created_by=user_id,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
             version=1,
         )
 
@@ -631,7 +636,7 @@ class ProjectService:
             raise TimeEntryError(f"Cannot submit time entry in status {time_entry.status.value}")
 
         time_entry.status = TimeEntryStatus.SUBMITTED
-        time_entry.submitted_at = datetime.utcnow()
+        time_entry.submitted_at = datetime.now(UTC)
         time_entry.submitted_by = user_id
         time_entry.version += 1
 
@@ -643,23 +648,19 @@ class ProjectService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = TimeEntrySubmittedEvent(
-                    aggregate_id=time_entry.id,
-                    aggregate_version=time_entry.version,
-                    time_entry_id=time_entry.id,
-                    project_id=time_entry.project_id,
-                    employee_id=time_entry.employee_id,
-                    hours=time_entry.hours,
-                    billable_amount=time_entry.billable_amount,
-                    submitted_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published TimeEntrySubmittedEvent for {time_entry.id}")
-            except Exception as e:
-                logger.warning(f"Failed to publish TimeEntrySubmittedEvent: {e}")
+            event = TimeEntrySubmittedEvent(
+                aggregate_id=time_entry.id,
+                aggregate_version=time_entry.version,
+                time_entry_id=time_entry.id,
+                project_id=time_entry.project_id,
+                employee_id=time_entry.employee_id,
+                hours=time_entry.hours,
+                billable_amount=time_entry.billable_amount,
+                submitted_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Time entry {time_entry.id} (submitted)", correlation_id)
 
         return self._to_time_entry_response(time_entry)
 
@@ -678,7 +679,7 @@ class ProjectService:
             raise TimeEntryError(f"Cannot approve time entry in status {time_entry.status.value}")
 
         time_entry.status = TimeEntryStatus.APPROVED
-        time_entry.approved_at = datetime.utcnow()
+        time_entry.approved_at = datetime.now(UTC)
         time_entry.approved_by = user_id
         time_entry.version += 1
 
@@ -690,23 +691,19 @@ class ProjectService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = TimeEntryApprovedEvent(
-                    aggregate_id=time_entry.id,
-                    aggregate_version=time_entry.version,
-                    time_entry_id=time_entry.id,
-                    project_id=time_entry.project_id,
-                    employee_id=time_entry.employee_id,
-                    hours=time_entry.hours,
-                    billable_amount=time_entry.billable_amount,
-                    approved_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published TimeEntryApprovedEvent for {time_entry.id}")
-            except Exception as e:
-                logger.warning(f"Failed to publish TimeEntryApprovedEvent: {e}")
+            event = TimeEntryApprovedEvent(
+                aggregate_id=time_entry.id,
+                aggregate_version=time_entry.version,
+                time_entry_id=time_entry.id,
+                project_id=time_entry.project_id,
+                employee_id=time_entry.employee_id,
+                hours=time_entry.hours,
+                billable_amount=time_entry.billable_amount,
+                approved_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Time entry {time_entry.id} (approved)", correlation_id)
 
         return self._to_time_entry_response(time_entry)
 
@@ -727,7 +724,7 @@ class ProjectService:
 
         time_entry.status = TimeEntryStatus.REJECTED
         time_entry.reject_reason = reason
-        time_entry.rejected_at = datetime.utcnow()
+        time_entry.rejected_at = datetime.now(UTC)
         time_entry.rejected_by = user_id
         time_entry.version += 1
 
@@ -767,7 +764,7 @@ class ProjectService:
             is_ready=False,
             is_billed=False,
             created_by=user_id,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
         )
 
         await self._project_repo.save_milestone(milestone)
@@ -791,7 +788,7 @@ class ProjectService:
             return self._to_milestone_response(milestone)
 
         milestone.is_ready = True
-        milestone.ready_date = datetime.utcnow().date()
+        milestone.ready_date = datetime.now(UTC).date()
         milestone.ready_by = user_id
         milestone.version = (milestone.version or 0) + 1
 
@@ -803,22 +800,18 @@ class ProjectService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = MilestoneReadyEvent(
-                    aggregate_id=milestone.id,
-                    aggregate_version=milestone.version or 1,
-                    milestone_id=milestone.id,
-                    project_id=milestone.project_id,
-                    milestone_name=milestone.milestone_name,
-                    amount=milestone.amount,
-                    ready_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published MilestoneReadyEvent for {milestone.milestone_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish MilestoneReadyEvent: {e}")
+            event = MilestoneReadyEvent(
+                aggregate_id=milestone.id,
+                aggregate_version=milestone.version or 1,
+                milestone_id=milestone.id,
+                project_id=milestone.project_id,
+                milestone_name=milestone.milestone_name,
+                amount=milestone.amount,
+                ready_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Milestone {milestone.milestone_name} (ready)", correlation_id)
 
         return self._to_milestone_response(milestone)
 
@@ -842,7 +835,7 @@ class ProjectService:
             return self._to_milestone_response(milestone)
 
         milestone.is_billed = True
-        milestone.billed_date = datetime.utcnow().date()
+        milestone.billed_date = datetime.now(UTC).date()
         milestone.billed_by = user_id
         milestone.invoice_id = invoice_id
         milestone.invoice_number = invoice_number
@@ -856,24 +849,20 @@ class ProjectService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = MilestoneBilledEvent(
-                    aggregate_id=milestone.id,
-                    aggregate_version=milestone.version or 1,
-                    milestone_id=milestone.id,
-                    project_id=milestone.project_id,
-                    milestone_name=milestone.milestone_name,
-                    amount=milestone.amount,
-                    invoice_id=invoice_id,
-                    invoice_number=invoice_number,
-                    billed_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published MilestoneBilledEvent for {milestone.milestone_name}")
-            except Exception as e:
-                logger.warning(f"Failed to publish MilestoneBilledEvent: {e}")
+            event = MilestoneBilledEvent(
+                aggregate_id=milestone.id,
+                aggregate_version=milestone.version or 1,
+                milestone_id=milestone.id,
+                project_id=milestone.project_id,
+                milestone_name=milestone.milestone_name,
+                amount=milestone.amount,
+                invoice_id=invoice_id,
+                invoice_number=invoice_number,
+                billed_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Milestone {milestone.milestone_name} (billed)", correlation_id)
 
         return self._to_milestone_response(milestone)
 
@@ -919,7 +908,7 @@ class ProjectService:
 
         if additional_revenue > 0:
             project.total_recognized_revenue = revenue_to_recognize
-            project.updated_at = datetime.utcnow()
+            project.updated_at = datetime.now(UTC)
             project.version += 1
 
             await self._project_repo.save_project(project)
@@ -932,21 +921,17 @@ class ProjectService:
 
             # --- PUBLISH EVENT ---
             if self._event_publisher:
-                try:
-                    event = RevenueRecognizedEvent(
-                        aggregate_id=project.id,
-                        aggregate_version=project.version,
-                        project_id=project_id,
-                        amount=additional_revenue,
-                        method=project.billing_method.value,
-                        recognized_by=str(user_id),
-                        user_id=str(user_id),
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event)
-                    logger.debug(f"Published RevenueRecognizedEvent for {project.project_code}")
-                except Exception as e:
-                    logger.warning(f"Failed to publish RevenueRecognizedEvent: {e}")
+                event = RevenueRecognizedEvent(
+                    aggregate_id=project.id,
+                    aggregate_version=project.version,
+                    project_id=project_id,
+                    amount=additional_revenue,
+                    method=project.billing_method.value,
+                    recognized_by=str(user_id),
+                    user_id=str(user_id),
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Project {project.project_code} (revenue recognized)", correlation_id)
 
         return additional_revenue
 
@@ -994,13 +979,13 @@ class ProjectService:
             invoice_number=invoice_number,
             is_billed=True,
             created_by=user_id,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
         )
         await self._project_repo.save_billing(billing)
 
         # Update project total billed
         project.total_billed += request.amount
-        project.updated_at = datetime.utcnow()
+        project.updated_at = datetime.now(UTC)
         project.version += 1
 
         await self._project_repo.save_project(project)
@@ -1013,22 +998,18 @@ class ProjectService:
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
-            try:
-                event = ProjectBillingGeneratedEvent(
-                    aggregate_id=billing.id,
-                    aggregate_version=1,
-                    project_id=request.project_id,
-                    invoice_id=invoice_id,
-                    invoice_number=invoice_number,
-                    amount=request.amount,
-                    generated_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event)
-                logger.debug(f"Published ProjectBillingGeneratedEvent for {project.project_code}")
-            except Exception as e:
-                logger.warning(f"Failed to publish ProjectBillingGeneratedEvent: {e}")
+            event = ProjectBillingGeneratedEvent(
+                aggregate_id=billing.id,
+                aggregate_version=1,
+                project_id=request.project_id,
+                invoice_id=invoice_id,
+                invoice_number=invoice_number,
+                amount=request.amount,
+                generated_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Project {project.project_code} (billing generated)", correlation_id)
 
         return ProjectBillingResponse(
             invoice_id=invoice_id,
@@ -1043,7 +1024,7 @@ class ProjectService:
         """Generate invoice number for project billing."""
         last = await self._project_repo.get_last_invoice_number(legal_entity_id)
         seq = int(last.split("-")[-1]) + 1 if last else 1
-        return f"PRJ-{datetime.utcnow().year}-{seq:06d}"
+        return f"PRJ-{datetime.now(UTC).year}-{seq:06d}"
 
     # ========================================================================
     # Profitability & Reporting
@@ -1100,7 +1081,7 @@ class ProjectService:
             monthly_fee=monthly_fee,
             status=RetainerStatus.ACTIVE,
             created_by=user_id,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
         )
         await self._project_repo.save_retainer_contract(contract)
         if self._uow:

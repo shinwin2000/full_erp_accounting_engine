@@ -621,8 +621,9 @@ class DomainEventPublisher:
                 # Custom publish errors: re-raise immediately, do not retry
                 # (retry logic should be handled by the caller if desired)
                 raise
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 # Unexpected error: log and re-raise as a specific exception
+                # This is intentional to catch any unforeseen errors and wrap them.
                 logging.error(
                     "Unexpected error during event publish: %s",
                     e,

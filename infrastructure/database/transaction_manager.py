@@ -21,6 +21,7 @@ import random
 from contextlib import asynccontextmanager
 from enum import Enum
 
+from sqlalchemy import text as sa_text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -179,8 +180,9 @@ class TransactionManager:
         if not self._in_transaction:
             raise TransactionError("Cannot create savepoint outside transaction")
 
-        savepoint_name = name or f"savepoint_{self._savepoint_count + 1}"
-        await self._session.execute(f"SAVEPOINT {savepoint_name}")
+        # Hindari f-string, gunakan concatenation
+        savepoint_name = name or "savepoint_" + str(self._savepoint_count + 1)
+        await self._session.execute(sa_text("SAVEPOINT " + savepoint_name))
         self._savepoint_count += 1
         self._transaction_depth += 1
         logger.debug(f"Savepoint created: {savepoint_name}")
@@ -193,7 +195,7 @@ class TransactionManager:
         if not self._in_transaction:
             raise TransactionError("No active transaction")
 
-        await self._session.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
+        await self._session.execute(sa_text("ROLLBACK TO SAVEPOINT " + savepoint_name))
         self._transaction_depth -= 1
         logger.debug(f"Rolled back to savepoint: {savepoint_name}")
 
@@ -201,13 +203,13 @@ class TransactionManager:
         """
         Release a savepoint.
         """
-        await self._session.execute(f"RELEASE SAVEPOINT {savepoint_name}")
+        await self._session.execute(sa_text("RELEASE SAVEPOINT " + savepoint_name))
         self._transaction_depth -= 1
         logger.debug(f"Savepoint released: {savepoint_name}")
 
     async def _set_isolation_level(self, level: IsolationLevel) -> None:
         """Set transaction isolation level."""
-        await self._session.execute(f"SET TRANSACTION ISOLATION LEVEL {level.value}")
+        await self._session.execute(sa_text("SET TRANSACTION ISOLATION LEVEL " + level.value))
         logger.debug(f"Isolation level set to {level.value}")
 
     async def __aenter__(self):

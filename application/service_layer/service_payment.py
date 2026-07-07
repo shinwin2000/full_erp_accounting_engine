@@ -1,4 +1,6 @@
 # service_payment.py - Complete rewrite with full event publishing
+# v5.9.0 - Refactored event publishing into single _publish_event method to reduce
+#          broad-except warnings and improve maintainability.
 
 #!/usr/bin/env python3
 
@@ -19,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 
 from ports.primary.event_publisher_port import EventPublisherPort
@@ -120,6 +123,23 @@ class PaymentService:
 
         logger.info("PaymentService initialized")
 
+    # ==================== EVENT PUBLISHING HELPER ====================
+
+    async def _publish_event(self, event: Any, log_context: str, correlation_id: str | None = None) -> None:
+        """
+        Publish an event safely, catching and logging any exception.
+        Preserves the two-argument publish signature (event, correlation_id).
+        """
+        if not self._event_publisher:
+            return
+        try:
+            await self._event_publisher.publish(event, correlation_id)
+            logger.debug(f"Published {event.__class__.__name__} for {log_context}")
+        except Exception as e:
+            logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
+
+    # ========================================================================
+
     async def create_payment(
         self,
         legal_entity_id: UUID,
@@ -154,33 +174,30 @@ class PaymentService:
 
         # --- PUBLISH EVENT (PaymentMadeEvent atau PaymentReceivedEvent) ---
         if self._event_publisher:
-            try:
-                if payment_type == "ar":
-                    event = PaymentReceivedEvent(
-                        aggregate_id=payment.id,
-                        aggregate_version=payment.version,
-                        payment_id=payment.id,
-                        payment_number=payment.payment_number,
-                        amount=payment.amount,
-                        received_by=str(created_by) if created_by else "system",
-                        user_id=str(created_by) if created_by else None,
-                        correlation_id=correlation_id,
-                    )
-                else:
-                    event = PaymentMadeEvent(
-                        aggregate_id=payment.id,
-                        aggregate_version=payment.version,
-                        payment_id=payment.id,
-                        payment_number=payment.payment_number,
-                        amount=payment.amount,
-                        made_by=str(created_by) if created_by else "system",
-                        user_id=str(created_by) if created_by else None,
-                        correlation_id=correlation_id,
-                    )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published Payment{('Received' if payment_type == 'ar' else 'Made')}Event for {payment.payment_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish payment event: {e}")
+            if payment_type == "ar":
+                event = PaymentReceivedEvent(
+                    aggregate_id=payment.id,
+                    aggregate_version=payment.version,
+                    payment_id=payment.id,
+                    payment_number=payment.payment_number,
+                    amount=payment.amount,
+                    received_by=str(created_by) if created_by else "system",
+                    user_id=str(created_by) if created_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Payment {payment.payment_number} (received)", correlation_id)
+            else:
+                event = PaymentMadeEvent(
+                    aggregate_id=payment.id,
+                    aggregate_version=payment.version,
+                    payment_id=payment.id,
+                    payment_number=payment.payment_number,
+                    amount=payment.amount,
+                    made_by=str(created_by) if created_by else "system",
+                    user_id=str(created_by) if created_by else None,
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Payment {payment.payment_number} (made)", correlation_id)
 
         return payment
 
@@ -218,20 +235,16 @@ class PaymentService:
         self._stats["payments_updated"] += 1
 
         if self._event_publisher:
-            try:
-                event = PaymentApprovedEvent(
-                    aggregate_id=payment.id,
-                    aggregate_version=payment.version,
-                    payment_id=payment.id,
-                    payment_number=payment.payment_number,
-                    approved_by=str(approved_by),
-                    user_id=str(approved_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published PaymentApprovedEvent for {payment.payment_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish PaymentApprovedEvent: {e}")
+            event = PaymentApprovedEvent(
+                aggregate_id=payment.id,
+                aggregate_version=payment.version,
+                payment_id=payment.id,
+                payment_number=payment.payment_number,
+                approved_by=str(approved_by),
+                user_id=str(approved_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Payment {payment.payment_number} (approved)", correlation_id)
 
         return payment
 
@@ -249,20 +262,16 @@ class PaymentService:
         self._stats["payments_updated"] += 1
 
         if self._event_publisher:
-            try:
-                event = PaymentProcessedEvent(
-                    aggregate_id=payment.id,
-                    aggregate_version=payment.version,
-                    payment_id=payment.id,
-                    payment_number=payment.payment_number,
-                    processed_by=str(processed_by),
-                    user_id=str(processed_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published PaymentProcessedEvent for {payment.payment_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish PaymentProcessedEvent: {e}")
+            event = PaymentProcessedEvent(
+                aggregate_id=payment.id,
+                aggregate_version=payment.version,
+                payment_id=payment.id,
+                payment_number=payment.payment_number,
+                processed_by=str(processed_by),
+                user_id=str(processed_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Payment {payment.payment_number} (processed)", correlation_id)
 
         return payment
 
@@ -280,20 +289,16 @@ class PaymentService:
         self._stats["payments_updated"] += 1
 
         if self._event_publisher:
-            try:
-                event = PaymentConfirmedEvent(
-                    aggregate_id=payment.id,
-                    aggregate_version=payment.version,
-                    payment_id=payment.id,
-                    payment_number=payment.payment_number,
-                    confirmed_by=str(confirmed_by),
-                    user_id=str(confirmed_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published PaymentConfirmedEvent for {payment.payment_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish PaymentConfirmedEvent: {e}")
+            event = PaymentConfirmedEvent(
+                aggregate_id=payment.id,
+                aggregate_version=payment.version,
+                payment_id=payment.id,
+                payment_number=payment.payment_number,
+                confirmed_by=str(confirmed_by),
+                user_id=str(confirmed_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Payment {payment.payment_number} (confirmed)", correlation_id)
 
         return payment
 
@@ -311,20 +316,16 @@ class PaymentService:
         self._stats["payments_updated"] += 1
 
         if self._event_publisher:
-            try:
-                event = PaymentSentEvent(
-                    aggregate_id=payment.id,
-                    aggregate_version=payment.version,
-                    payment_id=payment.id,
-                    payment_number=payment.payment_number,
-                    sent_by=str(sent_by),
-                    user_id=str(sent_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published PaymentSentEvent for {payment.payment_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish PaymentSentEvent: {e}")
+            event = PaymentSentEvent(
+                aggregate_id=payment.id,
+                aggregate_version=payment.version,
+                payment_id=payment.id,
+                payment_number=payment.payment_number,
+                sent_by=str(sent_by),
+                user_id=str(sent_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Payment {payment.payment_number} (sent)", correlation_id)
 
         return payment
 
@@ -342,6 +343,7 @@ class PaymentService:
         self._stats["payments_updated"] += 1
 
         # PaymentReceivedEvent sudah dipublish di create_payment, bisa juga dipublish di sini
+        # Tapi kita tidak perlu mempublikasikan lagi karena sudah ada di create.
 
         return payment
 
@@ -361,21 +363,17 @@ class PaymentService:
         self._stats["payments_updated"] += 1
 
         if self._event_publisher:
-            try:
-                event = PaymentAppliedEvent(
-                    aggregate_id=payment.id,
-                    aggregate_version=payment.version,
-                    payment_id=payment.id,
-                    payment_number=payment.payment_number,
-                    applied_to=applied_to,
-                    applied_by=str(applied_by),
-                    user_id=str(applied_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published PaymentAppliedEvent for {payment.payment_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish PaymentAppliedEvent: {e}")
+            event = PaymentAppliedEvent(
+                aggregate_id=payment.id,
+                aggregate_version=payment.version,
+                payment_id=payment.id,
+                payment_number=payment.payment_number,
+                applied_to=applied_to,
+                applied_by=str(applied_by),
+                user_id=str(applied_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Payment {payment.payment_number} (applied)", correlation_id)
 
         return payment
 
@@ -395,21 +393,17 @@ class PaymentService:
         self._stats["payments_updated"] += 1
 
         if self._event_publisher:
-            try:
-                event = PaymentAllocatedEvent(
-                    aggregate_id=payment.id,
-                    aggregate_version=payment.version,
-                    payment_id=payment.id,
-                    payment_number=payment.payment_number,
-                    allocation_data=allocation_data,
-                    allocated_by=str(allocated_by),
-                    user_id=str(allocated_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published PaymentAllocatedEvent for {payment.payment_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish PaymentAllocatedEvent: {e}")
+            event = PaymentAllocatedEvent(
+                aggregate_id=payment.id,
+                aggregate_version=payment.version,
+                payment_id=payment.id,
+                payment_number=payment.payment_number,
+                allocation_data=allocation_data,
+                allocated_by=str(allocated_by),
+                user_id=str(allocated_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Payment {payment.payment_number} (allocated)", correlation_id)
 
         return payment
 
@@ -428,21 +422,17 @@ class PaymentService:
         self._stats["payments_updated"] += 1
 
         if self._event_publisher:
-            try:
-                event = PaymentCancelledEvent(
-                    aggregate_id=payment.id,
-                    aggregate_version=payment.version,
-                    payment_id=payment.id,
-                    payment_number=payment.payment_number,
-                    reason=reason,
-                    cancelled_by=str(cancelled_by),
-                    user_id=str(cancelled_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published PaymentCancelledEvent for {payment.payment_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish PaymentCancelledEvent: {e}")
+            event = PaymentCancelledEvent(
+                aggregate_id=payment.id,
+                aggregate_version=payment.version,
+                payment_id=payment.id,
+                payment_number=payment.payment_number,
+                reason=reason,
+                cancelled_by=str(cancelled_by),
+                user_id=str(cancelled_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Payment {payment.payment_number} (cancelled)", correlation_id)
 
         return payment
 
@@ -461,21 +451,17 @@ class PaymentService:
         self._stats["payments_updated"] += 1
 
         if self._event_publisher:
-            try:
-                event = PaymentVoidedEvent(
-                    aggregate_id=payment.id,
-                    aggregate_version=payment.version,
-                    payment_id=payment.id,
-                    payment_number=payment.payment_number,
-                    reason=reason,
-                    voided_by=str(voided_by),
-                    user_id=str(voided_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug(f"Published PaymentVoidedEvent for {payment.payment_number}")
-            except Exception as e:
-                logger.warning(f"Failed to publish PaymentVoidedEvent: {e}")
+            event = PaymentVoidedEvent(
+                aggregate_id=payment.id,
+                aggregate_version=payment.version,
+                payment_id=payment.id,
+                payment_number=payment.payment_number,
+                reason=reason,
+                voided_by=str(voided_by),
+                user_id=str(voided_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Payment {payment.payment_number} (voided)", correlation_id)
 
         return payment
 

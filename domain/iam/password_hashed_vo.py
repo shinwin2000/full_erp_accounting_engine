@@ -12,7 +12,7 @@ import hmac
 import logging
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
@@ -214,7 +214,7 @@ class PasswordHashedVO:
     algorithm: str = "bcrypt" if BCRYPT_AVAILABLE else "pbkdf2_sha256"
     salt: str | None = None
     iterations: int = DEFAULT_PBKDF2_ITERATIONS
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))  # Fixed: timezone-aware
 
     _policy: ClassVar[PasswordPolicy] = PasswordPolicy()
     _cache: ClassVar[dict[str, PasswordHashedVO]] = {}
@@ -326,7 +326,7 @@ class PasswordHashedVO:
             iterations=data.get("iterations", DEFAULT_PBKDF2_ITERATIONS),
             created_at=datetime.fromisoformat(data["created_at"])
             if data.get("created_at")
-            else datetime.now(),
+            else datetime.now(UTC),  # Fixed: timezone-aware
         )
 
     # ==================== VERIFICATION METHODS ====================
@@ -359,10 +359,9 @@ class PasswordHashedVO:
             elif self.algorithm.startswith("pbkdf2_sha256"):
                 return self._verify_pbkdf2(plain_password)
             else:
-                # FIX: Hindari kata "password" di log
                 logger.warning(f"Unknown hash algorithm: {self.algorithm}")
                 return False
-        except Exception as e:
+        except (ValueError, TypeError, UnicodeDecodeError) as e:
             # FIX: Jangan log kata "password" dan jangan tampilkan detail error
             logger.error(f"Verification error: {type(e).__name__}")
             return False
@@ -386,8 +385,7 @@ class PasswordHashedVO:
                 iterations,
             )
             return hmac.compare_digest(computed.hex(), expected_hash)
-        except Exception as e:
-            # FIX: Jangan log kata "password" dan jangan tampilkan detail error
+        except (ValueError, TypeError) as e:
             logger.error(f"Verification error: {type(e).__name__}")
             return False
 
@@ -457,7 +455,7 @@ class PasswordHashedVO:
 
         return {
             "score": max(0, score),
-            "strength": self._get_strength_label(score),
+            "strength": cls._get_strength_label(score),
             "is_valid": score >= 60,
             "issues": issues,
         }
@@ -491,8 +489,9 @@ class PasswordHashedVO:
                 if self.hashed_value.startswith("$2b$"):
                     rounds = int(self.hashed_value.split("$")[2])
                     return rounds < DEFAULT_BCRYPT_ROUNDS
-            except Exception:
-                pass
+            except (ValueError, IndexError):
+                # If parsing fails, assume it needs rehash
+                return True
             return False
         elif self.algorithm == "argon2":
             return False

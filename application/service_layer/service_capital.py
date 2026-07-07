@@ -18,6 +18,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID, uuid4
 
 from ports.primary.event_publisher_port import EventPublisherPort
@@ -120,6 +121,21 @@ class CapitalService:
         }
         logger.info("CapitalService initialized")
 
+    # ==================== EVENT PUBLISHING HELPER ====================
+
+    async def _publish_event(self, event: Any, log_context: str, correlation_id: str | None = None) -> None:
+        """
+        Publish an event safely, catching and logging any exception.
+        Preserves the two-argument publish signature (event, correlation_id).
+        """
+        if not self._event_publisher:
+            return
+        try:
+            await self._event_publisher.publish(event, correlation_id)
+            logger.debug(f"Published {event.__class__.__name__} for {log_context}")
+        except Exception as e:
+            logger.warning(f"Failed to publish {event.__class__.__name__} for {log_context}: {e}")
+
     # ========================================================================
     # Capital Contribution
     # ========================================================================
@@ -135,23 +151,19 @@ class CapitalService:
 
         # --- PUBLISH RECORDED EVENT ---
         if self._event_publisher:
-            try:
-                event = CapitalContributionRecordedEvent(
-                    aggregate_id=contribution_id,
-                    aggregate_version=1,
-                    contribution_id=contribution_id,
-                    legal_entity_id=request.legal_entity_id,
-                    amount=request.amount,
-                    contribution_date=request.contribution_date,
-                    contributor_id=str(request.contributor_id) if request.contributor_id else None,
-                    recorded_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published CapitalContributionRecordedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish CapitalContributionRecordedEvent: {e}")
+            event = CapitalContributionRecordedEvent(
+                aggregate_id=contribution_id,
+                aggregate_version=1,
+                contribution_id=contribution_id,
+                legal_entity_id=request.legal_entity_id,
+                amount=request.amount,
+                contribution_date=request.contribution_date,
+                contributor_id=str(request.contributor_id) if request.contributor_id else None,
+                recorded_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Capital Contribution {contribution_id}", correlation_id)
 
         self._stats["contributions"] += 1
         return CapitalContributionResponse(
@@ -171,19 +183,15 @@ class CapitalService:
     ) -> None:
         """Approve a capital contribution."""
         if self._event_publisher:
-            try:
-                event = CapitalContributionApprovedEvent(
-                    aggregate_id=contribution_id,
-                    aggregate_version=1,
-                    contribution_id=contribution_id,
-                    approved_by=str(approved_by),
-                    user_id=str(approved_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published CapitalContributionApprovedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish CapitalContributionApprovedEvent: {e}")
+            event = CapitalContributionApprovedEvent(
+                aggregate_id=contribution_id,
+                aggregate_version=1,
+                contribution_id=contribution_id,
+                approved_by=str(approved_by),
+                user_id=str(approved_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Capital Contribution {contribution_id} (approve)", correlation_id)
 
     async def post_capital_contribution(
         self,
@@ -193,19 +201,15 @@ class CapitalService:
     ) -> None:
         """Post capital contribution to GL."""
         if self._event_publisher:
-            try:
-                event = CapitalContributionPostedEvent(
-                    aggregate_id=contribution_id,
-                    aggregate_version=1,
-                    contribution_id=contribution_id,
-                    posted_by=str(posted_by),
-                    user_id=str(posted_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published CapitalContributionPostedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish CapitalContributionPostedEvent: {e}")
+            event = CapitalContributionPostedEvent(
+                aggregate_id=contribution_id,
+                aggregate_version=1,
+                contribution_id=contribution_id,
+                posted_by=str(posted_by),
+                user_id=str(posted_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Capital Contribution {contribution_id} (post)", correlation_id)
 
     async def cancel_capital_contribution(
         self,
@@ -216,20 +220,16 @@ class CapitalService:
     ) -> None:
         """Cancel a capital contribution."""
         if self._event_publisher:
-            try:
-                event = CapitalContributionCancelledEvent(
-                    aggregate_id=contribution_id,
-                    aggregate_version=1,
-                    contribution_id=contribution_id,
-                    reason=reason,
-                    cancelled_by=str(cancelled_by),
-                    user_id=str(cancelled_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published CapitalContributionCancelledEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish CapitalContributionCancelledEvent: {e}")
+            event = CapitalContributionCancelledEvent(
+                aggregate_id=contribution_id,
+                aggregate_version=1,
+                contribution_id=contribution_id,
+                reason=reason,
+                cancelled_by=str(cancelled_by),
+                user_id=str(cancelled_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Capital Contribution {contribution_id} (cancel)", correlation_id)
 
     # ========================================================================
     # Capital Withdrawal
@@ -246,21 +246,17 @@ class CapitalService:
     ) -> None:
         """Record a capital withdrawal."""
         if self._event_publisher:
-            try:
-                event = CapitalWithdrawalRecordedEvent(
-                    aggregate_id=uuid4(),
-                    aggregate_version=1,
-                    legal_entity_id=legal_entity_id,
-                    amount=amount,
-                    withdrawal_date=withdrawal_date,
-                    recorded_by=str(user_id) if user_id else "system",
-                    user_id=str(user_id) if user_id else None,
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published CapitalWithdrawalRecordedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish CapitalWithdrawalRecordedEvent: {e}")
+            event = CapitalWithdrawalRecordedEvent(
+                aggregate_id=uuid4(),
+                aggregate_version=1,
+                legal_entity_id=legal_entity_id,
+                amount=amount,
+                withdrawal_date=withdrawal_date,
+                recorded_by=str(user_id) if user_id else "system",
+                user_id=str(user_id) if user_id else None,
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Capital Withdrawal for {legal_entity_id}", correlation_id)
 
         self._stats["withdrawals"] += 1
 
@@ -272,19 +268,15 @@ class CapitalService:
     ) -> None:
         """Approve a capital withdrawal."""
         if self._event_publisher:
-            try:
-                event = CapitalWithdrawalApprovedEvent(
-                    aggregate_id=withdrawal_id,
-                    aggregate_version=1,
-                    withdrawal_id=withdrawal_id,
-                    approved_by=str(approved_by),
-                    user_id=str(approved_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published CapitalWithdrawalApprovedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish CapitalWithdrawalApprovedEvent: {e}")
+            event = CapitalWithdrawalApprovedEvent(
+                aggregate_id=withdrawal_id,
+                aggregate_version=1,
+                withdrawal_id=withdrawal_id,
+                approved_by=str(approved_by),
+                user_id=str(approved_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Capital Withdrawal {withdrawal_id} (approve)", correlation_id)
 
     async def post_capital_withdrawal(
         self,
@@ -294,19 +286,15 @@ class CapitalService:
     ) -> None:
         """Post capital withdrawal to GL."""
         if self._event_publisher:
-            try:
-                event = CapitalWithdrawalPostedEvent(
-                    aggregate_id=withdrawal_id,
-                    aggregate_version=1,
-                    withdrawal_id=withdrawal_id,
-                    posted_by=str(posted_by),
-                    user_id=str(posted_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published CapitalWithdrawalPostedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish CapitalWithdrawalPostedEvent: {e}")
+            event = CapitalWithdrawalPostedEvent(
+                aggregate_id=withdrawal_id,
+                aggregate_version=1,
+                withdrawal_id=withdrawal_id,
+                posted_by=str(posted_by),
+                user_id=str(posted_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Capital Withdrawal {withdrawal_id} (post)", correlation_id)
 
     async def cancel_capital_withdrawal(
         self,
@@ -317,20 +305,16 @@ class CapitalService:
     ) -> None:
         """Cancel a capital withdrawal."""
         if self._event_publisher:
-            try:
-                event = CapitalWithdrawalCancelledEvent(
-                    aggregate_id=withdrawal_id,
-                    aggregate_version=1,
-                    withdrawal_id=withdrawal_id,
-                    reason=reason,
-                    cancelled_by=str(cancelled_by),
-                    user_id=str(cancelled_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published CapitalWithdrawalCancelledEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish CapitalWithdrawalCancelledEvent: {e}")
+            event = CapitalWithdrawalCancelledEvent(
+                aggregate_id=withdrawal_id,
+                aggregate_version=1,
+                withdrawal_id=withdrawal_id,
+                reason=reason,
+                cancelled_by=str(cancelled_by),
+                user_id=str(cancelled_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Capital Withdrawal {withdrawal_id} (cancel)", correlation_id)
 
     # ========================================================================
     # Dividend
@@ -347,23 +331,19 @@ class CapitalService:
 
         # --- PUBLISH DECLARED EVENT ---
         if self._event_publisher:
-            try:
-                event = DividendDeclaredEvent(
-                    aggregate_id=dividend_id,
-                    aggregate_version=1,
-                    dividend_id=dividend_id,
-                    legal_entity_id=request.legal_entity_id,
-                    total_amount=request.total_amount,
-                    declaration_date=request.declaration_date,
-                    payment_date=request.payment_date,
-                    declared_by=str(user_id),
-                    user_id=str(user_id),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published DividendDeclaredEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish DividendDeclaredEvent: {e}")
+            event = DividendDeclaredEvent(
+                aggregate_id=dividend_id,
+                aggregate_version=1,
+                dividend_id=dividend_id,
+                legal_entity_id=request.legal_entity_id,
+                total_amount=request.total_amount,
+                declaration_date=request.declaration_date,
+                payment_date=request.payment_date,
+                declared_by=str(user_id),
+                user_id=str(user_id),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Dividend {dividend_id} (declare)", correlation_id)
 
         self._stats["dividends"] += 1
         return DividendResponse(
@@ -384,19 +364,15 @@ class CapitalService:
     ) -> None:
         """Approve a dividend."""
         if self._event_publisher:
-            try:
-                event = DividendApprovedEvent(
-                    aggregate_id=dividend_id,
-                    aggregate_version=1,
-                    dividend_id=dividend_id,
-                    approved_by=str(approved_by),
-                    user_id=str(approved_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published DividendApprovedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish DividendApprovedEvent: {e}")
+            event = DividendApprovedEvent(
+                aggregate_id=dividend_id,
+                aggregate_version=1,
+                dividend_id=dividend_id,
+                approved_by=str(approved_by),
+                user_id=str(approved_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Dividend {dividend_id} (approve)", correlation_id)
 
     async def pay_dividend(
         self,
@@ -409,36 +385,28 @@ class CapitalService:
         """Pay dividend (full or partial)."""
         if is_full:
             if self._event_publisher:
-                try:
-                    event = DividendPaidEvent(
-                        aggregate_id=dividend_id,
-                        aggregate_version=1,
-                        dividend_id=dividend_id,
-                        amount=amount,
-                        paid_by=str(paid_by),
-                        user_id=str(paid_by),
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event, correlation_id)
-                    logger.debug("Published DividendPaidEvent")
-                except Exception as e:
-                    logger.warning(f"Failed to publish DividendPaidEvent: {e}")
+                event = DividendPaidEvent(
+                    aggregate_id=dividend_id,
+                    aggregate_version=1,
+                    dividend_id=dividend_id,
+                    amount=amount,
+                    paid_by=str(paid_by),
+                    user_id=str(paid_by),
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Dividend {dividend_id} (full payment)", correlation_id)
         else:
             if self._event_publisher:
-                try:
-                    event = DividendPartiallyPaidEvent(
-                        aggregate_id=dividend_id,
-                        aggregate_version=1,
-                        dividend_id=dividend_id,
-                        amount=amount,
-                        paid_by=str(paid_by),
-                        user_id=str(paid_by),
-                        correlation_id=correlation_id,
-                    )
-                    await self._event_publisher.publish(event, correlation_id)
-                    logger.debug("Published DividendPartiallyPaidEvent")
-                except Exception as e:
-                    logger.warning(f"Failed to publish DividendPartiallyPaidEvent: {e}")
+                event = DividendPartiallyPaidEvent(
+                    aggregate_id=dividend_id,
+                    aggregate_version=1,
+                    dividend_id=dividend_id,
+                    amount=amount,
+                    paid_by=str(paid_by),
+                    user_id=str(paid_by),
+                    correlation_id=correlation_id,
+                )
+                await self._publish_event(event, f"Dividend {dividend_id} (partial payment)", correlation_id)
 
     async def cancel_dividend(
         self,
@@ -449,20 +417,16 @@ class CapitalService:
     ) -> None:
         """Cancel a dividend."""
         if self._event_publisher:
-            try:
-                event = DividendCancelledEvent(
-                    aggregate_id=dividend_id,
-                    aggregate_version=1,
-                    dividend_id=dividend_id,
-                    reason=reason,
-                    cancelled_by=str(cancelled_by),
-                    user_id=str(cancelled_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published DividendCancelledEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish DividendCancelledEvent: {e}")
+            event = DividendCancelledEvent(
+                aggregate_id=dividend_id,
+                aggregate_version=1,
+                dividend_id=dividend_id,
+                reason=reason,
+                cancelled_by=str(cancelled_by),
+                user_id=str(cancelled_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Dividend {dividend_id} (cancel)", correlation_id)
 
     # ========================================================================
     # Retained Earnings
@@ -479,22 +443,18 @@ class CapitalService:
     ) -> None:
         """Adjust retained earnings."""
         if self._event_publisher:
-            try:
-                event = RetainedEarningsAdjustedEvent(
-                    aggregate_id=legal_entity_id,
-                    aggregate_version=1,
-                    legal_entity_id=legal_entity_id,
-                    amount=amount,
-                    adjustment_date=adjustment_date,
-                    description=description,
-                    adjusted_by=str(adjusted_by),
-                    user_id=str(adjusted_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published RetainedEarningsAdjustedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish RetainedEarningsAdjustedEvent: {e}")
+            event = RetainedEarningsAdjustedEvent(
+                aggregate_id=legal_entity_id,
+                aggregate_version=1,
+                legal_entity_id=legal_entity_id,
+                amount=amount,
+                adjustment_date=adjustment_date,
+                description=description,
+                adjusted_by=str(adjusted_by),
+                user_id=str(adjusted_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Retained Earnings {legal_entity_id} (adjust)", correlation_id)
 
         self._stats["retained_earnings"] += 1
 
@@ -509,22 +469,18 @@ class CapitalService:
     ) -> None:
         """Transfer retained earnings between entities."""
         if self._event_publisher:
-            try:
-                event = RetainedEarningsTransferEvent(
-                    aggregate_id=from_legal_entity_id,
-                    aggregate_version=1,
-                    from_legal_entity_id=from_legal_entity_id,
-                    to_legal_entity_id=to_legal_entity_id,
-                    amount=amount,
-                    transfer_date=transfer_date,
-                    transferred_by=str(transferred_by),
-                    user_id=str(transferred_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published RetainedEarningsTransferEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish RetainedEarningsTransferEvent: {e}")
+            event = RetainedEarningsTransferEvent(
+                aggregate_id=from_legal_entity_id,
+                aggregate_version=1,
+                from_legal_entity_id=from_legal_entity_id,
+                to_legal_entity_id=to_legal_entity_id,
+                amount=amount,
+                transfer_date=transfer_date,
+                transferred_by=str(transferred_by),
+                user_id=str(transferred_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Retained Earnings transfer {from_legal_entity_id}->{to_legal_entity_id}", correlation_id)
 
     async def update_retained_earnings(
         self,
@@ -536,21 +492,17 @@ class CapitalService:
     ) -> None:
         """Update retained earnings balance."""
         if self._event_publisher:
-            try:
-                event = RetainedEarningsUpdatedEvent(
-                    aggregate_id=legal_entity_id,
-                    aggregate_version=1,
-                    legal_entity_id=legal_entity_id,
-                    new_balance=new_balance,
-                    as_of_date=as_of_date,
-                    updated_by=str(updated_by),
-                    user_id=str(updated_by),
-                    correlation_id=correlation_id,
-                )
-                await self._event_publisher.publish(event, correlation_id)
-                logger.debug("Published RetainedEarningsUpdatedEvent")
-            except Exception as e:
-                logger.warning(f"Failed to publish RetainedEarningsUpdatedEvent: {e}")
+            event = RetainedEarningsUpdatedEvent(
+                aggregate_id=legal_entity_id,
+                aggregate_version=1,
+                legal_entity_id=legal_entity_id,
+                new_balance=new_balance,
+                as_of_date=as_of_date,
+                updated_by=str(updated_by),
+                user_id=str(updated_by),
+                correlation_id=correlation_id,
+            )
+            await self._publish_event(event, f"Retained Earnings {legal_entity_id} (update)", correlation_id)
 
     def get_stats(self) -> dict[str, int]:
         return self._stats.copy()

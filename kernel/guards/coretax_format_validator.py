@@ -18,6 +18,7 @@ import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
@@ -191,12 +192,18 @@ class CoretaxFormatValidator:
             return False, f"Format tahun pajak tidak valid: {tahun}. Harus YYYY"
 
     @staticmethod
-    def validate_nilai_ppn(ppn: float, dpp: float) -> tuple[bool, str | None]:
+    def validate_nilai_ppn(ppn: Decimal, dpp: Decimal) -> tuple[bool, str | None]:
+        # Konversi jika menerima float (untuk kompatibilitas)
+        if isinstance(ppn, float):
+            ppn = Decimal(str(ppn))
+        if isinstance(dpp, float):
+            dpp = Decimal(str(dpp))
+
         if ppn <= 0 or dpp <= 0:
             return False, "Nilai PPN dan DPP harus positif"
-        expected_ppn_11 = dpp * 0.11
-        expected_ppn_12 = dpp * 0.12
-        if abs(ppn - expected_ppn_11) > 0.01 and abs(ppn - expected_ppn_12) > 0.01:
+        expected_ppn_11 = dpp * Decimal("0.11")
+        expected_ppn_12 = dpp * Decimal("0.12")
+        if abs(ppn - expected_ppn_11) > Decimal("0.01") and abs(ppn - expected_ppn_12) > Decimal("0.01"):
             return (
                 False,
                 f"Nilai PPN {ppn} tidak sesuai dengan DPP {dpp} (11% = {expected_ppn_11:.2f}, 12% = {expected_ppn_12:.2f})",
@@ -219,16 +226,18 @@ class CoretaxFormatValidator:
         return True, None
 
     @staticmethod
-    def validate_tarif_pph(tarif: float, bukti_type: str) -> tuple[bool, str | None]:
+    def validate_tarif_pph(tarif: Decimal, bukti_type: str) -> tuple[bool, str | None]:
+        if isinstance(tarif, float):
+            tarif = Decimal(str(tarif))
         expected_ranges = {
-            "21": (0.0, 0.35),
-            "22": (0.0, 0.10),
-            "23": (0.0, 0.15),
-            "26": (0.2, 0.2),
-            "4(2)": (0.0, 0.10),
-            "15": (0.0, 0.30),
+            "21": (Decimal("0.0"), Decimal("0.35")),
+            "22": (Decimal("0.0"), Decimal("0.10")),
+            "23": (Decimal("0.0"), Decimal("0.15")),
+            "26": (Decimal("0.2"), Decimal("0.2")),
+            "4(2)": (Decimal("0.0"), Decimal("0.10")),
+            "15": (Decimal("0.0"), Decimal("0.30")),
         }
-        low, high = expected_ranges.get(bukti_type, (0, 1))
+        low, high = expected_ranges.get(bukti_type, (Decimal("0"), Decimal("1")))
         if tarif < low or tarif > high:
             return (
                 False,
@@ -260,8 +269,8 @@ class BaseCoretaxFormatGuard(ABC):
         npwp_pembeli: str,
         kode_faktur: str,
         nomor_faktur: str,
-        dpp: float,
-        ppn: float,
+        dpp: Decimal,          # diubah dari float
+        ppn: Decimal,           # diubah dari float
         masa_pajak: str,
         tahun_pajak: str,
         user_id: str | None = None,
@@ -275,9 +284,9 @@ class BaseCoretaxFormatGuard(ABC):
         npwp_pemotong: str,
         npwp_penerima: str,
         bukti_type: str,
-        tarif: float,
-        dasar_pemotongan: float,
-        pph_terutang: float,
+        tarif: Decimal,               # diubah dari float
+        dasar_pemotongan: Decimal,    # diubah dari float
+        pph_terutang: Decimal,        # diubah dari float
         masa_pajak: str,
         user_id: str | None = None,
     ) -> tuple[bool, list[CoretaxValidationResult]]:
@@ -291,8 +300,8 @@ class BaseCoretaxFormatGuard(ABC):
         npwp: str,
         masa_pajak: str,
         tahun_pajak: str,
-        total_ppn: float | None = None,
-        total_pph: float | None = None,
+        total_ppn: Decimal | None = None,   # diubah dari float
+        total_pph: Decimal | None = None,   # diubah dari float
         user_id: str | None = None,
     ) -> tuple[bool, list[CoretaxValidationResult]]:
         """Validate SPT submission data."""
@@ -531,8 +540,8 @@ class CoretaxFormatGuard(BaseCoretaxFormatGuard):
         npwp_pembeli: str,
         kode_faktur: str,
         nomor_faktur: str,
-        dpp: float,
-        ppn: float,
+        dpp: Decimal,
+        ppn: Decimal,
         masa_pajak: str,
         tahun_pajak: str,
         user_id: str | None = None,
@@ -645,9 +654,9 @@ class CoretaxFormatGuard(BaseCoretaxFormatGuard):
         npwp_pemotong: str,
         npwp_penerima: str,
         bukti_type: str,
-        tarif: float,
-        dasar_pemotongan: float,
-        pph_terutang: float,
+        tarif: Decimal,
+        dasar_pemotongan: Decimal,
+        pph_terutang: Decimal,
         masa_pajak: str,
         user_id: str | None = None,
     ) -> tuple[bool, list[CoretaxValidationResult]]:
@@ -720,7 +729,7 @@ class CoretaxFormatGuard(BaseCoretaxFormatGuard):
         )
         # Perhitungan PPh
         calculated_pph = dasar_pemotongan * tarif
-        if abs(calculated_pph - pph_terutang) > 0.01:
+        if abs(calculated_pph - pph_terutang) > Decimal("0.01"):
             msg = f"Perhitungan PPh tidak sesuai: dasar {dasar_pemotongan} * tarif {tarif} = {calculated_pph}, tetapi PPh terutang {pph_terutang}"
             add_result(
                 "pph_terutang", str(pph_terutang), False, CoretaxValidationSeverity.HIGH, msg
@@ -753,8 +762,8 @@ class CoretaxFormatGuard(BaseCoretaxFormatGuard):
         npwp: str,
         masa_pajak: str,
         tahun_pajak: str,
-        total_ppn: float | None = None,
-        total_pph: float | None = None,
+        total_ppn: Decimal | None = None,
+        total_pph: Decimal | None = None,
         user_id: str | None = None,
     ) -> tuple[bool, list[CoretaxValidationResult]]:
         results = []

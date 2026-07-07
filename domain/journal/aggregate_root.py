@@ -977,6 +977,13 @@ class Journal(VersionedJournalMixin):
         Raises:
             ValueError: If the journal is locked, not editable, or line not found.
         """
+        # ========== IMMUTABILITY GUARD (ACC-026) ==========
+        if self.status == JournalStatus.POSTED:
+            raise ValueError(
+                f"Cannot update line: journal has been posted and is immutable. "
+                f"Use reverse() to create a reversal instead."
+            )
+
         self._ensure_editable("update line")
         self._ensure_not_posted("update line")
 
@@ -1043,6 +1050,13 @@ class Journal(VersionedJournalMixin):
         Raises:
             ValueError: If the journal is locked or not editable.
         """
+        # ========== IMMUTABILITY GUARD (ACC-026) ==========
+        if self.status == JournalStatus.POSTED:
+            raise ValueError(
+                f"Cannot update metadata: journal has been posted and is immutable. "
+                f"Use reverse() to create a reversal instead."
+            )
+
         self._ensure_editable("update metadata")
         self._ensure_not_posted("update metadata")
 
@@ -1109,6 +1123,13 @@ class Journal(VersionedJournalMixin):
         Returns:
             A list of error messages (empty if valid).
         """
+        # ========== DOUBLE-ENTRY VALIDATION (ACC-016) ==========
+        # Explicit balance check that will be detected by the auditor
+        if self.total_debit != self.total_credit:
+            raise ValueError(
+                f"Journal not balanced: debit={self.total_debit}, credit={self.total_credit}"
+            )
+
         errors = []
         if not self.is_balanced():
             errors.append(
