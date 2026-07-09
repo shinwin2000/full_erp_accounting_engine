@@ -6,6 +6,10 @@ Responsibility: Implementasi in-memory untuk import laporan bank (MT940, CAMT, C
                Mendukung parsing multi-format, validasi, deduplikasi transaksi,
                matching dengan transaksi internal, dan audit import.
 Audit: Setiap import statement tercatat, termasuk jumlah transaksi, error, dan mapping.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (amount) di to_dict()
+      untuk menjaga presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -69,14 +73,14 @@ class StatementTransaction:
         return {
             "id": str(self.id),
             "transaction_date": self.transaction_date.isoformat(),
-            "amount": float(self.amount),
+            "amount": str(self.amount),  # ganti float -> str untuk presisi
             "currency": self.currency,
             "description": self.description,
             "reference_number": self.reference_number,
             "counterparty_name": self.counterparty_name,
             "counterparty_account": self.counterparty_account,
             "transaction_type": self.transaction_type,
-            "statement_balance": float(self.statement_balance) if self.statement_balance else None,
+            "statement_balance": str(self.statement_balance) if self.statement_balance else None,
             "unique_id": self.unique_id,
         }
 

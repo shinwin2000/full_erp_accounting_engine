@@ -204,11 +204,25 @@ class SQLAlchemySalesRepository(SalesRepositoryPort):
         return [self._row_to_dict(row) for row in rows]
 
     async def delete_transaction(self, transaction_id: UUID) -> bool:
+        """
+        Soft delete sales order with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = update(SalesOrderTable).where(SalesOrderTable.id == transaction_id).values(status="DELETED")
-            result = await session.execute(stmt)
-            return result.rowcount > 0
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(SalesOrderTable).where(
+                SalesOrderTable.id == transaction_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                return False
+
+            # 2. Update the locked row
+            row.status = "DELETED"
+            await session.flush()
+            return True
 
     async def exists(self, transaction_id: UUID) -> bool:
         session = await self._get_session()

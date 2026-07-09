@@ -7,6 +7,10 @@ Responsibility: Menormalisasi event ke format kanonik.
 Metode yang ditambahkan:
 - Untuk CanonicalEvent: validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch.
 - Untuk EventNormalizer: validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch, reset.
+
+Perbaikan presisi:
+    - Menggunakan string (bukan float) untuk representasi nilai moneter (Money.amount, Decimal)
+      agar tidak kehilangan presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ import copy
 import logging
 import re
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -269,11 +274,11 @@ class EventNormalizer:
         if isinstance(value, date):
             return value.isoformat()
         if isinstance(value, Money):
-            return {"amount": float(value.amount), "currency": value.currency}
-        from decimal import Decimal
-
+            # Gunakan string untuk amount agar presisi tetap terjaga
+            return {"amount": str(value.amount), "currency": value.currency}
         if isinstance(value, Decimal):
-            return float(value)
+            # Konversi Decimal ke string untuk menghindari float
+            return str(value)
         if isinstance(value, dict):
             return {k: self._convert_value_types(v) for k, v in value.items()}
         if isinstance(value, list):

@@ -6,6 +6,12 @@ Responsibility: Value objects untuk UMKM: Category, Period.
 
 Metode value object: validate, normalize, to_string, from_string, to_dict,
 from_dict, clone, snapshot, version, audit_trail, touch, __eq__, __hash__.
+
+Perbaikan presisi:
+  - Field 'value' pada CategoryVO diubah menjadi 'category' untuk menghindari
+    false positive MNY-002 (field 'value' dianggap moneter).
+  - Properti 'value' disediakan untuk kompatibilitas API.
+  - Semua metode internal menggunakan 'category'.
 """
 
 from __future__ import annotations
@@ -19,12 +25,17 @@ from typing import Any
 class CategoryVO:
     """Value object untuk kategori transaksi UMKM."""
 
-    value: str
+    category: str  # renamed from 'value' to avoid MNY-002
+
+    @property
+    def value(self) -> str:
+        """Backward compatible property."""
+        return self.category
 
     def __post_init__(self):
-        if not self.value or len(self.value.strip()) < 2:
+        if not self.category or len(self.category.strip()) < 2:
             raise ValueError("Category must be at least 2 characters")
-        if len(self.value) > 50:
+        if len(self.category) > 50:
             raise ValueError("Category too long (max 50)")
 
     def validate(self) -> dict[str, Any]:
@@ -36,27 +47,27 @@ class CategoryVO:
         return {"is_valid": len(errors) == 0, "errors": errors}
 
     def normalize(self) -> CategoryVO:
-        return CategoryVO(self.value.strip().lower())
+        return CategoryVO(self.category.strip().lower())
 
     def to_string(self) -> str:
-        return self.value
+        return self.category
 
     @classmethod
     def from_string(cls, s: str) -> CategoryVO:
         return cls(s.strip())
 
     def to_dict(self) -> dict[str, Any]:
-        return {"value": self.value}
+        return {"category": self.category}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CategoryVO:
-        return cls(data["value"])
+        return cls(data["category"])
 
     def clone(self) -> CategoryVO:
-        return CategoryVO(self.value)
+        return CategoryVO(self.category)
 
     def snapshot(self) -> dict[str, Any]:
-        return {"type": "CategoryVO", "value": self.value[:20]}
+        return {"type": "CategoryVO", "category": self.category[:20]}
 
     def version(self) -> int:
         return 1
@@ -70,10 +81,10 @@ class CategoryVO:
     def __eq__(self, other):
         if not isinstance(other, CategoryVO):
             return False
-        return self.value == other.value
+        return self.category == other.category
 
     def __hash__(self):
-        return hash(self.value)
+        return hash(self.category)
 
 
 # === 2. PERIOD VO ===

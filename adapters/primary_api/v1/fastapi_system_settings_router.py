@@ -548,7 +548,11 @@ class SettingSchemaSchema(BaseModel):
 # ============================================================================
 
 
-async def get_settings_service(request: Request) -> Any:
+async def get_settings_svc(request: Request) -> Any:
+    """
+    Get System Settings Service instance.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.service_layer.service_system_settings import SystemSettingsService
 
     container = request.app.state.container
@@ -580,8 +584,12 @@ async def create_setting(
     _permission: None = Depends(require_permission("settings:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> SettingResponseSchema:
+    """
+    Create a new system setting.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "create_setting"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -595,7 +603,7 @@ async def create_setting(
         )
         target_user_id = current_user.user_id if request.scope == SettingScope.USER else None
 
-        result = await service.create_setting(
+        result = await settings_svc.create_setting(
             key=request.key,
             value=request.value,
             data_type=request.data_type.value,
@@ -669,10 +677,10 @@ async def get_setting(
     key: str,
     _permission: None = Depends(require_permission("settings:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> SettingResponseSchema:
     try:
-        setting = await service.get_setting(key, legal_entity_id)
+        setting = await settings_svc.get_setting(key, legal_entity_id)
         if not setting:
             raise HTTPException(
                 status_code=404,
@@ -727,10 +735,10 @@ async def get_settings_by_category(
     is_active: bool | None = Query(None),
     _permission: None = Depends(require_permission("settings:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> list[SettingResponseSchema]:
     try:
-        settings = await service.list_settings(
+        settings = await settings_svc.list_settings(
             legal_entity_id=legal_entity_id,
             category=category.value,
             scope=scope.value if scope else None,
@@ -788,8 +796,12 @@ async def update_setting(
     _permission: None = Depends(require_permission("settings:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> SettingResponseSchema:
+    """
+    Update a setting.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "update_setting"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -798,7 +810,7 @@ async def update_setting(
             return SettingResponseSchema(**cached)
 
     try:
-        result = await service.update_setting(
+        result = await settings_svc.update_setting(
             key=key,
             legal_entity_id=legal_entity_id,
             value=request.value,
@@ -878,8 +890,12 @@ async def deactivate_setting(
     _permission: None = Depends(require_permission("settings:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> dict[str, Any]:
+    """
+    Deactivate a setting.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "deactivate_setting"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -888,7 +904,7 @@ async def deactivate_setting(
             return cached
 
     try:
-        result = await service.deactivate_setting(
+        result = await settings_svc.deactivate_setting(
             key, legal_entity_id, current_user.user_id, reason
         )
         if not result:
@@ -925,8 +941,12 @@ async def activate_setting(
     _permission: None = Depends(require_permission("settings:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> SettingResponseSchema:
+    """
+    Activate a setting.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "activate_setting"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -935,7 +955,7 @@ async def activate_setting(
             return SettingResponseSchema(**cached)
 
     try:
-        result = await service.activate_setting(key, legal_entity_id, current_user.user_id)
+        result = await settings_svc.activate_setting(key, legal_entity_id, current_user.user_id)
         if not result:
             raise HTTPException(
                 status_code=404,
@@ -994,8 +1014,12 @@ async def reset_setting(
     _permission: None = Depends(require_permission("settings:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> SettingResponseSchema:
+    """
+    Reset a setting to its default value.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "reset_setting"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1004,7 +1028,7 @@ async def reset_setting(
             return SettingResponseSchema(**cached)
 
     try:
-        result = await service.reset_to_default(key, legal_entity_id, current_user.user_id, reason)
+        result = await settings_svc.reset_to_default(key, legal_entity_id, current_user.user_id, reason)
         if not result:
             raise HTTPException(
                 status_code=404,
@@ -1068,8 +1092,12 @@ async def bulk_update_settings(
     _permission: None = Depends(require_permission("settings:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> dict[str, Any]:
+    """
+    Bulk update multiple settings.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "bulk_update_settings"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1079,9 +1107,9 @@ async def bulk_update_settings(
 
     try:
         if request.dry_run:
-            result = await service.validate_bulk_update(request.settings, legal_entity_id)
+            result = await settings_svc.validate_bulk_update(request.settings, legal_entity_id)
         else:
-            result = await service.bulk_update_settings(
+            result = await settings_svc.bulk_update_settings(
                 request.settings, legal_entity_id, reason, current_user.user_id
             )
         response = {
@@ -1112,8 +1140,12 @@ async def bulk_reset_settings(
     _permission: None = Depends(require_permission("settings:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> dict[str, Any]:
+    """
+    Bulk reset multiple settings to defaults.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "bulk_reset_settings"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1122,7 +1154,7 @@ async def bulk_reset_settings(
             return cached
 
     try:
-        result = await service.bulk_reset_settings(
+        result = await settings_svc.bulk_reset_settings(
             keys, legal_entity_id, reason, current_user.user_id
         )
         response = {
@@ -1155,10 +1187,10 @@ async def export_settings(
     category: SettingCategory | None = None,
     _permission: None = Depends(require_permission("settings:export")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> dict[str, Any]:
     try:
-        data = await service.export_settings(
+        data = await settings_svc.export_settings(
             legal_entity_id, format, category.value if category else None
         )
         return data
@@ -1179,8 +1211,12 @@ async def import_settings(
     _permission: None = Depends(require_permission("settings:import")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> dict[str, Any]:
+    """
+    Import settings from file.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "import_settings"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1189,7 +1225,7 @@ async def import_settings(
             return cached
 
     try:
-        result = await service.import_settings(
+        result = await settings_svc.import_settings(
             legal_entity_id, request.data, request.format, request.mode, current_user.user_id
         )
         response = {
@@ -1225,10 +1261,10 @@ async def validate_setting(
     value: str = Body(..., embed=True),
     _permission: None = Depends(require_permission("settings:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> SettingValidationResultSchema:
     try:
-        result = await service.validate_setting_value(key, value, legal_entity_id)
+        result = await settings_svc.validate_setting_value(key, value, legal_entity_id)
         return SettingValidationResultSchema(
             key=key,
             value=value,
@@ -1251,10 +1287,10 @@ async def validate_setting(
 async def get_setting_schema(
     category: SettingCategory | None = None,
     _permission: None = Depends(require_permission("settings:read")),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> list[SettingSchemaSchema]:
     try:
-        schemas = await service.get_setting_schemas(category.value if category else None)
+        schemas = await settings_svc.get_setting_schemas(category.value if category else None)
         return [
             SettingSchemaSchema(
                 key=s.key,
@@ -1286,10 +1322,10 @@ async def get_setting_schema(
 )
 async def get_setting_categories(
     _permission: None = Depends(require_permission("settings:read")),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> list[dict[str, Any]]:
     try:
-        categories = await service.get_setting_categories()
+        categories = await settings_svc.get_setting_categories()
         return [
             {
                 "name": c.name,
@@ -1321,10 +1357,10 @@ async def get_setting_history(
     limit: int = Query(50, ge=1, le=500),
     _permission: None = Depends(require_permission("settings:audit")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> list[SettingHistorySchema]:
     try:
-        history = await service.get_setting_history(key, legal_entity_id, limit)
+        history = await settings_svc.get_setting_history(key, legal_entity_id, limit)
         return [
             SettingHistorySchema(
                 id=h.id,
@@ -1358,10 +1394,10 @@ async def get_settings_audit_trail(
     limit: int = Query(100, ge=1, le=1000),
     _permission: None = Depends(require_permission("settings:audit")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> list[SettingHistorySchema]:
     try:
-        history = await service.get_settings_audit_trail(
+        history = await settings_svc.get_settings_audit_trail(
             legal_entity_id, start_time, end_time, user_id, limit
         )
         return [
@@ -1402,8 +1438,12 @@ async def lock_setting(
     _permission: None = Depends(require_permission("settings:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> SettingResponseSchema:
+    """
+    Lock a setting to prevent further changes.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "lock_setting"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1412,7 +1452,7 @@ async def lock_setting(
             return SettingResponseSchema(**cached)
 
     try:
-        result = await service.lock_setting(key, legal_entity_id, current_user.user_id, reason)
+        result = await settings_svc.lock_setting(key, legal_entity_id, current_user.user_id, reason)
         if not result:
             raise HTTPException(
                 status_code=404,
@@ -1473,8 +1513,12 @@ async def unlock_setting(
     _permission: None = Depends(require_permission("settings:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_settings_service),
+    settings_svc: Any = Depends(get_settings_svc),
 ) -> SettingResponseSchema:
+    """
+    Unlock a locked setting.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "unlock_setting"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1483,7 +1527,7 @@ async def unlock_setting(
             return SettingResponseSchema(**cached)
 
     try:
-        result = await service.unlock_setting(key, legal_entity_id, current_user.user_id, reason)
+        result = await settings_svc.unlock_setting(key, legal_entity_id, current_user.user_id, reason)
         if not result:
             raise HTTPException(
                 status_code=404,

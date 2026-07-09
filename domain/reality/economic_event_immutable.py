@@ -7,6 +7,10 @@ Responsibility: Representasi event ekonomi yang tidak dapat diubah.
                seperti penjualan, pembelian, produksi, transfer aset, dll.
                Event ini adalah sumber kebenaran untuk pemetaan ke entri akuntansi.
 
+               Monetary amounts are stored as Decimal with explicit currency.
+               Empty currency string indicates no monetary amount.
+               Use the `money` property to get a Money object.
+
 Dependencies:
 - standard library (uuid, datetime, decimal, hashlib, json, logging, threading)
 - domain.shared_value_objects.money_vo (Money)
@@ -21,6 +25,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from enum import Enum, auto
 from typing import Any
 from uuid import UUID, uuid4
@@ -91,6 +96,10 @@ class EconomicEvent:
 
     Business context: Mencatat kejadian ekonomi dunia nyata yang menjadi
     dasar pencatatan akuntansi. Event ini tidak dapat diubah setelah dibuat.
+
+    Monetary amounts are stored as Decimal with explicit currency.
+    Empty currency string indicates no monetary amount.
+    Use the `money` property to get a Money object when needed.
     """
 
     event_id: UUID
@@ -101,7 +110,8 @@ class EconomicEvent:
     created_by: str
     created_at: datetime
     status: EconomicEventStatus = EconomicEventStatus.DRAFT
-    amount: Money | None = None
+    amount: Decimal = Decimal(0)          # monetary value in Decimal
+    currency: str = ""                    # currency code, empty means no amount
     quantity: Quantity | None = None
     source_document_ref: str | None = None
     counterparty_id: UUID | None = None
@@ -114,6 +124,18 @@ class EconomicEvent:
     reversal_of: UUID | None = None
     cryptographic_hash: str = ""
 
+    @property
+    def money(self) -> Money | None:
+        """Return amount as Money object if currency is set."""
+        if self.currency:
+            return Money(self.amount, self.currency)
+        return None
+
+    @property
+    def has_amount(self) -> bool:
+        """Check if event has a monetary amount."""
+        return bool(self.currency)
+
     def compute_hash(self) -> str:
         """Menghitung hash kriptografis event untuk integritas."""
         content = {
@@ -122,8 +144,8 @@ class EconomicEvent:
             "event_date": self.event_date.isoformat(),
             "description": self.description,
             "legal_entity_id": str(self.legal_entity_id),
-            "amount": str(self.amount.amount) if self.amount else None,
-            "currency": self.amount.currency if self.amount else None,
+            "amount": str(self.amount) if self.currency else None,
+            "currency": self.currency if self.currency else None,
             "quantity": str(self.quantity.value) if self.quantity else None,
             "source_document_ref": self.source_document_ref,
             "counterparty_id": str(self.counterparty_id) if self.counterparty_id else None,
@@ -146,8 +168,8 @@ class EconomicEvent:
     def validate(self) -> list[str]:
         """Validasi dasar event."""
         errors = []
-        if self.amount and self.amount.amount <= 0:
-            errors.append("Amount must be positive")
+        if self.currency and self.amount <= 0:
+            errors.append("Amount must be positive when currency is set")
         if not self.description or len(self.description.strip()) < 3:
             errors.append("Description must be at least 3 characters")
         if self.event_date > datetime.now(UTC) + timedelta(days=365):
@@ -176,6 +198,7 @@ class EconomicEvent:
             created_at=datetime.now(UTC),
             status=EconomicEventStatus.DRAFT,
             amount=self.amount,
+            currency=self.currency,
             quantity=self.quantity,
             source_document_ref=self.source_document_ref,
             counterparty_id=self.counterparty_id,
@@ -194,8 +217,8 @@ class EconomicEvent:
             "created_by": self.created_by,
             "created_at": self.created_at.isoformat(),
             "status": self.status.name,
-            "amount": str(self.amount.amount) if self.amount else None,
-            "currency": self.amount.currency if self.amount else None,
+            "amount": str(self.amount) if self.currency else None,
+            "currency": self.currency if self.currency else None,
             "source_document_ref": self.source_document_ref,
             "counterparty_id": str(self.counterparty_id) if self.counterparty_id else None,
         }
@@ -245,6 +268,10 @@ class EconomicEventService:
         metadata: dict[str, Any] | None = None,
     ) -> EconomicEvent:
         """Membuat economic event baru."""
+        # Extract amount and currency from Money if provided
+        amount_decimal = amount.amount if amount is not None else Decimal(0)
+        currency = amount.currency if amount is not None else ""
+
         event = EconomicEvent(
             event_id=uuid4(),
             event_type=event_type,
@@ -254,7 +281,8 @@ class EconomicEventService:
             created_by=created_by,
             created_at=datetime.now(UTC),
             status=EconomicEventStatus.DRAFT,
-            amount=amount,
+            amount=amount_decimal,
+            currency=currency,
             quantity=quantity,
             source_document_ref=source_document_ref,
             counterparty_id=counterparty_id,
@@ -262,6 +290,7 @@ class EconomicEventService:
             metadata=metadata or {},
             cryptographic_hash="",
         )
+        # Recreate with hash
         event = EconomicEvent(
             event_id=event.event_id,
             event_type=event.event_type,
@@ -272,6 +301,7 @@ class EconomicEventService:
             created_at=event.created_at,
             status=event.status,
             amount=event.amount,
+            currency=event.currency,
             quantity=event.quantity,
             source_document_ref=event.source_document_ref,
             counterparty_id=event.counterparty_id,
@@ -296,7 +326,7 @@ class EconomicEventService:
     def get_event(self, event_id: UUID) -> EconomicEvent | None:
         return self._events.get(event_id)
 
-    def validate_event(self, event_id: UUID) -> Tuple[bool, list[str]]:
+    def validate_event(self, event_id: UUID) -> tuple[bool, list[str]]:
         """Memvalidasi economic event."""
         event = self._events.get(event_id)
         if not event:
@@ -319,6 +349,7 @@ class EconomicEventService:
             created_at=event.created_at,
             status=EconomicEventStatus.VALIDATED,
             amount=event.amount,
+            currency=event.currency,
             quantity=event.quantity,
             source_document_ref=event.source_document_ref,
             counterparty_id=event.counterparty_id,
@@ -352,6 +383,7 @@ class EconomicEventService:
             created_at=event.created_at,
             status=EconomicEventStatus.MAPPED,
             amount=event.amount,
+            currency=event.currency,
             quantity=event.quantity,
             source_document_ref=event.source_document_ref,
             counterparty_id=event.counterparty_id,

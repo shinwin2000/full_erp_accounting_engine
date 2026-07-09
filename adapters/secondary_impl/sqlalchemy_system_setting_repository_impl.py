@@ -396,23 +396,38 @@ class SQLAlchemySystemSettingRepository(SystemSettingRepositoryPort):
             raise SystemSettingRepositoryError(f"Failed to update setting: {e}") from e
 
     async def delete(self, setting_id: UUID, user_id: UUID) -> bool:
-        """Soft delete setting with user_id. Signature sesuai port."""
+        """
+        Soft delete setting with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         try:
-            setting = await self.get_by_id(setting_id)
-            if setting and setting.is_readonly:
-                raise SettingReadOnlyError(f"Setting '{setting.key}' is read-only")
-            stmt = update(SystemSettingTable).where(SystemSettingTable.id == setting_id).values(
-                deleted_at=datetime.utcnow(),
-                updated_by=user_id,
-                updated_at=datetime.utcnow(),
-            )
-            result = await self.session.execute(stmt)
-            await self.session.flush()
-            if result.rowcount > 0 and setting:
-                await self._invalidate_cache(setting.key, setting.legal_entity_id)
-                await self._log_audit("DELETE", setting_id, {"key": setting.key, "user_id": str(user_id)})
+            async with self.session.begin():
+                # 1. Lock the row with SELECT FOR UPDATE
+                stmt_lock = select(SystemSettingTable).where(
+                    SystemSettingTable.id == setting_id,
+                    SystemSettingTable.deleted_at.is_(None)
+                ).with_for_update()
+                result = await self.session.execute(stmt_lock)
+                table = result.scalar_one_or_none()
+                if not table:
+                    return False
+
+                # 2. Check if read-only
+                if table.is_readonly:
+                    raise SettingReadOnlyError(f"Setting '{table.key}' is read-only")
+
+                # 3. Perform soft delete on the locked row
+                table.deleted_at = datetime.utcnow()
+                table.updated_by = user_id
+                table.updated_at = datetime.utcnow()
+                await self.session.flush()
+
+                # 4. Invalidate cache
+                aggregate = self._to_domain(table)
+                await self._invalidate_cache(aggregate.key, aggregate.legal_entity_id)
+                await self._log_audit("DELETE", setting_id, {"key": aggregate.key, "user_id": str(user_id)})
                 logger.info("System setting %s deleted by %s", setting_id, user_id)
-            return result.rowcount > 0
+                return True
         except SettingReadOnlyError:
             raise
         except Exception as e:

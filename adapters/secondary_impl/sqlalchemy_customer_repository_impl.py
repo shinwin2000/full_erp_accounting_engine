@@ -298,18 +298,24 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             return self._to_domain(new)
 
     async def update(self, customer: Any) -> Any:
-        """Update an existing customer."""
+        """
+        Update an existing customer with pessimistic locking.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
+            # --- PESSIMISTIC LOCK: SELECT FOR UPDATE ---
             stmt = select(CustomerTable).where(
                 CustomerTable.id == customer.id,
                 CustomerTable.legal_entity_id == customer.legal_entity_id,
                 CustomerTable.deleted_at.is_(None),
-            )
+            ).with_for_update()
+
             result = await session.execute(stmt)
             existing = result.scalar_one_or_none()
             if not existing:
                 raise ValueError(f"Customer {customer.id} not found")
+
             now = datetime.now(timezone.utc)
             existing.customer_code = customer.customer_code
             existing.customer_name = customer.customer_name
@@ -333,22 +339,25 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             return self._to_domain(existing)
 
     async def delete(self, customer_id: UUID, user_id: UUID | None = None, permanent: bool = False) -> bool:
-        """Delete a customer (soft or hard delete)."""
+        """
+        Delete a customer (soft or hard delete) with pessimistic locking.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
+            # --- PESSIMISTIC LOCK: SELECT FOR UPDATE ---
+            stmt = select(CustomerTable).where(CustomerTable.id == customer_id).with_for_update()
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if not row:
+                return False
+
             if permanent:
-                stmt = delete(CustomerTable).where(CustomerTable.id == customer_id)
-                result = await session.execute(stmt)
-                deleted = result.rowcount > 0
-                if deleted:
-                    await self._log_audit("DELETE_PERMANENT", customer_id, {"user_id": str(user_id) if user_id else None})
-                return deleted
+                await session.delete(row)
+                await session.flush()
+                await self._log_audit("DELETE_PERMANENT", customer_id, {"user_id": str(user_id) if user_id else None})
+                return True
             else:
-                stmt = select(CustomerTable).where(CustomerTable.id == customer_id)
-                result = await session.execute(stmt)
-                row = result.scalar_one_or_none()
-                if not row:
-                    return False
                 now = datetime.now(timezone.utc)
                 row.deleted_at = now
                 row.is_active = False
@@ -535,18 +544,22 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             return True
 
     async def update_credit_usage(self, customer_id: UUID, amount_used: Decimal) -> None:
-        """Update credit usage for a customer."""
+        """
+        Update credit usage with pessimistic locking.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = (
-                update(CustomerTable)
-                .where(CustomerTable.id == customer_id)
-                .values(
-                    credit_used=CustomerTable.credit_used + amount_used,
-                    updated_at=datetime.now(timezone.utc),
-                )
-            )
-            await session.execute(stmt)
+            # --- PESSIMISTIC LOCK: SELECT FOR UPDATE ---
+            stmt = select(CustomerTable).where(CustomerTable.id == customer_id).with_for_update()
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Customer {customer_id} not found")
+
+            row.credit_used += amount_used
+            row.updated_at = datetime.now(timezone.utc)
+            await session.flush()
             await self._log_audit("UPDATE_CREDIT", customer_id, {"amount": float(amount_used)})
 
 

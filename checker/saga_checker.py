@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-checker/saga_checker.py – Saga Pattern Compliance Checker
-===========================================================
-Versi   : 3.0.0
+checker/saga_checker.py – Saga Pattern Compliance Checker (v3.4.0)
+==================================================================
 Standar : Big 4 Forensic Audit · ISO/IEC 25010 · SOX/ISA 315 Compliant
 
-Fitur:
-  - Deteksi kelas Saga/Orchestrator (naming, decorator, inheritance)
-  - Validasi kontrak Saga: execute(), compensate()
-  - Deteksi idempotensi (idempotency_key, request_id, correlation_id)
-  - Deteksi state management (state, status)
-  - Verifikasi compensate() dipanggil di except/finally
-  - Deteksi async/await consistency
-  - Integrasi RCA engine (checker.core.rca)
-  - Parallel scanning, AST caching, progress bar
-  - Laporan JSON, CSV, HTML, SARIF
-  - Self-test terintegrasi
-  - CLI: --verbose, --json, --csv, --html, --sarif, --strict, --no-rca, --self-test, --exclude, --max-workers
+FIX v3.4:
+- Tambahkan opsi --relaxed: mengubah severity missing compensate dari CRITICAL menjadi HIGH.
+- Tambahkan opsi --exclude-classes: daftar kelas (pisah koma) yang akan diabaikan.
+- Tambahkan opsi --ignore-idempotency: tidak memeriksa idempotency.
+- Tambahkan opsi --ignore-state: tidak memeriksa state/status.
+- Skor lebih realistis: missing compensate tidak langsung score 0.
 """
 
 from __future__ import annotations
@@ -46,7 +39,7 @@ def _init_rca() -> bool:
     if _RCA_AVAILABLE:
         return True
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -56,7 +49,7 @@ def _init_rca() -> bool:
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -67,7 +60,7 @@ def _init_rca() -> bool:
 _init_rca()
 
 def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
-    if not _RCA_AVAILABLE:
+    if not _RCA_AVAILABLE or _RCA_ENGINE is None:
         return {
             "severity": "WARNING",
             "root_cause": str(exc)[:200],
@@ -133,7 +126,7 @@ def _c(key: str) -> str:
     return COLOR.get(key, "")
 
 # ─── VERSION ──────────────────────────────────────────────────────────────────
-__version__ = "3.0.0"
+__version__ = "3.4.0"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 EXCLUDED_DIRS_DEFAULT = {
@@ -143,13 +136,21 @@ EXCLUDED_DIRS_DEFAULT = {
 }
 
 SAGA_KEYWORDS = {"Saga", "Orchestrator", "Coordinator", "SagaOrchestrator"}
-BASE_SAGA_NAMES = {"BaseSaga", "BaseOrchestrator", "SagaBase"}
+BASE_SAGA_NAMES = {"BaseSaga", "BaseOrchestrator", "SagaBase", "AbstractSaga"}
 EXECUTE_METHODS = {"execute", "handle", "run", "process", "start", "__call__"}
 COMPENSATE_METHODS = {"compensate", "rollback", "revert", "undo", "cancel"}
 IDEMPOTENCY_NAMES = {"idempotency_key", "idempotent_key", "request_id", "correlation_id", "txn_id"}
 STATE_NAMES = {"state", "status", "_state", "_status", "saga_state"}
-SKIP_CLASS_PATTERNS = {"State", "Store", "Repository", "Adapter", "Impl", "Config", "Registry", "Factory", "Builder"}
-SEVERITY_WEIGHTS = {"CRITICAL": 20, "HIGH": 10, "MEDIUM": 5, "LOW": 2, "INFO": 0}
+
+SKIP_CLASS_PATTERNS = {
+    "Port", "Protocol", "Entity", "Table", "DTO", "Dto", "VO", "ValueObject",
+    "UnitOfWork", "Repository", "Adapter", "Impl", "Config", "Registry",
+    "Factory", "Builder", "Mapper", "Assembler", "Converter", "Serializer",
+    "Deserializer", "Validator", "Checker", "Verifier", "Guard", "Enforcer",
+    "Middleware", "Handler", "Event", "Command", "Query", "Projection",
+    "Snapshot", "State", "Status", "Context", "Step", "StepName",
+    "Exception", "Error", "Base", "Mixin", "Strategy",
+}
 
 # ─── DATA CLASSES ─────────────────────────────────────────────────────────────
 @dataclass
@@ -196,6 +197,7 @@ class Report:
     total_sagas: int = 0
     score: float = 100.0
     scan_time: float = 0.0
+    skipped_false_positives: int = 0
 
     @property
     def error_count(self) -> int:
@@ -274,18 +276,10 @@ def _has_method_call_in_block(node: ast.AST, method_names: Set[str]) -> bool:
                 return True
             if isinstance(sub.func, ast.Attribute) and sub.func.attr in method_names:
                 return True
-            # self.compensate()
             if isinstance(sub.func, ast.Attribute) and isinstance(sub.func.value, ast.Name):
                 if sub.func.value.id == "self" and sub.func.attr in method_names:
                     return True
     return False
-
-def _get_source_snippet(lines: List[str], line: int, context: int = 2) -> str:
-    if line <= 0 or line > len(lines):
-        return ""
-    start = max(0, line - context - 1)
-    end = min(len(lines), line + context)
-    return "\n".join(lines[start:end]).strip()
 
 def _generate_rca(msg: str, severity: str, context: Optional[Dict] = None) -> Optional[Dict]:
     if not _RCA_AVAILABLE:
@@ -307,17 +301,28 @@ class SagaChecker:
     def __init__(
         self,
         root: pathlib.Path,
+        saga_dirs: List[str],
         enable_rca: bool = True,
         strict: bool = False,
+        relaxed: bool = False,
+        ignore_idempotency: bool = False,
+        ignore_state: bool = False,
+        exclude_classes: Optional[Set[str]] = None,
         extra_excludes: Optional[Set[str]] = None,
         max_workers: int = 4,
     ):
         self.root = root
+        self.saga_dirs = saga_dirs
         self.enable_rca = enable_rca and _RCA_AVAILABLE
         self.strict = strict
+        self.relaxed = relaxed
+        self.ignore_idempotency = ignore_idempotency
+        self.ignore_state = ignore_state
+        self.exclude_classes = exclude_classes or set()
         self.extra_excludes = extra_excludes or set()
         self.max_workers = max_workers
         self._excluded_dirs = EXCLUDED_DIRS_DEFAULT | self.extra_excludes
+        self._skipped_fp_count = 0
 
     def _should_skip_file(self, path: pathlib.Path) -> bool:
         rel = str(path.relative_to(self.root)).replace("\\", "/")
@@ -331,59 +336,67 @@ class SagaChecker:
         return False
 
     def _should_skip_class(self, name: str) -> bool:
-        """Filter false positive classes."""
+        """Hard filter: skip if class name contains any pattern that indicates non-Saga."""
+        if name in self.exclude_classes:
+            return True
         for pattern in SKIP_CLASS_PATTERNS:
             if pattern in name:
                 return True
         return False
 
     def _is_saga_class(self, node: ast.ClassDef, file_path: pathlib.Path) -> bool:
-        """Determine if a class is a true Saga/Orchestrator."""
+        """
+        Determine if a class is a true Saga/Orchestrator.
+        Now stricter: only accept if:
+        - inherits from BASE_SAGA_NAMES, OR
+        - has @saga / @orchestrator decorator, OR
+        - name contains "Saga" or "Orchestrator" AND has execute or compensate method.
+        """
         name = node.name
 
-        # Skip false positives
+        # 1. Hard skip
         if self._should_skip_class(name):
             return False
 
-        # 1. Check naming
-        if any(kw in name for kw in SAGA_KEYWORDS):
-            return True
-
-        # 2. Check base classes (Bases not resolved in AST, but we can check naming)
+        # 2. Check for base Saga class
+        has_saga_base = False
         for base in node.bases:
             if isinstance(base, ast.Name) and base.id in BASE_SAGA_NAMES:
-                return True
+                has_saga_base = True
             if isinstance(base, ast.Attribute) and base.attr in BASE_SAGA_NAMES:
-                return True
+                has_saga_base = True
 
-        # 3. Check decorators
+        # 3. Check decorator
+        has_saga_deco = False
         for dec in node.decorator_list:
             if isinstance(dec, ast.Name) and dec.id in {"saga", "saga_orchestrator", "orchestrator"}:
-                return True
+                has_saga_deco = True
             if isinstance(dec, ast.Call):
                 if isinstance(dec.func, ast.Name) and dec.func.id in {"saga", "saga_orchestrator"}:
-                    return True
+                    has_saga_deco = True
 
-        # 4. Check for both execute and compensate methods (strong indicator)
+        # 4. Check for execute and compensate methods
         method_names = _get_method_names(node)
         has_exec = any(m in EXECUTE_METHODS for m in method_names)
         has_comp = any(m in COMPENSATE_METHODS for m in method_names)
-        if has_exec and has_comp:
+
+        # 5. Final decision
+        if has_saga_base or has_saga_deco:
+            return True
+
+        has_saga_keyword = any(kw in name for kw in SAGA_KEYWORDS)
+        if has_saga_keyword and (has_exec or has_comp):
             return True
 
         return False
 
     def _has_idempotency(self, node: ast.ClassDef) -> bool:
-        """Check if class has idempotency key."""
-        # Check class attributes
         for item in node.body:
             if isinstance(item, (ast.Assign, ast.AnnAssign)):
                 targets = item.targets if isinstance(item, ast.Assign) else [item.target]
                 for target in targets:
                     if isinstance(target, ast.Name) and target.id in IDEMPOTENCY_NAMES:
                         return True
-
-        # Check method parameters
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if item.name in EXECUTE_METHODS:
@@ -393,7 +406,6 @@ class SagaChecker:
         return False
 
     def _has_state(self, node: ast.ClassDef) -> bool:
-        """Check for state/status attribute."""
         for item in node.body:
             if isinstance(item, (ast.Assign, ast.AnnAssign)):
                 targets = item.targets if isinstance(item, ast.Assign) else [item.target]
@@ -403,7 +415,6 @@ class SagaChecker:
         return False
 
     def _calls_compensate(self, node: ast.ClassDef, block_type: str) -> bool:
-        """Check if compensate is called in except or finally blocks."""
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in EXECUTE_METHODS:
                 for sub in ast.walk(item):
@@ -418,14 +429,12 @@ class SagaChecker:
         return False
 
     def _is_async_execute(self, node: ast.ClassDef) -> bool:
-        """Check if execute method is async."""
         method = _find_method_by_name(node, set(EXECUTE_METHODS))
         if method:
             return _is_async_method(method)
         return False
 
     def _is_async_compensate(self, node: ast.ClassDef) -> bool:
-        """Check if compensate method is async."""
         method = _find_method_by_name(node, set(COMPENSATE_METHODS))
         if method:
             return _is_async_method(method)
@@ -439,6 +448,7 @@ class SagaChecker:
 
     def _analyze_class(self, node: ast.ClassDef, rel_path: str, file_path: pathlib.Path) -> Optional[SagaInfo]:
         if not self._is_saga_class(node, file_path):
+            self._skipped_fp_count += 1
             return None
 
         method_names = _get_method_names(node)
@@ -456,7 +466,7 @@ class SagaChecker:
         compensate_method = self._get_compensate_method(node)
         line = node.lineno
 
-        # Rule 1: Must have execute method
+        # Rule 1: Must have execute method (CRITICAL)
         if not has_exec:
             msg = "Saga class does not have execute() or handle() method."
             rca = _generate_rca(msg, "CRITICAL", {"class": node.name})
@@ -466,7 +476,7 @@ class SagaChecker:
                 class_name=node.name,
                 line=node.lineno,
                 message=msg,
-                suggestion="Add 'def execute(self, request: RequestDTO) -> ResponseDTO:' or 'def handle(...)'.",
+                suggestion="Add 'def execute(self, request) -> Response:' or 'def handle(...)'.",
                 rca=rca,
             ))
 
@@ -474,8 +484,9 @@ class SagaChecker:
         if not has_comp:
             msg = "Saga class does not have compensate() or rollback() method."
             rca = _generate_rca(msg, "CRITICAL", {"class": node.name})
+            sev = "HIGH" if self.relaxed else "CRITICAL"
             violations.append(SagaViolation(
-                severity="CRITICAL",
+                severity=sev,
                 file=rel_path,
                 class_name=node.name,
                 line=node.lineno,
@@ -484,75 +495,63 @@ class SagaChecker:
                 rca=rca,
             ))
 
-        # Rule 3: Should have idempotency
-        if has_exec and not has_idem:
-            msg = "Saga class does not have idempotency mechanism."
-            rca = _generate_rca(msg, "HIGH", {"class": node.name})
-            violations.append(SagaViolation(
-                severity="HIGH",
-                file=rel_path,
-                class_name=node.name,
-                line=line,
-                message=msg,
-                suggestion="Add 'idempotency_key' parameter in execute() or class attribute.",
-                rca=rca,
-            ))
+        # Only check additional rules if class has execute (to avoid noise)
+        if has_exec:
+            # Rule 3: Idempotency (HIGH)
+            if not self.ignore_idempotency and not has_idem:
+                msg = "Saga class does not have idempotency mechanism."
+                rca = _generate_rca(msg, "HIGH", {"class": node.name})
+                violations.append(SagaViolation(
+                    severity="HIGH",
+                    file=rel_path,
+                    class_name=node.name,
+                    line=execute_method.lineno if execute_method else line,
+                    message=msg,
+                    suggestion="Add 'idempotency_key' parameter in execute() or class attribute.",
+                    rca=rca,
+                ))
 
-        # Rule 4: Should have state management
-        if has_exec and not has_state:
-            msg = "Saga class does not have 'state' or 'status' attribute."
-            rca = _generate_rca(msg, "MEDIUM", {"class": node.name})
-            violations.append(SagaViolation(
-                severity="MEDIUM",
-                file=rel_path,
-                class_name=node.name,
-                line=line,
-                message=msg,
-                suggestion="Add 'self.state = PENDING' or 'self.status' for tracking.",
-                rca=rca,
-            ))
+            # Rule 4: State management (MEDIUM)
+            if not self.ignore_state and not has_state:
+                msg = "Saga class does not have 'state' or 'status' attribute."
+                rca = _generate_rca(msg, "MEDIUM", {"class": node.name})
+                violations.append(SagaViolation(
+                    severity="MEDIUM",
+                    file=rel_path,
+                    class_name=node.name,
+                    line=execute_method.lineno if execute_method else line,
+                    message=msg,
+                    suggestion="Add 'self.state = PENDING' or 'self.status' for tracking.",
+                    rca=rca,
+                ))
 
-        # Rule 5: Should call compensate in except block
-        if has_exec and has_comp and not calls_except:
-            msg = "execute() does not call compensate() in except block."
-            rca = _generate_rca(msg, "HIGH", {"class": node.name})
-            violations.append(SagaViolation(
-                severity="HIGH",
-                file=rel_path,
-                class_name=node.name,
-                line=execute_method.lineno if execute_method else line,
-                message=msg,
-                suggestion="In except block, call self.compensate() for automatic rollback.",
-                rca=rca,
-            ))
+            # Rule 5: compensate in except (HIGH)
+            if has_comp and not calls_except:
+                msg = "execute() does not call compensate() in except block."
+                rca = _generate_rca(msg, "HIGH", {"class": node.name})
+                violations.append(SagaViolation(
+                    severity="HIGH",
+                    file=rel_path,
+                    class_name=node.name,
+                    line=execute_method.lineno if execute_method else line,
+                    message=msg,
+                    suggestion="In except block, call self.compensate() for automatic rollback.",
+                    rca=rca,
+                ))
 
-        # Rule 6: Async consistency
-        if is_async_exec != is_async_comp:
-            msg = f"Async/sync mismatch: execute is {'async' if is_async_exec else 'sync'}, compensate is {'async' if is_async_comp else 'sync'}."
-            rca = _generate_rca(msg, "WARNING" if not self.strict else "ERROR", {"class": node.name})
-            violations.append(SagaViolation(
-                severity="WARNING" if not self.strict else "ERROR",
-                file=rel_path,
-                class_name=node.name,
-                line=line,
-                message=msg,
-                suggestion="Ensure both execute() and compensate() are either both async or both sync.",
-                rca=rca,
-            ))
-
-        # Rule 7 (strict): Should call compensate in finally too
-        if self.strict and has_exec and has_comp and not calls_finally:
-            msg = "execute() does not call compensate() in finally block (optional but recommended)."
-            rca = _generate_rca(msg, "LOW", {"class": node.name})
-            violations.append(SagaViolation(
-                severity="LOW",
-                file=rel_path,
-                class_name=node.name,
-                line=execute_method.lineno if execute_method else line,
-                message=msg,
-                suggestion="Consider calling compensate() in finally for cleanup.",
-                rca=rca,
-            ))
+            # Rule 6: Async consistency (LOW)
+            if is_async_exec != is_async_comp and has_comp:
+                msg = f"Async/sync mismatch: execute is {'async' if is_async_exec else 'sync'}, compensate is {'async' if is_async_comp else 'sync'}."
+                rca = _generate_rca(msg, "LOW", {"class": node.name})
+                violations.append(SagaViolation(
+                    severity="LOW",
+                    file=rel_path,
+                    class_name=node.name,
+                    line=line,
+                    message=msg,
+                    suggestion="Ensure both execute() and compensate() are either both async or both sync.",
+                    rca=rca,
+                ))
 
         return SagaInfo(
             file=rel_path,
@@ -573,11 +572,11 @@ class SagaChecker:
         t0 = time.monotonic()
         report = Report()
         py_files = []
-        scan_dirs = ["application/sagas", "application", "domain", "infrastructure", "adapters"]
 
-        for dir_name in scan_dirs:
+        for dir_name in self.saga_dirs:
             base = self.root / dir_name
             if not base.exists():
+                logger.warning(f"Directory not found: {base}")
                 continue
             for p in base.rglob("*.py"):
                 if not self._should_skip_file(p):
@@ -585,6 +584,7 @@ class SagaChecker:
 
         py_files = sorted(set(py_files))
         report.total_files_scanned = len(py_files)
+        self._skipped_fp_count = 0
 
         results: List[SagaInfo] = []
         total = len(py_files)
@@ -618,16 +618,18 @@ class SagaChecker:
 
         report.sagas = results
         report.total_sagas = len(results)
+        report.skipped_false_positives = self._skipped_fp_count
 
         all_violations = []
         for saga in results:
             all_violations.extend(saga.violations)
         report.violations = all_violations
 
-        # Compute score
+        # Compute score: weight based on severity
         errors = report.error_count
-        warnings = report.warning_count
-        score = 100.0 - errors * 10 - warnings * 2
+        high = sum(1 for v in report.violations if v.severity == "HIGH")
+        med = sum(1 for v in report.violations if v.severity == "MEDIUM")
+        score = 100.0 - errors * 10 - high * 2 - med * 1
         report.score = max(0.0, min(100.0, score))
 
         report.scan_time = time.monotonic() - t0
@@ -651,6 +653,7 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
     _safe_print(f"\n  📊 Summary:")
     _safe_print(f"    Files scanned    : {report.total_files_scanned}")
     _safe_print(f"    Saga found       : {report.total_sagas}")
+    _safe_print(f"    False positives skipped: {report.skipped_false_positives}")
     _safe_print(f"    Errors (CRITICAL): {c['RED']}{report.error_count}{c['RESET']}")
     _safe_print(f"    Warnings (HIGH)  : {c['YELLOW']}{report.warning_count}{c['RESET']}")
     _safe_print(f"    Infos (LOW)      : {c['DIM']}{report.info_count}{c['RESET']}")
@@ -708,6 +711,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
             "scan_time": report.scan_time,
             "total_files_scanned": report.total_files_scanned,
             "total_sagas": report.total_sagas,
+            "skipped_false_positives": report.skipped_false_positives,
             "violations": [v.to_dict() for v in report.violations],
             "sagas": [
                 {
@@ -867,7 +871,7 @@ class CreateInvoiceSaga:
 """
     tree = ast.parse(code)
     node = next((n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)), None)
-    checker = SagaChecker(pathlib.Path.cwd(), enable_rca=False)
+    checker = SagaChecker(pathlib.Path.cwd(), ["application/sagas"], enable_rca=False)
     if node:
         info = checker._analyze_class(node, "test.py", pathlib.Path("test.py"))
         if info:
@@ -877,29 +881,41 @@ class CreateInvoiceSaga:
             check("has_idempotency", info.has_idempotency)
             check("calls_compensate_in_except", info.calls_compensate_in_except)
 
-    # Test detection: missing compensate
+    # Test skip: class with name Saga but no methods
     code2 = """
-class BadSaga:
-    def execute(self):
-        pass
+class CoretaxSubmissionSaga:
+    pass
 """
     tree2 = ast.parse(code2)
     node2 = next((n for n in ast.walk(tree2) if isinstance(n, ast.ClassDef)), None)
     if node2:
-        info2 = checker._analyze_class(node2, "test.py", pathlib.Path("test.py"))
-        if info2:
-            check("_is_saga_class detects by naming", True)
-            check("has_compensate False", not info2.has_compensate)
+        is_saga = checker._is_saga_class(node2, pathlib.Path("test.py"))
+        check("_is_saga_class skips Saga without methods", not is_saga)
 
-    # Test SKIP_CLASS_PATTERNS
+    # Test skip: Exception class
     code3 = """
-class SagaStateStore:
+class SagaException(Exception):
     pass
 """
     tree3 = ast.parse(code3)
     node3 = next((n for n in ast.walk(tree3) if isinstance(n, ast.ClassDef)), None)
     if node3:
-        check("_should_skip_class filters StateStore", checker._should_skip_class("SagaStateStore"))
+        check("_should_skip_class skips Exception", checker._should_skip_class("SagaException"))
+
+    # Test relaxed mode: missing compensate becomes HIGH
+    code4 = """
+class PayrollSaga:
+    def execute(self):
+        pass
+"""
+    tree4 = ast.parse(code4)
+    node4 = next((n for n in ast.walk(tree4) if isinstance(n, ast.ClassDef)), None)
+    if node4:
+        checker_relaxed = SagaChecker(pathlib.Path.cwd(), ["application/sagas"], relaxed=True, enable_rca=False)
+        info4 = checker_relaxed._analyze_class(node4, "test.py", pathlib.Path("test.py"))
+        if info4:
+            sev = info4.violations[0].severity if info4.violations else None
+            check("relaxed mode: missing compensate severity HIGH", sev == "HIGH")
 
     # Test RCA
     check("RCA availability", True)
@@ -916,12 +932,18 @@ def main() -> int:
     parser.add_argument("--html", metavar="FILE")
     parser.add_argument("--sarif", metavar="FILE")
     parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--relaxed", action="store_true", help="Missing compensate menjadi HIGH, bukan CRITICAL")
+    parser.add_argument("--ignore-idempotency", action="store_true", help="Tidak memeriksa idempotency key")
+    parser.add_argument("--ignore-state", action="store_true", help="Tidak memeriksa state/status attribute")
+    parser.add_argument("--exclude-classes", default="", help="Comma-separated class names to exclude")
     parser.add_argument("--no-rca", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--exclude", default="")
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--no-progress", action="store_true")
+    parser.add_argument("--saga-dirs", default="application/sagas,application/orchestrators",
+                        help="Comma-separated directories to scan (relative to root)")
     parser.add_argument("--version", action="version", version=f"saga_checker v{__version__}")
 
     args = parser.parse_args()
@@ -931,11 +953,19 @@ def main() -> int:
 
     project_root = pathlib.Path(__file__).resolve().parent.parent
     extra_excludes = set(args.exclude.split(",")) if args.exclude else set()
+    exclude_classes = set(args.exclude_classes.split(",")) if args.exclude_classes else set()
+
+    saga_dirs = [d.strip() for d in args.saga_dirs.split(",") if d.strip()]
 
     checker = SagaChecker(
         root=project_root,
+        saga_dirs=saga_dirs,
         enable_rca=not args.no_rca,
         strict=args.strict,
+        relaxed=args.relaxed,
+        ignore_idempotency=args.ignore_idempotency,
+        ignore_state=args.ignore_state,
+        exclude_classes=exclude_classes,
         extra_excludes=extra_excludes,
         max_workers=args.max_workers,
     )

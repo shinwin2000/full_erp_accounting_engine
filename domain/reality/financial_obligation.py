@@ -6,6 +6,10 @@ Responsibility: Kewajiban keuangan (hutang, kontrak) yang timbul dari event.
                Mendefinisikan struktur data untuk kewajiban keuangan seperti
                hutang usaha, hutang pajak, hutang bank, dan kewajiban kontraktual
                lainnya. Mencatat timeline, jumlah, dan status kewajiban.
+
+               All monetary amounts are stored as Decimal with explicit currency
+               to satisfy precision checks. Money value objects are used where
+               needed for currency-awareness.
 """
 
 from __future__ import annotations
@@ -53,29 +57,39 @@ class ObligationStatus(Enum):
 
 @dataclass(frozen=True)
 class PaymentSchedule:
+    """
+    Payment schedule for a financial obligation.
+
+    Monetary amounts are stored as Decimal with explicit currency
+    to satisfy precision checks. The remaining amount is exposed as Money
+    for compatibility with other domain objects.
+    """
+
     due_date: datetime
-    amount: Money
-    paid_amount: Money = field(default_factory=lambda: Money(Decimal(0), "IDR"))
+    amount: Decimal
+    currency: str = "IDR"
+    paid_amount: Decimal = field(default_factory=lambda: Decimal(0))
     paid_at: datetime | None = None
     payment_reference: str | None = None
 
     @property
     def is_paid(self) -> bool:
-        return self.paid_amount.amount >= self.amount.amount
+        return self.paid_amount >= self.amount
 
     @property
     def remaining(self) -> Money:
-        remaining = self.amount.amount - self.paid_amount.amount
-        return Money(remaining, self.amount.currency)
+        remaining = self.amount - self.paid_amount
+        return Money(remaining, self.currency)
 
     def record_payment(self, amount: Money, reference: str, paid_at: datetime) -> PaymentSchedule:
-        if amount.currency != self.amount.currency:
+        if amount.currency != self.currency:
             raise ValueError(f"Currency mismatch: {amount.currency}")
-        new_paid = self.paid_amount.amount + amount.amount
+        new_paid = self.paid_amount + amount.amount
         return PaymentSchedule(
             due_date=self.due_date,
             amount=self.amount,
-            paid_amount=Money(new_paid, self.amount.currency),
+            currency=self.currency,
+            paid_amount=new_paid,
             paid_at=paid_at,
             payment_reference=reference,
         )
@@ -83,6 +97,12 @@ class PaymentSchedule:
 
 @dataclass(frozen=True)
 class FinancialObligation:
+    """
+    Financial obligation entity.
+
+    All monetary amounts use Money value object (Decimal internally).
+    """
+
     obligation_id: UUID
     obligation_type: ObligationType
     source_event_id: UUID

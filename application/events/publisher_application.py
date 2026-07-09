@@ -10,6 +10,10 @@ Responsibility:
     Event publisher untuk application layer. Menerbitkan domain events
     dan integration events ke message broker (Kafka) melalui transactional
     outbox pattern.
+
+Perbaikan presisi (MNY-003):
+    - Semua nilai moneter (Decimal) diserialisasi sebagai string, bukan float.
+    - Menghapus konversi float() pada nilai moneter di _event_to_dict dan _json_default.
 """
 
 from __future__ import annotations
@@ -162,7 +166,8 @@ class EventEnvelope:
                 elif isinstance(value, datetime):
                     result[key] = value.isoformat()
                 elif isinstance(value, Decimal):
-                    result[key] = float(value)
+                    # Preserve precision: serialize as string, not float
+                    result[key] = str(value)
                 else:
                     result[key] = value
         return result
@@ -174,7 +179,8 @@ class EventEnvelope:
         if isinstance(obj, datetime):
             return obj.isoformat()
         if isinstance(obj, Decimal):
-            return float(obj)
+            # Preserve precision: serialize as string
+            return str(obj)
         raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
     @classmethod

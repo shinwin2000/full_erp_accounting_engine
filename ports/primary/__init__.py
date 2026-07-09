@@ -27,7 +27,7 @@ from .ledger_repository_port import LedgerRepositoryPort
 from .legal_entity_repository_port import LegalEntityRepositoryPort
 from .notification_port import NotificationPort
 from .system_setting_repository_port import SystemSettingRepositoryPort
-from .tax_authority_coretax_port import CoreTaxPort
+from .tax_authority_coretax_port import TaxAuthorityCoretaxPort as CoreTaxPort
 from .tax_transaction_repository_port import TaxTransactionRepositoryPort
 from .timestamp_notary_port import TimestampNotaryPort
 from .unit_of_work_port import RepositoryProvider, UnitOfWorkPort, get_uow

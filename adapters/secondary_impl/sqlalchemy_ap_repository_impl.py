@@ -341,10 +341,18 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             await self.session.rollback()
             raise APRepositoryError(f"Failed to transition invoice: {e}") from e
 
-    async def approve(self, invoice_id: UUID, approved_by: UUID) -> None:
-        await self._transition_status(invoice_id, "approved", approved_by, "approved_at", "approved_by")
+    # --- Methods that match port signature ---
+
+    async def submit_for_approval(self, invoice_id: UUID, user_id: UUID) -> None:
+        """Submit invoice for approval (user_id = actor)."""
+        await self._transition_status(invoice_id, "submitted", user_id, "submitted_at", "submitted_by")
+
+    async def approve(self, invoice_id: UUID, approver_id: UUID) -> None:
+        """Approve invoice (approver_id = actor)."""
+        await self._transition_status(invoice_id, "approved", approver_id, "approved_at", "approved_by")
 
     async def cancel(self, invoice_id: UUID, reason: str, user_id: UUID) -> bool:
+        """Cancel invoice (user_id = actor)."""
         try:
             invoice = await self.get_by_id(invoice_id)
             if not invoice:
@@ -368,35 +376,8 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             logger.error("Failed to cancel invoice %s: %s", invoice_id, e)
             raise APRepositoryError(f"Failed to cancel invoice: {e}") from e
 
-    async def submit(self, invoice_id: UUID, submitted_by: UUID) -> None:
-        await self._transition_status(invoice_id, "submitted", submitted_by, "submitted_at", "submitted_by")
-
-    async def reject(self, invoice_id: UUID, rejected_by: UUID) -> None:
-        await self._transition_status(invoice_id, "draft", rejected_by, "rejected_at", "rejected_by")
-
-    async def delete(self, invoice_id: UUID, deleted_by: UUID) -> None:
-        try:
-            stmt = select(APInvoiceTable.version).where(APInvoiceTable.id == invoice_id)
-            result = await self.session.execute(stmt)
-            current_version = result.scalar_one_or_none()
-            if current_version is None:
-                raise APInvoiceNotFoundError(f"Invoice {invoice_id} not found")
-            update_stmt = update(APInvoiceTable).where(APInvoiceTable.id == invoice_id).values(
-                deleted_at=datetime.utcnow(),
-                deleted_by=deleted_by,
-                version=current_version + 1,
-                updated_at=datetime.utcnow()
-            )
-            await self.session.execute(update_stmt)
-            await self.session.flush()
-            logger.info("Invoice %s soft deleted by %s", invoice_id, deleted_by)
-        except APInvoiceNotFoundError:
-            raise
-        except Exception as e:
-            await self.session.rollback()
-            raise APRepositoryError(f"Failed to delete invoice: {e}") from e
-
-    async def dispute(self, invoice_id: UUID, reason: str, disputed_by: UUID) -> None:
+    async def dispute(self, invoice_id: UUID, reason: str, user_id: UUID) -> None:
+        """Dispute invoice (user_id = actor)."""
         try:
             stmt = select(APInvoiceTable).where(APInvoiceTable.id == invoice_id)
             result = await self.session.execute(stmt)
@@ -417,8 +398,48 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             await self.session.rollback()
             raise APRepositoryError(f"Failed to dispute invoice: {e}") from e
 
-    async def submit_for_approval(self, invoice_id: UUID, submitted_by: UUID) -> None:
-        await self.submit(invoice_id, submitted_by)
+    # --- DELETE (Corrected to match port signature) ---
+    async def delete(self, invoice_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
+        """
+        Delete invoice: soft delete by default, permanent if permanent=True.
+        Returns True if deleted, False if invoice not found.
+        """
+        try:
+            # Check existence
+            stmt = select(APInvoiceTable).where(APInvoiceTable.id == invoice_id)
+            result = await self.session.execute(stmt)
+            header = result.scalar_one_or_none()
+            if header is None:
+                return False
+
+            if permanent:
+                # Hard delete: remove record
+                await self.session.execute(delete(APInvoiceTable).where(APInvoiceTable.id == invoice_id))
+                await self.session.flush()
+                logger.info("Invoice %s permanently deleted by %s", invoice_id, user_id)
+            else:
+                # Soft delete: set deleted_at and deleted_by
+                current_version = header.version
+                update_stmt = update(APInvoiceTable).where(
+                    APInvoiceTable.id == invoice_id,
+                    APInvoiceTable.version == current_version
+                ).values(
+                    deleted_at=datetime.utcnow(),
+                    deleted_by=user_id,
+                    version=current_version + 1,
+                    updated_at=datetime.utcnow()
+                )
+                result = await self.session.execute(update_stmt)
+                if result.rowcount == 0:
+                    raise OptimisticLockError(f"Invoice {invoice_id} was modified concurrently")
+                await self.session.flush()
+                logger.info("Invoice %s soft deleted by %s", invoice_id, user_id)
+            return True
+        except OptimisticLockError:
+            raise
+        except Exception as e:
+            await self.session.rollback()
+            raise APRepositoryError(f"Failed to delete invoice: {e}") from e
 
     # === PAYMENTS & CREDIT NOTES ===
     async def add_payment(self, payment: APPayment) -> None:
@@ -534,11 +555,12 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             logger.error("Failed to find invoices due for payment: %s", e)
             raise APRepositoryError(f"Failed to find due invoices: {e}") from e
 
-    async def find_by_date_range(self, from_date: date, to_date: date, legal_entity_id: UUID) -> list[APInvoiceAggregate]:
+    async def find_by_date_range(self, start_date: date, end_date: date, legal_entity_id: UUID) -> list[APInvoiceAggregate]:
+        """Find invoices by date range (start_date, end_date)."""
         try:
             stmt = select(APInvoiceTable).where(
-                APInvoiceTable.invoice_date >= from_date,
-                APInvoiceTable.invoice_date <= to_date,
+                APInvoiceTable.invoice_date >= start_date,
+                APInvoiceTable.invoice_date <= end_date,
                 APInvoiceTable.legal_entity_id == legal_entity_id,
                 APInvoiceTable.deleted_at.is_(None),
             ).order_by(APInvoiceTable.invoice_date)
@@ -569,9 +591,10 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             logger.error("Failed to get outstanding balance for vendor %s: %s", vendor_id, e)
             raise APRepositoryError(f"Failed to get outstanding balance: {e}") from e
 
-    async def get_vendor_balance_history(self, vendor_id: UUID, from_date: date, to_date: date) -> list[dict[str, Any]]:
+    async def get_vendor_balance_history(self, vendor_id: UUID, start_date: date, end_date: date) -> list[dict[str, Any]]:
+        """Get vendor balance history between start_date and end_date."""
         try:
-            invoices = await self.find_by_date_range(from_date, to_date, None)
+            invoices = await self.find_by_date_range(start_date, end_date, None)
             vendor_invoices = [inv for inv in invoices if inv.vendor_id == vendor_id]
 
             history = []
@@ -581,9 +604,9 @@ class SQLAlchemyAPRepository(APRepositoryPort):
                 history.append({
                     "date": inv.invoice_date.isoformat(),
                     "invoice_number": inv.invoice_number,
-                    "amount": str(inv.total_amount.amount),      # ← str, bukan float
-                    "paid": str(inv.paid_amount.amount),        # ← str, bukan float
-                    "balance": str(running_balance),            # ← str, bukan float
+                    "amount": str(inv.total_amount.amount),
+                    "paid": str(inv.paid_amount.amount),
+                    "balance": str(running_balance),
                     "status": inv.status.value,
                 })
             return history
@@ -724,7 +747,8 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             logger.error("Failed to perform 3-way match for invoice %s: %s", invoice_id, e)
             raise APRepositoryError(f"Failed to perform 3-way match: {e}") from e
 
-    async def get_aging_buckets(self, legal_entity_id: UUID, as_of_date: date) -> list[dict[str, Any]]:
+    async def get_aging_buckets(self, legal_entity_id: UUID, as_of_date: date) -> dict[str, Decimal]:
+        """Return aging buckets as dict: bucket_name -> Decimal amount."""
         try:
             buckets = [
                 ("0-30 days", as_of_date - timedelta(days=30), as_of_date),
@@ -733,7 +757,7 @@ class SQLAlchemyAPRepository(APRepositoryPort):
                 ("91-120 days", as_of_date - timedelta(days=120), as_of_date - timedelta(days=91)),
                 ("120+ days", None, as_of_date - timedelta(days=121)),
             ]
-            results = []
+            result = {}
             for bucket_name, start, end in buckets:
                 conditions = [
                     APInvoiceTable.status.in_(["approved", "partially_paid"]),
@@ -748,17 +772,10 @@ class SQLAlchemyAPRepository(APRepositoryPort):
                     if end:
                         conditions.append(APInvoiceTable.due_date >= end)
                 stmt = select(func.coalesce(func.sum(APInvoiceTable.total_amount - APInvoiceTable.paid_amount), 0)).where(and_(*conditions))
-                result = await self.session.execute(stmt)
-                total = result.scalar() or 0
-                results.append({"bucket_name": bucket_name, "total_amount": Decimal(str(total))})
-            total_all = sum(r["total_amount"] for r in results)
-            for r in results:
-                # Persentase boleh float karena non-monetary
-                r["percentage"] = float(r["total_amount"] / total_all * 100) if total_all > 0 else 0.0
-            # Ubah total_amount menjadi string untuk konsistensi
-            for r in results:
-                r["total_amount"] = str(r["total_amount"])  # ← str, bukan Decimal
-            return results
+                result_exec = await self.session.execute(stmt)
+                total = result_exec.scalar() or 0
+                result[bucket_name] = Decimal(str(total))
+            return result
         except Exception as e:
             logger.error("Failed to get AP aging buckets: %s", e)
             raise APRepositoryError(f"Failed to get aging buckets: {e}") from e
@@ -809,7 +826,8 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             logger.error("Failed to export to CSV: %s", e)
             raise APRepositoryError(f"Failed to export to CSV: {e}") from e
 
-    async def import_from_csv(self, csv_content: str, legal_entity_id: UUID, created_by: UUID) -> int:
+    async def import_from_csv(self, csv_content: str, legal_entity_id: UUID, user_id: UUID) -> int:
+        """Import from CSV, user_id is the actor."""
         try:
             reader = csv.DictReader(io.StringIO(csv_content))
             count = 0
@@ -822,9 +840,7 @@ class SQLAlchemyAPRepository(APRepositoryPort):
                     total_amount = Decimal(row.get("total_amount"))
                     currency = row.get("currency", "IDR")
                     description = row.get("description", "")
-
-                    # Simplified import: just log and count
-                    # In real implementation, build full aggregate
+                    # Actual insertion would happen here
                     count += 1
                     logger.info(f"Imported invoice {invoice_number} for vendor {vendor_id}")
                 except Exception as row_err:
@@ -836,7 +852,6 @@ class SQLAlchemyAPRepository(APRepositoryPort):
 
     # === AUDIT & STATISTICS ===
     async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-        # TODO: Implementasi audit log seharusnya mengambil dari event store atau tabel audit.
         return [
             {
                 "timestamp": datetime.utcnow().isoformat(),
@@ -874,7 +889,7 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             return {
                 "total_invoices": total_count,
                 "by_status": by_status,
-                "total_outstanding": str(total_outstanding),  # ← str, bukan float
+                "total_outstanding": str(total_outstanding),
                 "currency": "IDR",
             }
         except Exception as e:
@@ -893,7 +908,8 @@ class SQLAlchemyAPRepository(APRepositoryPort):
         return await self.get_by_id(invoice_id)
 
     async def delete_invoice(self, invoice_id: UUID, deleted_by: UUID) -> None:
-        await self.delete(invoice_id, deleted_by)
+        # Legacy alias; use delete() instead
+        await self.delete(invoice_id, deleted_by, permanent=False)
 
     async def dispute_invoice(self, invoice_id: UUID, reason: str, disputed_by: UUID) -> None:
         await self.dispute(invoice_id, reason, disputed_by)

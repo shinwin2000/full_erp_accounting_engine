@@ -26,7 +26,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import DDL, DropTable, MetaData, Table
+# PERBAIKAN: import DropTable dari sqlalchemy.schema
+from sqlalchemy import DDL, MetaData, Table
+from sqlalchemy.schema import DropTable
 
 from config.loader_yaml import load_yaml_config
 
@@ -304,9 +306,8 @@ class PartitionArchiver:
         """
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session, session.begin():
-            # Menggunakan DropTable dengan if_exists=True untuk keamanan
-            table_obj = Table(partition_name, MetaData())
-            await session.execute(DropTable(table_obj, if_exists=True))
+            # PERBAIKAN: Gunakan DDL untuk DROP TABLE IF EXISTS karena DropTable tidak selalu punya if_exists
+            await session.execute(DDL(f"DROP TABLE IF EXISTS {partition_name}"))
             logger.info(f"Dropped partition {partition_name}")
 
     async def archive_partition(self, table_config: dict, partition: dict) -> dict[str, Any]:

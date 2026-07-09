@@ -22,7 +22,9 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import DDL, DropTable, MetaData, Table, text
+# PERBAIKAN: import DropTable dari sqlalchemy.schema
+from sqlalchemy import DDL, MetaData, Table, text
+from sqlalchemy.schema import DropTable
 
 from config.loader_yaml import load_yaml_config
 
@@ -324,9 +326,8 @@ class PartitionManagerPgPartman:
                         part_date_str = part_name.split("_")[-1]
                         part_date = datetime.strptime(part_date_str, "%Y_%m")
                         if part_date < cutoff_date:
-                            # Menggunakan DropTable dengan if_exists=True
-                            table_obj = Table(part_name, MetaData())
-                            await session.execute(DropTable(table_obj, if_exists=True))
+                            # PERBAIKAN: Gunakan DDL untuk DROP TABLE IF EXISTS
+                            await session.execute(DDL(f"DROP TABLE IF EXISTS {part_name}"))
                             logger.info(f"Dropped old partition {part_name}")
                             dropped += 1
                     except ValueError:

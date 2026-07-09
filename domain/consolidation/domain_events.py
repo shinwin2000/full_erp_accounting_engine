@@ -8,6 +8,7 @@ Responsibility: Domain events untuk proses konsolidasi dengan semua method event
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -25,6 +26,8 @@ from domain.legal_entity.domain_events import (
     LegalEntityUpdatedEvent,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ConsolidationEventType(Enum):
     CONSOLIDATION_CREATED = "consolidation_created"
@@ -37,10 +40,23 @@ class ConsolidationEventType(Enum):
     NCI_CALCULATED = "nci_calculated"
 
 
-@dataclass
+@dataclass(frozen=True)
 class DomainEvent:
-    """Base domain event untuk consolidation."""
+    """
+    Base domain event untuk consolidation.
 
+    Attributes:
+        event_id: UUID unik event.
+        event_type: Jenis event (ConsolidationEventType).
+        aggregate_id: UUID agregat.
+        aggregate_type: Tipe agregat (default "ConsolidationGroup").
+        occurred_at: Waktu kejadian (UTC).
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+        causation_id: ID penyebab event (opsional).
+        version: Versi event (default 1).
+    """
     event_id: UUID
     event_type: ConsolidationEventType
     aggregate_id: UUID
@@ -96,8 +112,21 @@ class DomainEvent:
         return cls.from_json(data.decode("utf-8"))
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConsolidationCreated(DomainEvent):
+    """
+    Event yang diterbitkan ketika proses konsolidasi baru dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat konsolidasi.
+        group_code: Kode grup konsolidasi.
+        group_name: Nama grup konsolidasi.
+        period: Periode konsolidasi.
+        created_by: User ID pembuat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -127,8 +156,18 @@ class ConsolidationCreated(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConsolidationStarted(DomainEvent):
+    """
+    Event yang diterbitkan ketika proses konsolidasi dimulai.
+
+    Attributes:
+        aggregate_id: ID agregat konsolidasi.
+        started_by: User ID yang memulai.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -150,8 +189,22 @@ class ConsolidationStarted(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConsolidationCompleted(DomainEvent):
+    """
+    Event yang diterbitkan ketika proses konsolidasi selesai.
+
+    Attributes:
+        consolidation_id: ID konsolidasi.
+        group_entity_id: ID entitas grup.
+        period_end_date: Tanggal akhir periode.
+        total_eliminations: Total eliminasi.
+        total_nci: Total NCI (Non-Controlling Interest).
+        user_id: User ID penyelesaian.
+        occurred_at: (opsional) Waktu kejadian.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         consolidation_id: UUID,
@@ -183,8 +236,19 @@ class ConsolidationCompleted(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConsolidationCancelled(DomainEvent):
+    """
+    Event yang diterbitkan ketika proses konsolidasi dibatalkan.
+
+    Attributes:
+        aggregate_id: ID agregat konsolidasi.
+        cancelled_by: User ID pembatalan.
+        reason: Alasan pembatalan (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -207,8 +271,19 @@ class ConsolidationCancelled(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConsolidationArchived(DomainEvent):
+    """
+    Event yang diterbitkan ketika proses konsolidasi diarsipkan.
+
+    Attributes:
+        aggregate_id: ID agregat konsolidasi.
+        archived_by: User ID pengarsip.
+        reason: Alasan pengarsipan (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -231,8 +306,21 @@ class ConsolidationArchived(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class IntercompanyTransactionDetected(DomainEvent):
+    """
+    Event yang diterbitkan ketika transaksi intercompany terdeteksi.
+
+    Attributes:
+        transaction_id: ID transaksi.
+        from_entity_id: ID entitas asal.
+        to_entity_id: ID entitas tujuan.
+        amount: Jumlah transaksi.
+        detected_at: Waktu deteksi (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         transaction_id: UUID,
@@ -262,8 +350,20 @@ class IntercompanyTransactionDetected(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class EliminationEntryCreated(DomainEvent):
+    """
+    Event yang diterbitkan ketika entry eliminasi dibuat.
+
+    Attributes:
+        elimination_id: ID eliminasi.
+        account_code: Kode akun.
+        amount: Jumlah eliminasi.
+        created_at: Waktu pembuatan (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         elimination_id: UUID,
@@ -291,8 +391,19 @@ class EliminationEntryCreated(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class NCICalculated(DomainEvent):
+    """
+    Event yang diterbitkan ketika NCI (Non-Controlling Interest) dihitung.
+
+    Attributes:
+        aggregate_id: ID agregat konsolidasi.
+        total_nci: Total NCI.
+        calculated_by: User ID penghitung.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -316,26 +427,32 @@ class NCICalculated(DomainEvent):
 
 
 class ConsolidationEventPublisher:
+    """
+    Publisher untuk domain event Consolidation.
+    Menyimpan event yang dipublikasikan untuk keperluan testing atau replay.
+    """
     _published_events: ClassVar[list[DomainEvent]] = []
 
     @classmethod
     async def publish(cls, event: DomainEvent) -> None:
+        """Publikasikan satu event."""
         cls._published_events.append(event)
-        import logging
-
         logging.getLogger(__name__).info(f"Published event: {event.event_type.value}")
 
     @classmethod
     async def publish_many(cls, events: list[DomainEvent]) -> None:
+        """Publikasikan banyak event."""
         for event in events:
             await cls.publish(event)
 
     @classmethod
     def get_published_events(cls) -> list[DomainEvent]:
+        """Dapatkan semua event yang sudah dipublikasikan."""
         return cls._published_events.copy()
 
     @classmethod
     def clear(cls) -> None:
+        """Hapus semua event yang sudah dipublikasikan."""
         cls._published_events.clear()
 
 
@@ -344,29 +461,38 @@ class ConsolidationEventPublisher:
 # Router mengimpor dengan suffix "Event"
 # ============================================================================
 
+# Alias classes dengan suffix Event untuk kompatibilitas
 ConsolidationCreatedEvent = ConsolidationCreated
 ConsolidationCreatedEvent.__name__ = "ConsolidationCreatedEvent"
+"""Alias untuk ConsolidationCreated dengan suffix Event (kompatibilitas router)."""
 
 ConsolidationStartedEvent = ConsolidationStarted
 ConsolidationStartedEvent.__name__ = "ConsolidationStartedEvent"
+"""Alias untuk ConsolidationStarted dengan suffix Event (kompatibilitas router)."""
 
 ConsolidationCompletedEvent = ConsolidationCompleted
 ConsolidationCompletedEvent.__name__ = "ConsolidationCompletedEvent"
+"""Alias untuk ConsolidationCompleted dengan suffix Event (kompatibilitas router)."""
 
 ConsolidationCancelledEvent = ConsolidationCancelled
 ConsolidationCancelledEvent.__name__ = "ConsolidationCancelledEvent"
+"""Alias untuk ConsolidationCancelled dengan suffix Event (kompatibilitas router)."""
 
 ConsolidationArchivedEvent = ConsolidationArchived
 ConsolidationArchivedEvent.__name__ = "ConsolidationArchivedEvent"
+"""Alias untuk ConsolidationArchived dengan suffix Event (kompatibilitas router)."""
 
 IntercompanyTransactionDetectedEvent = IntercompanyTransactionDetected
 IntercompanyTransactionDetectedEvent.__name__ = "IntercompanyTransactionDetectedEvent"
+"""Alias untuk IntercompanyTransactionDetected dengan suffix Event (kompatibilitas router)."""
 
 EliminationEntryCreatedEvent = EliminationEntryCreated
 EliminationEntryCreatedEvent.__name__ = "EliminationEntryCreatedEvent"
+"""Alias untuk EliminationEntryCreated dengan suffix Event (kompatibilitas router)."""
 
 NCICalculatedEvent = NCICalculated
 NCICalculatedEvent.__name__ = "NCICalculatedEvent"
+"""Alias untuk NCICalculated dengan suffix Event (kompatibilitas router)."""
 
 
 # ============================================================================

@@ -9,6 +9,12 @@ Layer: 8 - Application / Mappers
 Responsibility:
     Mapping dari domain aggregates, entities, value objects ke DTO objects.
     Pure mapping functions, no side effects.
+
+Perbaikan presisi (MNY-003):
+    - Semua nilai moneter menggunakan Decimal, bukan float.
+    - Serialisasi Decimal ke string untuk output JSON.
+    - Menghapus _safe_float() dan mengganti dengan _safe_decimal().
+    - Memperbaiki _serialize_value untuk mengembalikan str(Decimal).
 """
 
 from __future__ import annotations
@@ -95,25 +101,13 @@ def _safe_uuid(value: Any) -> UUID | None:
 
 
 def _safe_decimal(value: Any, default: Decimal = ZERO) -> Decimal:
-    """Safely convert to Decimal."""
+    """Safely convert to Decimal for monetary values."""
     if value is None:
         return default
     if isinstance(value, Decimal):
         return value
     try:
         return Decimal(str(value))
-    except (ValueError, TypeError):
-        return default
-
-
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    """Safely convert to float."""
-    if value is None:
-        return default
-    if isinstance(value, float):
-        return value
-    try:
-        return float(value)
     except (ValueError, TypeError):
         return default
 
@@ -455,12 +449,12 @@ def map_trial_balance_cube_to_dto(
             {
                 "account_code": _safe_str(getattr(account, "code", "")),
                 "account_name": _safe_str(getattr(account, "name", "")),
-                "opening_balance_debit": _safe_float(getattr(account, "opening_debit", 0)),
-                "opening_balance_credit": _safe_float(getattr(account, "opening_credit", 0)),
-                "movement_debit": _safe_float(getattr(account, "movement_debit", 0)),
-                "movement_credit": _safe_float(getattr(account, "movement_credit", 0)),
-                "closing_balance_debit": _safe_float(getattr(account, "closing_debit", 0)),
-                "closing_balance_credit": _safe_float(getattr(account, "closing_credit", 0)),
+                "opening_balance_debit": str(_safe_decimal(getattr(account, "opening_debit", 0))),
+                "opening_balance_credit": str(_safe_decimal(getattr(account, "opening_credit", 0))),
+                "movement_debit": str(_safe_decimal(getattr(account, "movement_debit", 0))),
+                "movement_credit": str(_safe_decimal(getattr(account, "movement_credit", 0))),
+                "closing_balance_debit": str(_safe_decimal(getattr(account, "closing_debit", 0))),
+                "closing_balance_credit": str(_safe_decimal(getattr(account, "closing_credit", 0))),
             }
         )
 
@@ -588,7 +582,8 @@ def _serialize_value(value: Any) -> Any:
     if isinstance(value, UUID):
         return str(value)
     if isinstance(value, Decimal):
-        return _safe_float(value)
+        # Gunakan string untuk menjaga presisi
+        return str(value)
     if isinstance(value, (date, datetime)):
         return value.isoformat()
     if isinstance(value, list):
@@ -640,8 +635,8 @@ class JournalDomainToDtoMapper:
                 lines.append(
                     {
                         "account": acc_code,
-                        "debit": _safe_float(getattr(line, "debit", 0)),
-                        "credit": _safe_float(getattr(line, "credit", 0)),
+                        "debit": str(_safe_decimal(getattr(line, "debit", 0))),
+                        "credit": str(_safe_decimal(getattr(line, "credit", 0))),
                     }
                 )
         result.lines = lines

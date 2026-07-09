@@ -8,6 +8,7 @@ Responsibility: Domain events untuk Customer, Supplier, Employee aggregates.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -19,6 +20,8 @@ from domain.customer_supplier_employee.customer_entity import CustomerEntity, Cu
 from domain.customer_supplier_employee.employee_entity import EmployeeEntity
 from domain.customer_supplier_employee.employee_ptkp_status_vo import EmployeePTKPStatusVO
 from domain.customer_supplier_employee.supplier_entity import SupplierEntity
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # Domain Event Type Enum
@@ -70,8 +73,23 @@ class DomainEventType(Enum):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class DomainEvent:
+    """
+    Base class untuk semua domain event Customer, Supplier, Employee.
+
+    Attributes:
+        event_id: UUID unik event.
+        event_type: Jenis event (DomainEventType).
+        aggregate_id: UUID agregat.
+        aggregate_type: Tipe agregat (default "CustomerSupplierEmployee").
+        aggregate_version: Versi agregat.
+        occurred_at: Waktu kejadian (UTC).
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+        causation_id: ID penyebab event (opsional).
+    """
     event_id: UUID
     event_type: DomainEventType
     aggregate_id: UUID
@@ -87,6 +105,7 @@ class DomainEvent:
         if self.aggregate_version < 1:
             raise ValueError("aggregate_version must be >= 1")
         if self.occurred_at.tzinfo is None:
+            # Karena frozen, kita gunakan object.__setattr__ untuk mengubah
             object.__setattr__(self, "occurred_at", self.occurred_at.replace(tzinfo=UTC))
 
     # ==================== SERIALIZATION METHODS ====================
@@ -140,8 +159,20 @@ class DomainEvent:
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class CustomerCreatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika customer baru dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat customer.
+        aggregate_version: Versi agregat.
+        customer: Entity Customer.
+        created_by: User ID pembuat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -178,8 +209,24 @@ class CustomerCreatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CustomerStatusChangedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika status customer berubah.
+
+    Attributes:
+        aggregate_id: ID agregat customer.
+        aggregate_version: Versi agregat.
+        customer_id: ID customer.
+        customer_code: Kode customer.
+        old_status: Status lama.
+        new_status: Status baru.
+        reason: Alasan perubahan status.
+        changed_by: User ID pengubah.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -214,8 +261,23 @@ class CustomerStatusChangedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CustomerCreditLimitChangedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika credit limit customer diubah.
+
+    Attributes:
+        aggregate_id: ID agregat customer.
+        aggregate_version: Versi agregat.
+        customer_id: ID customer.
+        customer_code: Kode customer.
+        old_limit: Credit limit lama.
+        new_limit: Credit limit baru.
+        changed_by: User ID pengubah.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -254,8 +316,25 @@ class CustomerCreditLimitChangedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CustomerBalanceUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika saldo customer diperbarui.
+
+    Attributes:
+        aggregate_id: ID agregat customer.
+        aggregate_version: Versi agregat.
+        customer_id: ID customer.
+        customer_code: Kode customer.
+        old_balance: Saldo lama.
+        new_balance: Saldo baru.
+        delta: Perubahan saldo.
+        transaction_type: Jenis transaksi.
+        transaction_id: ID transaksi (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -297,8 +376,20 @@ class CustomerBalanceUpdatedEvent(DomainEvent):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class SupplierCreatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika supplier baru dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat supplier.
+        aggregate_version: Versi agregat.
+        supplier: Entity Supplier.
+        created_by: User ID pembuat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -334,8 +425,23 @@ class SupplierCreatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class SupplierPaymentTermsChangedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika payment terms supplier diubah.
+
+    Attributes:
+        aggregate_id: ID agregat supplier.
+        aggregate_version: Versi agregat.
+        supplier_id: ID supplier.
+        supplier_code: Kode supplier.
+        old_terms: Payment terms lama (hari).
+        new_terms: Payment terms baru (hari).
+        changed_by: User ID pengubah.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -368,8 +474,25 @@ class SupplierPaymentTermsChangedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class SupplierWithholdingCategoryChangedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika kategori withholding supplier diubah.
+
+    Attributes:
+        aggregate_id: ID agregat supplier.
+        aggregate_version: Versi agregat.
+        supplier_id: ID supplier.
+        supplier_code: Kode supplier.
+        old_article: Artikel withholding lama.
+        new_article: Artikel withholding baru.
+        old_rate: Rate withholding lama.
+        new_rate: Rate withholding baru.
+        changed_by: User ID pengubah.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -411,8 +534,20 @@ class SupplierWithholdingCategoryChangedEvent(DomainEvent):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class EmployeeCreatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika employee baru dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat employee.
+        aggregate_version: Versi agregat.
+        employee: Entity Employee.
+        created_by: User ID pembuat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -451,8 +586,23 @@ class EmployeeCreatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class EmployeeResignedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika employee mengundurkan diri.
+
+    Attributes:
+        aggregate_id: ID agregat employee.
+        aggregate_version: Versi agregat.
+        employee_id: ID employee.
+        employee_number: Nomor employee.
+        full_name: Nama lengkap.
+        resign_date: Tanggal resign.
+        reason: Alasan resign.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -485,8 +635,23 @@ class EmployeeResignedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class EmployeePTKPUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika PTKP employee diperbarui.
+
+    Attributes:
+        aggregate_id: ID agregat employee.
+        aggregate_version: Versi agregat.
+        employee_id: ID employee.
+        employee_number: Nomor employee.
+        old_ptkp: PTKP lama.
+        new_ptkp: PTKP baru.
+        updated_by: User ID pembaru.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -521,8 +686,24 @@ class EmployeePTKPUpdatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class EmployeeBPJSUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika data BPJS employee diperbarui.
+
+    Attributes:
+        aggregate_id: ID agregat employee.
+        aggregate_version: Versi agregat.
+        employee_id: ID employee.
+        employee_number: Nomor employee.
+        bpjs_type: Tipe BPJS.
+        membership_number: Nomor keanggotaan.
+        is_active: Status aktif.
+        updated_by: User ID pembaru.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -582,24 +763,32 @@ EmployeeBPJSUpdated = EmployeeBPJSUpdatedEvent
 
 
 class DomainEventPublisher:
+    """
+    Publisher untuk domain event Customer, Supplier, Employee.
+    Menyimpan event yang dipublikasikan untuk keperluan testing/replay.
+    """
     _published_events: ClassVar[list[DomainEvent]] = []
 
     @classmethod
     async def publish(cls, event: DomainEvent) -> None:
+        """Publikasikan satu event."""
         cls._published_events.append(event)
         logger.info(f"Published event: {event.event_type.value} for aggregate {event.aggregate_id}")
 
     @classmethod
     async def publish_many(cls, events: list[DomainEvent]) -> None:
+        """Publikasikan banyak event."""
         for event in events:
             await cls.publish(event)
 
     @classmethod
     def get_published_events(cls) -> list[DomainEvent]:
+        """Dapatkan semua event yang sudah dipublikasikan."""
         return cls._published_events.copy()
 
     @classmethod
     def clear(cls) -> None:
+        """Hapus semua event yang sudah dipublikasikan."""
         cls._published_events.clear()
 
 
@@ -609,12 +798,30 @@ class DomainEventPublisher:
 
 
 def deserialize_event(data: str | bytes) -> DomainEvent:
+    """
+    Deserialize data (string atau bytes) menjadi DomainEvent.
+
+    Args:
+        data: String JSON atau bytes.
+
+    Returns:
+        DomainEvent: Objek event yang sudah direkonstruksi.
+    """
     if isinstance(data, bytes):
         data = data.decode("utf-8")
     return DomainEvent.from_json(data)
 
 
 def serialize_event(event: DomainEvent) -> str:
+    """
+    Serialize DomainEvent menjadi JSON string.
+
+    Args:
+        event: DomainEvent yang akan diserialisasi.
+
+    Returns:
+        str: String JSON representasi event.
+    """
     return event.to_json()
 
 

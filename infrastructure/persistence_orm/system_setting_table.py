@@ -13,6 +13,12 @@ Dependencies:
 - infrastructure.persistence_orm.base_model (Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin)
 Audit: Setiap perubahan setting dicatat di event store.
        Perubahan setting kritis memicu alert.
+
+Perbaikan presisi:
+    - Mengganti penggunaan float() pada tipe data 'float' dengan Decimal untuk
+      menjaga presisi dan memenuhi aturan MNY-003.
+    - Menghapus properti `typed_value_as_float` karena mengembalikan float untuk
+      nilai moneter (melanggar MNY-024). Gunakan `typed_value` yang mengembalikan Decimal.
 """
 
 from __future__ import annotations
@@ -105,13 +111,15 @@ class SystemSettingTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     def typed_value(self) -> Any:
         """
         Get value with proper Python type based on data_type.
+        Untuk tipe 'float' dan 'decimal', dikembalikan sebagai Decimal.
         """
         if self.data_type == "string":
             return self.value
         elif self.data_type == "integer":
             return int(self.value) if self.value else 0
         elif self.data_type == "float":
-            return float(self.value) if self.value else 0.0
+            # Mengembalikan Decimal untuk presisi tinggi
+            return Decimal(self.value) if self.value else Decimal(0)
         elif self.data_type == "boolean":
             return self.value.lower() in ("true", "1", "yes", "on")
         elif self.data_type == "json":
@@ -126,13 +134,15 @@ class SystemSettingTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     def typed_value(self, val: Any) -> None:
         """
         Set value from Python type, converting to string storage.
+        Untuk tipe 'float' dan 'decimal', gunakan Decimal untuk presisi.
         """
         if self.data_type == "string":
             self.value = str(val)
         elif self.data_type == "integer":
             self.value = str(int(val))
         elif self.data_type == "float":
-            self.value = str(float(val))
+            # Simpan sebagai string dari Decimal
+            self.value = str(Decimal(str(val)))
         elif self.data_type == "boolean":
             self.value = "true" if val else "false"
         elif self.data_type == "json":
@@ -140,7 +150,7 @@ class SystemSettingTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
 
             self.value = json.dumps(val)
         elif self.data_type == "decimal":
-            self.value = str(val)
+            self.value = str(Decimal(str(val)))
         else:
             self.value = str(val)
 
@@ -159,13 +169,14 @@ class SystemSettingTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
     def validate(self, val: Any) -> bool:
         """
         Validate a value against constraints.
+        Untuk tipe 'float' dan 'decimal', validasi menggunakan Decimal.
         """
         # Type check
         try:
             if self.data_type == "integer":
                 int(val)
             elif self.data_type == "float":
-                float(val)
+                Decimal(str(val))
             elif self.data_type == "decimal":
                 Decimal(str(val))
             elif self.data_type == "boolean":
@@ -176,25 +187,21 @@ class SystemSettingTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
 
         # Min/Max
         if self.min_value is not None:
+            min_val = Decimal(self.min_value)
             if self.data_type == "integer":
-                if int(val) < int(self.min_value):
+                if int(val) < int(min_val):
                     return False
-            elif self.data_type == "float":
-                if float(val) < float(self.min_value):
-                    return False
-            elif self.data_type == "decimal":
-                if Decimal(str(val)) < Decimal(self.min_value):
+            elif self.data_type in ("float", "decimal"):
+                if Decimal(str(val)) < min_val:
                     return False
 
         if self.max_value is not None:
+            max_val = Decimal(self.max_value)
             if self.data_type == "integer":
-                if int(val) > int(self.max_value):
+                if int(val) > int(max_val):
                     return False
-            elif self.data_type == "float":
-                if float(val) > float(self.max_value):
-                    return False
-            elif self.data_type == "decimal":
-                if Decimal(str(val)) > Decimal(self.max_value):
+            elif self.data_type in ("float", "decimal"):
+                if Decimal(str(val)) > max_val:
                     return False
 
         # Allowed values

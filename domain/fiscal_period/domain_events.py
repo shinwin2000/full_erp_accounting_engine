@@ -52,8 +52,23 @@ class DomainEventType(Enum):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class DomainEvent:
+    """
+    Base class untuk semua domain event di Fiscal Period.
+
+    Attributes:
+        event_id: UUID unik event.
+        event_type: Jenis event (DomainEventType).
+        aggregate_id: UUID agregat yang terkait.
+        aggregate_type: Tipe agregat (default "FiscalPeriod").
+        aggregate_version: Versi agregat saat event terjadi.
+        occurred_at: Waktu kejadian (UTC).
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+        causation_id: ID penyebab event (opsional).
+    """
     event_id: UUID
     event_type: DomainEventType
     aggregate_id: UUID
@@ -69,9 +84,10 @@ class DomainEvent:
         if self.aggregate_version < 1:
             raise ValueError("aggregate_version must be >= 1")
         if self.occurred_at.tzinfo is None:
-            raise ValueError("occurred_at must be timezone-aware (UTC)")
+            object.__setattr__(self, "occurred_at", self.occurred_at.replace(tzinfo=UTC))
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert event ke dictionary."""
         return {
             "event_id": str(self.event_id),
             "event_type": self.event_type.value,
@@ -86,13 +102,16 @@ class DomainEvent:
         }
 
     def to_json(self) -> str:
+        """Serialize ke JSON string."""
         return json.dumps(self.to_dict(), default=str)
 
     def serialize(self) -> bytes:
+        """Serialize ke bytes."""
         return self.to_json().encode("utf-8")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DomainEvent:
+        """Create event dari dictionary."""
         return cls(
             event_id=UUID(data["event_id"]),
             event_type=DomainEventType(data["event_type"]),
@@ -108,10 +127,12 @@ class DomainEvent:
 
     @classmethod
     def from_json(cls, json_str: str) -> DomainEvent:
+        """Create event dari JSON string."""
         return cls.from_dict(json.loads(json_str))
 
     @classmethod
     def deserialize(cls, data: bytes) -> DomainEvent:
+        """Deserialize dari bytes."""
         return cls.from_json(data.decode("utf-8"))
 
 
@@ -120,8 +141,26 @@ class DomainEvent:
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class PeriodCreatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika periode fiskal baru dibuat.
+
+    Attributes:
+        legal_entity_id: ID entitas legal.
+        period_type: Tipe periode (bulanan/tahunan).
+        period_number: Nomor periode (1-12 untuk bulanan, 1 untuk tahunan).
+        year: Tahun periode.
+        start_date: Tanggal mulai periode.
+        end_date: Tanggal akhir periode.
+        status: Status awal periode.
+        aggregate_id: ID agregat (opsional, default dari legal_entity_id).
+        aggregate_version: Versi agregat.
+        created_by: User ID pembuat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         legal_entity_id: UUID,
@@ -164,8 +203,22 @@ class PeriodCreatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PeriodOpenedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika periode fiskal dibuka.
+
+    Attributes:
+        legal_entity_id: ID entitas legal.
+        period_display: Representasi periode (misal "2024-01").
+        opened_by: User ID yang membuka.
+        aggregate_id: ID agregat (opsional, default dari legal_entity_id).
+        aggregate_version: Versi agregat.
+        previous_status: Status sebelumnya (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         legal_entity_id: UUID,
@@ -200,8 +253,21 @@ class PeriodOpenedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PeriodLockedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika periode fiskal dikunci.
+
+    Attributes:
+        legal_entity_id: ID entitas legal.
+        period_display: Representasi periode.
+        locked_by: User ID yang mengunci.
+        aggregate_id: ID agregat (opsional, default dari legal_entity_id).
+        aggregate_version: Versi agregat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         legal_entity_id: UUID,
@@ -232,8 +298,21 @@ class PeriodLockedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PeriodClosedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika periode fiskal ditutup.
+
+    Attributes:
+        legal_entity_id: ID entitas legal.
+        period_display: Representasi periode.
+        closed_by: User ID yang menutup.
+        aggregate_id: ID agregat (opsional, default dari legal_entity_id).
+        aggregate_version: Versi agregat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         legal_entity_id: UUID,
@@ -264,8 +343,22 @@ class PeriodClosedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PeriodReopenedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika periode fiskal dibuka kembali.
+
+    Attributes:
+        legal_entity_id: ID entitas legal.
+        period_display: Representasi periode.
+        reopened_by: User ID yang membuka kembali.
+        aggregate_id: ID agregat (opsional, default dari legal_entity_id).
+        aggregate_version: Versi agregat.
+        reason: Alasan pembukaan kembali (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         legal_entity_id: UUID,
@@ -298,8 +391,22 @@ class PeriodReopenedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PeriodUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika data periode fiskal diperbarui.
+
+    Attributes:
+        legal_entity_id: ID entitas legal.
+        period_display: Representasi periode.
+        changes: Dictionary perubahan field.
+        updated_by: User ID pengubah.
+        aggregate_id: ID agregat (opsional, default dari legal_entity_id).
+        aggregate_version: Versi agregat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         legal_entity_id: UUID,
@@ -332,8 +439,24 @@ class PeriodUpdatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PeriodStatusChangedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika status periode fiskal berubah.
+
+    Attributes:
+        aggregate_id: ID agregat (opsional, default dari period_id).
+        aggregate_version: Versi agregat.
+        old_status: Status lama.
+        new_status: Status baru.
+        changed_by: User ID pengubah (default "system").
+        reason: Alasan perubahan status (opsional).
+        metadata: Metadata tambahan (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+        **kwargs: Parameter tambahan (period_id, old_status, new_status, changed_by, dll).
+    """
     def __init__(
         self,
         aggregate_id: UUID | None = None,
@@ -384,24 +507,32 @@ class PeriodStatusChangedEvent(DomainEvent):
 
 
 class DomainEventPublisher:
+    """
+    Publisher untuk domain event Fiscal Period.
+    Menyimpan event yang dipublikasikan untuk keperluan testing atau replay.
+    """
     _published_events: ClassVar[list[DomainEvent]] = []
 
     @classmethod
     async def publish(cls, event: DomainEvent) -> None:
+        """Publikasikan satu event."""
         cls._published_events.append(event)
         logger.info(f"Published event: {event.event_type.value} for aggregate {event.aggregate_id}")
 
     @classmethod
     async def publish_many(cls, events: list[DomainEvent]) -> None:
+        """Publikasikan banyak event."""
         for event in events:
             await cls.publish(event)
 
     @classmethod
     def get_published_events(cls) -> list[DomainEvent]:
+        """Dapatkan semua event yang sudah dipublikasikan."""
         return cls._published_events.copy()
 
     @classmethod
     def clear(cls) -> None:
+        """Hapus semua event yang sudah dipublikasikan."""
         cls._published_events.clear()
 
 
@@ -411,12 +542,30 @@ class DomainEventPublisher:
 
 
 def deserialize_domain_event(json_str: str) -> DomainEvent:
+    """
+    Deserialize JSON string menjadi DomainEvent.
+
+    Args:
+        json_str: String JSON.
+
+    Returns:
+        DomainEvent: Objek event.
+    """
     data = json.loads(json_str)
     event_type = DomainEventType(data["event_type"])
     return DomainEvent.from_dict(data)
 
 
 def serialize_domain_event(event: DomainEvent) -> str:
+    """
+    Serialize DomainEvent menjadi JSON string.
+
+    Args:
+        event: DomainEvent yang akan diserialisasi.
+
+    Returns:
+        str: String JSON.
+    """
     return event.to_json()
 
 

@@ -570,9 +570,11 @@ class ARWriteOffResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_ar_service(request: Request) -> Any:
-    """Get AR Service instance."""
-
+async def get_ar_svc(request: Request) -> Any:
+    """
+    Get AR Service instance.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.service_layer.service_ar import ARService
 
     container = request.app.state.container
@@ -581,7 +583,6 @@ async def get_ar_service(request: Request) -> Any:
 
 async def get_ar_collection_workflow() -> Any:
     """Get AR Collection Workflow Use Case instance."""
-
     from application.use_cases.ar_collection_workflow import ARCollectionWorkflowUseCase
 
     container = request.app.state.container
@@ -633,7 +634,7 @@ async def create_ar_invoice(
     _permission: None = Depends(require_permission("ar:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceResponseSchema:
     """
     Membuat invoice piutang (AR).
@@ -642,6 +643,7 @@ async def create_ar_invoice(
     - Setelah create, status = 'submitted' atau 'draft' tergantung approval policy
     - Invoice akan memiliki nomor internal unik
     - Dapat memberikan diskon early payment
+    - LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
     """
     from application.dto_objects.ar_invoice_request import ARInvoiceCreateRequest
 
@@ -681,7 +683,7 @@ async def create_ar_invoice(
             created_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await ar_service.create_invoice(create_dto)
+        result = await ar_svc.create_invoice(create_dto)
 
         # Calculate early payment discount eligibility
         early_discount_eligible = False
@@ -754,11 +756,11 @@ async def get_ar_invoice(
     invoice_id: UUID,
     _permission: None = Depends(require_permission("ar:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceResponseSchema:
     """Get invoice AR by ID."""
     try:
-        invoice = await ar_service.get_invoice_by_id(invoice_id, legal_entity_id)
+        invoice = await ar_svc.get_invoice_by_id(invoice_id, legal_entity_id)
         if not invoice:
             raise HTTPException(status_code=404, detail="Invoice not found")
 
@@ -832,11 +834,11 @@ async def list_ar_invoices(
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     _permission: None = Depends(require_permission("ar:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceListResponseSchema:
     """List AR invoices with pagination and filters."""
     try:
-        result = await ar_service.list_invoices(
+        result = await ar_svc.list_invoices(
             legal_entity_id=legal_entity_id,
             customer_id=customer_id,
             status=status.value if status else None,
@@ -924,9 +926,12 @@ async def update_ar_invoice(
     _permission: None = Depends(require_permission("ar:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceResponseSchema:
-    """Update AR invoice (only draft/pending status)."""
+    """
+    Update AR invoice (only draft/pending status).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.dto_objects.ar_invoice_request import ARInvoiceUpdateRequest
 
     method_name = "update_ar_invoice"
@@ -949,7 +954,7 @@ async def update_ar_invoice(
             updated_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await ar_service.update_invoice(update_dto)
+        result = await ar_svc.update_invoice(update_dto)
 
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found or cannot be updated")
@@ -1026,9 +1031,12 @@ async def delete_ar_invoice(
     _permission: None = Depends(require_permission("ar:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceActionResponseSchema:
-    """Delete or cancel AR invoice (soft delete by default)."""
+    """
+    Delete or cancel AR invoice (soft delete by default).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "delete_ar_invoice"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1038,12 +1046,12 @@ async def delete_ar_invoice(
 
     try:
         if permanent:
-            result = await ar_service.void_invoice(
+            result = await ar_svc.void_invoice(
                 invoice_id, current_user.user_id, legal_entity_id, reason
             )
             action = "void"
         else:
-            result = await ar_service.cancel_invoice(
+            result = await ar_svc.cancel_invoice(
                 invoice_id, current_user.user_id, legal_entity_id, reason
             )
             action = "cancel"
@@ -1084,11 +1092,14 @@ async def restore_ar_invoice(
     _permission: None = Depends(require_permission("ar:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceResponseSchema:
-    """Restore a soft-deleted or cancelled invoice."""
+    """
+    Restore a soft-deleted or cancelled invoice.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.restore_invoice(invoice_id, current_user.user_id, legal_entity_id)
+        result = await ar_svc.restore_invoice(invoice_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found or cannot be restored")
@@ -1161,9 +1172,12 @@ async def submit_ar_invoice(
     _permission: None = Depends(require_permission("ar:submit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceActionResponseSchema:
-    """Submit invoice for approval workflow."""
+    """
+    Submit invoice for approval workflow.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "submit_ar_invoice"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1172,7 +1186,7 @@ async def submit_ar_invoice(
             return ARInvoiceActionResponseSchema(**cached)
 
     try:
-        result = await ar_service.submit_invoice(invoice_id, current_user.user_id, legal_entity_id)
+        result = await ar_svc.submit_invoice(invoice_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found or cannot be submitted")
@@ -1209,11 +1223,14 @@ async def approve_ar_invoice(
     _permission: None = Depends(require_permission("ar:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceActionResponseSchema:
-    """Approve invoice (requires approval permission)."""
+    """
+    Approve invoice (requires approval permission).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.approve_invoice(
+        result = await ar_svc.approve_invoice(
             invoice_id, current_user.user_id, legal_entity_id, notes
         )
 
@@ -1249,11 +1266,14 @@ async def reject_ar_invoice(
     _permission: None = Depends(require_permission("ar:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceActionResponseSchema:
-    """Reject invoice (requires approval permission)."""
+    """
+    Reject invoice (requires approval permission).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.reject_invoice(
+        result = await ar_svc.reject_invoice(
             invoice_id, current_user.user_id, legal_entity_id, reason
         )
 
@@ -1287,9 +1307,12 @@ async def post_ar_invoice(
     _permission: None = Depends(require_permission("ar:post")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceActionResponseSchema:
-    """Post invoice to GL (creates journal entry)."""
+    """
+    Post invoice to GL (creates journal entry).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "post_ar_invoice"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1298,7 +1321,7 @@ async def post_ar_invoice(
             return ARInvoiceActionResponseSchema(**cached)
 
     try:
-        result = await ar_service.post_invoice(invoice_id, current_user.user_id, legal_entity_id)
+        result = await ar_svc.post_invoice(invoice_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found or cannot be posted")
@@ -1336,11 +1359,14 @@ async def reverse_ar_invoice(
     _permission: None = Depends(require_permission("ar:reverse")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceActionResponseSchema:
-    """Reverse a posted invoice (creates reversing journal)."""
+    """
+    Reverse a posted invoice (creates reversing journal).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.reverse_invoice(
+        result = await ar_svc.reverse_invoice(
             invoice_id, current_user.user_id, legal_entity_id, reason, reversal_date
         )
 
@@ -1374,11 +1400,14 @@ async def lock_ar_invoice(
     _permission: None = Depends(require_permission("ar:audit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceActionResponseSchema:
-    """Lock invoice to prevent further modifications."""
+    """
+    Lock invoice to prevent further modifications.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.lock_invoice(
+        result = await ar_svc.lock_invoice(
             invoice_id, current_user.user_id, legal_entity_id, reason
         )
 
@@ -1411,11 +1440,14 @@ async def unlock_ar_invoice(
     _permission: None = Depends(require_permission("ar:audit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARInvoiceActionResponseSchema:
-    """Unlock invoice."""
+    """
+    Unlock invoice.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.unlock_invoice(invoice_id, current_user.user_id, legal_entity_id)
+        result = await ar_svc.unlock_invoice(invoice_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found")
@@ -1452,7 +1484,7 @@ async def record_ar_payment(
     _permission: None = Depends(require_permission("ar:record_payment")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARPaymentResponseSchema:
     """
     Mencatat pembayaran piutang.
@@ -1460,6 +1492,7 @@ async def record_ar_payment(
     - Payment mengurangi outstanding invoice
     - Jurnal: debit Bank/Cash, credit AR
     - Dapat memberikan diskon jika early payment
+    - LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
     """
     from application.dto_objects.ar_invoice_request import ARPaymentCreateRequest
 
@@ -1477,7 +1510,7 @@ async def record_ar_payment(
             created_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await ar_service.record_payment(payment_dto)
+        result = await ar_svc.record_payment(payment_dto)
 
         return ARPaymentResponseSchema(
             id=result.id,
@@ -1521,11 +1554,11 @@ async def get_ar_payment(
     payment_id: UUID,
     _permission: None = Depends(require_permission("ar:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARPaymentResponseSchema:
     """Get payment by ID."""
     try:
-        payment = await ar_service.get_payment_by_id(payment_id, legal_entity_id)
+        payment = await ar_svc.get_payment_by_id(payment_id, legal_entity_id)
 
         if not payment:
             raise HTTPException(status_code=404, detail="Payment not found")
@@ -1574,11 +1607,14 @@ async def reverse_ar_payment(
     _permission: None = Depends(require_permission("ar:reverse_payment")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARPaymentResponseSchema:
-    """Reverse a payment (restores invoice outstanding amount)."""
+    """
+    Reverse a payment (restores invoice outstanding amount).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.reverse_payment(
+        result = await ar_svc.reverse_payment(
             payment_id=payment_id,
             reversed_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
@@ -1639,9 +1675,12 @@ async def create_ar_credit_note(
     _permission: None = Depends(require_permission("ar:create_credit_note")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARCreditNoteResponseSchema:
-    """Create credit note for invoice (reduces receivable amount)."""
+    """
+    Create credit note for invoice (reduces receivable amount).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.dto_objects.ar_invoice_request import ARCreditNoteCreateRequest
 
     method_name = "create_ar_credit_note"
@@ -1662,7 +1701,7 @@ async def create_ar_credit_note(
             created_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await ar_service.create_credit_note(note_dto)
+        result = await ar_svc.create_credit_note(note_dto)
 
         response = ARCreditNoteResponseSchema(
             id=result.id,
@@ -1708,11 +1747,14 @@ async def approve_ar_credit_note(
     _permission: None = Depends(require_permission("ar:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARCreditNoteResponseSchema:
-    """Approve credit note."""
+    """
+    Approve credit note.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.approve_credit_note(
+        result = await ar_svc.approve_credit_note(
             credit_note_id, current_user.user_id, legal_entity_id
         )
 
@@ -1759,11 +1801,14 @@ async def cancel_ar_credit_note(
     _permission: None = Depends(require_permission("ar:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARCreditNoteResponseSchema:
-    """Cancel credit note."""
+    """
+    Cancel credit note.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.cancel_credit_note(
+        result = await ar_svc.cancel_credit_note(
             credit_note_id, current_user.user_id, legal_entity_id, reason
         )
 
@@ -1815,7 +1860,7 @@ async def write_off_ar_invoice(
     _permission: None = Depends(require_permission("ar:write_off")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARWriteOffResponseSchema:
     """
     Write off uncollectible receivable.
@@ -1823,9 +1868,10 @@ async def write_off_ar_invoice(
     - Menghapus piutang yang tidak tertagih
     - Membuat jurnal beban piutang tak tertagih
     - Invoice status menjadi WRITTEN_OFF
+    - LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
     """
     try:
-        result = await ar_service.write_off_invoice(
+        result = await ar_svc.write_off_invoice(
             invoice_id=request.invoice_id,
             write_off_amount=request.write_off_amount,
             account_code=request.account_code,
@@ -1868,11 +1914,11 @@ async def get_ar_aging_by_customer(
     as_of_date: date = Query(..., description="Date for aging calculation"),
     _permission: None = Depends(require_permission("ar:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARAgingResponseSchema:
     """Get AR aging report for a specific customer."""
     try:
-        aging = await ar_service.get_aging_report(customer_id, legal_entity_id, as_of_date)
+        aging = await ar_svc.get_aging_report(customer_id, legal_entity_id, as_of_date)
 
         return ARAgingResponseSchema(
             customer_id=aging.customer_id,
@@ -1910,11 +1956,11 @@ async def get_all_ar_aging(
     as_of_date: date = Query(..., description="Date for aging calculation"),
     _permission: None = Depends(require_permission("ar:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> list[ARAgingResponseSchema]:
     """Get AR aging report for all customers."""
     try:
-        report = await ar_service.get_aging_all_customers(legal_entity_id, as_of_date)
+        report = await ar_svc.get_aging_all_customers(legal_entity_id, as_of_date)
 
         return [
             ARAgingResponseSchema(
@@ -1960,11 +2006,11 @@ async def get_ar_dashboard(
     as_of_date: date = Query(..., description="Date for dashboard calculation"),
     _permission: None = Depends(require_permission("ar:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARDashboardSchema:
     """Get AR dashboard with DSO and aging summary."""
     try:
-        dashboard = await ar_service.get_dashboard(legal_entity_id, as_of_date)
+        dashboard = await ar_svc.get_dashboard(legal_entity_id, as_of_date)
 
         return ARDashboardSchema(
             total_outstanding=dashboard.total_outstanding,
@@ -2012,11 +2058,14 @@ async def send_collection_reminders(
     _permission: None = Depends(require_permission("ar:collection")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> ARCollectionReminderResponseSchema:
-    """Send collection reminders for overdue invoices."""
+    """
+    Send collection reminders for overdue invoices.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.send_collection_reminders(
+        result = await ar_svc.send_collection_reminders(
             legal_entity_id=legal_entity_id,
             invoice_ids=request.invoice_ids,
             reminder_type=request.reminder_type,
@@ -2049,7 +2098,10 @@ async def start_collection_workflow(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     collection_workflow: Any = Depends(get_ar_collection_workflow),
 ) -> dict[str, Any]:
-    """Start collection workflow for all overdue invoices."""
+    """
+    Start collection workflow for all overdue invoices.
+    LOCKING: Use case layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
         result = await collection_workflow.start_collection_process(
             legal_entity_id=legal_entity_id,
@@ -2080,11 +2132,14 @@ async def escalate_collection(
     _permission: None = Depends(require_permission("ar:collection")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> dict[str, Any]:
-    """Escalate invoice to legal or collection agency."""
+    """
+    Escalate invoice to legal or collection agency.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.escalate_collection(
+        result = await ar_svc.escalate_collection(
             invoice_id=invoice_id,
             legal_entity_id=legal_entity_id,
             reason=reason,
@@ -2120,11 +2175,11 @@ async def get_ar_invoice_status(
     invoice_id: UUID,
     _permission: None = Depends(require_permission("ar:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> dict[str, Any]:
     """Get detailed status of invoice including workflow state."""
     try:
-        status_info = await ar_service.get_invoice_status(invoice_id, legal_entity_id)
+        status_info = await ar_svc.get_invoice_status(invoice_id, legal_entity_id)
 
         if not status_info:
             raise HTTPException(status_code=404, detail="Invoice not found")
@@ -2165,11 +2220,11 @@ async def get_ar_invoice_history(
     invoice_id: UUID,
     _permission: None = Depends(require_permission("ar:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> list[dict[str, Any]]:
     """Get audit history of invoice status changes."""
     try:
-        history = await ar_service.get_invoice_history(invoice_id, legal_entity_id)
+        history = await ar_svc.get_invoice_history(invoice_id, legal_entity_id)
 
         return [
             {
@@ -2203,13 +2258,13 @@ async def generate_ar_invoice_pdf(
     invoice_id: UUID,
     _permission: None = Depends(require_permission("ar:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ):
     """Generate PDF document for AR invoice."""
     from fastapi.responses import Response
 
     try:
-        pdf_bytes = await ar_service.generate_invoice_pdf(invoice_id, legal_entity_id)
+        pdf_bytes = await ar_svc.generate_invoice_pdf(invoice_id, legal_entity_id)
 
         return Response(
             content=pdf_bytes,
@@ -2240,11 +2295,14 @@ async def bulk_approve_ar_invoices(
     _permission: None = Depends(require_permission("ar:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> dict[str, Any]:
-    """Approve multiple invoices at once."""
+    """
+    Approve multiple invoices at once.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.bulk_approve_invoices(
+        result = await ar_svc.bulk_approve_invoices(
             invoice_ids=invoice_ids,
             approver_id=current_user.user_id,
             legal_entity_id=legal_entity_id,
@@ -2275,11 +2333,14 @@ async def bulk_send_payment_reminders(
     _permission: None = Depends(require_permission("ar:collection")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ar_service: Any = Depends(get_ar_service),
+    ar_svc: Any = Depends(get_ar_svc),
 ) -> dict[str, Any]:
-    """Send payment reminders to multiple customers."""
+    """
+    Send payment reminders to multiple customers.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ar_service.bulk_send_reminders(
+        result = await ar_svc.bulk_send_reminders(
             invoice_ids=invoice_ids,
             reminder_type=reminder_type,
             sent_by=current_user.user_id,

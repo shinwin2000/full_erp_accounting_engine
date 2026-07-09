@@ -2,8 +2,7 @@
 """
 Module: sqlalchemy_legal_entity_repository_impl.py
 Layer: Adapters (Secondary Implementation)
-Responsibility: Implementasi repository untuk Legal Entity Management menggunakan
-               SQLAlchemy ORM. LENGKAP dengan semua method port.
+Responsibility: Implementasi repository Legal Entity dengan SQLAlchemy.
 """
 
 from __future__ import annotations
@@ -29,7 +28,13 @@ from infrastructure.persistence_orm.consolidation_group_member_table import (
 from infrastructure.persistence_orm.consolidation_group_table import ConsolidationGroupTable
 from infrastructure.persistence_orm.legal_entity_branch_table import LegalEntityBranchTable
 from infrastructure.persistence_orm.legal_entity_table import LegalEntityTable
-from ports.primary.legal_entity_repository_port import LegalEntityRepositoryPort, TaxProfile
+from ports.primary.legal_entity_repository_port import (
+    LegalEntity,
+    LegalEntityRepositoryPort,
+    LegalEntityType,
+    TaxProfile,
+    TaxRegime,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,19 +50,11 @@ class DuplicateNPWPError(LegalEntityRepositoryError):
     pass
 
 
-class DuplicateTaxIDError(LegalEntityRepositoryError):
-    pass
-
-
 class LegalEntityNotFoundError(LegalEntityRepositoryError):
     pass
 
 
 class LegalEntityHasBranchesError(LegalEntityRepositoryError):
-    pass
-
-
-class ConsolidationGroupNotFoundError(LegalEntityRepositoryError):
     pass
 
 
@@ -81,10 +78,537 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
         self._session = value
 
     # ========================================================================
-    # HELPER MAPPING METHODS
+    # MAPPING HELPERS (Port LegalEntity ↔ Domain LegalEntityAggregate)
     # ========================================================================
 
-    def _to_domain(self, table: LegalEntityTable) -> LegalEntityAggregate:
+    def _to_port(self, aggregate: LegalEntityAggregate) -> LegalEntity:
+        """Konversi domain aggregate ke port DTO."""
+        # Mapping tipe
+        type_map = {
+            EntityType.PARENT_COMPANY: LegalEntityType.CORPORATION,
+            EntityType.SUBSIDIARY: LegalEntityType.CORPORATION,
+            EntityType.BRANCH: LegalEntityType.REPRESENTATIVE_OFFICE,
+            EntityType.REPRESENTATIVE_OFFICE: LegalEntityType.REPRESENTATIVE_OFFICE,
+            EntityType.JOINT_VENTURE: LegalEntityType.CORPORATION,
+        }
+        entity_type = type_map.get(aggregate.entity_type, LegalEntityType.CORPORATION)
+
+        tax_profile = TaxProfile(
+            npwp=str(aggregate.npwp) if aggregate.npwp else None,
+            tax_regime=TaxRegime.GENERAL,
+            is_pkp=aggregate.tax_profile.is_vat_collector if aggregate.tax_profile else False,
+            pkp_number=aggregate.tax_profile.vat_collector_number if aggregate.tax_profile else None,
+            tax_office=aggregate.tax_profile.tax_office if aggregate.tax_profile else None,
+            tax_office_code=aggregate.tax_profile.tax_office_code if aggregate.tax_profile else None,
+        )
+
+        return LegalEntity(
+            id=aggregate.id,
+            entity_code=aggregate.registration_number or "",
+            entity_name=aggregate.trade_name or aggregate.legal_name,
+            legal_name=aggregate.legal_name,
+            entity_type=entity_type,
+            registration_number=aggregate.registration_number,
+            registration_date=aggregate.established_date,
+            established_date=aggregate.established_date,
+            fiscal_year_start_month=aggregate.fiscal_year_start or 1,
+            fiscal_year_end_month=aggregate.fiscal_year_end or 12,
+            functional_currency=aggregate.functional_currency or "IDR",
+            reporting_currency=aggregate.base_currency or "IDR",
+            addresses=[],
+            contacts=[],
+            tax_profile=tax_profile,
+            parent_entity_id=aggregate.parent_company_id,
+            consolidation_method=None,
+            consolidation_group_id=aggregate.consolidation_group_id,
+            is_active=aggregate.is_active,
+            created_at=aggregate.created_at,
+            created_by=aggregate.created_by,
+            updated_at=aggregate.updated_at,
+            updated_by=aggregate.updated_by,
+            version=aggregate.version,
+        )
+
+    def _to_domain(self, port_entity: LegalEntity) -> LegalEntityAggregate:
+        """Konversi port DTO ke domain aggregate."""
+        # Mapping tipe
+        type_map = {
+            LegalEntityType.CORPORATION: EntityType.SUBSIDIARY,
+            LegalEntityType.LIMITED: EntityType.SUBSIDIARY,
+            LegalEntityType.SOLE_PROPRIETORSHIP: EntityType.SUBSIDIARY,
+            LegalEntityType.COOPERATIVE: EntityType.SUBSIDIARY,
+            LegalEntityType.FOUNDATION: EntityType.SUBSIDIARY,
+            LegalEntityType.GOVERNMENT: EntityType.SUBSIDIARY,
+            LegalEntityType.REPRESENTATIVE_OFFICE: EntityType.REPRESENTATIVE_OFFICE,
+        }
+        entity_type = type_map.get(port_entity.entity_type, EntityType.SUBSIDIARY)
+
+        tax_profile = CompanyTaxProfile(
+            npwp=NPWPVO(port_entity.tax_profile.npwp) if port_entity.tax_profile and port_entity.tax_profile.npwp else None,
+            tax_office=port_entity.tax_profile.tax_office if port_entity.tax_profile else None,
+            tax_office_code=port_entity.tax_profile.tax_office_code if port_entity.tax_profile else None,
+            is_vat_collector=port_entity.tax_profile.is_pkp if port_entity.tax_profile else False,
+            vat_collector_number=port_entity.tax_profile.pkp_number if port_entity.tax_profile else None,
+        )
+
+        return LegalEntityAggregate(
+            id=port_entity.id,
+            legal_name=port_entity.legal_name,
+            trade_name=port_entity.entity_name,
+            entity_type=entity_type,
+            registration_number=port_entity.registration_number,
+            npwp=NPWPVO(port_entity.tax_profile.npwp) if port_entity.tax_profile and port_entity.tax_profile.npwp else None,
+            tax_id=port_entity.tax_profile.npwp if port_entity.tax_profile else None,
+            address=None,
+            city=None,
+            country=DEFAULT_COUNTRY,
+            fiscal_year_start=port_entity.fiscal_year_start_month,
+            fiscal_year_end=port_entity.fiscal_year_end_month,
+            base_currency=port_entity.reporting_currency,
+            functional_currency=port_entity.functional_currency,
+            tax_profile=tax_profile,
+            status=LegalEntityStatus.ACTIVE if port_entity.is_active else LegalEntityStatus.INACTIVE,
+            is_active=port_entity.is_active,
+            parent_company_id=port_entity.parent_entity_id,
+            consolidation_group_id=port_entity.consolidation_group_id,
+            created_at=port_entity.created_at,
+            updated_at=port_entity.updated_at,
+            created_by=port_entity.created_by,
+            version=port_entity.version,
+        )
+
+    # ========================================================================
+    # AUDIT LOG
+    # ========================================================================
+
+    async def _log_audit(self, action: str, entity_id: UUID, details: dict[str, Any]) -> None:
+        self._audit_log.append({
+            "timestamp": datetime.now(UTC).isoformat(),
+            "action": action,
+            "entity_id": str(entity_id),
+            "details": details,
+        })
+        if len(self._audit_log) > 10000:
+            self._audit_log = self._audit_log[-5000:]
+
+    # ========================================================================
+    # CRUD
+    # ========================================================================
+
+    async def add(self, entity: LegalEntity) -> None:
+        try:
+            if entity.tax_profile and entity.tax_profile.npwp:
+                exists = await self.exists_by_npwp(entity.tax_profile.npwp)
+                if exists:
+                    raise DuplicateNPWPError(f"NPWP {entity.tax_profile.npwp} already registered")
+            aggregate = self._to_domain(entity)
+            table = await self._aggregate_to_orm(aggregate)
+            self.session.add(table)
+            await self.session.flush()
+            await self._log_audit("ADD", entity.id, {"legal_name": entity.legal_name})
+            logger.info("Legal entity added: %s", entity.legal_name)
+        except DuplicateNPWPError:
+            raise
+        except IntegrityError as e:
+            await self.session.rollback()
+            if "npwp" in str(e).lower():
+                raise DuplicateNPWPError(f"NPWP already exists: {e}") from e
+            raise LegalEntityRepositoryError(f"Integrity error: {e}") from e
+        except Exception as e:
+            await self.session.rollback()
+            raise LegalEntityRepositoryError(f"Failed to add legal entity: {e}") from e
+
+    async def update(self, entity: LegalEntity) -> None:
+        try:
+            aggregate = self._to_domain(entity)
+            table = await self._aggregate_to_orm(aggregate)
+            table.version = entity.version + 1
+            table.updated_at = datetime.utcnow()
+            await self.session.merge(table)
+            await self.session.flush()
+            await self._log_audit("UPDATE", entity.id, {"legal_name": entity.legal_name})
+            logger.info("Legal entity updated: %s", entity.legal_name)
+        except Exception as e:
+            await self.session.rollback()
+            raise LegalEntityRepositoryError(f"Failed to update legal entity: {e}") from e
+
+    async def delete(self, entity_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
+        session = self.session
+        try:
+            async with session.begin():
+                stmt_lock = select(LegalEntityTable).where(LegalEntityTable.id == entity_id).with_for_update()
+                result = await session.execute(stmt_lock)
+                table = result.scalar_one_or_none()
+                if not table:
+                    return False
+
+                if not permanent:
+                    # Check branches
+                    branch_stmt = select(func.count()).select_from(LegalEntityBranchTable).where(
+                        LegalEntityBranchTable.parent_entity_id == entity_id,
+                        LegalEntityBranchTable.deleted_at.is_(None),
+                    )
+                    branch_result = await session.execute(branch_stmt)
+                    if branch_result.scalar() > 0:
+                        raise LegalEntityHasBranchesError(f"Entity {entity_id} has branches")
+
+                    table.deleted_at = datetime.utcnow()
+                    table.is_active = False
+                    table.status = "inactive"
+                    table.updated_at = datetime.utcnow()
+                else:
+                    await session.delete(table)
+
+                await session.flush()
+                await self._log_audit("DELETE" if permanent else "SOFT_DELETE", entity_id, {"user_id": str(user_id)})
+                return True
+        except LegalEntityHasBranchesError:
+            raise
+        except Exception as e:
+            await session.rollback()
+            raise LegalEntityRepositoryError(f"Failed to delete entity: {e}") from e
+
+    async def restore(self, entity_id: UUID, user_id: UUID) -> bool:
+        try:
+            stmt = update(LegalEntityTable).where(
+                LegalEntityTable.id == entity_id,
+                LegalEntityTable.deleted_at.is_not(None),
+            ).values(
+                deleted_at=None,
+                is_active=True,
+                status="active",
+                updated_at=datetime.utcnow(),
+            )
+            result = await self.session.execute(stmt)
+            await self.session.flush()
+            if result.rowcount > 0:
+                await self._log_audit("RESTORE", entity_id, {"user_id": str(user_id)})
+                return True
+            return False
+        except Exception as e:
+            await self.session.rollback()
+            raise LegalEntityRepositoryError(f"Failed to restore entity: {e}") from e
+
+    # ========================================================================
+    # QUERY
+    # ========================================================================
+
+    async def get_by_id(self, entity_id: UUID) -> LegalEntity | None:
+        try:
+            stmt = select(LegalEntityTable).where(LegalEntityTable.id == entity_id, LegalEntityTable.deleted_at.is_(None))
+            result = await self.session.execute(stmt)
+            table = result.scalar_one_or_none()
+            if not table:
+                return None
+            aggregate = self._orm_to_aggregate(table)
+            return self._to_port(aggregate)
+        except Exception as e:
+            raise LegalEntityRepositoryError(f"Failed to get entity: {e}") from e
+
+    async def get_by_npwp(self, npwp: str) -> LegalEntity | None:
+        try:
+            stmt = select(LegalEntityTable).where(LegalEntityTable.npwp == npwp, LegalEntityTable.deleted_at.is_(None))
+            result = await self.session.execute(stmt)
+            table = result.scalar_one_or_none()
+            if not table:
+                return None
+            aggregate = self._orm_to_aggregate(table)
+            return self._to_port(aggregate)
+        except Exception as e:
+            raise LegalEntityRepositoryError(f"Failed to get entity by NPWP: {e}") from e
+
+    async def get_by_tax_id(self, tax_id: str) -> LegalEntity | None:
+        return await self.get_by_npwp(tax_id)
+
+    async def get_by_code(self, entity_code: str) -> LegalEntity | None:
+        try:
+            stmt = select(LegalEntityTable).where(
+                or_(
+                    LegalEntityTable.registration_number == entity_code,
+                    LegalEntityTable.trade_name == entity_code,
+                ),
+                LegalEntityTable.deleted_at.is_(None),
+            )
+            result = await self.session.execute(stmt)
+            table = result.scalar_one_or_none()
+            if not table:
+                return None
+            aggregate = self._orm_to_aggregate(table)
+            return self._to_port(aggregate)
+        except Exception as e:
+            raise LegalEntityRepositoryError(f"Failed to get entity by code: {e}") from e
+
+    async def find_all_active(self) -> list[LegalEntity]:
+        try:
+            stmt = select(LegalEntityTable).where(
+                LegalEntityTable.is_active == True,
+                LegalEntityTable.deleted_at.is_(None),
+            ).order_by(LegalEntityTable.legal_name)
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            return [self._to_port(self._orm_to_aggregate(t)) for t in tables]
+        except Exception as e:
+            raise LegalEntityRepositoryError(f"Failed to find active entities: {e}") from e
+
+    async def get_all(self, include_inactive: bool = False, limit: int = 100, offset: int = 0) -> list[LegalEntity]:
+        try:
+            conditions = [LegalEntityTable.deleted_at.is_(None)]
+            if not include_inactive:
+                conditions.append(LegalEntityTable.is_active == True)
+            stmt = select(LegalEntityTable).where(and_(*conditions)).order_by(
+                LegalEntityTable.legal_name
+            ).limit(limit).offset(offset)
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            return [self._to_port(self._orm_to_aggregate(t)) for t in tables]
+        except Exception as e:
+            raise LegalEntityRepositoryError(f"Failed to get all entities: {e}") from e
+
+    async def get_children(self, parent_entity_id: UUID) -> list[LegalEntity]:
+        try:
+            stmt = select(LegalEntityTable).where(
+                LegalEntityTable.parent_company_id == parent_entity_id,
+                LegalEntityTable.deleted_at.is_(None),
+            ).order_by(LegalEntityTable.legal_name)
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            return [self._to_port(self._orm_to_aggregate(t)) for t in tables]
+        except Exception as e:
+            raise LegalEntityRepositoryError(f"Failed to get children: {e}") from e
+
+    async def get_tree(self, root_entity_id: UUID) -> dict[str, Any]:
+        root = await self.get_by_id(root_entity_id)
+        if not root:
+            raise LegalEntityNotFoundError(f"Entity {root_entity_id} not found")
+        children = await self.get_children(root_entity_id)
+        tree = {
+            "id": str(root.id),
+            "legal_name": root.legal_name,
+            "entity_type": root.entity_type.value,
+            "children": []
+        }
+        for child in children:
+            child_tree = await self.get_tree(child.id)
+            tree["children"].append(child_tree)
+        return tree
+
+    async def exists_by_npwp(self, npwp: str) -> bool:
+        try:
+            stmt = select(func.count()).select_from(LegalEntityTable).where(
+                LegalEntityTable.npwp == npwp,
+                LegalEntityTable.deleted_at.is_(None),
+            )
+            result = await self.session.execute(stmt)
+            return result.scalar() > 0
+        except Exception as e:
+            raise LegalEntityRepositoryError(f"Failed to check NPWP: {e}") from e
+
+    async def find_by_name_contains(self, name_fragment: str, limit: int = 50) -> list[LegalEntity]:
+        try:
+            stmt = select(LegalEntityTable).where(
+                or_(
+                    LegalEntityTable.legal_name.ilike(f"%{name_fragment}%"),
+                    LegalEntityTable.trade_name.ilike(f"%{name_fragment}%"),
+                ),
+                LegalEntityTable.deleted_at.is_(None),
+            ).limit(limit).order_by(LegalEntityTable.legal_name)
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            return [self._to_port(self._orm_to_aggregate(t)) for t in tables]
+        except Exception as e:
+            raise LegalEntityRepositoryError(f"Failed to search entities: {e}") from e
+
+    # ========================================================================
+    # TAX PROFILE
+    # ========================================================================
+
+    async def get_tax_profile(self, entity_id: UUID) -> TaxProfile | None:
+        entity = await self.get_by_id(entity_id)
+        return entity.tax_profile if entity else None
+
+    async def update_tax_profile(self, entity_id: UUID, tax_profile: TaxProfile, user_id: UUID) -> bool:
+        entity = await self.get_by_id(entity_id)
+        if not entity:
+            return False
+        # Update tax profile
+        entity.tax_profile = tax_profile
+        entity.updated_by = user_id
+        entity.updated_at = datetime.now()
+        entity.version += 1
+        await self.update(entity)
+        await self._log_audit("UPDATE_TAX_PROFILE", entity_id, {"user_id": str(user_id)})
+        return True
+
+    async def get_fiscal_year_range(self, entity_id: UUID, fiscal_year: int) -> tuple[date, date]:
+        entity = await self.get_by_id(entity_id)
+        if not entity:
+            raise LegalEntityNotFoundError(f"Entity {entity_id} not found")
+        start_month = entity.fiscal_year_start_month
+        end_month = entity.fiscal_year_end_month
+        start_date = date(fiscal_year, start_month, 1)
+        if end_month == 12:
+            end_date = date(fiscal_year, 12, 31)
+        else:
+            end_date = date(fiscal_year, end_month + 1, 1) - timedelta(days=1)
+        return start_date, end_date
+
+    async def get_previous_fiscal_year(self, entity_id: UUID, fiscal_year: int) -> int:
+        entity = await self.get_by_id(entity_id)
+        if not entity:
+            raise LegalEntityNotFoundError(f"Entity {entity_id} not found")
+        start_month = entity.fiscal_year_start_month
+        if start_month == 1:
+            return fiscal_year - 1
+        else:
+            return fiscal_year
+
+    # ========================================================================
+    # BRANCH
+    # ========================================================================
+
+    async def add_branch(self, branch: dict[str, Any]) -> UUID:
+        try:
+            table = LegalEntityBranchTable(
+                id=uuid4(),
+                parent_entity_id=branch["parent_entity_id"],
+                branch_name=branch["branch_name"],
+                branch_code=branch.get("branch_code"),
+                address=branch.get("address"),
+                city=branch.get("city"),
+                phone=branch.get("phone"),
+                manager_name=branch.get("manager_name"),
+                is_active=True,
+                created_at=datetime.utcnow(),
+                created_by=branch.get("created_by"),
+            )
+            self.session.add(table)
+            await self.session.flush()
+            await self._log_audit("ADD_BRANCH", branch["parent_entity_id"], {"branch_name": branch["branch_name"]})
+            return table.id
+        except Exception as e:
+            await self.session.rollback()
+            raise LegalEntityRepositoryError(f"Failed to add branch: {e}") from e
+
+    async def get_branches(self, parent_entity_id: UUID) -> list[dict[str, Any]]:
+        try:
+            stmt = select(LegalEntityBranchTable).where(
+                LegalEntityBranchTable.parent_entity_id == parent_entity_id,
+                LegalEntityBranchTable.deleted_at.is_(None),
+            ).order_by(LegalEntityBranchTable.branch_name)
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            return [
+                {
+                    "id": t.id,
+                    "branch_name": t.branch_name,
+                    "branch_code": t.branch_code,
+                    "address": t.address,
+                    "city": t.city,
+                    "phone": t.phone,
+                    "manager_name": t.manager_name,
+                    "is_active": t.is_active,
+                }
+                for t in tables
+            ]
+        except Exception as e:
+            raise LegalEntityRepositoryError(f"Failed to get branches: {e}") from e
+
+    # ========================================================================
+    # CONSOLIDATION
+    # ========================================================================
+
+    async def create_consolidation_group(self, group_name: str, description: str | None = None, created_by: UUID | None = None) -> UUID:
+        try:
+            table = ConsolidationGroupTable(
+                id=uuid4(),
+                group_name=group_name,
+                description=description,
+                is_active=True,
+                created_at=datetime.utcnow(),
+                created_by=created_by,
+            )
+            self.session.add(table)
+            await self.session.flush()
+            return table.id
+        except Exception as e:
+            await self.session.rollback()
+            raise LegalEntityRepositoryError(f"Failed to create consolidation group: {e}") from e
+
+    async def add_to_consolidation_group(self, group_id: UUID, entity_id: UUID, ownership_percentage: Decimal) -> None:
+        try:
+            stmt = select(func.count()).select_from(ConsolidationGroupMemberTable).where(
+                ConsolidationGroupMemberTable.group_id == group_id,
+                ConsolidationGroupMemberTable.entity_id == entity_id,
+                ConsolidationGroupMemberTable.deleted_at.is_(None),
+            )
+            result = await self.session.execute(stmt)
+            if result.scalar() > 0:
+                return
+            table = ConsolidationGroupMemberTable(
+                id=uuid4(),
+                group_id=group_id,
+                entity_id=entity_id,
+                ownership_percentage=float(ownership_percentage),
+                joined_at=datetime.utcnow(),
+            )
+            self.session.add(table)
+            stmt2 = update(LegalEntityTable).where(LegalEntityTable.id == entity_id).values(consolidation_group_id=group_id)
+            await self.session.execute(stmt2)
+            await self.session.flush()
+            await self._log_audit("ADD_TO_CONSOLIDATION", entity_id, {"group_id": str(group_id)})
+        except Exception as e:
+            await self.session.rollback()
+            raise LegalEntityRepositoryError(f"Failed to add to group: {e}") from e
+
+    async def get_consolidation_groups(self, is_active: bool = True) -> list[dict[str, Any]]:
+        try:
+            stmt = select(ConsolidationGroupTable).where(ConsolidationGroupTable.is_active == is_active)
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            groups = []
+            for table in tables:
+                member_stmt = select(func.count()).select_from(ConsolidationGroupMemberTable).where(
+                    ConsolidationGroupMemberTable.group_id == table.id,
+                    ConsolidationGroupMemberTable.deleted_at.is_(None),
+                )
+                member_result = await self.session.execute(member_stmt)
+                groups.append({
+                    "id": table.id,
+                    "group_name": table.group_name,
+                    "description": table.description,
+                    "member_count": member_result.scalar() or 0,
+                    "is_active": table.is_active,
+                    "created_at": table.created_at,
+                })
+            return groups
+        except Exception as e:
+            raise LegalEntityRepositoryError(f"Failed to get consolidation groups: {e}") from e
+
+    async def get_consolidation_group(self, group_id: UUID) -> list[LegalEntity]:
+        try:
+            member_stmt = select(ConsolidationGroupMemberTable.entity_id).where(
+                ConsolidationGroupMemberTable.group_id == group_id,
+                ConsolidationGroupMemberTable.deleted_at.is_(None),
+            )
+            member_result = await self.session.execute(member_stmt)
+            entity_ids = member_result.scalars().all()
+            if not entity_ids:
+                return []
+            stmt = select(LegalEntityTable).where(
+                LegalEntityTable.id.in_(entity_ids),
+                LegalEntityTable.deleted_at.is_(None),
+            ).order_by(LegalEntityTable.legal_name)
+            result = await self.session.execute(stmt)
+            tables = result.scalars().all()
+            return [self._to_port(self._orm_to_aggregate(t)) for t in tables]
+        except Exception as e:
+            raise LegalEntityRepositoryError(f"Failed to get consolidation group: {e}") from e
+
+    # ========================================================================
+    # ORM HELPERS
+    # ========================================================================
+
+    def _orm_to_aggregate(self, table: LegalEntityTable) -> LegalEntityAggregate:
         entity_type_map = {
             "parent_company": EntityType.PARENT_COMPANY,
             "subsidiary": EntityType.SUBSIDIARY,
@@ -121,15 +645,15 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
             address=table.address,
             city=table.city,
             postal_code=table.postal_code,
-            country=table.country or DEFAULT_COUNTRY,
+            country=table.country or "ID",
             phone=table.phone,
             email=table.email,
             website=table.website,
             established_date=table.established_date,
             fiscal_year_start=table.fiscal_year_start,
             fiscal_year_end=table.fiscal_year_end,
-            base_currency=table.base_currency or DEFAULT_CURRENCY,
-            functional_currency=table.functional_currency or DEFAULT_CURRENCY,
+            base_currency=table.base_currency or "IDR",
+            functional_currency=table.functional_currency or "IDR",
             tax_profile=tax_profile,
             status=status_map.get(table.status, LegalEntityStatus.ACTIVE),
             is_active=table.is_active,
@@ -142,7 +666,7 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
             version=table.version,
         )
 
-    async def _to_orm(self, aggregate: LegalEntityAggregate) -> LegalEntityTable:
+    async def _aggregate_to_orm(self, aggregate: LegalEntityAggregate) -> LegalEntityTable:
         entity_type_str = aggregate.entity_type.value if hasattr(aggregate.entity_type, "value") else str(aggregate.entity_type)
         status_str = aggregate.status.value if hasattr(aggregate.status, "value") else str(aggregate.status)
         return LegalEntityTable(
@@ -184,338 +708,11 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
             version=aggregate.version,
         )
 
-    async def _log_audit(self, action: str, entity_id: UUID, details: dict[str, Any]) -> None:
-        self._audit_log.append({
-            "timestamp": datetime.now(UTC).isoformat(),
-            "action": action,
-            "entity_id": str(entity_id),
-            "details": details,
-        })
-        if len(self._audit_log) > 10000:
-            self._audit_log = self._audit_log[-5000:]
-
-    # ========================================================================
-    # EXISTING CRUD METHODS
-    # ========================================================================
-
-    async def add(self, entity: LegalEntityAggregate) -> None:
-        try:
-            if entity.npwp:
-                exists = await self.exists_by_npwp(str(entity.npwp))
-                if exists:
-                    raise DuplicateNPWPError(f"NPWP {entity.npwp} already registered")
-            table = await self._to_orm(entity)
-            self.session.add(table)
-            await self.session.flush()
-            await self._log_audit("ADD", entity.id, {"legal_name": entity.legal_name})
-            logger.info("Legal entity added: %s", entity.legal_name)
-        except DuplicateNPWPError:
-            raise
-        except IntegrityError as e:
-            await self.session.rollback()
-            if "npwp" in str(e).lower():
-                raise DuplicateNPWPError(f"NPWP already exists: {e}") from e
-            raise LegalEntityRepositoryError(f"Integrity error: {e}") from e
-        except Exception as e:
-            await self.session.rollback()
-            raise LegalEntityRepositoryError(f"Failed to add legal entity: {e}") from e
-
-    async def get_by_id(self, entity_id: UUID) -> LegalEntityAggregate | None:
-        try:
-            stmt = select(LegalEntityTable).where(LegalEntityTable.id == entity_id, LegalEntityTable.deleted_at.is_(None))
-            result = await self.session.execute(stmt)
-            table = result.scalar_one_or_none()
-            if not table:
-                return None
-            return self._to_domain(table)
-        except Exception as e:
-            raise LegalEntityRepositoryError(f"Failed to get legal entity: {e}") from e
-
-    async def get_by_npwp(self, tax_id_number: str) -> LegalEntityAggregate | None:
-        try:
-            stmt = select(LegalEntityTable).where(LegalEntityTable.npwp == tax_id_number, LegalEntityTable.deleted_at.is_(None))
-            result = await self.session.execute(stmt)
-            table = result.scalar_one_or_none()
-            if not table:
-                return None
-            return self._to_domain(table)
-        except Exception as e:
-            raise LegalEntityRepositoryError(f"Failed to get legal entity by NPWP: {e}") from e
-
-    async def get_by_tax_id(self, tax_id: str) -> LegalEntityAggregate | None:
-        """Alias for get_by_npwp."""
-        return await self.get_by_npwp(tax_id)
-
-    async def get_by_code(self, entity_code: str) -> LegalEntityAggregate | None:
-        """Get entity by registration number or code."""
-        try:
-            stmt = select(LegalEntityTable).where(
-                or_(
-                    LegalEntityTable.registration_number == entity_code,
-                    LegalEntityTable.trade_name == entity_code,
-                ),
-                LegalEntityTable.deleted_at.is_(None),
-            )
-            result = await self.session.execute(stmt)
-            table = result.scalar_one_or_none()
-            if not table:
-                return None
-            return self._to_domain(table)
-        except Exception as e:
-            raise LegalEntityRepositoryError(f"Failed to get entity by code: {e}") from e
-
-    async def update(self, entity: LegalEntityAggregate) -> None:
-        try:
-            stmt = select(LegalEntityTable.version).where(LegalEntityTable.id == entity.id)
-            result = await self.session.execute(stmt)
-            current_version = result.scalar_one_or_none()
-            if current_version is None:
-                raise LegalEntityNotFoundError(f"Legal entity {entity.id} not found")
-            if current_version != entity.version:
-                raise OptimisticLockError(f"Version mismatch: expected {entity.version}, got {current_version}")
-            table = await self._to_orm(entity)
-            table.version = entity.version + 1
-            table.updated_at = datetime.utcnow()
-            await self.session.merge(table)
-            await self.session.flush()
-            await self._log_audit("UPDATE", entity.id, {"legal_name": entity.legal_name})
-            logger.info("Legal entity updated: %s", entity.legal_name)
-        except (LegalEntityNotFoundError, OptimisticLockError):
-            raise
-        except Exception as e:
-            await self.session.rollback()
-            raise LegalEntityRepositoryError(f"Failed to update legal entity: {e}") from e
-
-    # ===== FIX: delete signature sesuai port (2 required: entity_id, user_id) =====
-    async def delete(self, entity_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
-        """Soft or hard delete entity."""
-        try:
-            if not permanent:
-                # Check branches
-                branch_stmt = select(func.count()).select_from(LegalEntityBranchTable).where(
-                    LegalEntityBranchTable.parent_entity_id == entity_id,
-                    LegalEntityBranchTable.deleted_at.is_(None),
-                )
-                branch_result = await self.session.execute(branch_stmt)
-                if branch_result.scalar() > 0:
-                    raise LegalEntityHasBranchesError(f"Legal entity {entity_id} has branches")
-                stmt = update(LegalEntityTable).where(LegalEntityTable.id == entity_id).values(
-                    deleted_at=datetime.utcnow(), is_active=False, status="inactive"
-                )
-                result = await self.session.execute(stmt)
-                await self.session.flush()
-                if result.rowcount > 0:
-                    await self._log_audit("DELETE_SOFT", entity_id, {"user_id": str(user_id)})
-                    logger.info("Legal entity %s soft deleted by %s", entity_id, user_id)
-                return result.rowcount > 0
-            else:
-                # Permanent delete
-                stmt = select(LegalEntityTable).where(LegalEntityTable.id == entity_id)
-                result = await self.session.execute(stmt)
-                table = result.scalar_one_or_none()
-                if not table:
-                    return False
-                await self.session.delete(table)
-                await self.session.flush()
-                await self._log_audit("DELETE_PERMANENT", entity_id, {"user_id": str(user_id)})
-                logger.info("Legal entity %s permanently deleted by %s", entity_id, user_id)
-                return True
-        except LegalEntityHasBranchesError:
-            raise
-        except Exception as e:
-            await self.session.rollback()
-            raise LegalEntityRepositoryError(f"Failed to delete legal entity: {e}") from e
-
-    # ===== FIX: restore signature sesuai port (2 required: entity_id, user_id) =====
-    async def restore(self, entity_id: UUID, user_id: UUID) -> bool:
-        """Restore a soft-deleted entity."""
-        try:
-            stmt = update(LegalEntityTable).where(
-                LegalEntityTable.id == entity_id,
-                LegalEntityTable.deleted_at.is_not(None),
-            ).values(
-                deleted_at=None,
-                is_active=True,
-                status="active",
-                updated_at=datetime.utcnow(),
-            )
-            result = await self.session.execute(stmt)
-            await self.session.flush()
-            if result.rowcount > 0:
-                await self._log_audit("RESTORE", entity_id, {"user_id": str(user_id)})
-                logger.info("Legal entity %s restored by %s", entity_id, user_id)
-                return True
-            return False
-        except Exception as e:
-            await self.session.rollback()
-            raise LegalEntityRepositoryError(f"Failed to restore entity: {e}") from e
-
-    async def find_all_active(self) -> list[LegalEntityAggregate]:
-        try:
-            stmt = select(LegalEntityTable).where(
-                LegalEntityTable.is_active == True,
-                LegalEntityTable.deleted_at.is_(None),
-            ).order_by(LegalEntityTable.legal_name)
-            result = await self.session.execute(stmt)
-            tables = result.scalars().all()
-            return [self._to_domain(table) for table in tables]
-        except Exception as e:
-            raise LegalEntityRepositoryError(f"Failed to find active entities: {e}") from e
-
-    async def get_all(self, include_inactive: bool = False, limit: int = 100, offset: int = 0) -> list[LegalEntityAggregate]:
-        """Get all legal entities with pagination."""
-        try:
-            conditions = [LegalEntityTable.deleted_at.is_(None)]
-            if not include_inactive:
-                conditions.append(LegalEntityTable.is_active == True)
-            stmt = select(LegalEntityTable).where(and_(*conditions)).order_by(
-                LegalEntityTable.legal_name
-            ).limit(limit).offset(offset)
-            result = await self.session.execute(stmt)
-            tables = result.scalars().all()
-            return [self._to_domain(table) for table in tables]
-        except Exception as e:
-            raise LegalEntityRepositoryError(f"Failed to get all entities: {e}") from e
-
-    async def get_children(self, parent_company_id: UUID) -> list[LegalEntityAggregate]:
-        """Get subsidiaries/children of a parent company."""
-        try:
-            stmt = select(LegalEntityTable).where(
-                LegalEntityTable.parent_company_id == parent_company_id,
-                LegalEntityTable.deleted_at.is_(None),
-            ).order_by(LegalEntityTable.legal_name)
-            result = await self.session.execute(stmt)
-            tables = result.scalars().all()
-            return [self._to_domain(table) for table in tables]
-        except Exception as e:
-            raise LegalEntityRepositoryError(f"Failed to get children: {e}") from e
-
-    async def get_tree(self, root_entity_id: UUID) -> dict[str, Any]:
-        """Get hierarchical tree of entities."""
-        try:
-            root = await self.get_by_id(root_entity_id)
-            if not root:
-                raise LegalEntityNotFoundError(f"Entity {root_entity_id} not found")
-            children = await self.get_children(root_entity_id)
-            tree = {
-                "id": str(root.id),
-                "legal_name": root.legal_name,
-                "entity_type": root.entity_type.value,
-                "children": []
-            }
-            for child in children:
-                child_tree = await self.get_tree(child.id)
-                tree["children"].append(child_tree)
-            return tree
-        except LegalEntityNotFoundError:
-            raise
-        except Exception as e:
-            raise LegalEntityRepositoryError(f"Failed to get tree: {e}") from e
-
-    async def exists_by_npwp(self, npwp: str) -> bool:
-        try:
-            stmt = select(func.count()).select_from(LegalEntityTable).where(
-                LegalEntityTable.npwp == npwp, LegalEntityTable.deleted_at.is_(None)
-            )
-            result = await self.session.execute(stmt)
-            return result.scalar() > 0
-        except Exception as e:
-            raise LegalEntityRepositoryError(f"Failed to check NPWP: {e}") from e
-
-    async def find_by_name_contains(self, name_fragment: str, limit: int = 50) -> list[LegalEntityAggregate]:
-        try:
-            stmt = select(LegalEntityTable).where(
-                or_(
-                    LegalEntityTable.legal_name.ilike(f"%{name_fragment}%"),
-                    LegalEntityTable.trade_name.ilike(f"%{name_fragment}%"),
-                ),
-                LegalEntityTable.deleted_at.is_(None),
-            ).limit(limit).order_by(LegalEntityTable.legal_name)
-            result = await self.session.execute(stmt)
-            tables = result.scalars().all()
-            return [self._to_domain(table) for table in tables]
-        except Exception as e:
-            raise LegalEntityRepositoryError(f"Failed to search entities: {e}") from e
-
-    # ========================================================================
-    # TAX PROFILE METHODS
-    # ========================================================================
-
-    async def get_tax_profile(self, entity_id: UUID) -> CompanyTaxProfile | None:
-        """Get tax profile of a legal entity."""
-        entity = await self.get_by_id(entity_id)
-        if not entity:
-            return None
-        return entity.tax_profile
-
-    # ===== FIX: update_tax_profile signature sesuai port (3 required: entity_id, tax_profile, user_id) =====
-    async def update_tax_profile(self, entity_id: UUID, tax_profile: TaxProfile, user_id: UUID) -> bool:
-        """Update tax profile of a legal entity."""
-        entity = await self.get_by_id(entity_id)
-        if not entity:
-            return False
-        # Convert TaxProfile (port) to CompanyTaxProfile (domain) if needed
-        # Since both are similar, we create a new CompanyTaxProfile from the port object
-        # For simplicity, we assume tax_profile is already CompanyTaxProfile or compatible
-        # But actually port uses TaxProfile (different class). We need to map.
-        # For now, we'll update entity.tax_profile with the new data.
-        # If types are incompatible, we can copy fields.
-        if hasattr(tax_profile, 'npwp'):
-            entity.tax_profile = CompanyTaxProfile(
-                npwp=NPWPVO(tax_profile.npwp) if tax_profile.npwp else None,
-                tax_office=getattr(tax_profile, 'tax_office', None),
-                tax_office_code=getattr(tax_profile, 'tax_office_code', None),
-                tax_classification=getattr(tax_profile, 'tax_regime', None),
-                taxable_date=getattr(tax_profile, 'taxable_date', None),
-                annual_tax_return_due_date=getattr(tax_profile, 'annual_tax_return_due_date', None),
-                monthly_tax_due_date=getattr(tax_profile, 'monthly_tax_due_date', None),
-                is_vat_collector=getattr(tax_profile, 'is_pkp', False),
-                vat_collector_number=getattr(tax_profile, 'pkp_number', None),
-                is_withholding_agent=getattr(tax_profile, 'is_withholding_agent', False),
-            )
-        else:
-            # Fallback: assume it's already CompanyTaxProfile
-            entity.tax_profile = tax_profile
-        entity.updated_by = user_id
-        entity.updated_at = datetime.utcnow()
-        entity.version += 1
-        await self.update(entity)
-        await self._log_audit("UPDATE_TAX_PROFILE", entity_id, {"user_id": str(user_id)})
-        return True
-
-    # ===== FIX: get_fiscal_year_range signature sesuai port (2 required: entity_id, fiscal_year) =====
-    async def get_fiscal_year_range(self, entity_id: UUID, fiscal_year: int) -> tuple[date, date]:
-        """Get fiscal year start and end dates for a given fiscal year."""
-        entity = await self.get_by_id(entity_id)
-        if not entity:
-            raise LegalEntityNotFoundError(f"Entity {entity_id} not found")
-        start_month = entity.fiscal_year_start or 1
-        end_month = entity.fiscal_year_end or 12
-        start_date = date(fiscal_year, start_month, 1)
-        if end_month == 12:
-            end_date = date(fiscal_year, 12, 31)
-        else:
-            end_date = date(fiscal_year, end_month, 1) - timedelta(days=1)
-        return start_date, end_date
-
-    # ===== FIX: get_previous_fiscal_year signature sesuai port (2 required: entity_id, fiscal_year) =====
-    async def get_previous_fiscal_year(self, entity_id: UUID, fiscal_year: int) -> int:
-        """Get the previous fiscal year number for an entity."""
-        entity = await self.get_by_id(entity_id)
-        if not entity:
-            raise LegalEntityNotFoundError(f"Entity {entity_id} not found")
-        start_month = entity.fiscal_year_start or 1
-        if start_month == 1:
-            return fiscal_year - 1
-        else:
-            return fiscal_year
-
     # ========================================================================
     # STATISTICS
     # ========================================================================
 
     async def get_statistics(self) -> dict[str, Any]:
-        """Get statistics about legal entities."""
         try:
             total_stmt = select(func.count()).select_from(LegalEntityTable).where(LegalEntityTable.deleted_at.is_(None))
             total = (await self.session.execute(total_stmt)).scalar() or 0
@@ -543,7 +740,6 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
     # ========================================================================
 
     async def export_to_csv(self) -> str:
-        """Export legal entities to CSV string."""
         entities = await self.get_all(include_inactive=True, limit=10000)
         output = io.StringIO()
         writer = csv.writer(output)
@@ -555,49 +751,50 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
         for e in entities:
             writer.writerow([
                 e.legal_name,
-                e.trade_name,
+                e.entity_name,
                 e.entity_type.value,
                 e.registration_number or "",
-                str(e.npwp) if e.npwp else "",
-                e.address or "",
-                e.city or "",
-                e.country or "",
-                e.phone or "",
-                e.email or "",
-                e.base_currency,
+                e.tax_profile.npwp if e.tax_profile else "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                e.reporting_currency,
                 e.functional_currency,
-                e.status.value,
+                "active" if e.is_active else "inactive",
                 "1" if e.is_active else "0",
             ])
         return output.getvalue()
 
     async def import_from_csv(self, csv_content: str, created_by: UUID) -> int:
-        """Import legal entities from CSV string."""
         reader = csv.DictReader(io.StringIO(csv_content))
         count = 0
         for row in reader:
             try:
-                npwp_val = row.get("npwp")
-                entity_type = EntityType(row["entity_type"]) if row.get("entity_type") else EntityType.SUBSIDIARY
-                status = LegalEntityStatus(row.get("status", "active")) if row.get("status") else LegalEntityStatus.ACTIVE
-                entity = LegalEntityAggregate(
+                entity_type = LegalEntityType(row.get("entity_type", "corporation"))
+                tax_profile = TaxProfile(
+                    npwp=row.get("npwp"),
+                    tax_regime=TaxRegime.GENERAL,
+                    is_pkp=True,
+                )
+                entity = LegalEntity(
                     id=uuid4(),
-                    legal_name=row["legal_name"],
-                    trade_name=row.get("trade_name", row["legal_name"]),
+                    entity_code=row.get("registration_number") or f"ENT-{count:06d}",
+                    entity_name=row.get("trade_name") or row.get("legal_name", ""),
+                    legal_name=row.get("legal_name", ""),
                     entity_type=entity_type,
                     registration_number=row.get("registration_number"),
-                    npwp=NPWPVO(npwp_val) if npwp_val else None,
-                    tax_id=npwp_val,
-                    address=row.get("address"),
-                    city=row.get("city"),
-                    country=row.get("country", "ID"),
-                    phone=row.get("phone"),
-                    email=row.get("email"),
-                    base_currency=row.get("base_currency", "IDR"),
+                    registration_date=None,
+                    established_date=None,
+                    fiscal_year_start_month=1,
+                    fiscal_year_end_month=12,
                     functional_currency=row.get("functional_currency", "IDR"),
-                    status=status,
+                    reporting_currency=row.get("base_currency", "IDR"),
+                    tax_profile=tax_profile,
                     is_active=row.get("is_active", "1") == "1",
                     created_by=created_by,
+                    updated_by=created_by,
                 )
                 await self.add(entity)
                 count += 1
@@ -606,152 +803,7 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
         return count
 
     # ========================================================================
-    # BRANCH METHODS
-    # ========================================================================
-
-    async def add_branch(self, branch: dict[str, Any]) -> UUID:
-        try:
-            table = LegalEntityBranchTable(
-                id=uuid4(),
-                parent_entity_id=branch["parent_entity_id"],
-                branch_name=branch["branch_name"],
-                branch_code=branch.get("branch_code"),
-                address=branch.get("address"),
-                city=branch.get("city"),
-                phone=branch.get("phone"),
-                manager_name=branch.get("manager_name"),
-                is_active=True,
-                created_at=datetime.utcnow(),
-                created_by=branch["created_by"],
-            )
-            self.session.add(table)
-            await self.session.flush()
-            await self._log_audit("ADD_BRANCH", branch["parent_entity_id"], {"branch_name": branch["branch_name"]})
-            logger.info("Branch added for entity %s: %s", branch["parent_entity_id"], branch["branch_name"])
-            return table.id
-        except Exception as e:
-            await self.session.rollback()
-            raise LegalEntityRepositoryError(f"Failed to add branch: {e}") from e
-
-    async def get_branches(self, parent_entity_id: UUID) -> list[dict[str, Any]]:
-        try:
-            stmt = select(LegalEntityBranchTable).where(
-                LegalEntityBranchTable.parent_entity_id == parent_entity_id,
-                LegalEntityBranchTable.deleted_at.is_(None),
-            ).order_by(LegalEntityBranchTable.branch_name)
-            result = await self.session.execute(stmt)
-            tables = result.scalars().all()
-            return [
-                {
-                    "id": t.id,
-                    "branch_name": t.branch_name,
-                    "branch_code": t.branch_code,
-                    "address": t.address,
-                    "city": t.city,
-                    "phone": t.phone,
-                    "manager_name": t.manager_name,
-                    "is_active": t.is_active,
-                }
-                for t in tables
-            ]
-        except Exception as e:
-            raise LegalEntityRepositoryError(f"Failed to get branches: {e}") from e
-
-    # ========================================================================
-    # CONSOLIDATION GROUP METHODS
-    # ========================================================================
-
-    async def create_consolidation_group(self, group_name: str, description: str | None = None, created_by: UUID | None = None) -> UUID:
-        try:
-            table = ConsolidationGroupTable(
-                id=uuid4(),
-                group_name=group_name,
-                description=description,
-                is_active=True,
-                created_at=datetime.utcnow(),
-                created_by=created_by,
-            )
-            self.session.add(table)
-            await self.session.flush()
-            logger.info("Consolidation group created: %s", group_name)
-            return table.id
-        except Exception as e:
-            await self.session.rollback()
-            raise LegalEntityRepositoryError(f"Failed to create consolidation group: {e}") from e
-
-    async def add_to_consolidation_group(self, group_id: UUID, entity_id: UUID, ownership_percentage: Decimal) -> None:
-        try:
-            stmt = select(func.count()).select_from(ConsolidationGroupMemberTable).where(
-                ConsolidationGroupMemberTable.group_id == group_id,
-                ConsolidationGroupMemberTable.entity_id == entity_id,
-                ConsolidationGroupMemberTable.deleted_at.is_(None),
-            )
-            result = await self.session.execute(stmt)
-            if result.scalar() > 0:
-                return
-            table = ConsolidationGroupMemberTable(
-                id=uuid4(),
-                group_id=group_id,
-                entity_id=entity_id,
-                ownership_percentage=float(ownership_percentage),
-                joined_at=datetime.utcnow(),
-            )
-            self.session.add(table)
-            stmt2 = update(LegalEntityTable).where(LegalEntityTable.id == entity_id).values(consolidation_group_id=group_id)
-            await self.session.execute(stmt2)
-            await self.session.flush()
-            await self._log_audit("ADD_TO_CONSOLIDATION", entity_id, {"group_id": str(group_id)})
-            logger.info("Entity %s added to consolidation group %s", entity_id, group_id)
-        except Exception as e:
-            await self.session.rollback()
-            raise LegalEntityRepositoryError(f"Failed to add to group: {e}") from e
-
-    async def get_consolidation_groups(self, is_active: bool = True) -> list[dict[str, Any]]:
-        try:
-            stmt = select(ConsolidationGroupTable).where(ConsolidationGroupTable.is_active == is_active)
-            result = await self.session.execute(stmt)
-            tables = result.scalars().all()
-            groups = []
-            for table in tables:
-                member_stmt = select(func.count()).select_from(ConsolidationGroupMemberTable).where(
-                    ConsolidationGroupMemberTable.group_id == table.id,
-                    ConsolidationGroupMemberTable.deleted_at.is_(None),
-                )
-                member_result = await self.session.execute(member_stmt)
-                groups.append({
-                    "id": table.id,
-                    "group_name": table.group_name,
-                    "description": table.description,
-                    "member_count": member_result.scalar() or 0,
-                    "is_active": table.is_active,
-                    "created_at": table.created_at,
-                })
-            return groups
-        except Exception as e:
-            raise LegalEntityRepositoryError(f"Failed to get consolidation groups: {e}") from e
-
-    async def get_consolidation_group(self, group_id: UUID) -> list[LegalEntityAggregate]:
-        try:
-            member_stmt = select(ConsolidationGroupMemberTable.entity_id).where(
-                ConsolidationGroupMemberTable.group_id == group_id,
-                ConsolidationGroupMemberTable.deleted_at.is_(None),
-            )
-            member_result = await self.session.execute(member_stmt)
-            entity_ids = member_result.scalars().all()
-            if not entity_ids:
-                return []
-            stmt = select(LegalEntityTable).where(
-                LegalEntityTable.id.in_(entity_ids),
-                LegalEntityTable.deleted_at.is_(None),
-            ).order_by(LegalEntityTable.legal_name)
-            result = await self.session.execute(stmt)
-            tables = result.scalars().all()
-            return [self._to_domain(table) for table in tables]
-        except Exception as e:
-            raise LegalEntityRepositoryError(f"Failed to get consolidation group: {e}") from e
-
-    # ========================================================================
-    # AUDIT LOG & HEALTH
+    # AUDIT & HEALTH
     # ========================================================================
 
     async def get_audit_log(self, entity_id: UUID | None = None, limit: int = 100) -> list[dict[str, Any]]:
@@ -770,16 +822,17 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
 
 
 # ============================================================================
-# EXPORTS
+# ALIAS
 # ============================================================================
 
+SQLAlchemyLegalEntityRepositoryImpl = SQLAlchemyLegalEntityRepository
+
 __all__ = [
-    "ConsolidationGroupNotFoundError",
     "DuplicateNPWPError",
-    "DuplicateTaxIDError",
     "LegalEntityHasBranchesError",
     "LegalEntityNotFoundError",
     "LegalEntityRepositoryError",
     "OptimisticLockError",
     "SQLAlchemyLegalEntityRepository",
+    "SQLAlchemyLegalEntityRepositoryImpl",
 ]

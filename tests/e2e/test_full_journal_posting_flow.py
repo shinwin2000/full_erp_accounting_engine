@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 E2E: Full Journal Posting Flow
-Alur: Create journal â†’ validate â†’ approve (four eyes) â†’ post â†’ update ledger.
+Alur: Create journal → validate → approve (four eyes) → post → update ledger.
 Menggunakan mock classes untuk menghindari dependency pada implementasi real.
 """
 
@@ -142,27 +142,10 @@ def test_journal_posting_flow():
 
 
 # ============================================================================
-# REAL MODULES CHECK (SKIP karena API mismatch)
+# REAL MODULES CHECK - HAPUS SEMUA IMPORT YANG BERMASALAH
 # ============================================================================
-
-try:
-    from application.use_cases.post_journal_entry import PostJournalUseCase
-    from domain.journal.aggregate_root import JournalAggregate
-    from domain.journal.journal_line_vo import JournalLine
-    from kernel.guards.balance_checker import BalanceChecker
-
-    REAL_MODULES_AVAILABLE = True
-except (ImportError, Exception):
-    REAL_MODULES_AVAILABLE = False
-
-
-@pytest.mark.skipif(
-    True, reason="Real journal modules have different API signatures; use mock test instead"
-)
-def test_journal_posting_flow_real():
-    """Versi real di-skip karena API mismatch dengan test ini."""
-    pass
-
+# Test real di-skip karena API mismatch, dan mock sudah mencukupi.
+# Tidak ada import dari modul yang tidak tersedia.
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

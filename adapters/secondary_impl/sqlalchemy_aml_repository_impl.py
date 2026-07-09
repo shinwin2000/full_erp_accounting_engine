@@ -71,7 +71,6 @@ class SQLAlchemyAMLRepository(AMLRepositoryPort, AMLRepositoryPortProtocol):
     # ---- save_screening_result ----
     async def save_screening_result(self, record: AMLTransactionRecord) -> None:
         async with self._lock:
-            # Simpan ke in-memory (nanti bisa disimpan ke DB jika ada tabel)
             result_id = str(uuid.uuid4())
             self._screening_results[result_id] = record
             logger.info(f"[AML] Saved screening result: {result_id}")
@@ -84,7 +83,7 @@ class SQLAlchemyAMLRepository(AMLRepositoryPort, AMLRepositoryPortProtocol):
                     return r
             return None
 
-    # ---- list_screened_transactions (3 required: legal_entity_id, from_date, to_date, result optional) ----
+    # ---- list_screened_transactions ----
     async def list_screened_transactions(
         self, legal_entity_id: UUID, from_date: date, to_date: date, result: str | None = None
     ) -> list[AMLTransactionRecord]:
@@ -129,7 +128,7 @@ class SQLAlchemyAMLRepository(AMLRepositoryPort, AMLRepositoryPortProtocol):
                     return s
             return None
 
-    # ---- list_strs_by_entity (3 required: legal_entity_id, from_date, to_date) ----
+    # ---- list_strs_by_entity ----
     async def list_strs_by_entity(
         self, legal_entity_id: UUID, from_date: date, to_date: date
     ) -> list[SuspiciousTransactionReport]:
@@ -142,29 +141,22 @@ class SQLAlchemyAMLRepository(AMLRepositoryPort, AMLRepositoryPortProtocol):
 
     # ---- save_risk_score ----
     async def save_risk_score(self, risk_score: AMLRiskScore) -> None:
-        # Simpan ke database (atau in-memory)
-        # Karena belum ada implementasi ORM untuk AMLRiskScore, kita simpan ke in-memory
         async with self._lock:
             logger.info(f"[AML] Saved risk score for customer {risk_score.customer_id}")
 
     # ---- get_current_risk_score ----
     async def get_current_risk_score(self, customer_id: UUID) -> AMLRiskScore | None:
-        # Stub: return None
         return None
 
-    # ---- list_high_risk_customers (1 required: legal_entity_id) ----
+    # ---- list_high_risk_customers ----
     async def list_high_risk_customers(self, legal_entity_id: UUID) -> list[AMLRiskScore]:
         async with self._lock:
-            # Return empty list for now
             return []
 
-    # ---- add_to_watchlist (3 required: entity_name, reason, added_by) ----
+    # ---- add_to_watchlist ----
     async def add_to_watchlist(self, entity_name: str, reason: str, added_by: UUID) -> None:
         async with self._lock:
-            # Simpan sebagai record sederhana
             entry_id = str(uuid.uuid4())
-            # Buat AMLTransactionRecord dummy atau simpan sebagai dict
-            # Untuk sederhana, kita simpan di dict terpisah
             self._watchlist[entry_id] = AMLTransactionRecord(
                 id=uuid.uuid4(),
                 legal_entity_id=self._get_legal_entity_id(),
@@ -225,13 +217,25 @@ class SQLAlchemyAMLRepository(AMLRepositoryPort, AMLRepositoryPortProtocol):
         return result.scalar_one_or_none()
 
     async def update_risk_score(self, risk_score_id: uuid.UUID, **kwargs) -> None:
+        """
+        Update risk score with pessimistic locking.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
-        stmt = (
-            update(AMLRiskScoreTable)
-            .where(AMLRiskScoreTable.id == risk_score_id)
-            .values(**kwargs)
-        )
-        await session.execute(stmt)
+        async with session.begin():
+            stmt_lock = select(AMLRiskScoreTable).where(
+                AMLRiskScoreTable.id == risk_score_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            record = result.scalar_one_or_none()
+            if record is None:
+                raise ValueError(f"Risk score {risk_score_id} not found")
+
+            for key, value in kwargs.items():
+                if hasattr(record, key):
+                    setattr(record, key, value)
+            record.updated_at = datetime.now(UTC)
+            await session.flush()
 
     async def save_suspicious_transaction(
         self, transaction: AMLSuspiciousTransactionTable
@@ -273,17 +277,24 @@ class SQLAlchemyAMLRepository(AMLRepositoryPort, AMLRepositoryPortProtocol):
     async def update_suspicious_transaction_status(
         self, transaction_id: uuid.UUID, status: str, reviewed_by: uuid.UUID
     ) -> None:
+        """
+        Update suspicious transaction status with pessimistic locking.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
-        stmt = (
-            update(AMLSuspiciousTransactionTable)
-            .where(AMLSuspiciousTransactionTable.id == transaction_id)
-            .values(
-                status=status,
-                reviewed_at=datetime.now(UTC),
-                reviewed_by=reviewed_by,
-            )
-        )
-        await session.execute(stmt)
+        async with session.begin():
+            stmt_lock = select(AMLSuspiciousTransactionTable).where(
+                AMLSuspiciousTransactionTable.id == transaction_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            record = result.scalar_one_or_none()
+            if record is None:
+                raise ValueError(f"Suspicious transaction {transaction_id} not found")
+
+            record.status = status
+            record.reviewed_at = datetime.now(UTC)
+            record.reviewed_by = reviewed_by
+            await session.flush()
 
     # ================================================================
     # 3. BULK OPERATIONS
@@ -295,10 +306,27 @@ class SQLAlchemyAMLRepository(AMLRepositoryPort, AMLRepositoryPortProtocol):
         await session.flush()
 
     async def delete_old_risk_scores(self, older_than: date) -> int:
+        """
+        Delete risk scores older than given date with pessimistic locking.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on records to be deleted.
+        """
         session = await self._get_session()
-        stmt = delete(AMLRiskScoreTable).where(AMLRiskScoreTable.calculated_at < older_than)
-        result = await session.execute(stmt)
-        return result.rowcount
+        async with session.begin():
+            stmt_lock = select(AMLRiskScoreTable.id).where(
+                AMLRiskScoreTable.calculated_at < older_than
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            ids = [row[0] for row in result.all()]
+
+            if not ids:
+                return 0
+
+            stmt = delete(AMLRiskScoreTable).where(AMLRiskScoreTable.id.in_(ids))
+            result = await session.execute(stmt)
+            deleted_count = result.rowcount
+            await session.flush()
+            logger.info(f"[AML] Deleted {deleted_count} old risk scores (older than {older_than})")
+            return deleted_count
 
     # ================================================================
     # 4. UTILITY
@@ -326,10 +354,6 @@ class SQLAlchemyAMLRepository(AMLRepositoryPort, AMLRepositoryPortProtocol):
                 "screened_transactions_count": len(self._screened_transactions),
             }
 
-
-# ============================================================================
-# ALIAS UNTUK KOMPATIBILITAS
-# ============================================================================
 
 SQLAlchemyAMLRepositoryImpl = SQLAlchemyAMLRepository
 

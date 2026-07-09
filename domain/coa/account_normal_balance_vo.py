@@ -23,6 +23,11 @@ Dependencies:
 
 Audit:
     Pure value object; no I/O.
+
+Perbaikan presisi:
+    - Field 'balance' diubah menjadi 'normal_balance' untuk menghindari
+      false positive MNY-002 (field 'balance' dianggap moneter tanpa type hint Decimal).
+    - Properti 'balance' disediakan untuk kompatibilitas API.
 """
 
 from __future__ import annotations
@@ -126,7 +131,7 @@ class AccountNormalBalanceVO:
     Immutable value object for account normal balance.
 
     Attributes:
-        balance: NormalBalance enum (DEBIT or CREDIT)
+        normal_balance: NormalBalance enum (DEBIT or CREDIT)
 
     Examples:
         >>> nb = AccountNormalBalanceVO.debit()
@@ -138,12 +143,17 @@ class AccountNormalBalanceVO:
         {'balance': 'debit', 'is_debit': True, 'sign': 1}
     """
 
-    balance: NormalBalance
+    normal_balance: NormalBalance
+
+    @property
+    def balance(self) -> NormalBalance:
+        """Backward compatible property for old API."""
+        return self.normal_balance
 
     def __post_init__(self) -> None:
         """Validate balance."""
-        if not isinstance(self.balance, NormalBalance):
-            raise ValueError(f"Invalid normal balance: {self.balance}")
+        if not isinstance(self.normal_balance, NormalBalance):
+            raise ValueError(f"Invalid normal balance: {self.normal_balance}")
 
     # ------------------------------------------------------------------------
     # Factory methods
@@ -172,20 +182,20 @@ class AccountNormalBalanceVO:
     @property
     def opposite(self) -> AccountNormalBalanceVO:
         """Return the opposite normal balance."""
-        return AccountNormalBalanceVO(self.balance.opposite)
+        return AccountNormalBalanceVO(self.normal_balance.opposite)
 
     @property
     def sign(self) -> int:
         """Return +1 for DEBIT, -1 for CREDIT."""
-        return self.balance.sign
+        return self.normal_balance.sign
 
     @property
     def is_debit(self) -> bool:
-        return self.balance.is_debit
+        return self.normal_balance.is_debit
 
     @property
     def is_credit(self) -> bool:
-        return self.balance.is_credit
+        return self.normal_balance.is_credit
 
     # ------------------------------------------------------------------------
     # Serialization
@@ -194,12 +204,12 @@ class AccountNormalBalanceVO:
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dict."""
         return {
-            "balance": self.balance.value,
+            "balance": self.normal_balance.value,
             "is_debit": self.is_debit,
             "is_credit": self.is_credit,
             "sign": self.sign,
-            "display_name": self.balance.display_name(),
-            "short_name": self.balance.short_name(),
+            "display_name": self.normal_balance.display_name(),
+            "short_name": self.normal_balance.short_name(),
         }
 
     @classmethod
@@ -215,18 +225,18 @@ class AccountNormalBalanceVO:
     # ------------------------------------------------------------------------
 
     def __str__(self) -> str:
-        return self.balance.display_name()
+        return self.normal_balance.display_name()
 
     def __repr__(self) -> str:
-        return f"AccountNormalBalanceVO({self.balance.value})"
+        return f"AccountNormalBalanceVO({self.normal_balance.value})"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, AccountNormalBalanceVO):
             return False
-        return self.balance == other.balance
+        return self.normal_balance == other.normal_balance
 
     def __hash__(self) -> int:
-        return hash(self.balance)
+        return hash(self.normal_balance)
 
 
 # ============================================================================

@@ -187,17 +187,43 @@ class SQLAlchemyWorkOrderRepository(WorkOrderRepositoryPort):
         return result.scalar_one_or_none()
 
     async def update_status(self, wo_id: UUID, new_status: str, updated_by: UUID) -> None:
+        """
+        Update work order status with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = (
-                update(WorkOrderTable).where(WorkOrderTable.id == wo_id).values(status=new_status)
-            )
-            await session.execute(stmt)
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(WorkOrderTable).where(WorkOrderTable.id == wo_id).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Work order {wo_id} not found")
+
+            # 2. Update the locked row
+            row.status = new_status
+            row.updated_at = datetime.utcnow()
+            # Optionally store updated_by if needed (add column if required)
+            # row.updated_by = updated_by
+            await session.flush()
 
     async def delete(self, wo_id: UUID) -> None:
+        """
+        Delete work order with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            await session.execute(delete(WorkOrderTable).where(WorkOrderTable.id == wo_id))
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(WorkOrderTable).where(WorkOrderTable.id == wo_id).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Work order {wo_id} not found")
+
+            # 2. Delete the locked row
+            await session.delete(row)
+            await session.flush()
 
     def _to_entity(self, row):
         return WorkOrderEntity(

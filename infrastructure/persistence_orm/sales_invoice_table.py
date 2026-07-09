@@ -3,6 +3,11 @@
 Module: sales_invoice_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel sales_invoice (faktur penjualan).
+
+Perbaikan presisi:
+    - Mengubah payment_percentage mengembalikan Decimal (bukan float) untuk
+      menghindari false positive MNY-024.
+    - Mengubah float() menjadi str() pada nilai moneter di to_dict().
 """
 
 from __future__ import annotations
@@ -140,10 +145,11 @@ class SalesInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
         return date.today() > self.due_date
 
     @property
-    def payment_percentage(self) -> float:
+    def payment_percentage(self) -> Decimal:
+        """Persentase pembayaran sebagai Decimal (0-100)."""
         if self.total_amount == 0:
-            return 0.0
-        return float((self.paid_amount / self.total_amount) * 100)
+            return Decimal("0.0")
+        return (self.paid_amount / self.total_amount) * Decimal("100")
 
     # ========================================================================
     # METHODS
@@ -193,11 +199,11 @@ class SalesInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
             "due_date": self.due_date.isoformat(),
             "customer_id": str(self.customer_id),
             "sales_order_id": str(self.sales_order_id) if self.sales_order_id else None,
-            "total_amount": float(self.total_amount),
-            "paid_amount": float(self.paid_amount),
-            "outstanding_amount": float(self.outstanding_amount),
-            "tax_amount": float(self.tax_amount),
-            "discount_amount": float(self.discount_amount),
+            "total_amount": str(self.total_amount),
+            "paid_amount": str(self.paid_amount),
+            "outstanding_amount": str(self.outstanding_amount),
+            "tax_amount": str(self.tax_amount),
+            "discount_amount": str(self.discount_amount),
             "currency": self.currency,
             "status": self.status,
             "description": self.description,

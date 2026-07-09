@@ -7,6 +7,10 @@ Responsibility: Implementasi in-memory repository untuk system settings (konfigu
                validasi, versioning, audit trail, import/export, hot-reload simulation,
                default values, dan dependency antara settings.
 Audit: Setiap perubahan setting (tambah, ubah, hapus) tercatat, termasuk nilai lama dan baru.
+
+Perbaikan presisi:
+    - Menghapus konversi float() pada nilai moneter (tipe FLOAT) dan mengembalikan Decimal
+      untuk menjaga presisi. (MNY-003)
 """
 
 from __future__ import annotations
@@ -156,10 +160,8 @@ class SystemSetting:
         elif self.value_type == SettingValueType.INTEGER:
             return int(self.value)
         elif self.value_type == SettingValueType.FLOAT:
-            # Nilai disimpan sebagai Decimal, konversi ke float untuk output
-            if isinstance(self.value, Decimal):
-                return float(self.value)
-            return float(self.value)
+            # Gunakan Decimal internal untuk presisi, kembalikan Decimal
+            return self.value  # self.value sudah Decimal
         elif self.value_type == SettingValueType.BOOLEAN:
             if isinstance(self.value, bool):
                 return self.value

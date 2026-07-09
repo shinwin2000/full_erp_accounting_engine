@@ -18,6 +18,10 @@ Dependencies:
 - infrastructure.telemetry.structured_json_logging
 - infrastructure.telemetry.alert_manager_router
 Audit: Rasio keuangan digunakan untuk analisis kesehatan perusahaan.
+
+Perbaikan presisi:
+    - Mengganti float() dengan str() pada nilai moneter (working_capital, alerts)
+      untuk menjaga presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -257,7 +261,7 @@ class FinancialRatiosCalculator:
             "receivables_turnover": receivables_turnover,
             "payables_turnover": payables_turnover,
             "asset_turnover": asset_turnover,
-            "working_capital": float(working_capital),
+            "working_capital": str(working_capital),  # ganti float -> str
             "working_capital_turnover": working_capital_turnover,
             "days_inventory": days_inventory,
             "days_receivables": days_receivables,
@@ -276,7 +280,7 @@ class FinancialRatiosCalculator:
                         alerts.append(
                             {
                                 "ratio": ratio_name,
-                                "value": float(value),
+                                "value": str(value),  # ganti float -> str
                                 "benchmark": benchmark,
                                 "deviation_percent": deviation * 100,
                                 "message": f"{ratio_name} deviates {deviation * 100:.1f}% from industry average",

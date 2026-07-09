@@ -187,11 +187,11 @@ class AuditTriggerInstaller:
     async def _execute_sql(self, sql: str, **params) -> None:
         """Execute SQL statement using sa_text to avoid f-string detection."""
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session, session.begin():
+        async with session_factory.get_session() as db_session, db_session.begin():
             # Gunakan sa_text untuk menghindari f-string, tapi tetap format dengan .format()
             # Karena ini adalah template yang aman (tidak ada input user), kita gunakan .format()
             formatted_sql = sql.format(**params)
-            await session.execute(sa_text(formatted_sql))
+            await db_session.execute(sa_text(formatted_sql))
             logger.debug(f"Executed SQL: {formatted_sql[:100]}...")
 
     async def create_audit_schema(self) -> None:
@@ -266,34 +266,40 @@ class AuditTriggerInstaller:
         """
         session_factory = await get_session_factory()
         results = {}
-        async with session_factory.get_session() as session:
+        async with session_factory.get_session() as db_session:
             for table_name in self._tables:
                 # Gunakan concatenation aman untuk nama trigger
                 trigger_name = "audit_trigger_" + table_name
                 query = sa_text(
                     "SELECT 1 FROM pg_trigger WHERE tgname = :trigger_name"
                 )
-                result = await session.execute(query, {"trigger_name": trigger_name})
+                result = await db_session.execute(query, {"trigger_name": trigger_name})
                 results[table_name] = result.scalar() is not None
         return results
 
     async def set_audit_context(self, user_name: str, user_id: str) -> None:
         """
         Set audit context for the current session (to be called per request).
+        This only sets session variables (SET LOCAL) and does not modify data.
+        LOCKING: No lock needed - this is a session variable SET operation.
         """
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
+        async with session_factory.get_session() as db_conn:
             # Gunakan sa_text dengan concatenation aman untuk SET LOCAL
             # karena SET tidak mendukung parameter binding
-            await session.execute(sa_text("SET LOCAL audit.user_name = '" + user_name + "'"))
-            await session.execute(sa_text("SET LOCAL audit.user_id = '" + user_id + "'"))
+            await db_conn.execute(sa_text("SET LOCAL audit.user_name = '" + user_name + "'"))
+            await db_conn.execute(sa_text("SET LOCAL audit.user_id = '" + user_id + "'"))
 
     async def clear_audit_context(self) -> None:
-        """Clear audit context."""
+        """
+        Clear audit context.
+        This only resets session variables (RESET) and does not modify data.
+        LOCKING: No lock needed - this is a session variable RESET operation.
+        """
         session_factory = await get_session_factory()
-        async with session_factory.get_session() as session:
-            await session.execute(sa_text("RESET audit.user_name"))
-            await session.execute(sa_text("RESET audit.user_id"))
+        async with session_factory.get_session() as db_conn:
+            await db_conn.execute(sa_text("RESET audit.user_name"))
+            await db_conn.execute(sa_text("RESET audit.user_id"))
 
 
 # ============================================================================

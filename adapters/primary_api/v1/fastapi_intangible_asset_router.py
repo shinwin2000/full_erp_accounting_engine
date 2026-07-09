@@ -497,8 +497,11 @@ class IntangibleAssetSummaryResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_intangible_asset_service(request: Request) -> Any:
-    """Get Intangible Asset Service instance."""
+async def get_intangible_asset_svc(request: Request) -> Any:
+    """
+    Get Intangible Asset Service instance.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.service_layer.service_intangible_asset import IntangibleAssetService
 
     container = request.app.state.container
@@ -538,9 +541,12 @@ async def create_asset(
     _permission: None = Depends(require_permission("intangible_asset:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> IntangibleAssetResponseSchema:
-    """Create a new intangible asset."""
+    """
+    Create a new intangible asset.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.dto_objects.intangible_asset_request import IntangibleAssetCreateRequest
 
     method_name = "create_intangible_asset"
@@ -584,7 +590,7 @@ async def create_asset(
             created_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await service.create_asset(dto)
+        result = await intangible_asset_svc.create_asset(dto)
 
         response = IntangibleAssetResponseSchema(
             id=result.id,
@@ -638,11 +644,11 @@ async def get_asset(
     asset_id: UUID,
     _permission: None = Depends(require_permission("intangible_asset:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> IntangibleAssetResponseSchema:
     """Get intangible asset by ID."""
     try:
-        asset = await service.get_asset_by_id(asset_id, legal_entity_id)
+        asset = await intangible_asset_svc.get_asset_by_id(asset_id, legal_entity_id)
 
         if not asset:
             raise HTTPException(status_code=404, detail="Intangible asset not found")
@@ -694,11 +700,11 @@ async def get_asset_by_code(
     asset_code: str,
     _permission: None = Depends(require_permission("intangible_asset:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> IntangibleAssetResponseSchema:
     """Get intangible asset by asset code."""
     try:
-        asset = await service.get_asset_by_code(asset_code, legal_entity_id)
+        asset = await intangible_asset_svc.get_asset_by_code(asset_code, legal_entity_id)
 
         if not asset:
             raise HTTPException(status_code=404, detail=f"Asset {asset_code} not found")
@@ -753,9 +759,12 @@ async def update_asset(
     _permission: None = Depends(require_permission("intangible_asset:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> IntangibleAssetResponseSchema:
-    """Update intangible asset information."""
+    """
+    Update intangible asset information.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.dto_objects.intangible_asset_request import IntangibleAssetUpdateRequest
 
     method_name = "update_intangible_asset"
@@ -780,7 +789,7 @@ async def update_asset(
             updated_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await service.update_asset(dto)
+        result = await intangible_asset_svc.update_asset(dto)
 
         if not result:
             raise HTTPException(status_code=404, detail="Asset not found or cannot be updated")
@@ -839,11 +848,14 @@ async def archive_asset(
     _permission: None = Depends(require_permission("intangible_asset:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> dict[str, Any]:
-    """Archive an intangible asset (soft delete)."""
+    """
+    Archive an intangible asset (soft delete).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.archive_asset(
+        result = await intangible_asset_svc.archive_asset(
             asset_id, current_user.user_id, legal_entity_id, reason
         )
 
@@ -874,11 +886,14 @@ async def activate_asset(
     _permission: None = Depends(require_permission("intangible_asset:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> IntangibleAssetResponseSchema:
-    """Activate a deactivated intangible asset."""
+    """
+    Activate a deactivated intangible asset.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.activate_asset(asset_id, current_user.user_id, legal_entity_id)
+        result = await intangible_asset_svc.activate_asset(asset_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Asset not found")
@@ -932,11 +947,14 @@ async def lock_asset(
     _permission: None = Depends(require_permission("intangible_asset:audit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> IntangibleAssetResponseSchema:
-    """Lock asset to prevent modifications."""
+    """
+    Lock asset to prevent modifications.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.lock_asset(asset_id, current_user.user_id, legal_entity_id, reason)
+        result = await intangible_asset_svc.lock_asset(asset_id, current_user.user_id, legal_entity_id, reason)
 
         if not result:
             raise HTTPException(status_code=404, detail="Asset not found")
@@ -989,11 +1007,14 @@ async def unlock_asset(
     _permission: None = Depends(require_permission("intangible_asset:audit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> IntangibleAssetResponseSchema:
-    """Unlock a locked intangible asset."""
+    """
+    Unlock a locked intangible asset.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.unlock_asset(asset_id, current_user.user_id, legal_entity_id)
+        result = await intangible_asset_svc.unlock_asset(asset_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Asset not found")
@@ -1056,11 +1077,11 @@ async def list_assets(
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     _permission: None = Depends(require_permission("intangible_asset:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> list[IntangibleAssetResponseSchema]:
     """List intangible assets with pagination and filters."""
     try:
-        result = await service.list_assets(
+        result = await intangible_asset_svc.list_assets(
             legal_entity_id=legal_entity_id,
             category=asset_category.value if asset_category else None,
             status=status.value if status else None,
@@ -1126,11 +1147,11 @@ async def get_amortization_schedule(
     end_date: date | None = Query(None, description="End date"),
     _permission: None = Depends(require_permission("intangible_asset:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> AmortizationScheduleResponseSchema:
     """Get amortization schedule for an intangible asset."""
     try:
-        schedule = await service.get_amortization_schedule(
+        schedule = await intangible_asset_svc.get_amortization_schedule(
             asset_id=asset_id,
             legal_entity_id=legal_entity_id,
             start_date=start_date,
@@ -1186,7 +1207,10 @@ async def run_amortization(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     use_case: Any = Depends(get_amortization_run_use_case),
 ) -> AmortizationRunResponseSchema:
-    """Run monthly amortization for all active intangible assets."""
+    """
+    Run monthly amortization for all active intangible assets.
+    LOCKING: Use case layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.dto_objects.intangible_asset_request import AmortizationRunRequest
 
     try:
@@ -1233,11 +1257,14 @@ async def reverse_amortization(
     _permission: None = Depends(require_permission("intangible_asset:amortize")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> dict[str, Any]:
-    """Reverse a posted amortization entry."""
+    """
+    Reverse a posted amortization entry.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.reverse_amortization(
+        result = await intangible_asset_svc.reverse_amortization(
             amortization_id=amortization_id,
             reversed_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
@@ -1278,9 +1305,12 @@ async def revalue_asset(
     _permission: None = Depends(require_permission("intangible_asset:revaluation")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> RevaluationResponseSchema:
-    """Revalue an intangible asset (increase or decrease)."""
+    """
+    Revalue an intangible asset (increase or decrease).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.dto_objects.intangible_asset_request import RevaluationRequest
 
     try:
@@ -1297,7 +1327,7 @@ async def revalue_asset(
             performed_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await service.revaluate_asset(dto)
+        result = await intangible_asset_svc.revaluate_asset(dto)
 
         return RevaluationResponseSchema(
             revaluation_id=result.revaluation_id,
@@ -1341,9 +1371,12 @@ async def dispose_asset(
     _permission: None = Depends(require_permission("intangible_asset:disposal")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> DisposalResponseSchema:
-    """Dispose (sell/scrap/expire) an intangible asset."""
+    """
+    Dispose (sell/scrap/expire) an intangible asset.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.dto_objects.intangible_asset_request import DisposalRequest
 
     try:
@@ -1359,7 +1392,7 @@ async def dispose_asset(
             disposed_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await service.dispose_asset(dto)
+        result = await intangible_asset_svc.dispose_asset(dto)
 
         return DisposalResponseSchema(
             disposal_id=result.disposal_id,
@@ -1402,9 +1435,12 @@ async def test_impairment(
     _permission: None = Depends(require_permission("intangible_asset:impairment")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> ImpairmentTestResponseSchema:
-    """Test intangible asset for impairment and recognize loss if needed."""
+    """
+    Test intangible asset for impairment and recognize loss if needed.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.dto_objects.intangible_asset_request import ImpairmentTestRequest
 
     try:
@@ -1417,7 +1453,7 @@ async def test_impairment(
             tested_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await service.test_impairment(dto)
+        result = await intangible_asset_svc.test_impairment(dto)
 
         return ImpairmentTestResponseSchema(
             test_id=result.test_id,
@@ -1453,11 +1489,14 @@ async def restore_impairment(
     _permission: None = Depends(require_permission("intangible_asset:impairment")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> ImpairmentTestResponseSchema:
-    """Restore previously recognized impairment loss."""
+    """
+    Restore previously recognized impairment loss.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.restore_impairment(
+        result = await intangible_asset_svc.restore_impairment(
             asset_id=asset_id,
             test_id=test_id,
             reason=reason,
@@ -1507,11 +1546,14 @@ async def transfer_asset(
     _permission: None = Depends(require_permission("intangible_asset:transfer")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> AssetTransferResponseSchema:
-    """Transfer intangible asset to another legal entity (inter-company)."""
+    """
+    Transfer intangible asset to another legal entity (inter-company).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.transfer_asset(
+        result = await intangible_asset_svc.transfer_asset(
             asset_id=asset_id,
             from_legal_entity_id=legal_entity_id,
             to_legal_entity_id=request.to_legal_entity_id,
@@ -1558,11 +1600,11 @@ async def get_asset_summary(
     as_of_date: date = Query(..., description="As of date"),
     _permission: None = Depends(require_permission("intangible_asset:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> IntangibleAssetSummaryResponseSchema:
     """Get intangible asset summary (total cost, NBV, monthly amortization)."""
     try:
-        summary = await service.get_summary(legal_entity_id, as_of_date)
+        summary = await intangible_asset_svc.get_summary(legal_entity_id, as_of_date)
 
         return IntangibleAssetSummaryResponseSchema(
             total_assets=summary.total_assets,
@@ -1597,11 +1639,11 @@ async def export_asset_register(
     category: IntangibleAssetCategory | None = Query(None, description="Filter by category"),
     _permission: None = Depends(require_permission("intangible_asset:export")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> Response:
     """Export intangible asset register to CSV or Excel."""
     try:
-        data = await service.export_asset_register(
+        data = await intangible_asset_svc.export_asset_register(
             legal_entity_id=legal_entity_id,
             as_of_date=as_of_date,
             format=format,
@@ -1640,11 +1682,11 @@ async def get_asset_history(
     asset_id: UUID,
     _permission: None = Depends(require_permission("intangible_asset:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_intangible_asset_service),
+    intangible_asset_svc: Any = Depends(get_intangible_asset_svc),
 ) -> list[dict[str, Any]]:
     """Get asset change history (audit trail)."""
     try:
-        history = await service.get_asset_history(asset_id, legal_entity_id)
+        history = await intangible_asset_svc.get_asset_history(asset_id, legal_entity_id)
 
         return [
             {

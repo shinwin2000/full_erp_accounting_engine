@@ -9,6 +9,10 @@ Dependencies:
 - sqlalchemy, uuid, decimal, datetime
 - base_model, LegalEntityMixin, TimestampMixin
 Audit: Setiap actual dicatat dan tidak dapat diubah setelah diposting.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (amount) di to_dict()
+      untuk menjaga presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -130,7 +134,7 @@ class BudgetActualTable(Base, TimestampMixin, LegalEntityMixin):
             "id": str(self.id),
             "budget_id": str(self.budget_id),
             "transaction_date": self.transaction_date.isoformat(),
-            "amount": float(self.amount),
+            "amount": str(self.amount),  # ganti float -> str untuk presisi
             "currency": self.currency,
             "source_type": self.source_type,
             "source_id": str(self.source_id),

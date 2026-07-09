@@ -533,8 +533,11 @@ class APInvoiceActionResponseSchema(BaseModel):
 # DEPENDENCY INJECTION
 # ============================================================================
 
-async def get_ap_service(request: Request) -> Any:
-    """Get AP Service instance."""
+async def get_ap_svc(request: Request) -> Any:
+    """
+    Get AP Service instance.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
         from application.service_layer.service_ap import APService
         container = request.app.state.container
@@ -606,7 +609,7 @@ async def create_ap_invoice(
     _permission: None = Depends(require_permission("ap:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceResponseSchema:
     """
     Membuat invoice hutang (AP).
@@ -614,6 +617,7 @@ async def create_ap_invoice(
     - Melakukan validasi 3-way match jika PO dan GRN disertakan
     - Setelah create, status = 'submitted' atau 'draft' tergantung approval policy
     - Invoice akan memiliki nomor internal unik
+    - LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
     """
     from application.dto_objects.ap_invoice_request import APInvoiceCreateRequest
 
@@ -655,7 +659,7 @@ async def create_ap_invoice(
             created_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await ap_service.create_invoice(create_dto)
+        result = await ap_svc.create_invoice(create_dto)
 
         response = APInvoiceResponseSchema(
             id=result.id,
@@ -716,11 +720,11 @@ async def get_ap_invoice(
     invoice_id: UUID,
     _permission: None = Depends(require_permission("ap:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceResponseSchema:
     """Get invoice AP by ID."""
     try:
-        invoice = await ap_service.get_invoice_by_id(invoice_id, legal_entity_id)
+        invoice = await ap_svc.get_invoice_by_id(invoice_id, legal_entity_id)
         if not invoice:
             raise HTTPException(status_code=404, detail="Invoice not found")
 
@@ -781,11 +785,11 @@ async def list_ap_invoices(
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     _permission: None = Depends(require_permission("ap:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceListResponseSchema:
     """List AP invoices with pagination and filters."""
     try:
-        result = await ap_service.list_invoices(
+        result = await ap_svc.list_invoices(
             legal_entity_id=legal_entity_id,
             vendor_id=vendor_id,
             status=status.value if status else None,
@@ -859,9 +863,12 @@ async def update_ap_invoice(
     _permission: None = Depends(require_permission("ap:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceResponseSchema:
-    """Update AP invoice (only draft/pending status)."""
+    """
+    Update AP invoice (only draft/pending status).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.dto_objects.ap_invoice_request import APInvoiceUpdateRequest
 
     method_name = "update_ap_invoice"
@@ -882,7 +889,7 @@ async def update_ap_invoice(
             updated_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await ap_service.update_invoice(update_dto)
+        result = await ap_svc.update_invoice(update_dto)
 
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found or cannot be updated")
@@ -949,9 +956,12 @@ async def delete_ap_invoice(
     _permission: None = Depends(require_permission("ap:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceActionResponseSchema:
-    """Delete or cancel AP invoice (soft delete by default)."""
+    """
+    Delete or cancel AP invoice (soft delete by default).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "delete_ap_invoice"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -961,12 +971,12 @@ async def delete_ap_invoice(
 
     try:
         if permanent:
-            result = await ap_service.void_invoice(
+            result = await ap_svc.void_invoice(
                 invoice_id, current_user.user_id, legal_entity_id, reason
             )
             action = "void"
         else:
-            result = await ap_service.cancel_invoice(
+            result = await ap_svc.cancel_invoice(
                 invoice_id, current_user.user_id, legal_entity_id, reason
             )
             action = "cancel"
@@ -1008,11 +1018,14 @@ async def restore_ap_invoice(
     _permission: None = Depends(require_permission("ap:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceResponseSchema:
-    """Restore a soft-deleted or cancelled invoice."""
+    """
+    Restore a soft-deleted or cancelled invoice.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ap_service.restore_invoice(invoice_id, current_user.user_id, legal_entity_id)
+        result = await ap_svc.restore_invoice(invoice_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found or cannot be restored")
@@ -1074,9 +1087,12 @@ async def submit_ap_invoice(
     _permission: None = Depends(require_permission("ap:submit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceActionResponseSchema:
-    """Submit invoice for approval workflow."""
+    """
+    Submit invoice for approval workflow.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "submit_ap_invoice"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1085,7 +1101,7 @@ async def submit_ap_invoice(
             return APInvoiceActionResponseSchema(**cached)
 
     try:
-        result = await ap_service.submit_invoice(invoice_id, current_user.user_id, legal_entity_id)
+        result = await ap_svc.submit_invoice(invoice_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found or cannot be submitted")
@@ -1123,11 +1139,14 @@ async def approve_ap_invoice(
     _permission: None = Depends(require_permission("ap:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceActionResponseSchema:
-    """Approve invoice (requires approval permission)."""
+    """
+    Approve invoice (requires approval permission).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ap_service.approve_invoice(
+        result = await ap_svc.approve_invoice(
             invoice_id, current_user.user_id, legal_entity_id, notes
         )
 
@@ -1163,11 +1182,14 @@ async def reject_ap_invoice(
     _permission: None = Depends(require_permission("ap:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceActionResponseSchema:
-    """Reject invoice (requires approval permission)."""
+    """
+    Reject invoice (requires approval permission).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ap_service.reject_invoice(
+        result = await ap_svc.reject_invoice(
             invoice_id, current_user.user_id, legal_entity_id, reason
         )
 
@@ -1201,9 +1223,12 @@ async def post_ap_invoice(
     _permission: None = Depends(require_permission("ap:post")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceActionResponseSchema:
-    """Post invoice to GL (creates journal entry)."""
+    """
+    Post invoice to GL (creates journal entry).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "post_ap_invoice"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1212,7 +1237,7 @@ async def post_ap_invoice(
             return APInvoiceActionResponseSchema(**cached)
 
     try:
-        result = await ap_service.post_invoice(invoice_id, current_user.user_id, legal_entity_id)
+        result = await ap_svc.post_invoice(invoice_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found or cannot be posted")
@@ -1251,11 +1276,14 @@ async def reverse_ap_invoice(
     _permission: None = Depends(require_permission("ap:reverse")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceActionResponseSchema:
-    """Reverse a posted invoice (creates reversing journal)."""
+    """
+    Reverse a posted invoice (creates reversing journal).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ap_service.reverse_invoice(
+        result = await ap_svc.reverse_invoice(
             invoice_id, current_user.user_id, legal_entity_id, reason, reversal_date
         )
 
@@ -1289,11 +1317,14 @@ async def lock_ap_invoice(
     _permission: None = Depends(require_permission("ap:audit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceActionResponseSchema:
-    """Lock invoice to prevent further modifications."""
+    """
+    Lock invoice to prevent further modifications.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ap_service.lock_invoice(
+        result = await ap_svc.lock_invoice(
             invoice_id, current_user.user_id, legal_entity_id, reason
         )
 
@@ -1326,11 +1357,14 @@ async def unlock_ap_invoice(
     _permission: None = Depends(require_permission("ap:audit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APInvoiceActionResponseSchema:
-    """Unlock invoice."""
+    """
+    Unlock invoice.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ap_service.unlock_invoice(invoice_id, current_user.user_id, legal_entity_id)
+        result = await ap_svc.unlock_invoice(invoice_id, current_user.user_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Invoice not found")
@@ -1367,7 +1401,7 @@ async def record_ap_payment(
     _permission: None = Depends(require_permission("ap:record_payment")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APPaymentResponseSchema:
     """
     Mencatat pembayaran hutang.
@@ -1375,6 +1409,7 @@ async def record_ap_payment(
     - Payment mengurangi outstanding invoice
     - Jurnal: debit AP, credit Bank/Cash
     - Dapat memberikan diskon jika early payment
+    - LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
     """
     from application.dto_objects.ap_invoice_request import APPaymentCreateRequest
 
@@ -1391,7 +1426,7 @@ async def record_ap_payment(
             created_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await ap_service.record_payment(payment_dto)
+        result = await ap_svc.record_payment(payment_dto)
 
         return APPaymentResponseSchema(
             id=result.id,
@@ -1433,11 +1468,11 @@ async def get_ap_payment(
     payment_id: UUID,
     _permission: None = Depends(require_permission("ap:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APPaymentResponseSchema:
     """Get payment by ID."""
     try:
-        payment = await ap_service.get_payment_by_id(payment_id, legal_entity_id)
+        payment = await ap_svc.get_payment_by_id(payment_id, legal_entity_id)
 
         if not payment:
             raise HTTPException(status_code=404, detail="Payment not found")
@@ -1484,11 +1519,14 @@ async def reverse_ap_payment(
     _permission: None = Depends(require_permission("ap:reverse_payment")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APPaymentResponseSchema:
-    """Reverse a payment (restores invoice outstanding amount)."""
+    """
+    Reverse a payment (restores invoice outstanding amount).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ap_service.reverse_payment(
+        result = await ap_svc.reverse_payment(
             payment_id=payment_id,
             reversed_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
@@ -1547,9 +1585,12 @@ async def create_ap_credit_note(
     _permission: None = Depends(require_permission("ap:create_credit_note")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APCreditNoteResponseSchema:
-    """Create credit note for invoice (reduces payable amount)."""
+    """
+    Create credit note for invoice (reduces payable amount).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.dto_objects.ap_invoice_request import APCreditNoteCreateRequest
 
     method_name = "create_ap_credit_note"
@@ -1569,7 +1610,7 @@ async def create_ap_credit_note(
             created_by=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
-        result = await ap_service.create_credit_note(note_dto)
+        result = await ap_svc.create_credit_note(note_dto)
 
         response = APCreditNoteResponseSchema(
             id=result.id,
@@ -1616,11 +1657,14 @@ async def approve_ap_credit_note(
     _permission: None = Depends(require_permission("ap:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APCreditNoteResponseSchema:
-    """Approve credit note."""
+    """
+    Approve credit note.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ap_service.approve_credit_note(
+        result = await ap_svc.approve_credit_note(
             credit_note_id, current_user.user_id, legal_entity_id
         )
 
@@ -1667,11 +1711,14 @@ async def cancel_ap_credit_note(
     _permission: None = Depends(require_permission("ap:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APCreditNoteResponseSchema:
-    """Cancel credit note."""
+    """
+    Cancel credit note.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ap_service.cancel_credit_note(
+        result = await ap_svc.cancel_credit_note(
             credit_note_id, current_user.user_id, legal_entity_id, reason
         )
 
@@ -1722,11 +1769,11 @@ async def get_ap_aging_by_vendor(
     as_of_date: date = Query(..., description="Date for aging calculation"),
     _permission: None = Depends(require_permission("ap:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APAgingResponseSchema:
     """Get AP aging report for a specific vendor."""
     try:
-        aging = await ap_service.get_aging_report(vendor_id, legal_entity_id, as_of_date)
+        aging = await ap_svc.get_aging_report(vendor_id, legal_entity_id, as_of_date)
 
         return APAgingResponseSchema(
             vendor_id=aging.vendor_id,
@@ -1762,11 +1809,11 @@ async def get_all_ap_aging(
     as_of_date: date = Query(..., description="Date for aging calculation"),
     _permission: None = Depends(require_permission("ap:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> list[APAgingResponseSchema]:
     """Get AP aging report for all vendors."""
     try:
-        report = await ap_service.get_aging_all_vendors(legal_entity_id, as_of_date)
+        report = await ap_svc.get_aging_all_vendors(legal_entity_id, as_of_date)
 
         return [
             APAgingResponseSchema(
@@ -1811,11 +1858,11 @@ async def validate_three_way_match(
     tolerance_percent: float = Query(5.0, ge=0, le=100, description="Tolerance percentage"),
     _permission: None = Depends(require_permission("ap:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> APThreeWayMatchResultSchema:
     """Validate 3-way match between Purchase Order, Goods Receipt Note, and Invoice."""
     try:
-        result = await ap_service.validate_three_way_match(
+        result = await ap_svc.validate_three_way_match(
             invoice_id, legal_entity_id, tolerance_percent
         )
 
@@ -1860,6 +1907,7 @@ async def create_payment_run(
     - Payment run dapat memproses banyak invoice sekaligus
     - Memilih invoice berdasarkan due date
     - Dapat dibatasi per vendor
+    - LOCKING: Use case layer uses SELECT FOR UPDATE for concurrency control.
     """
     from application.dto_objects.ap_invoice_request import APPaymentRunRequest
 
@@ -1910,7 +1958,10 @@ async def process_payment_run(
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     payment_run_use_case: Any = Depends(get_ap_payment_run_use_case),
 ) -> dict[str, Any]:
-    """Process payment run - generate payments for all selected invoices."""
+    """
+    Process payment run - generate payments for all selected invoices.
+    LOCKING: Use case layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
         result = await payment_run_use_case.process_payment_run(
             payment_run_id=payment_run_id,
@@ -1944,11 +1995,11 @@ async def list_payment_runs(
     end_date: date | None = Query(None, description="Created date end"),
     _permission: None = Depends(require_permission("ap:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> list[APPaymentRunResponseSchema]:
     """List payment runs."""
     try:
-        runs = await ap_service.list_payment_runs(legal_entity_id, status, start_date, end_date)
+        runs = await ap_svc.list_payment_runs(legal_entity_id, status, start_date, end_date)
 
         return [
             APPaymentRunResponseSchema(
@@ -1986,11 +2037,11 @@ async def get_ap_invoice_status(
     invoice_id: UUID,
     _permission: None = Depends(require_permission("ap:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> dict[str, Any]:
     """Get detailed status of invoice including workflow state."""
     try:
-        status_info = await ap_service.get_invoice_status(invoice_id, legal_entity_id)
+        status_info = await ap_svc.get_invoice_status(invoice_id, legal_entity_id)
 
         if not status_info:
             raise HTTPException(status_code=404, detail="Invoice not found")
@@ -2029,11 +2080,11 @@ async def get_ap_invoice_history(
     invoice_id: UUID,
     _permission: None = Depends(require_permission("ap:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> list[dict[str, Any]]:
     """Get audit history of invoice status changes."""
     try:
-        history = await ap_service.get_invoice_history(invoice_id, legal_entity_id)
+        history = await ap_svc.get_invoice_history(invoice_id, legal_entity_id)
 
         return [
             {
@@ -2067,13 +2118,13 @@ async def generate_ap_invoice_pdf(
     invoice_id: UUID,
     _permission: None = Depends(require_permission("ap:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ):
     """Generate PDF document for AP invoice."""
     from fastapi.responses import Response
 
     try:
-        pdf_bytes = await ap_service.generate_invoice_pdf(invoice_id, legal_entity_id)
+        pdf_bytes = await ap_svc.generate_invoice_pdf(invoice_id, legal_entity_id)
 
         return Response(
             content=pdf_bytes,
@@ -2104,11 +2155,14 @@ async def bulk_approve_ap_invoices(
     _permission: None = Depends(require_permission("ap:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> dict[str, Any]:
-    """Approve multiple invoices at once."""
+    """
+    Approve multiple invoices at once.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ap_service.bulk_approve_invoices(
+        result = await ap_svc.bulk_approve_invoices(
             invoice_ids=invoice_ids,
             approver_id=current_user.user_id,
             legal_entity_id=legal_entity_id,
@@ -2138,11 +2192,14 @@ async def bulk_archive_ap_invoices(
     _permission: None = Depends(require_permission("ap:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    ap_service: Any = Depends(get_ap_service),
+    ap_svc: Any = Depends(get_ap_svc),
 ) -> dict[str, Any]:
-    """Archive multiple invoices at once."""
+    """
+    Archive multiple invoices at once.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await ap_service.bulk_archive_invoices(
+        result = await ap_svc.bulk_archive_invoices(
             invoice_ids=invoice_ids,
             archived_by=current_user.user_id,
             legal_entity_id=legal_entity_id,

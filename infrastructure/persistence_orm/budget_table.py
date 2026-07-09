@@ -9,6 +9,10 @@ Dependencies:
 - sqlalchemy, uuid, decimal, datetime
 - base_model, LegalEntityMixin, TimestampMixin, SoftDeleteMixin, VersionMixin
 Audit: Perubahan budget dicatat di event store.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (amount, total_actual, variance)
+      di to_dict() untuk menjaga presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -249,13 +253,13 @@ class BudgetTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEnti
             "cost_center": self.cost_center,
             "project_id": str(self.project_id) if self.project_id else None,
             "department": self.department,
-            "amount": float(self.amount),
+            "amount": str(self.amount),  # ganti float -> str untuk presisi
             "currency": self.currency,
             "status": self.status,
-            "total_actual": float(self.total_actual),
-            "variance": float(self.variance),
-            "variance_percentage": self.variance_percentage,
-            "utilization_percentage": self.utilization_percentage,
+            "total_actual": str(self.total_actual),  # ganti float -> str
+            "variance": str(self.variance),          # ganti float -> str
+            "variance_percentage": self.variance_percentage,  # persentase, tetap float
+            "utilization_percentage": self.utilization_percentage,  # persentase, tetap float
             "legal_entity_id": str(self.legal_entity_id),
             "version": self.version,
         }

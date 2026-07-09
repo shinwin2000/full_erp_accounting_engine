@@ -99,16 +99,26 @@ class SQLAlchemyGoodwillRepository(GoodwillRepositoryPort):
 
     # ---- update ----
     async def update(self, goodwill: Goodwill) -> None:
+        """
+        Update goodwill with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
-        table = self._from_domain(goodwill)
-        existing = await session.get(GoodwillTable, goodwill.id)
-        if not existing:
-            raise ValueError(f"Goodwill {goodwill.id} not found")
-        for key, value in table.__dict__.items():
-            if not key.startswith("_") and key != "id":
-                setattr(existing, key, value)
-        existing.updated_at = datetime.utcnow()
-        await session.flush()
+        async with session.begin():
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(GoodwillTable).where(GoodwillTable.id == goodwill.id).with_for_update()
+            result = await session.execute(stmt_lock)
+            existing = result.scalar_one_or_none()
+            if not existing:
+                raise ValueError(f"Goodwill {goodwill.id} not found")
+
+            # 2. Update the locked row
+            table = self._from_domain(goodwill)
+            for key, value in table.__dict__.items():
+                if not key.startswith("_") and key != "id":
+                    setattr(existing, key, value)
+            existing.updated_at = datetime.utcnow()
+            await session.flush()
 
     # ---- get_by_id (1 parameter) ----
     async def get_by_id(self, goodwill_id: UUID) -> Goodwill | None:
@@ -226,9 +236,23 @@ class SQLAlchemyGoodwillRepository(GoodwillRepositoryPort):
         return result.scalar_one_or_none()
 
     async def update_goodwill_carrying_amount(self, goodwill_id: UUID, new_amount: Decimal) -> None:
+        """
+        Update carrying amount with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
-        stmt = update(GoodwillTable).where(GoodwillTable.id == goodwill_id).values(carrying_amount=new_amount)
-        await session.execute(stmt)
+        async with session.begin():
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(GoodwillTable).where(GoodwillTable.id == goodwill_id).with_for_update()
+            result = await session.execute(stmt_lock)
+            existing = result.scalar_one_or_none()
+            if not existing:
+                raise ValueError(f"Goodwill {goodwill_id} not found")
+
+            # 2. Update the locked row
+            existing.carrying_amount = new_amount
+            existing.updated_at = datetime.utcnow()
+            await session.flush()
 
 
 # ============================================================================

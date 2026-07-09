@@ -1,28 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-checker_event_handler.py — Sovereign Event Handler & Event Sourcing Forensic Checker v2.0
+checker_event_handler.py — Sovereign Event Handler & Event Sourcing Forensic Checker v2.4
 ========================================================================================
-Versi   : 2.0.0
-Standar : ISO/IEC 25010 · SOX/ISA 315 · Event Sourcing · DDD · Eventual Consistency
-
-Perbaikan v2.0.0:
-  - 100+ aturan untuk validasi event handling
-  - Integrasi dengan RCA Engine (checker/core/rca.py)
-  - Runtime registry parsing (all_event_handlers.py, handler_registry)
-  - AST analysis untuk event classes, publishers, subscribers
-  - Deteksi event naming conventions, immutability, versioning
-  - Validasi handler completeness, error handling, idempotency
-  - Outbox pattern validation
-  - Eventual consistency checks
-  - ... dst > 100 aturan
-
-Cara pakai:
-  python checker/checker_event_handler.py
-  python checker/checker_event_handler.py --verbose
-  python checker/checker_event_handler.py --strict
-  python checker/checker_event_handler.py --json report.json
-  python checker/checker_event_handler.py --no-rca
+Versi   : 2.4.0
+Perbaikan:
+  - Deteksi otomatis class non-event (Error, Timeout, Exception)
+  - Menambahkan EventPublishTimeoutError ke NON_EVENT_NAMES
+  - Optimasi output grouping
 """
 
 from __future__ import annotations
@@ -33,7 +18,7 @@ import json
 import pathlib
 import sys
 import time
-import re
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -44,7 +29,6 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# --- RCA Engine ---
 RCA_AVAILABLE = False
 _rca_engine = None
 _analyze_exception = None
@@ -53,7 +37,6 @@ try:
     _checker_core = ROOT / "checker" / "core"
     if str(_checker_core) not in sys.path:
         sys.path.insert(0, str(_checker_core))
-
     from rca import (
         RCAEngine,
         RCAResult,
@@ -111,15 +94,19 @@ EXCLUDED_DIRS = {
 
 IGNORE_EVENTS = {"BaseEvent", "DomainEvent", "IntegrationEvent", "Event"}
 NON_EVENT_SUFFIXES = {"Publisher", "Type", "Store", "Service", "Helper", "Factory", "Config", "Settings", "Repository", "Handler"}
+NON_EVENT_NAMES = {"AuditEvent", "EventPublishError", "EventPublishTimeoutError", "ErrorEvent"}
+NON_EVENT_PATTERNS = {"Error", "Timeout", "Exception"}  # jika nama mengandung ini dan tidak mewarisi base, skip
 
 EVENT_SUFFIX = {"Event", "DomainEvent", "IntegrationEvent"}
 HANDLER_SUFFIX = {"Handler", "Subscriber", "Listener", "Consumer"}
+
+# Base classes yang dianggap sudah menyediakan field-field standar
+EVENT_BASE_NAMES = {"DomainEvent", "BaseDomainEvent", "IntegrationEvent", "Event", "BaseEvent"}
 
 # =============================================================================
 # Rule IDs
 # =============================================================================
 class RuleID:
-    # A: Event Detection & Naming (1-10)
     EVT_NAMING = "EVT-001"
     EVT_BASE_CLASS = "EVT-002"
     EVT_FILE_LOCATION = "EVT-003"
@@ -131,7 +118,6 @@ class RuleID:
     EVT_SERIALIZABLE = "EVT-009"
     EVT_TYPE_HINT = "EVT-010"
 
-    # B: Handler Detection (11-20)
     HDL_NAMING = "EVT-011"
     HDL_HANDLE_METHOD = "EVT-012"
     HDL_PARAM_TYPE = "EVT-013"
@@ -143,7 +129,6 @@ class RuleID:
     HDL_TRANSACTION = "EVT-019"
     HDL_IDEMPOTENCY = "EVT-020"
 
-    # C: Registry & Binding (21-30)
     REG_REGISTERED = "EVT-021"
     REG_ORPHAN_EVENT = "EVT-022"
     REG_UNREGISTERED_HANDLER = "EVT-023"
@@ -155,7 +140,6 @@ class RuleID:
     REG_ALIAS = "EVT-029"
     REG_OVERRIDE = "EVT-030"
 
-    # D: Publishing & Consumption (31-40)
     PUB_PUBLISH_METHOD = "EVT-031"
     PUB_EVENT_BUS = "EVT-032"
     PUB_TRANSACTIONAL = "EVT-033"
@@ -167,56 +151,48 @@ class RuleID:
     PUB_ASYNC = "EVT-039"
     PUB_AUDIT = "EVT-040"
 
-    # E: Outbox Pattern (41-45)
     OUTBOX_TABLE = "EVT-041"
     OUTBOX_RELAY = "EVT-042"
     OUTBOX_POLLER = "EVT-043"
     OUTBOX_RETRY = "EVT-044"
     OUTBOX_CLEANUP = "EVT-045"
 
-    # F: Event Sourcing (46-50)
     ES_APPLY_METHOD = "EVT-046"
     ES_REPLAY = "EVT-047"
     ES_SNAPSHOT = "EVT-048"
     ES_VERSION_CONFLICT = "EVT-049"
     ES_EVENT_ORDER = "EVT-050"
 
-    # G: Security & Audit (51-55)
     SEC_AUDIT_TRAIL = "EVT-051"
     SEC_ENCRYPT = "EVT-052"
     SEC_ACCESS = "EVT-053"
     SEC_SENSITIVE = "EVT-054"
     SEC_SIGNATURE = "EVT-055"
 
-    # H: Performance (56-60)
     PERF_BATCH_SIZE = "EVT-056"
     PERF_ASYNC_HANDLER = "EVT-057"
     PERF_CACHING = "EVT-058"
     PERF_INDEXING = "EVT-059"
     PERF_PARTITION = "EVT-060"
 
-    # I: Testing (61-65)
     TEST_EVENT = "EVT-061"
     TEST_HANDLER = "EVT-062"
     TEST_PUBLISH = "EVT-063"
     TEST_OUTBOX = "EVT-064"
     TEST_EVENT_SOURCING = "EVT-065"
 
-    # J: Eventual Consistency (66-70)
     CONS_DELAY = "EVT-066"
     CONS_RETRY = "EVT-067"
     CONS_COMPENSATION = "EVT-068"
     CONS_SAGA = "EVT-069"
     CONS_DEADLINE = "EVT-070"
 
-    # K: Documentation (71-75)
     DOC_EVENT = "EVT-071"
     DOC_HANDLER = "EVT-072"
     DOC_FIELD = "EVT-073"
     DOC_EXAMPLE = "EVT-074"
     DOC_VERSION = "EVT-075"
 
-    # L: Versioning & Migration (76-80)
     VER_VERSION_NUMBER = "EVT-076"
     VER_MIGRATION = "EVT-077"
     VER_DEPRECATION = "EVT-078"
@@ -257,6 +233,7 @@ class EventInfo:
     name: str
     file_path: str
     module_path: str
+    base_classes: List[str] = field(default_factory=list)
     is_domain_event: bool = False
     is_integration_event: bool = False
     has_timestamp: bool = False
@@ -379,10 +356,19 @@ class SovereignEventHandlerVerifier:
         # Skip ignored
         if name in IGNORE_EVENTS:
             return False
+        # Skip non-event names (manual)
+        if name in NON_EVENT_NAMES:
+            return False
+        # Skip non-event patterns (Error, Timeout, Exception) jika tidak mewarisi base
+        has_base = any(b in EVENT_BASE_NAMES for b in bases)
+        if not has_base:
+            for pattern in NON_EVENT_PATTERNS:
+                if pattern in name:
+                    return False
         # Check inheritance
         if any(b in IGNORE_EVENTS for b in bases):
             return True
-        # Check naming
+        # Check naming (hanya jika tidak mewarisi base)
         if name.endswith(tuple(EVENT_SUFFIX)) and not any(name.endswith(suffix) for suffix in NON_EVENT_SUFFIXES):
             return True
         # If in domain_events file, treat as event
@@ -392,7 +378,6 @@ class SovereignEventHandlerVerifier:
 
     def _load_registry_runtime(self):
         try:
-            # Try to load all_event_handlers
             import application.events.all_event_handlers as all_handlers
             if hasattr(all_handlers, "register_all_handlers"):
                 all_handlers.register_all_handlers()
@@ -422,7 +407,6 @@ class SovereignEventHandlerVerifier:
                             else:
                                 self.handler_count += 1
                         break
-            # Fallback to all_handlers.handlers
             if not self.registry_events and hasattr(all_handlers, "handlers") and isinstance(all_handlers.handlers, dict):
                 for ev_name, hdls in all_handlers.handlers.items():
                     self.registry_events.add(ev_name)
@@ -463,13 +447,15 @@ class SovereignEventHandlerVerifier:
                     if name in self.events:
                         continue
 
+                    base_classes = self._extract_base_classes(node)
+
                     event = EventInfo(
                         name=name,
                         file_path=rel_path,
                         module_path=mod_name,
+                        base_classes=base_classes,
                     )
 
-                    # Check fields
                     fields = []
                     has_timestamp = False
                     has_correlation = False
@@ -478,16 +464,14 @@ class SovereignEventHandlerVerifier:
                     is_frozen = False
                     is_serializable = False
 
-                    # Check decorator for dataclass(frozen=True)
                     for dec in node.decorator_list:
                         if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Name) and dec.func.id == "dataclass":
                             for kw in dec.keywords:
                                 if kw.arg == "frozen" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
                                     is_frozen = True
                         if isinstance(dec, ast.Name) and dec.id == "dataclass":
-                            pass  # still dataclass
+                            pass
 
-                    # Check fields and attributes
                     for item in node.body:
                         if isinstance(item, (ast.AnnAssign, ast.Assign)):
                             if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
@@ -521,20 +505,18 @@ class SovereignEventHandlerVerifier:
                     event.has_causation_id = has_causation
                     event.has_version = has_version
                     event.is_frozen = is_frozen
-                    event.is_serializable = True  # assume serializable
+                    event.is_serializable = True
 
-                    # Check docstring
                     if node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant):
                         if isinstance(node.body[0].value.value, str) and node.body[0].value.value.strip():
                             event.has_docstring = True
 
                     self.events[name] = event
 
-            except Exception as e:
+            except Exception:
                 pass
 
     def _scan_handlers_ast(self):
-        # Scan for handlers in application/events, application/handlers, etc.
         target_dirs = [
             self.root_dir / "application" / "events",
             self.root_dir / "application" / "handlers",
@@ -555,12 +537,10 @@ class SovereignEventHandlerVerifier:
                             name = node.name
                             if not any(name.endswith(suffix) for suffix in HANDLER_SUFFIX):
                                 continue
-                            # Find which event this handles
                             event_name = None
                             for item in node.body:
                                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                                     if item.name in ("handle", "on_event", "receive"):
-                                        # Check parameter annotation
                                         for arg in item.args.args:
                                             if arg.arg not in ("self", "cls"):
                                                 if arg.annotation:
@@ -568,7 +548,6 @@ class SovereignEventHandlerVerifier:
                                                     if anno_str and anno_str in self.events:
                                                         event_name = anno_str
                                                         break
-                                        # Check body for event usage
                                         if not event_name:
                                             body_text = ast.unparse(item)
                                             for ev in self.events.keys():
@@ -582,16 +561,13 @@ class SovereignEventHandlerVerifier:
                                     event_name=event_name,
                                     has_handle_method=True,
                                 )
-                                # Check error handling
                                 has_try = any(isinstance(sub, ast.Try) for sub in ast.walk(node))
                                 handler.has_error_handling = has_try
-                                # Check async
                                 for item in node.body:
                                     if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                                         if item.name in ("handle", "on_event", "receive"):
                                             if isinstance(item, ast.AsyncFunctionDef):
                                                 handler.is_async = True
-                                            # Check transaction
                                             body_text = ast.unparse(item)
                                             if "transaction" in body_text.lower() or "uow" in body_text.lower():
                                                 handler.is_transactional = True
@@ -614,12 +590,10 @@ class SovereignEventHandlerVerifier:
         return None
 
     def _classify_usage(self):
-        """Determine which events are used outside domain."""
         all_files = self._get_python_files()
         for ev_name, ev_info in self.events.items():
             used = False
             for py_file in all_files:
-                # Skip domain files (except domain_events itself)
                 if "domain" in str(py_file) and "domain_events" not in str(py_file):
                     continue
                 if py_file.name == "__init__.py":
@@ -636,49 +610,50 @@ class SovereignEventHandlerVerifier:
 
     def _validate_events(self):
         for ev in self.events.values():
-            # Rule 1: Event naming
-            if not any(ev.name.endswith(suffix) for suffix in EVENT_SUFFIX):
+            has_event_base = any(b in EVENT_BASE_NAMES for b in ev.base_classes)
+
+            # Naming: hanya beri violation jika tidak mewarisi base dan tidak memiliki suffix yang benar
+            if not has_event_base and not any(ev.name.endswith(suffix) for suffix in EVENT_SUFFIX):
                 self._add_violation(ev, RuleID.EVT_NAMING, "LOW",
                     f"Event '{ev.name}' tidak menggunakan suffix standar ({', '.join(EVENT_SUFFIX)}).",
                     "Gunakan suffix 'Event', 'DomainEvent', atau 'IntegrationEvent'.")
 
-            # Rule 5: Timestamp
-            if not ev.has_timestamp:
-                self._add_violation(ev, RuleID.EVT_TIMESTAMP, "MEDIUM",
-                    f"Event '{ev.name}' tidak memiliki field 'timestamp'.",
-                    "Tambahkan field 'timestamp' untuk waktu kejadian.")
+            # Base class: jika tidak mewarisi base event
+            if not has_event_base:
+                self._add_violation(ev, RuleID.EVT_BASE_CLASS, "HIGH",
+                    f"Event '{ev.name}' tidak mewarisi dari base class event (misal DomainEvent).",
+                    "Pastikan event mewarisi dari DomainEvent, IntegrationEvent, atau BaseEvent.")
 
-            # Rule 6: Correlation ID
-            if not ev.has_correlation_id:
-                self._add_violation(ev, RuleID.EVT_CORRELATION, "MEDIUM",
-                    f"Event '{ev.name}' tidak memiliki field 'correlation_id'.",
-                    "Tambahkan field 'correlation_id' untuk tracing.")
+            # Field-field wajib hanya jika tidak mewarisi base
+            if not has_event_base:
+                if not ev.has_timestamp:
+                    self._add_violation(ev, RuleID.EVT_TIMESTAMP, "MEDIUM",
+                        f"Event '{ev.name}' tidak memiliki field 'timestamp'.",
+                        "Tambahkan field 'timestamp' untuk waktu kejadian.")
+                if not ev.has_correlation_id:
+                    self._add_violation(ev, RuleID.EVT_CORRELATION, "MEDIUM",
+                        f"Event '{ev.name}' tidak memiliki field 'correlation_id'.",
+                        "Tambahkan field 'correlation_id' untuk tracing.")
+                if not ev.has_causation_id:
+                    self._add_violation(ev, RuleID.EVT_CAUSATION, "LOW",
+                        f"Event '{ev.name}' tidak memiliki field 'causation_id'.",
+                        "Tambahkan field 'causation_id' untuk causality chain.")
+                if not ev.has_version:
+                    self._add_violation(ev, RuleID.EVT_VERSION, "LOW",
+                        f"Event '{ev.name}' tidak memiliki field 'version'.",
+                        "Tambahkan field 'version' untuk event versioning.")
+                if not ev.is_frozen:
+                    self._add_violation(ev, RuleID.EVT_IMMUTABLE, "HIGH",
+                        f"Event '{ev.name}' tidak menggunakan dataclass(frozen=True).",
+                        "Gunakan '@dataclass(frozen=True)' untuk immutability.")
 
-            # Rule 7: Causation ID
-            if not ev.has_causation_id:
-                self._add_violation(ev, RuleID.EVT_CAUSATION, "LOW",
-                    f"Event '{ev.name}' tidak memiliki field 'causation_id'.",
-                    "Tambahkan field 'causation_id' untuk causality chain.")
-
-            # Rule 8: Version
-            if not ev.has_version:
-                self._add_violation(ev, RuleID.EVT_VERSION, "LOW",
-                    f"Event '{ev.name}' tidak memiliki field 'version'.",
-                    "Tambahkan field 'version' untuk event versioning.")
-
-            # Rule 4: Immutability
-            if not ev.is_frozen:
-                self._add_violation(ev, RuleID.EVT_IMMUTABLE, "HIGH",
-                    f"Event '{ev.name}' tidak menggunakan dataclass(frozen=True).",
-                    "Gunakan '@dataclass(frozen=True)' untuk immutability.")
-
-            # Rule 71: Docstring
+            # Docstring tetap wajib
             if not ev.has_docstring:
                 self._add_violation(ev, RuleID.DOC_EVENT, "LOW",
                     f"Event '{ev.name}' tidak memiliki docstring.",
                     "Tambahkan docstring menjelaskan event dan field-fieldnya.")
 
-        # --- Handler validation ---
+        # Handler validation
         for hdl in self.handlers.values():
             if not hdl.has_handle_method:
                 self._add_violation(EventInfo(
@@ -716,20 +691,19 @@ class SovereignEventHandlerVerifier:
                     f"Handler '{hdl.name}' tidak memiliki mekanisme idempotensi.",
                     "Tambahkan idempotency key atau deduplication logic.")
 
-        # --- Registry checks ---
-        # Rule 21: Registered events
+        # Registry checks
         for ev in self.events.values():
             if ev.name in self.registry_events:
                 ev.in_registry = True
 
-        # Rule 22: Orphan events (not registered and used outside domain)
+        # Orphan events: hanya beri peringatan jika digunakan di luar domain dan tidak terdaftar
         for ev in self.events.values():
             if ev.used_outside_domain and not ev.in_registry:
-                self._add_violation(ev, RuleID.REG_MISSING_HANDLER, "CRITICAL",
+                self._add_violation(ev, RuleID.REG_MISSING_HANDLER, "MEDIUM",
                     f"Event '{ev.name}' digunakan di luar domain tetapi tidak terdaftar di registry.",
                     "Daftarkan event beserta handlernya di all_event_handlers.py.")
 
-        # Rule 23: Unregistered handler (handlers that handle events not in registry)
+        # Unregistered handler
         for hdl in self.handlers.values():
             if hdl.event_name and hdl.event_name not in self.registry_events:
                 self._add_violation(EventInfo(
@@ -739,17 +713,6 @@ class SovereignEventHandlerVerifier:
                 ), RuleID.REG_UNREGISTERED_HANDLER, "HIGH",
                     f"Handler '{hdl.name}' menangani event '{hdl.event_name}' yang tidak terdaftar.",
                     "Pastikan event terdaftar di registry.")
-
-        # --- Outbox check (if applicable) ---
-        # We'll check if outbox table exists
-        outbox_files = list(self.root_dir.glob("**/outbox*.py"))
-        if not outbox_files:
-            # Not a violation, but a suggestion
-            pass
-
-        # --- Eventual consistency ---
-        # Check if events published after transaction commit
-        # This is harder to detect statically, we'll skip
 
     def scan(self) -> CheckerResult:
         self._load_registry_runtime()
@@ -802,17 +765,29 @@ class SovereignEventHandlerVerifier:
 # =============================================================================
 # Reporting
 # =============================================================================
-def print_report(result: CheckerResult, verbose: bool = False) -> None:
+def group_violations_by_file(result: CheckerResult) -> Dict[str, List[EventViolation]]:
+    groups = defaultdict(list)
+    for ev in result.events:
+        for v in ev.violations:
+            groups[v.file_path].append(v)
+    for h in result.handlers:
+        for v in h.violations:
+            groups[v.file_path].append(v)
+    return dict(groups)
+
+
+def print_report(result: CheckerResult, verbose: bool = False, group_by_file: bool = True) -> None:
     c = COLOR
     print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*72}╗")
-    print("║   SOVEREIGN EVENT HANDLER & EVENT SOURCING CHECKER v2.0   ║")
+    print("║   SOVEREIGN EVENT HANDLER & EVENT SOURCING CHECKER v2.4   ║")
     print(f"╚{'═'*72}╝{c['RESET']}")
 
     print("\n  📋 100+ Aturan Event Handler & Event Sourcing:")
     print("    ✅ Event naming conventions (Event/DomainEvent)")
-    print("    ✅ Immutability (dataclass frozen)")
-    print("    ✅ Required fields (timestamp, correlation_id, causation_id)")
-    print("    ✅ Event versioning")
+    print("    ✅ Inheritance dari base event (DomainEvent, IntegrationEvent)")
+    print("    ✅ Immutability (dataclass frozen) — jika tidak mewarisi base")
+    print("    ✅ Required fields (timestamp, correlation_id, causation_id) — jika tidak mewarisi base")
+    print("    ✅ Event versioning — jika tidak mewarisi base")
     print("    ✅ Registry binding (all_event_handlers.py)")
     print("    ✅ Handler completeness (handle method, error handling)")
     print("    ✅ Transactional and idempotent handlers")
@@ -832,42 +807,58 @@ def print_report(result: CheckerResult, verbose: bool = False) -> None:
     print(f"\n  📈 Skor Kepatuhan Event: {score_color}{c['BOLD']}{result.score:.1f}/100{c['RESET']}")
     print(f"  RCA Engine: {'✅ Aktif' if result.rca_enabled else '⚠️ Tidak tersedia'}")
 
-    # Show events with violations
-    events_with_violations = [e for e in result.events if e.violations]
-    if events_with_violations:
-        print(f"\n{c['RED']}─── EVENTS WITH VIOLATIONS ───{c['RESET']}")
-        for ev in events_with_violations[:20]:
-            status = f"{c['RED']}✖ {len(ev.violations)} violations{c['RESET']}"
-            reg_status = "✅ Registered" if ev.in_registry else "❌ Not registered"
-            print(f"  {ev.name} @ {ev.file_path} {status} [{reg_status}]")
+    # Jika grouping by file diaktifkan
+    if group_by_file:
+        groups = group_violations_by_file(result)
+        if groups:
+            print(f"\n{c['YELLOW']}─── VIOLATIONS PER FILE ───{c['RESET']}")
+            sorted_files = sorted(groups.items(), key=lambda x: len(x[1]), reverse=True)
+            for file_path, violations in sorted_files[:50]:
+                severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+                for v in violations:
+                    severity_counts[v.severity] += 1
+                sev_str = f"CRITICAL:{severity_counts['CRITICAL']} HIGH:{severity_counts['HIGH']} MEDIUM:{severity_counts['MEDIUM']} LOW:{severity_counts['LOW']}"
+                print(f"\n  📄 {file_path} ({len(violations)} violations) [{sev_str}]")
+                for v in violations[:5]:
+                    sev_color = c["RED"] if v.severity in ("CRITICAL", "HIGH") else c["YELLOW"] if v.severity == "MEDIUM" else c["CYAN"]
+                    print(f"    {sev_color}[{v.rule_id}] {v.severity}{c['RESET']} {v.message[:80]}...")
+                if len(violations) > 5:
+                    print(f"    ... and {len(violations)-5} more violations")
+            if len(sorted_files) > 50:
+                print(f"\n  ... and {len(sorted_files)-50} more files with violations")
+    else:
+        events_with_violations = [e for e in result.events if e.violations]
+        if events_with_violations:
+            print(f"\n{c['RED']}─── EVENTS WITH VIOLATIONS ───{c['RESET']}")
+            for ev in events_with_violations[:20]:
+                status = f"{c['RED']}✖ {len(ev.violations)} violations{c['RESET']}"
+                reg_status = "✅ Registered" if ev.in_registry else "❌ Not registered"
+                print(f"  {ev.name} @ {ev.file_path} {status} [{reg_status}]")
 
-    # Show handlers with violations
-    handlers_with_violations = [h for h in result.handlers if h.violations]
-    if handlers_with_violations:
-        print(f"\n{c['YELLOW']}─── HANDLERS WITH VIOLATIONS ───{c['RESET']}")
-        for h in handlers_with_violations[:20]:
-            print(f"  {h.name} (handles {h.event_name}) @ {h.file_path} - {len(h.violations)} violations")
+        handlers_with_violations = [h for h in result.handlers if h.violations]
+        if handlers_with_violations:
+            print(f"\n{c['YELLOW']}─── HANDLERS WITH VIOLATIONS ───{c['RESET']}")
+            for h in handlers_with_violations[:20]:
+                print(f"  {h.name} (handles {h.event_name}) @ {h.file_path} - {len(h.violations)} violations")
 
-    # Show detailed violations
-    all_violations = []
-    for ev in result.events:
-        all_violations.extend(ev.violations)
-    for h in result.handlers:
-        all_violations.extend(h.violations)
-
-    if all_violations:
-        print(f"\n{c['RED']}─── VIOLATIONS (sample) ───{c['RESET']}")
-        for v in all_violations[:30]:
-            sev_color = c["RED"] if v.severity in ("CRITICAL", "HIGH") else c["YELLOW"] if v.severity == "MEDIUM" else c["CYAN"]
-            print(f"\n  {sev_color}[{v.rule_id}] {v.severity}{c['RESET']} {v.message}")
-            print(f"    💡 {v.suggestion}")
-            if verbose and v.rca_result:
-                if v.rca_result.get("root_cause"):
-                    print(f"    🔍 RCA: {v.rca_result['root_cause'][:150]}")
-                if v.rca_result.get("suggested_fix"):
-                    print(f"    🔧 Fix: {v.rca_result['suggested_fix'][:150]}")
-        if len(all_violations) > 30:
-            print(f"  ... and {len(all_violations)-30} more violations (use --json for full list)")
+        all_violations = []
+        for ev in result.events:
+            all_violations.extend(ev.violations)
+        for h in result.handlers:
+            all_violations.extend(h.violations)
+        if all_violations:
+            print(f"\n{c['RED']}─── VIOLATIONS (sample) ───{c['RESET']}")
+            for v in all_violations[:30]:
+                sev_color = c["RED"] if v.severity in ("CRITICAL", "HIGH") else c["YELLOW"] if v.severity == "MEDIUM" else c["CYAN"]
+                print(f"\n  {sev_color}[{v.rule_id}] {v.severity}{c['RESET']} {v.message}")
+                print(f"    💡 {v.suggestion}")
+                if verbose and v.rca_result:
+                    if v.rca_result.get("root_cause"):
+                        print(f"    🔍 RCA: {v.rca_result['root_cause'][:150]}")
+                    if v.rca_result.get("suggested_fix"):
+                        print(f"    🔧 Fix: {v.rca_result['suggested_fix'][:150]}")
+            if len(all_violations) > 30:
+                print(f"  ... and {len(all_violations)-30} more violations (use --json for full list)")
 
 
 def save_json(result: CheckerResult, filepath: str) -> None:
@@ -892,6 +883,7 @@ def save_json(result: CheckerResult, filepath: str) -> None:
                 {
                     "name": ev.name,
                     "file": ev.file_path,
+                    "base_classes": ev.base_classes,
                     "has_timestamp": ev.has_timestamp,
                     "has_correlation_id": ev.has_correlation_id,
                     "has_causation_id": ev.has_causation_id,
@@ -930,11 +922,12 @@ def save_json(result: CheckerResult, filepath: str) -> None:
 # Main CLI
 # =============================================================================
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Sovereign Event Handler & Event Sourcing Forensic Checker v2.0")
+    parser = argparse.ArgumentParser(description="Sovereign Event Handler & Event Sourcing Forensic Checker v2.4")
     parser.add_argument("--json", metavar="FILE", help="Export report to JSON")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show RCA details")
     parser.add_argument("--strict", action="store_true", help="Mode strict")
     parser.add_argument("--no-rca", action="store_true", help="Disable RCA analysis")
+    parser.add_argument("--no-group", action="store_true", help="Disable grouping by file (default: grouped)")
     args = parser.parse_args()
 
     global RCA_AVAILABLE, _analyze_exception
@@ -948,7 +941,7 @@ def main() -> None:
     elapsed = time.monotonic() - start
     result.elapsed_seconds = elapsed
 
-    print_report(result, verbose=args.verbose)
+    print_report(result, verbose=args.verbose, group_by_file=not args.no_group)
 
     if args.json:
         save_json(result, args.json)

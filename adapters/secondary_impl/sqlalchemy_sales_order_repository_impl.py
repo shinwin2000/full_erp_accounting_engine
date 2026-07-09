@@ -216,17 +216,40 @@ class SQLAlchemySalesOrderRepository(SalesOrderRepositoryPort):
         return result.scalar_one_or_none()
 
     async def update_status(self, so_id: UUID, new_status: str, updated_by: UUID) -> None:
+        """
+        Update sales order status with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = (
-                update(SalesOrderTable).where(SalesOrderTable.id == so_id).values(status=new_status)
-            )
-            await session.execute(stmt)
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(SalesOrderTable).where(SalesOrderTable.id == so_id).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Sales order {so_id} not found")
+
+            # 2. Update the locked row
+            row.status = new_status
+            # Note: updated_by is not stored in table, but we log
+            logger.info(f"Sales order {so_id} status updated to {new_status} by {updated_by}")
 
     async def delete(self, so_id: UUID) -> None:
+        """
+        Delete sales order with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            await session.execute(delete(SalesOrderTable).where(SalesOrderTable.id == so_id))
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(SalesOrderTable).where(SalesOrderTable.id == so_id).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Sales order {so_id} not found")
+
+            # 2. Delete the locked row
+            await session.delete(row)
 
     # ========== Methods for SalesRepositoryPort (reused) ==========
 
@@ -234,7 +257,21 @@ class SQLAlchemySalesOrderRepository(SalesOrderRepositoryPort):
         await self.save(transaction)
 
     async def delete_transaction(self, transaction_id: UUID) -> None:
-        await self.delete(transaction_id)
+        """
+        Soft delete sales order with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
+        session = await self._get_session()
+        async with session.begin():
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(SalesOrderTable).where(SalesOrderTable.id == transaction_id).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Sales order {transaction_id} not found")
+
+            # 2. Soft delete: update status to DELETED
+            row.status = "DELETED"
 
     async def exists(self, transaction_id: UUID) -> bool:
         session = await self._get_session()
@@ -419,13 +456,22 @@ class SQLAlchemySalesRepository(SQLAlchemySalesOrderRepository, SalesRepositoryP
         return [self._to_entity(row) for row in rows]
 
     async def delete_transaction(self, transaction_id: UUID) -> bool:
-        # Port mengembalikan bool, parent delete mengembalikan None.
-        # Kita ubah menjadi soft delete dengan status "DELETED" dan return bool.
+        """
+        Soft delete sales order with pessimistic locking and return bool.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = update(SalesOrderTable).where(SalesOrderTable.id == transaction_id).values(status="DELETED")
-            result = await session.execute(stmt)
-            return result.rowcount > 0
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(SalesOrderTable).where(SalesOrderTable.id == transaction_id).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                return False
+
+            # 2. Soft delete: update status to DELETED
+            row.status = "DELETED"
+            return True
 
     async def exists(self, transaction_id: UUID) -> bool:
         return await super().exists(transaction_id)

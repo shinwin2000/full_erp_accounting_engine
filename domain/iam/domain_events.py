@@ -8,6 +8,7 @@ Responsibility: Domain events untuk Identity Access Management.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -17,6 +18,8 @@ from uuid import UUID, uuid4
 from domain.iam.role_entity import RoleEntity
 from domain.iam.session_entity import SessionEntity
 from domain.iam.user_entity import UserEntity, UserStatus
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # Domain Event Type Enum
@@ -80,8 +83,23 @@ class DomainEventType(Enum):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class DomainEvent:
+    """
+    Base class untuk semua domain event IAM.
+
+    Attributes:
+        event_id: UUID unik event.
+        event_type: Jenis event (DomainEventType).
+        aggregate_id: UUID agregat yang terkait.
+        aggregate_type: Tipe agregat (misal "IAM").
+        aggregate_version: Versi agregat saat event terjadi.
+        occurred_at: Waktu kejadian (UTC).
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+        causation_id: ID penyebab event (opsional).
+    """
     event_id: UUID
     event_type: DomainEventType
     aggregate_id: UUID
@@ -148,8 +166,19 @@ class DomainEvent:
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class UserCreatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika user baru dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat user.
+        aggregate_version: Versi agregat.
+        user: Entity User yang dibuat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -183,8 +212,20 @@ class UserCreatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class UserUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika data user diubah.
+
+    Attributes:
+        aggregate_id: ID agregat user.
+        aggregate_version: Versi agregat.
+        user: Entity User yang diubah.
+        changes: Dictionary perubahan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -216,8 +257,20 @@ class UserUpdatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class UserActivatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika user diaktifkan.
+
+    Attributes:
+        aggregate_id: ID agregat user.
+        aggregate_version: Versi agregat.
+        user: Entity User.
+        activated_by: User ID yang mengaktifkan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -249,8 +302,20 @@ class UserActivatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class UserDeactivatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika user dinonaktifkan.
+
+    Attributes:
+        aggregate_id: ID agregat user.
+        aggregate_version: Versi agregat.
+        user: Entity User.
+        deactivated_by: User ID yang menonaktifkan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -282,8 +347,21 @@ class UserDeactivatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class UserSuspendedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika user ditangguhkan.
+
+    Attributes:
+        aggregate_id: ID agregat user.
+        aggregate_version: Versi agregat.
+        user: Entity User.
+        suspended_by: User ID yang menangguhkan.
+        reason: Alasan penangguhan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -317,8 +395,20 @@ class UserSuspendedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class UserUnlockedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika user dibuka kuncinya.
+
+    Attributes:
+        aggregate_id: ID agregat user.
+        aggregate_version: Versi agregat.
+        user: Entity User.
+        unlocked_by: User ID yang membuka kunci.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -350,8 +440,20 @@ class UserUnlockedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class UserPasswordChangedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika password user diubah.
+
+    Attributes:
+        aggregate_id: ID agregat user.
+        aggregate_version: Versi agregat.
+        user: Entity User.
+        changed_by: User ID yang mengubah password.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -382,8 +484,21 @@ class UserPasswordChangedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class UserDeletedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika user dihapus.
+
+    Attributes:
+        aggregate_id: ID agregat user.
+        aggregate_version: Versi agregat.
+        user: Entity User.
+        deleted_by: User ID yang menghapus.
+        reason: Alasan penghapusan (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -420,8 +535,20 @@ class UserDeletedEvent(DomainEvent):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class RoleCreatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika role baru dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat role.
+        aggregate_version: Versi agregat.
+        role: Entity Role.
+        created_by: User ID pembuat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -456,8 +583,21 @@ class RoleCreatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class RoleUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika data role diubah.
+
+    Attributes:
+        aggregate_id: ID agregat role.
+        aggregate_version: Versi agregat.
+        role: Entity Role.
+        changes: Dictionary perubahan.
+        updated_by: User ID pengubah.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -489,8 +629,21 @@ class RoleUpdatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class RoleDeletedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika role dihapus.
+
+    Attributes:
+        aggregate_id: ID agregat role.
+        aggregate_version: Versi agregat.
+        role: Entity Role.
+        deleted_by: User ID penghapus.
+        reason: Alasan penghapusan (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -522,8 +675,21 @@ class RoleDeletedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class RoleAssignedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika role diberikan ke user.
+
+    Attributes:
+        aggregate_id: ID agregat role.
+        aggregate_version: Versi agregat.
+        user: Entity User penerima.
+        role: Entity Role.
+        assigned_by: User ID pemberi.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -556,8 +722,21 @@ class RoleAssignedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class RoleRevokedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika role dicabut dari user.
+
+    Attributes:
+        aggregate_id: ID agregat role.
+        aggregate_version: Versi agregat.
+        user: Entity User.
+        role: Entity Role.
+        revoked_by: User ID pencabut.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -595,8 +774,19 @@ class RoleRevokedEvent(DomainEvent):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class SessionCreatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika session baru dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat session.
+        aggregate_version: Versi agregat.
+        session: Entity Session.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -630,8 +820,20 @@ class SessionCreatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class SessionRefreshedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika session di-refresh.
+
+    Attributes:
+        aggregate_id: ID agregat session.
+        aggregate_version: Versi agregat.
+        session: Entity Session.
+        refreshed_by: User ID yang me-refresh.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -662,8 +864,20 @@ class SessionRefreshedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class SessionTerminatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika session dihentikan.
+
+    Attributes:
+        aggregate_id: ID agregat session.
+        aggregate_version: Versi agregat.
+        session: Entity Session.
+        terminated_by: User ID penghenti.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -694,8 +908,20 @@ class SessionTerminatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class SessionCompromisedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika session terindikasi dikompromikan.
+
+    Attributes:
+        aggregate_id: ID agregat session.
+        aggregate_version: Versi agregat.
+        session: Entity Session.
+        reason: Alasan indikasi kompromi.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -731,8 +957,21 @@ class SessionCompromisedEvent(DomainEvent):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class LoginSuccessEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika login berhasil.
+
+    Attributes:
+        aggregate_id: ID agregat user.
+        aggregate_version: Versi agregat.
+        user: Entity User.
+        ip_address: Alamat IP login.
+        user_agent: User agent login.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -765,8 +1004,22 @@ class LoginSuccessEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class LoginFailureEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika login gagal.
+
+    Attributes:
+        aggregate_id: ID agregat user (atau UUID random jika user tidak ditemukan).
+        aggregate_version: Versi agregat.
+        username: Username yang dicoba.
+        failure_reason: Alasan kegagalan.
+        ip_address: Alamat IP login.
+        user_agent: User agent login.
+        user_id: (opsional) ID pengguna (jika diketahui).
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -807,8 +1060,22 @@ class LoginFailureEvent(DomainEvent):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class PermissionGrantedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika permission diberikan ke role.
+
+    Attributes:
+        aggregate_id: ID agregat role.
+        aggregate_version: Versi agregat.
+        role_id: ID role.
+        role_name: Nama role.
+        permission: Permission yang diberikan.
+        granted_by: User ID pemberi.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -841,8 +1108,22 @@ class PermissionGrantedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PermissionRevokedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika permission dicabut dari role.
+
+    Attributes:
+        aggregate_id: ID agregat role.
+        aggregate_version: Versi agregat.
+        role_id: ID role.
+        role_name: Nama role.
+        permission: Permission yang dicabut.
+        revoked_by: User ID pencabut.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -881,6 +1162,10 @@ class PermissionRevokedEvent(DomainEvent):
 
 
 class DomainEventPublisher:
+    """
+    Publisher untuk domain event IAM.
+    Menyimpan event yang dipublikasikan untuk keperluan testing atau replay.
+    """
     _published_events: ClassVar[list[DomainEvent]] = []
 
     @classmethod

@@ -91,13 +91,25 @@ class SQLAlchemyReportRepository(ReportRepositoryPort, AgingReportRepositoryPort
         return list(result.scalars().all())
 
     async def update_schedule_last_run(self, schedule_id: uuid.UUID, next_run_at: datetime) -> None:
+        """
+        Update schedule last run and next run with pessimistic locking.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
-        stmt = (
-            update(ReportScheduleTable)
-            .where(ReportScheduleTable.id == schedule_id)
-            .values(last_run_at=datetime.utcnow(), next_run_at=next_run_at)
-        )
-        await session.execute(stmt)
+        async with session.begin():
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(ReportScheduleTable).where(
+                ReportScheduleTable.id == schedule_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            schedule = result.scalar_one_or_none()
+            if not schedule:
+                raise ValueError(f"Schedule {schedule_id} not found")
+
+            # 2. Update the locked row
+            schedule.last_run_at = datetime.utcnow()
+            schedule.next_run_at = next_run_at
+            await session.flush()
 
     # ========== Report Output ==========
     async def save_output(self, output: ReportOutputTable) -> ReportOutputTable:

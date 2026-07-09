@@ -2,6 +2,8 @@
 """
 Module: sqlalchemy_file_storage_port_impl.py
 Adapter for FileStorageStatus (from file_storage_port)
+Perbaikan:
+  - [FIX] Race condition pada set_status dan delete_status dengan pessimistic locking.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from typing import Any
 from sqlalchemy import Column, DateTime, String, Text, delete, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base
 
 logger = logging.getLogger(__name__)
@@ -58,23 +61,44 @@ class SQLAlchemyFileStorageStatusAdapter:
 
     async def set_status(self, file_id: str, status: str, file_metadata: str | None = None) -> dict[str, Any]:
         session = await self._get_session()
-        stmt = select(FileStorageStatusTable).where(FileStorageStatusTable.file_id == file_id)
+        # Lock the row if it exists to prevent race conditions
+        stmt = select(FileStorageStatusTable).where(FileStorageStatusTable.file_id == file_id).with_for_update()
         result = await session.execute(stmt)
         row = result.scalar_one_or_none()
+
         if row:
+            # Update existing row
             row.status = status
             if file_metadata is not None:
                 row.file_metadata = file_metadata
             row.updated_at = datetime.utcnow()
             await session.flush()
         else:
-            row = FileStorageStatusTable(
-                file_id=file_id,
-                status=status,
-                file_metadata=file_metadata,
-            )
-            session.add(row)
-            await session.flush()
+            # Insert new row, but handle possible concurrent insert
+            try:
+                row = FileStorageStatusTable(
+                    file_id=file_id,
+                    status=status,
+                    file_metadata=file_metadata,
+                )
+                session.add(row)
+                await session.flush()
+            except IntegrityError:
+                # Another transaction inserted the same file_id concurrently.
+                # Rollback and retry with lock.
+                await session.rollback()
+                # Now get the row with lock and update
+                stmt_retry = select(FileStorageStatusTable).where(
+                    FileStorageStatusTable.file_id == file_id
+                ).with_for_update()
+                result_retry = await session.execute(stmt_retry)
+                row = result_retry.scalar_one()
+                row.status = status
+                if file_metadata is not None:
+                    row.file_metadata = file_metadata
+                row.updated_at = datetime.utcnow()
+                await session.flush()
+
         return {
             "file_id": row.file_id,
             "status": row.status,
@@ -85,10 +109,16 @@ class SQLAlchemyFileStorageStatusAdapter:
 
     async def delete_status(self, file_id: str) -> bool:
         session = await self._get_session()
-        stmt = delete(FileStorageStatusTable).where(FileStorageStatusTable.file_id == file_id)
+        # Lock the row before deleting to prevent race conditions
+        stmt = select(FileStorageStatusTable).where(FileStorageStatusTable.file_id == file_id).with_for_update()
         result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            return False
+        # Delete the locked row
+        await session.delete(row)
         await session.flush()
-        return result.rowcount > 0
+        return True
 
 
 __all__ = ["FileStorageStatusTable", "SQLAlchemyFileStorageStatusAdapter"]

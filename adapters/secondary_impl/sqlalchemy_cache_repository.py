@@ -16,8 +16,11 @@ from ports.primary.cache_port import CachePort
 logger = logging.getLogger(__name__)
 
 
-class InMemoryCache:
-    """Simple in-memory cache store."""
+class _InMemoryCache:
+    """
+    Simple in-memory cache store (private helper, not a repository implementation).
+    Digunakan oleh SQLAlchemyCacheRepository sebagai fallback ketika Redis tidak dipakai.
+    """
     def __init__(self):
         self._store: dict[str, tuple[Any, datetime]] = {}
         self._lock = asyncio.Lock()
@@ -54,14 +57,13 @@ class InMemoryCache:
 
 class SQLAlchemyCacheRepository(CachePort):
     """
-    Cache repository using in-memory cache by default.
-    Can be extended to use Redis by passing redis_client.
+    Implementasi CachePort menggunakan in‑memory (default) atau Redis.
     """
     def __init__(self, use_redis: bool = False, redis_client: Any = None):
         self._use_redis = use_redis
         self._redis_client = redis_client
         if not use_redis:
-            self._memory_cache = InMemoryCache()
+            self._memory_cache = _InMemoryCache()
 
     async def get(self, key: str) -> Any | None:
         if self._use_redis and self._redis_client:
@@ -70,7 +72,7 @@ class SQLAlchemyCacheRepository(CachePort):
                 if value:
                     return json.loads(value)
             except Exception as e:
-                logger.error(f"Redis get error: {e}")
+                logger.error("Redis get error for key %s: %s", key, e)
                 return None
         else:
             return await self._memory_cache.get(key)
@@ -80,7 +82,7 @@ class SQLAlchemyCacheRepository(CachePort):
             try:
                 await self._redis_client.setex(key, ttl, json.dumps(value, default=str))
             except Exception as e:
-                logger.error(f"Redis set error: {e}")
+                logger.error("Redis set error for key %s: %s", key, e)
         else:
             await self._memory_cache.set(key, value, ttl)
 
@@ -89,7 +91,7 @@ class SQLAlchemyCacheRepository(CachePort):
             try:
                 await self._redis_client.delete(key)
             except Exception as e:
-                logger.error(f"Redis delete error: {e}")
+                logger.error("Redis delete error for key %s: %s", key, e)
         else:
             await self._memory_cache.delete(key)
 
@@ -98,25 +100,24 @@ class SQLAlchemyCacheRepository(CachePort):
             try:
                 return await self._redis_client.exists(key) > 0
             except Exception as e:
-                logger.error(f"Redis exists error: {e}")
+                logger.error("Redis exists error for key %s: %s", key, e)
                 return False
         else:
             return await self._memory_cache.exists(key)
 
 
 # ============================================================================
-# ALIAS UNTUK BACKWARD COMPATIBILITY (diperlukan oleh __init__.py)
+# Alias untuk kompatibilitas (diperlukan oleh __init__.py)
 # ============================================================================
 CacheAdapter = SQLAlchemyCacheRepository
 SQLAlchemyCacheAdapter = SQLAlchemyCacheRepository
 
 
 # ============================================================================
-# EXPORTS
+# Ekspor
 # ============================================================================
 __all__ = [
     "CacheAdapter",
-    "InMemoryCache",
     "SQLAlchemyCacheAdapter",
     "SQLAlchemyCacheRepository",
 ]

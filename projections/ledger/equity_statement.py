@@ -16,6 +16,11 @@ Dependencies:
 - projections.ledger.balance_sheet_snapshot
 - projections.ledger.income_statement_period
 Audit: Setiap pembangunan equity statement dicatat. Rebuild dimonitor.
+
+Perbaikan presisi:
+    - Semua nilai moneter dikonversi ke string (bukan float) untuk menghindari
+      kehilangan presisi dan memenuhi aturan MNY-003.
+    - Menggunakan Decimal secara konsisten dalam perhitungan internal.
 """
 
 from __future__ import annotations
@@ -128,6 +133,9 @@ class EquityStatement:
             for prefix in prefixes:
                 conditions.append(AccountTable.account_code.startswith(prefix))
 
+            # Build OR condition manually
+            from sqlalchemy import or_
+
             account_stmt = select(AccountTable.id).where(
                 AccountTable.legal_entity_id == legal_entity_id,
                 AccountTable.account_type.in_(["Equity", "ContraEquity"]),
@@ -194,7 +202,6 @@ class EquityStatement:
                 net_income = Decimal(0)
 
         # Other comprehensive income (if any)
-        # For simplicity, we'll get from a specific account
         oci_balance = await self.get_equity_component_balance(
             legal_entity_id, "other_comprehensive", end_date
         )
@@ -213,7 +220,7 @@ class EquityStatement:
         # Calculate total equity
         total_opening = sum(opening.values())
         total_ending = (
-            (ending_retained if "retained_earnings" not in opening else ending_retained)
+            ending_retained
             + opening.get("share_capital", Decimal(0))
             + opening.get("additional_paid_in", Decimal(0))
             + opening.get("treasury_stock", Decimal(0))
@@ -222,7 +229,7 @@ class EquityStatement:
             + oci_change
         )
 
-        # Build changes
+        # Build changes (menggunakan string untuk serialisasi)
         changes = []
         for component, opening_balance in opening.items():
             if component == "retained_earnings":
@@ -231,11 +238,11 @@ class EquityStatement:
                 changes.append(
                     {
                         "component": component,
-                        "opening_balance": float(opening_balance),
-                        "additions": float(net_income) if component == "retained_earnings" else 0,
-                        "deductions": float(dividends) if component == "retained_earnings" else 0,
-                        "closing_balance": float(closing_balance),
-                        "change": float(change),
+                        "opening_balance": str(opening_balance),
+                        "additions": str(net_income) if component == "retained_earnings" else "0",
+                        "deductions": str(dividends) if component == "retained_earnings" else "0",
+                        "closing_balance": str(closing_balance),
+                        "change": str(change),
                     }
                 )
             elif component == "dividend":
@@ -249,11 +256,11 @@ class EquityStatement:
                 changes.append(
                     {
                         "component": component,
-                        "opening_balance": float(opening_balance),
-                        "additions": float(change) if change > 0 else 0,
-                        "deductions": -float(change) if change < 0 else 0,
-                        "closing_balance": float(closing_balance),
-                        "change": float(change),
+                        "opening_balance": str(opening_balance),
+                        "additions": str(change) if change > 0 else "0",
+                        "deductions": str(-change) if change < 0 else "0",
+                        "closing_balance": str(closing_balance),
+                        "change": str(change),
                     }
                 )
 
@@ -261,11 +268,11 @@ class EquityStatement:
             "period_start": start_date.isoformat(),
             "period_end": end_date.isoformat(),
             "legal_entity_id": str(legal_entity_id),
-            "opening_total_equity": float(total_opening),
-            "net_income": float(net_income),
-            "other_comprehensive_income": float(oci_change),
-            "dividends_declared": float(dividends),
-            "closing_total_equity": float(total_ending),
+            "opening_total_equity": str(total_opening),
+            "net_income": str(net_income),
+            "other_comprehensive_income": str(oci_change),
+            "dividends_declared": str(dividends),
+            "closing_total_equity": str(total_ending),
             "changes": changes,
             "created_at": datetime.now(UTC).isoformat(),
         }
@@ -290,11 +297,11 @@ class EquityStatement:
                 legal_entity_id=UUID(equity_data["legal_entity_id"]),
                 start_date=date.fromisoformat(equity_data["period_start"]),
                 end_date=date.fromisoformat(equity_data["period_end"]),
-                opening_total_equity=Decimal(str(equity_data["opening_total_equity"])),
-                net_income=Decimal(str(equity_data["net_income"])),
-                other_comprehensive_income=Decimal(str(equity_data["other_comprehensive_income"])),
-                dividends_declared=Decimal(str(equity_data["dividends_declared"])),
-                closing_total_equity=Decimal(str(equity_data["closing_total_equity"])),
+                opening_total_equity=Decimal(equity_data["opening_total_equity"]),
+                net_income=Decimal(equity_data["net_income"]),
+                other_comprehensive_income=Decimal(equity_data["other_comprehensive_income"]),
+                dividends_declared=Decimal(equity_data["dividends_declared"]),
+                closing_total_equity=Decimal(equity_data["closing_total_equity"]),
                 changes_data=equity_data["changes"],
                 created_at=datetime.now(UTC),
             )
@@ -320,11 +327,11 @@ class EquityStatement:
             return {
                 "period_start": row.start_date.isoformat(),
                 "period_end": row.end_date.isoformat(),
-                "opening_total_equity": float(row.opening_total_equity),
-                "net_income": float(row.net_income),
-                "other_comprehensive_income": float(row.other_comprehensive_income),
-                "dividends_declared": float(row.dividends_declared),
-                "closing_total_equity": float(row.closing_total_equity),
+                "opening_total_equity": str(row.opening_total_equity),
+                "net_income": str(row.net_income),
+                "other_comprehensive_income": str(row.other_comprehensive_income),
+                "dividends_declared": str(row.dividends_declared),
+                "closing_total_equity": str(row.closing_total_equity),
                 "changes": row.changes_data,
                 "created_at": row.created_at.isoformat(),
             }

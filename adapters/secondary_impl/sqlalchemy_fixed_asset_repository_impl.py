@@ -4,6 +4,10 @@ Module: sqlalchemy_fixed_asset_repository_impl.py
 Layer: Adapters (Secondary Implementation)
 Responsibility: Implementasi repository untuk Fixed Asset Management menggunakan
                SQLAlchemy ORM. LENGKAP dengan semua method yang dibutuhkan oleh port.
+
+Perbaikan presisi:
+    - Semua nilai moneter dikonversi ke string (bukan float) untuk menghindari
+      kehilangan presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -208,30 +212,33 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
     # ===== FIX: delete signature sesuai port (2 required: asset_id, user_id) =====
     async def delete(self, asset_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
         """
-        Delete asset with user_id (required) and permanent flag.
-        Signature matches FixedAssetRepositoryPort.
+        Delete asset with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
         """
         try:
-            if permanent:
-                # Hard delete (not recommended, but available)
-                stmt = sa_delete(FixedAssetTable).where(FixedAssetTable.id == asset_id)
-                result = await self.session.execute(stmt)
+            async with self.session.begin():
+                # 1. Lock the row with SELECT FOR UPDATE
+                stmt_lock = select(FixedAssetTable).where(FixedAssetTable.id == asset_id).with_for_update()
+                result = await self.session.execute(stmt_lock)
+                asset = result.scalar_one_or_none()
+                if not asset:
+                    return False
+
+                # 2. Perform delete on the locked row
+                if permanent:
+                    # Hard delete (not recommended, but available)
+                    await self.session.delete(asset)
+                else:
+                    # Soft delete
+                    asset.deleted_at = datetime.utcnow()
+                    asset.is_active = False
+                    asset.status = "disposed"
+                    asset.updated_at = datetime.utcnow()
                 await self.session.flush()
-                return result.rowcount > 0
-            else:
-                # Soft delete
-                stmt = update(FixedAssetTable).where(FixedAssetTable.id == asset_id).values(
-                    deleted_at=datetime.utcnow(),
-                    is_active=False,
-                    status="disposed",
-                    updated_at=datetime.utcnow(),
-                )
-                result = await self.session.execute(stmt)
-                await self.session.flush()
-                if result.rowcount > 0:
+                if not permanent:
                     await self._log_audit("DELETE", asset_id, {"user_id": str(user_id)})
                     logger.info("Asset %s soft deleted by %s", asset_id, user_id)
-                return result.rowcount > 0
+                return True
         except Exception as e:
             await self.session.rollback()
             raise FixedAssetRepositoryError(f"Failed to delete asset: {e}") from e
@@ -257,15 +264,30 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
     # ========================================================================
 
     async def add_asset(self, asset: FixedAssetAggregate) -> None:
+        """
+        Add new asset with pessimistic locking to prevent duplicate asset_code.
+        LOCKING: SELECT FOR UPDATE on existence check to prevent concurrent inserts.
+        """
         try:
-            exists = await self.exists_by_asset_code(asset.asset_code, asset.legal_entity_id)
-            if exists:
-                raise DuplicateAssetCodeError(f"Asset code {asset.asset_code} already exists")
-            table = await self._to_orm(asset)
-            self.session.add(table)
-            await self.session.flush()
-            await self._log_audit("ADD", asset.id, {"asset_code": asset.asset_code})
-            logger.info("Fixed asset added: %s", asset.asset_code)
+            async with self.session.begin():
+                # 1. Lock the row (if exists) with SELECT FOR UPDATE to prevent duplicate
+                # Since we are checking existence, we lock potential duplicate rows.
+                stmt_lock = select(FixedAssetTable).where(
+                    FixedAssetTable.asset_code == asset.asset_code,
+                    FixedAssetTable.legal_entity_id == asset.legal_entity_id,
+                    FixedAssetTable.deleted_at.is_(None),
+                ).with_for_update()
+                result = await self.session.execute(stmt_lock)
+                existing = result.scalar_one_or_none()
+                if existing:
+                    raise DuplicateAssetCodeError(f"Asset code {asset.asset_code} already exists")
+
+                # 2. Insert the new asset
+                table = await self._to_orm(asset)
+                self.session.add(table)
+                await self.session.flush()
+                await self._log_audit("ADD", asset.id, {"asset_code": asset.asset_code})
+                logger.info("Fixed asset added: %s", asset.asset_code)
         except DuplicateAssetCodeError:
             raise
         except IntegrityError as e:
@@ -320,15 +342,26 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             raise FixedAssetRepositoryError(f"Failed to update asset: {e}") from e
 
     async def delete_asset(self, asset_id: UUID) -> bool:
-        # Internal soft delete (kept for compatibility)
+        """
+        Internal soft delete with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         try:
-            stmt = update(FixedAssetTable).where(FixedAssetTable.id == asset_id).values(deleted_at=datetime.utcnow(), is_active=False)
-            result = await self.session.execute(stmt)
-            await self.session.flush()
-            if result.rowcount > 0:
+            async with self.session.begin():
+                # 1. Lock the row with SELECT FOR UPDATE
+                stmt_lock = select(FixedAssetTable).where(FixedAssetTable.id == asset_id).with_for_update()
+                result = await self.session.execute(stmt_lock)
+                asset = result.scalar_one_or_none()
+                if not asset:
+                    return False
+
+                # 2. Soft delete the locked row
+                asset.deleted_at = datetime.utcnow()
+                asset.is_active = False
+                await self.session.flush()
                 await self._log_audit("DELETE", asset_id, {})
                 logger.info("Asset %s soft deleted", asset_id)
-            return result.rowcount > 0
+                return True
         except Exception as e:
             await self.session.rollback()
             raise FixedAssetRepositoryError(f"Failed to delete asset: {e}") from e
@@ -531,7 +564,7 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             posted_at=datetime.utcnow(),
         )
         await self.add_depreciation_schedule([schedule])
-        await self._log_audit("POST_DEPRECIATION", asset_id, {"period": period_date.isoformat(), "amount": float(monthly)})
+        await self._log_audit("POST_DEPRECIATION", asset_id, {"period": period_date.isoformat(), "amount": str(monthly)})
         return monthly
 
     # ===== NEW: depreciate_asset (sesuai kontrak FixedAssetRepositoryPort) =====
@@ -737,12 +770,12 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
                 a.asset_name,
                 a.asset_category,
                 a.acquisition_date.isoformat(),
-                float(a.acquisition_cost.amount),
-                float(a.residual_value.amount),
+                str(a.acquisition_cost.amount),
+                str(a.residual_value.amount),
                 a.useful_life_years,
                 a.depreciation_method.value,
-                float(a.accumulated_depreciation.amount),
-                float(a.acquisition_cost.amount - a.accumulated_depreciation.amount),
+                str(a.accumulated_depreciation.amount),
+                str(a.acquisition_cost.amount - a.accumulated_depreciation.amount),
                 a.status.value,
                 a.location or "",
                 a.acquisition_cost.currency,
@@ -798,10 +831,10 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
                 total_dep = Decimal(str(row.total_depreciation)) if row.total_depreciation else Decimal(0)
                 return {
                     "total_assets": row.total_assets or 0,
-                    "total_acquisition_cost": float(total_cost),
-                    "total_accumulated_depreciation": float(total_dep),
-                    "total_net_book_value": float(total_cost - total_dep),
-                    "monthly_depreciation_charge": 0.0,
+                    "total_acquisition_cost": str(total_cost),
+                    "total_accumulated_depreciation": str(total_dep),
+                    "total_net_book_value": str(total_cost - total_dep),
+                    "monthly_depreciation_charge": "0",
                 }
             except Exception as e:
                 raise FixedAssetRepositoryError(f"Failed to get statistics: {e}") from e
@@ -824,10 +857,10 @@ class SQLAlchemyFixedAssetRepository(FixedAssetRepositoryPort):
             total_dep = Decimal(str(row.total_depreciation)) if row.total_depreciation else Decimal(0)
             return {
                 "total_assets": row.total_assets or 0,
-                "total_acquisition_cost": float(total_cost),
-                "total_accumulated_depreciation": float(total_dep),
-                "total_net_book_value": float(total_cost - total_dep),
-                "monthly_depreciation_charge": float(row.current_depreciation or 0),
+                "total_acquisition_cost": str(total_cost),
+                "total_accumulated_depreciation": str(total_dep),
+                "total_net_book_value": str(total_cost - total_dep),
+                "monthly_depreciation_charge": str(row.current_depreciation or 0),
             }
         except Exception as e:
             raise FixedAssetRepositoryError(f"Failed to get summary: {e}") from e

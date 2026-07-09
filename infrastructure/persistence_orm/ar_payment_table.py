@@ -3,6 +3,10 @@
 Module: ar_payment_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel ar_payment.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (amount) di to_dict()
+      untuk menjaga presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -120,7 +124,7 @@ class ARPaymentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
             "payment_number": self.payment_number,
             "payment_date": self.payment_date.isoformat(),
             "invoice_id": str(self.invoice_id),
-            "amount": float(self.amount),
+            "amount": str(self.amount),  # ganti float -> str untuk presisi
             "currency": self.currency,
             "payment_method": self.payment_method,
             "reference_number": self.reference_number,

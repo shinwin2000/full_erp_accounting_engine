@@ -10,6 +10,10 @@ Layer: 8 - Application / Service Layer
 Responsibility:
     Service layer for Coretax DJP integration.
     Publishes domain events after successful submissions.
+
+Perbaikan presisi:
+    - Semua konversi float() pada nilai moneter diubah menjadi str() untuk
+      menghindari kehilangan presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -322,9 +326,9 @@ class CoretaxService:
             "nama_penerima": bukti_potong.nama_penerima,
             "tanggal": bukti_potong.tanggal_pemotongan.isoformat(),
             "kode_objek": bukti_potong.kode_objek_pajak.value,
-            "dasar_pemotongan": float(bukti_potong.dasar_pemotongan),
-            "tarif": float(bukti_potong.tarif_persen),
-            "pph_dipotong": float(bukti_potong.pph_dipotong),
+            "dasar_pemotongan": str(bukti_potong.dasar_pemotongan),   # ganti float -> str
+            "tarif": str(bukti_potong.tarif_persen),                   # ganti float -> str
+            "pph_dipotong": str(bukti_potong.pph_dipotong),           # ganti float -> str
             "idempotency_key": bukti_potong.idempotency_key,
         }
         response = await self._coretax.submit_ebupot(payload)
@@ -435,11 +439,11 @@ class CoretaxService:
             "id": str(spt.id),
             "npwp": spt.npwp_pemotong.value,
             "masa_pajak": spt.masa_pajak.to_str(),
-            "total_bruto": float(spt.total_bruto),
-            "total_pph_dipotong": float(spt.total_pph_dipotong),
-            "total_pph_setor": float(spt.total_pph_setor),
+            "total_bruto": str(spt.total_bruto),                         # ganti float -> str
+            "total_pph_dipotong": str(spt.total_pph_dipotong),           # ganti float -> str
+            "total_pph_setor": str(spt.total_pph_setor),                 # ganti float -> str
             "ntpn_list": [
-                {"ntpn": ref.ntpn.value, "amount": float(ref.amount)} for ref in spt.ntpn_list
+                {"ntpn": ref.ntpn.value, "amount": str(ref.amount)} for ref in spt.ntpn_list  # ganti float -> str
             ],
             "tanda_tangan_digital": spt.tanda_tangan_digital,
             "idempotency_key": spt.idempotency_key,
@@ -506,12 +510,12 @@ class CoretaxService:
             "id": str(spt.id),
             "npwp": spt.npwp_wajib_pajak.value,
             "tahun_pajak": spt.tahun_pajak.tahun,
-            "penghasilan_neto_fiskal": float(spt.penghasilan_neto_fiskal),
-            "kompensasi_kerugian": float(spt.kompensasi_kerugian),
-            "penghasilan_kena_pajak": float(spt.penghasilan_kena_pajak),
-            "pph_terutang": float(spt.pph_terutang),
-            "kredit_pajak": float(spt.kredit_pajak),
-            "pph_kurang_bayar": float(spt.pph_kurang_bayar),
+            "penghasilan_neto_fiskal": str(spt.penghasilan_neto_fiskal),   # ganti float -> str
+            "kompensasi_kerugian": str(spt.kompensasi_kerugian),           # ganti float -> str
+            "penghasilan_kena_pajak": str(spt.penghasilan_kena_pajak),     # ganti float -> str
+            "pph_terutang": str(spt.pph_terutang),                         # ganti float -> str
+            "kredit_pajak": str(spt.kredit_pajak),                         # ganti float -> str
+            "pph_kurang_bayar": str(spt.pph_kurang_bayar),                 # ganti float -> str
             "ntpn_kurang_bayar": spt.ntpn_kurang_bayar.value if spt.ntpn_kurang_bayar else None,
             "lampiran_khusus": spt.lampiran_khusus,
         }
@@ -571,7 +575,8 @@ class CoretaxService:
 
     async def validate_ntpn(self, ntpn: str, amount: Decimal, payment_date: date) -> bool:
         """Validate NTPN with Coretax."""
-        response = await self._coretax.validate_ntpn(ntpn, float(amount), payment_date.isoformat())
+        # Mengirim amount sebagai string untuk menghindari float
+        response = await self._coretax.validate_ntpn(ntpn, str(amount), payment_date.isoformat())
         return response.get("valid", False)
 
     # ========================================================================

@@ -15,6 +15,11 @@ Dependencies:
 - infrastructure.persistence_orm.inventory_item_table
 - infrastructure.persistence_orm.warehouse_table
 Audit: Stock card di-build dari event sourcing, digunakan untuk inventory valuation.
+
+Perbaikan presisi:
+    - Semua nilai moneter/kuantitas dikonversi ke string (bukan float) untuk
+      menghindari kehilangan presisi dan memenuhi aturan MNY-003.
+    - Menggunakan Decimal secara konsisten dalam perhitungan internal.
 """
 
 from __future__ import annotations
@@ -199,7 +204,7 @@ class StockCardFIFOLayers:
         start_date: date | None = None,
         end_date: date | None = None,
         limit: int = 500,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """
         Mendapatkan stock card (mutasi stok) untuk item.
         """
@@ -236,27 +241,31 @@ class StockCardFIFOLayers:
             # Calculate running balance
             balance = Decimal(0)
             entries = []
+            total_in = Decimal(0)
+            total_out = Decimal(0)
             for mv in movements:
                 if mv.movement_type in ("IN", "TRANSFER_IN"):
                     balance += mv.quantity
                     in_qty = mv.quantity
                     out_qty = Decimal(0)
+                    total_in += mv.quantity
                 else:
                     balance -= mv.quantity
                     in_qty = Decimal(0)
                     out_qty = mv.quantity
+                    total_out += mv.quantity
 
                 entries.append(
                     {
                         "date": mv.movement_date.isoformat(),
                         "reference": mv.reference_number or mv.movement_number,
                         "movement_type": mv.movement_type,
-                        "in_quantity": float(in_qty),
-                        "out_quantity": float(out_qty),
-                        "balance_quantity": float(balance),
-                        "unit_cost": float(mv.unit_cost),
-                        "total_cost": float(mv.total_cost),
-                        "balance_value": float(balance * mv.unit_cost) if balance > 0 else 0,
+                        "in_quantity": str(in_qty),
+                        "out_quantity": str(out_qty),
+                        "balance_quantity": str(balance),
+                        "unit_cost": str(mv.unit_cost),
+                        "total_cost": str(mv.total_cost),
+                        "balance_value": str(balance * mv.unit_cost) if balance > 0 else "0",
                         "warehouse_id": str(mv.warehouse_id) if mv.warehouse_id else None,
                         "batch_number": mv.batch_number,
                     }
@@ -267,16 +276,12 @@ class StockCardFIFOLayers:
                 "item_code": item_code,
                 "item_name": item_name,
                 "entries": entries,
-                "total_in": float(
-                    sum(m.quantity for m in movements if m.movement_type in ("IN", "TRANSFER_IN"))
-                ),
-                "total_out": float(
-                    sum(m.quantity for m in movements if m.movement_type in ("OUT", "TRANSFER_OUT"))
-                ),
-                "closing_balance": float(balance),
+                "total_in": str(total_in),
+                "total_out": str(total_out),
+                "closing_balance": str(balance),
             }
 
-    async def get_fifo_layers(self, item_id: UUID, legal_entity_id: UUID) -> list[dict]:
+    async def get_fifo_layers(self, item_id: UUID, legal_entity_id: UUID) -> dict:
         """
         Mendapatkan FIFO layers untuk suatu item (untuk inventory valuation).
         """
@@ -294,30 +299,30 @@ class StockCardFIFOLayers:
             layers = result.scalars().all()
 
             total_value = Decimal(0)
+            total_quantity = Decimal(0)
             layer_list = []
             for layer in layers:
                 value = layer.remaining_quantity * layer.unit_cost
                 total_value += value
+                total_quantity += layer.remaining_quantity
                 layer_list.append(
                     {
                         "layer_id": str(layer.id),
                         "purchase_date": layer.purchase_date.isoformat(),
-                        "quantity": float(layer.remaining_quantity),
-                        "unit_cost": float(layer.unit_cost),
-                        "total_value": float(value),
+                        "quantity": str(layer.remaining_quantity),
+                        "unit_cost": str(layer.unit_cost),
+                        "total_value": str(value),
                         "uom": layer.uom,
                     }
                 )
 
+            weighted_avg = total_value / total_quantity if total_quantity > 0 else Decimal(0)
+
             return {
                 "item_id": str(item_id),
-                "total_quantity": float(sum(l.remaining_quantity for l in layers)),
-                "total_value": float(total_value),
-                "weighted_average_cost": float(
-                    total_value / sum(l.remaining_quantity for l in layers)
-                )
-                if layers
-                else 0,
+                "total_quantity": str(total_quantity),
+                "total_value": str(total_value),
+                "weighted_average_cost": str(weighted_avg),
                 "layers": layer_list,
             }
 

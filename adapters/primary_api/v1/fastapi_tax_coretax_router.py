@@ -24,6 +24,9 @@ Method Standards (ERP):
 - audit_trail_faktur() / can_transition_faktur()
 - register_faktur_event() / get_faktur_events()
 - version_faktur()
+
+Perbaikan presisi (MNY-003):
+    - Semua nilai moneter diserialisasi sebagai string (bukan float) untuk menjaga presisi.
 """
 
 
@@ -623,7 +626,7 @@ async def get_coretax_service(request: Request) -> Any:
     return container.resolve(CoretaxService)
 
 
-async def get_coretax_bulk_use_case() -> Any:
+async def get_coretax_bulk_use_case(request: Request) -> Any:
     """Get Coretax Bulk Submission Use Case instance."""
     from application.use_cases.coretax_bulk_submission import CoretaxBulkSubmissionUseCase
 
@@ -1568,7 +1571,7 @@ async def validate_e_meterai(
                              if request.meterai_code else None),
             "is_valid": result.is_valid,
             "status": result.status,
-            "value": float(result.value),
+            "value": str(result.value),
             "used_at": result.used_at.isoformat() if result.used_at else None,
             "used_on_document": result.used_on_document,
             "message": result.message,
@@ -1621,7 +1624,7 @@ async def purchase_e_meterai(
             "purchase_id": str(result.purchase_id),
             "transaction_id": result.transaction_id,
             "quantity": result.quantity,
-            "total_amount": float(result.total_amount),
+            "total_amount": str(result.total_amount),
             "meterai_list": [c[:8] + "..." + c[-4:] for c in result.meterai_list],
             "status": result.status,
             "purchased_at": result.purchased_at.isoformat(),
@@ -1805,7 +1808,7 @@ async def get_tax_due_dates(
                 "due_date": d.due_date.isoformat(),
                 "is_overdue": d.is_overdue,
                 "days_remaining": d.days_remaining,
-                "estimated_amount": float(d.estimated_amount) if d.estimated_amount else None,
+                "estimated_amount": str(d.estimated_amount) if d.estimated_amount else None,
                 "status": d.status,
             }
             for d in due_dates
@@ -1845,25 +1848,25 @@ async def get_tax_summary(
             "period_start": start_date.isoformat(),
             "period_end": end_date.isoformat(),
             "ppn": {
-                "output": float(summary.ppn_output),
-                "input": float(summary.ppn_input),
-                "net": float(summary.ppn_net),
-                "payable": float(summary.ppn_payable),
-                "credited": float(summary.ppn_credited),
+                "output": str(summary.ppn_output),
+                "input": str(summary.ppn_input),
+                "net": str(summary.ppn_net),
+                "payable": str(summary.ppn_payable),
+                "credited": str(summary.ppn_credited),
             },
             "pph": {
-                "pph21": float(summary.pph21),
-                "pph22": float(summary.pph22),
-                "pph23": float(summary.pph23),
-                "pph25": float(summary.pph25),
-                "pph26": float(summary.pph26),
-                "pph4_2": float(summary.pph4_2),
-                "pph_badan": float(summary.pph_badan),
-                "total": float(summary.pph_total),
+                "pph21": str(summary.pph21),
+                "pph22": str(summary.pph22),
+                "pph23": str(summary.pph23),
+                "pph25": str(summary.pph25),
+                "pph26": str(summary.pph26),
+                "pph4_2": str(summary.pph4_2),
+                "pph_badan": str(summary.pph_badan),
+                "total": str(summary.pph_total),
             },
-            "total_tax": float(summary.total_tax),
-            "paid_amount": float(summary.paid_amount),
-            "outstanding": float(summary.outstanding),
+            "total_tax": str(summary.total_tax),
+            "paid_amount": str(summary.paid_amount),
+            "outstanding": str(summary.outstanding),
             "generated_at": datetime.now().isoformat(),
         }
     except Exception as e:

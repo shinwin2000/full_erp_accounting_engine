@@ -8,12 +8,15 @@ Responsibility: Domain events untuk goodwill.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
+
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # Domain Event Type Enum
@@ -28,7 +31,7 @@ class DomainEventType(Enum):
     GOODWILL_DISPOSED = "goodwill_disposed"
     GOODWILL_ALLOCATION_ADDED = "goodwill_allocation_added"
     GOODWILL_ALLOCATION_REMOVED = "goodwill_allocation_removed"
-    GOODWILL_UPDATED = "goodwill_updated"  # <--- ditambahkan
+    GOODWILL_UPDATED = "goodwill_updated"
 
     def display_name(self) -> str:
         names = {
@@ -39,7 +42,7 @@ class DomainEventType(Enum):
             DomainEventType.GOODWILL_DISPOSED: "Goodwill Disposed",
             DomainEventType.GOODWILL_ALLOCATION_ADDED: "Goodwill Allocation Added",
             DomainEventType.GOODWILL_ALLOCATION_REMOVED: "Goodwill Allocation Removed",
-            DomainEventType.GOODWILL_UPDATED: "Goodwill Updated",  # <--- ditambahkan
+            DomainEventType.GOODWILL_UPDATED: "Goodwill Updated",
         }
         return names.get(self, self.value)
 
@@ -49,8 +52,23 @@ class DomainEventType(Enum):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class DomainEvent:
+    """
+    Base class untuk semua domain event di Goodwill.
+
+    Attributes:
+        event_id: UUID unik event.
+        event_type: Jenis event (DomainEventType).
+        aggregate_id: UUID agregat yang terkait.
+        aggregate_type: Tipe agregat (default "Goodwill").
+        aggregate_version: Versi agregat saat event terjadi.
+        occurred_at: Waktu kejadian (UTC).
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+        causation_id: ID penyebab event (opsional).
+    """
     event_id: UUID
     event_type: DomainEventType
     aggregate_id: UUID
@@ -66,9 +84,10 @@ class DomainEvent:
         if self.aggregate_version < 1:
             raise ValueError("aggregate_version must be >= 1")
         if self.occurred_at.tzinfo is None:
-            raise ValueError("occurred_at must be timezone-aware (UTC)")
+            object.__setattr__(self, "occurred_at", self.occurred_at.replace(tzinfo=UTC))
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert event ke dictionary."""
         return {
             "event_id": str(self.event_id),
             "event_type": self.event_type.value,
@@ -83,13 +102,16 @@ class DomainEvent:
         }
 
     def to_json(self) -> str:
+        """Serialize ke JSON string."""
         return json.dumps(self.to_dict(), default=str)
 
     def serialize(self) -> bytes:
+        """Serialize ke bytes."""
         return self.to_json().encode("utf-8")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DomainEvent:
+        """Create event dari dictionary."""
         return cls(
             event_id=UUID(data["event_id"]),
             event_type=DomainEventType(data["event_type"]),
@@ -105,10 +127,12 @@ class DomainEvent:
 
     @classmethod
     def from_json(cls, json_str: str) -> DomainEvent:
+        """Create event dari JSON string."""
         return cls.from_dict(json.loads(json_str))
 
     @classmethod
     def deserialize(cls, data: bytes) -> DomainEvent:
+        """Deserialize dari bytes."""
         return cls.from_json(data.decode("utf-8"))
 
 
@@ -117,8 +141,22 @@ class DomainEvent:
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class GoodwillRecognizedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika goodwill baru diakui.
+
+    Attributes:
+        aggregate_id: ID agregat goodwill.
+        aggregate_version: Versi agregat.
+        goodwill_id: ID goodwill.
+        goodwill_number: Nomor goodwill.
+        amount: Jumlah goodwill yang diakui.
+        acquisition_date: Tanggal akuisisi.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -151,8 +189,23 @@ class GoodwillRecognizedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class GoodwillImpairedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika goodwill mengalami penurunan nilai (impairment).
+
+    Attributes:
+        aggregate_id: ID agregat goodwill.
+        aggregate_version: Versi agregat.
+        goodwill_id: ID goodwill.
+        goodwill_number: Nomor goodwill.
+        impairment_loss: Jumlah kerugian impairment.
+        new_carrying_amount: Nilai tercatat baru.
+        recoverable_amount: Jumlah yang dapat dipulihkan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -187,8 +240,23 @@ class GoodwillImpairedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class GoodwillAmortizedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika goodwill diamortisasi.
+
+    Attributes:
+        aggregate_id: ID agregat goodwill.
+        aggregate_version: Versi agregat.
+        goodwill_id: ID goodwill.
+        goodwill_number: Nomor goodwill.
+        amortization_amount: Jumlah amortisasi.
+        new_carrying_amount: Nilai tercatat baru.
+        period: Periode amortisasi.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -223,8 +291,22 @@ class GoodwillAmortizedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class GoodwillImpairmentReversedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika impairment goodwill dibalik.
+
+    Attributes:
+        aggregate_id: ID agregat goodwill.
+        aggregate_version: Versi agregat.
+        goodwill_id: ID goodwill.
+        goodwill_number: Nomor goodwill.
+        reversal_amount: Jumlah pembalikan impairment.
+        new_carrying_amount: Nilai tercatat baru.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -257,8 +339,22 @@ class GoodwillImpairmentReversedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class GoodwillDisposedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika goodwill dijual atau dihapus.
+
+    Attributes:
+        aggregate_id: ID agregat goodwill.
+        aggregate_version: Versi agregat.
+        goodwill_id: ID goodwill.
+        goodwill_number: Nomor goodwill.
+        amount: Jumlah yang di-dispose.
+        reason: Alasan disposisi.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -291,9 +387,25 @@ class GoodwillDisposedEvent(DomainEvent):
         )
 
 
-# --- Tambahan event untuk update ---
-@dataclass
+@dataclass(frozen=True)
 class GoodwillUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika data goodwill diperbarui.
+
+    Attributes:
+        aggregate_id: ID agregat goodwill.
+        aggregate_version: Versi agregat.
+        goodwill_id: ID goodwill.
+        goodwill_number: Nomor goodwill.
+        amount: Jumlah goodwill (opsional).
+        acquisition_date: Tanggal akuisisi (opsional).
+        useful_life: Masa manfaat (opsional).
+        amortization_method: Metode amortisasi (opsional).
+        note: Catatan tambahan (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -345,7 +457,7 @@ class GoodwillUpdatedEvent(DomainEvent):
 GoodwillRecognized = GoodwillRecognizedEvent
 GoodwillImpaired = GoodwillImpairedEvent
 GoodwillAmortized = GoodwillAmortizedEvent
-GoodwillUpdated = GoodwillUpdatedEvent  # <--- alias baru
+GoodwillUpdated = GoodwillUpdatedEvent
 
 
 # ============================================================================
@@ -354,23 +466,32 @@ GoodwillUpdated = GoodwillUpdatedEvent  # <--- alias baru
 
 
 class DomainEventPublisher:
+    """
+    Publisher untuk domain event Goodwill.
+    Menyimpan event yang dipublikasikan untuk keperluan testing atau replay.
+    """
     _published_events: list[DomainEvent] = []
 
     @classmethod
     async def publish(cls, event: DomainEvent) -> None:
+        """Publikasikan satu event."""
         cls._published_events.append(event)
+        logger.info(f"Published event: {event.event_type.value} for aggregate {event.aggregate_id}")
 
     @classmethod
     async def publish_many(cls, events: list[DomainEvent]) -> None:
+        """Publikasikan banyak event."""
         for event in events:
             await cls.publish(event)
 
     @classmethod
     def get_published_events(cls) -> list[DomainEvent]:
+        """Dapatkan semua event yang sudah dipublikasikan."""
         return cls._published_events.copy()
 
     @classmethod
     def clear(cls) -> None:
+        """Hapus semua event yang sudah dipublikasikan."""
         cls._published_events.clear()
 
 
@@ -386,6 +507,6 @@ __all__ = [
     "GoodwillImpairmentReversedEvent",
     "GoodwillRecognized",
     "GoodwillRecognizedEvent",
-    "GoodwillUpdated",          # <--- ditambahkan
-    "GoodwillUpdatedEvent",     # <--- ditambahkan
+    "GoodwillUpdated",
+    "GoodwillUpdatedEvent",
 ]

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 E2E: Period Close and Reporting
-Alur: Tutup periode akuntansi â†’ buka periode baru â†’ generate laporan keuangan (balance sheet, income statement).
+Alur: Tutup periode akuntansi → buka periode baru → generate laporan keuangan (balance sheet, income statement).
 Menggunakan mock classes untuk menghindari dependency pada implementasi real.
 """
 
@@ -122,29 +122,9 @@ def test_period_close_to_report():
 
 
 # ============================================================================
-# REAL MODULES CHECK (SKIP karena dependency dan API mismatch)
+# REAL MODULES CHECK - HAPUS SEMUA IMPORT YANG BERMASALAH
 # ============================================================================
-
-try:
-    from application.use_cases.period_close import PeriodCloseUseCase
-    from application.use_cases.period_reopen_with_audit import PeriodReopenUseCase
-    from domain.fiscal_period.aggregate_root import FiscalPeriod
-    from projections.ledger.balance_sheet_snapshot import BalanceSheetProjection
-    from projections.ledger.income_statement_period import IncomeStatementProjection
-
-    REAL_MODULES_AVAILABLE = True
-except (ImportError, Exception):
-    REAL_MODULES_AVAILABLE = False
-
-
-@pytest.mark.skipif(
-    True,
-    reason="Real modules require complex dependencies (services, projections with async); use mock test instead",
-)
-def test_period_close_to_report_real():
-    """Versi real di-skip karena API dan dependency tidak kompatibel dengan test ini."""
-    pass
-
+# Test real di-skip karena dependency kompleks, mock sudah mencukupi.
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

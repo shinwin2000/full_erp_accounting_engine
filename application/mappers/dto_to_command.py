@@ -9,6 +9,10 @@ Layer: 8 - Application / Mappers
 Responsibility:
     Mapping dari DTO objects (Data Transfer Objects) ke Command objects yang
     digunakan oleh Command Bus dan Use Case handlers.
+
+Perbaikan presisi (MNY-003):
+    - Mengganti _safe_float() dengan _safe_decimal() untuk nilai moneter
+    - Semua konversi nilai moneter menggunakan str() untuk serialisasi
 """
 
 from __future__ import annotations
@@ -44,7 +48,7 @@ ZERO = Decimal("0")
 
 
 def _safe_decimal(value: Any, default: Decimal = ZERO) -> Decimal:
-    """Safely convert to Decimal."""
+    """Safely convert to Decimal for monetary values."""
     if value is None:
         return default
     if isinstance(value, Decimal):
@@ -55,16 +59,11 @@ def _safe_decimal(value: Any, default: Decimal = ZERO) -> Decimal:
         return default
 
 
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    """Safely convert to float."""
+def _safe_str(value: Any, default: str = "") -> str:
+    """Safely convert to string."""
     if value is None:
         return default
-    if isinstance(value, float):
-        return value
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return default
+    return str(value)
 
 
 # === 1. COMMAND BASE CLASS ===
@@ -242,10 +241,13 @@ def dto_to_post_journal_command(
     total_credit = ZERO
 
     for line_dto in dto.lines:
+        line_debit = _safe_decimal(line_dto.debit)
+        line_credit = _safe_decimal(line_dto.credit)
+
         line_dict = {
             "account_code": line_dto.account_code,
-            "debit": _safe_float(line_dto.debit),
-            "credit": _safe_float(line_dto.credit),
+            "debit": line_debit,
+            "credit": line_credit,
             "description": line_dto.description,
             "cost_center": line_dto.cost_center,
             "department": line_dto.department,
@@ -254,8 +256,8 @@ def dto_to_post_journal_command(
             "auxiliary_1": line_dto.auxiliary_1,
             "auxiliary_2": line_dto.auxiliary_2,
         }
-        total_debit += line_dto.debit
-        total_credit += line_dto.credit
+        total_debit += line_debit
+        total_credit += line_credit
         lines.append(line_dict)
 
     if total_debit != total_credit:
@@ -448,7 +450,7 @@ def dto_to_submit_coretax_command(
         else:
             submission_type = "coretax_generic"
     else:
-        # Generic mapping
+        # Generic mapping - gunakan string untuk nilai moneter
         submission_type = dto.__class__.__name__.lower().replace("dto", "")
         payload = {}
         for key, value in dto.__dict__.items():
@@ -458,7 +460,8 @@ def dto_to_submit_coretax_command(
                 elif isinstance(value, (UUID, datetime, date)):
                     payload[key] = str(value)
                 elif isinstance(value, Decimal):
-                    payload[key] = _safe_float(value)
+                    # Gunakan string untuk presisi, bukan float
+                    payload[key] = str(value)
                 else:
                     payload[key] = value
 

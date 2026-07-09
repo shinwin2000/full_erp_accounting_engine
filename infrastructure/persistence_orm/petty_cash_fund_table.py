@@ -3,6 +3,11 @@
 Module: petty_cash_fund_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel petty_cash_fund.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (current_balance, initial_amount,
+      reimbursement_threshold) di to_dict() untuk menjaga presisi dan memenuhi aturan MNY-003.
+    - Persentase (used_percentage) tetap menggunakan float karena bukan nilai moneter.
 """
 
 from __future__ import annotations
@@ -61,6 +66,7 @@ class PettyCashFundTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
 
     @property
     def used_percentage(self) -> float:
+        """Persentase dana yang telah digunakan (non-moneter)."""
         if self.initial_amount == 0:
             return 0.0
         used = self.initial_amount - self.current_balance
@@ -82,15 +88,15 @@ class PettyCashFundTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
             "fund_name": self.fund_name,
             "legal_entity_id": str(self.legal_entity_id),
             "currency_code": self.currency_code,
-            "current_balance": float(self.current_balance),
-            "initial_amount": float(self.initial_amount),
+            "current_balance": str(self.current_balance),           # ganti float -> str
+            "initial_amount": str(self.initial_amount),             # ganti float -> str
             "custodian_id": str(self.custodian_id),
             "gl_account_id": str(self.gl_account_id),
-            "reimbursement_threshold": float(self.reimbursement_threshold),
+            "reimbursement_threshold": str(self.reimbursement_threshold),  # ganti float -> str
             "fund_location": self.fund_location,
             "status": self.status,
-            "remaining_balance": float(self.remaining_balance),
-            "used_percentage": self.used_percentage,
+            "remaining_balance": str(self.remaining_balance),      # ganti float -> str
+            "used_percentage": self.used_percentage,                # persentase, tetap float
         }
 
 

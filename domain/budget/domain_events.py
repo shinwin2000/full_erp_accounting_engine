@@ -39,9 +39,23 @@ class BudgetEventType(Enum):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class DomainEvent:
-    """Base domain event with all required methods."""
+    """
+    Base domain event with all required methods.
+
+    Attributes:
+        event_id: UUID unik event.
+        event_type: Jenis event (BudgetEventType).
+        aggregate_id: UUID agregat budget.
+        aggregate_type: Tipe agregat (default "Budget").
+        occurred_at: Waktu kejadian (UTC).
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+        causation_id: ID penyebab event (opsional).
+        version: Versi event (default 1).
+    """
 
     event_id: UUID
     event_type: BudgetEventType
@@ -110,9 +124,21 @@ class DomainEvent:
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class BudgetCreated(DomainEvent):
-    """Event emitted when budget is created."""
+    """
+    Event yang diterbitkan ketika budget baru dibuat.
+
+    Attributes:
+        budget_id: ID budget.
+        budget_number: Nomor budget.
+        budget_name: Nama budget.
+        fiscal_year: Tahun fiskal.
+        user_id: (opsional) ID pengguna pembuat.
+        occurred_at: (opsional) Waktu kejadian.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
 
     def __init__(
         self,
@@ -143,9 +169,19 @@ class BudgetCreated(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BudgetApproved(DomainEvent):
-    """Event emitted when budget is approved."""
+    """
+    Event yang diterbitkan ketika budget disetujui.
+
+    Attributes:
+        budget_id: ID budget.
+        budget_number: Nomor budget.
+        approved_by: (opsional) User ID yang menyetujui.
+        occurred_at: (opsional) Waktu kejadian.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
 
     def __init__(
         self,
@@ -173,9 +209,20 @@ class BudgetApproved(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BudgetRejected(DomainEvent):
-    """Event emitted when budget is rejected."""
+    """
+    Event yang diterbitkan ketika budget ditolak.
+
+    Attributes:
+        budget_id: ID budget.
+        budget_number: Nomor budget.
+        rejected_by: (opsional) User ID yang menolak.
+        reason: (opsional) Alasan penolakan.
+        occurred_at: (opsional) Waktu kejadian.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
 
     def __init__(
         self,
@@ -205,9 +252,21 @@ class BudgetRejected(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BudgetRevised(DomainEvent):
-    """Event emitted when budget is revised."""
+    """
+    Event yang diterbitkan ketika budget direvisi.
+
+    Attributes:
+        budget_id: ID budget.
+        budget_number: Nomor budget.
+        version: Versi baru budget.
+        revision_reason: Alasan revisi.
+        revised_by: (opsional) User ID yang merevisi.
+        occurred_at: (opsional) Waktu kejadian.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
 
     def __init__(
         self,
@@ -240,9 +299,20 @@ class BudgetRevised(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BudgetCancelled(DomainEvent):
-    """Event emitted when budget is cancelled."""
+    """
+    Event yang diterbitkan ketika budget dibatalkan.
+
+    Attributes:
+        budget_id: ID budget.
+        budget_number: Nomor budget.
+        cancelled_by: (opsional) User ID yang membatalkan.
+        reason: (opsional) Alasan pembatalan.
+        occurred_at: (opsional) Waktu kejadian.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
 
     def __init__(
         self,
@@ -272,9 +342,19 @@ class BudgetCancelled(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BudgetClosed(DomainEvent):
-    """Event emitted when budget is closed."""
+    """
+    Event yang diterbitkan ketika budget ditutup.
+
+    Attributes:
+        budget_id: ID budget.
+        budget_number: Nomor budget.
+        closed_by: (opsional) User ID yang menutup.
+        occurred_at: (opsional) Waktu kejadian.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
 
     def __init__(
         self,
@@ -302,9 +382,19 @@ class BudgetClosed(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BudgetArchived(DomainEvent):
-    """Event emitted when budget is archived."""
+    """
+    Event yang diterbitkan ketika budget diarsipkan.
+
+    Attributes:
+        budget_id: ID budget.
+        budget_number: Nomor budget.
+        archived_by: (opsional) User ID yang mengarsipkan.
+        occurred_at: (opsional) Waktu kejadian.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
 
     def __init__(
         self,
@@ -332,9 +422,22 @@ class BudgetArchived(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BudgetLineAdded(DomainEvent):
-    """Event emitted when a budget line is added."""
+    """
+    Event yang diterbitkan ketika budget line baru ditambahkan.
+
+    Attributes:
+        budget_id: ID budget.
+        line_id: ID budget line.
+        account_code: Kode akun.
+        period: Periode (YYYY-MM).
+        amount: Jumlah budget.
+        added_by: (opsional) User ID penambah.
+        occurred_at: (opsional) Waktu kejadian.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
 
     def __init__(
         self,
@@ -368,9 +471,19 @@ class BudgetLineAdded(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BudgetLineRemoved(DomainEvent):
-    """Event emitted when a budget line is removed."""
+    """
+    Event yang diterbitkan ketika budget line dihapus.
+
+    Attributes:
+        budget_id: ID budget.
+        line_id: ID budget line.
+        removed_by: (opsional) User ID penghapus.
+        occurred_at: (opsional) Waktu kejadian.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
 
     def __init__(
         self,
@@ -398,9 +511,20 @@ class BudgetLineRemoved(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BudgetLineAdjusted(DomainEvent):
-    """Event emitted when actual amount is recorded for a budget line."""
+    """
+    Event yang diterbitkan ketika realisasi dicatat untuk budget line.
+
+    Attributes:
+        budget_id: ID budget.
+        line_id: ID budget line.
+        actual_amount: Jumlah realisasi.
+        recorded_by: (opsional) User ID pencatat.
+        occurred_at: (opsional) Waktu kejadian.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
 
     def __init__(
         self,
@@ -430,9 +554,21 @@ class BudgetLineAdjusted(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BudgetStatusChanged(DomainEvent):
-    """Event emitted when budget status changes."""
+    """
+    Event yang diterbitkan ketika status budget berubah.
+
+    Attributes:
+        budget_id: ID budget.
+        old_status: Status lama.
+        new_status: Status baru.
+        changed_by: (opsional) User ID pengubah.
+        reason: (opsional) Alasan perubahan status.
+        occurred_at: (opsional) Waktu kejadian.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
 
     def __init__(
         self,
@@ -470,13 +606,20 @@ class BudgetStatusChanged(DomainEvent):
 
 
 class BudgetEventPublisher:
-    """Publisher for budget domain events."""
+    """
+    Publisher for budget domain events.
+    """
 
     _published_events: ClassVar[list[DomainEvent]] = []
 
     @classmethod
     async def publish(cls, event: DomainEvent) -> None:
-        """Publish an event."""
+        """
+        Publish an event.
+
+        Args:
+            event: Domain event yang akan dipublikasikan.
+        """
         cls._published_events.append(event)
         # In real implementation, send to message broker
         import logging
@@ -487,15 +630,18 @@ class BudgetEventPublisher:
 
     @classmethod
     async def publish_many(cls, events: list[DomainEvent]) -> None:
+        """Publish multiple events."""
         for event in events:
             await cls.publish(event)
 
     @classmethod
     def get_published_events(cls) -> list[DomainEvent]:
+        """Get all published events."""
         return cls._published_events.copy()
 
     @classmethod
     def clear(cls) -> None:
+        """Clear published events."""
         cls._published_events.clear()
 
 
@@ -504,38 +650,50 @@ class BudgetEventPublisher:
 # Router mengimpor dengan suffix "Event"
 # ============================================================================
 
+# Alias classes dengan suffix Event untuk kompatibilitas
 BudgetApprovedEvent = BudgetApproved
 BudgetApprovedEvent.__name__ = "BudgetApprovedEvent"
+"""Alias untuk BudgetApproved dengan suffix Event (kompatibilitas router)."""
 
 BudgetRejectedEvent = BudgetRejected
 BudgetRejectedEvent.__name__ = "BudgetRejectedEvent"
+"""Alias untuk BudgetRejected dengan suffix Event (kompatibilitas router)."""
 
 BudgetRevisedEvent = BudgetRevised
 BudgetRevisedEvent.__name__ = "BudgetRevisedEvent"
+"""Alias untuk BudgetRevised dengan suffix Event (kompatibilitas router)."""
 
 BudgetCancelledEvent = BudgetCancelled
 BudgetCancelledEvent.__name__ = "BudgetCancelledEvent"
+"""Alias untuk BudgetCancelled dengan suffix Event (kompatibilitas router)."""
 
 BudgetClosedEvent = BudgetClosed
 BudgetClosedEvent.__name__ = "BudgetClosedEvent"
+"""Alias untuk BudgetClosed dengan suffix Event (kompatibilitas router)."""
 
 BudgetArchivedEvent = BudgetArchived
 BudgetArchivedEvent.__name__ = "BudgetArchivedEvent"
+"""Alias untuk BudgetArchived dengan suffix Event (kompatibilitas router)."""
 
 BudgetCreatedEvent = BudgetCreated
 BudgetCreatedEvent.__name__ = "BudgetCreatedEvent"
+"""Alias untuk BudgetCreated dengan suffix Event (kompatibilitas router)."""
 
 BudgetLineAddedEvent = BudgetLineAdded
 BudgetLineAddedEvent.__name__ = "BudgetLineAddedEvent"
+"""Alias untuk BudgetLineAdded dengan suffix Event (kompatibilitas router)."""
 
 BudgetLineRemovedEvent = BudgetLineRemoved
 BudgetLineRemovedEvent.__name__ = "BudgetLineRemovedEvent"
+"""Alias untuk BudgetLineRemoved dengan suffix Event (kompatibilitas router)."""
 
 BudgetLineAdjustedEvent = BudgetLineAdjusted
 BudgetLineAdjustedEvent.__name__ = "BudgetLineAdjustedEvent"
+"""Alias untuk BudgetLineAdjusted dengan suffix Event (kompatibilitas router)."""
 
 BudgetStatusChangedEvent = BudgetStatusChanged
 BudgetStatusChangedEvent.__name__ = "BudgetStatusChangedEvent"
+"""Alias untuk BudgetStatusChanged dengan suffix Event (kompatibilitas router)."""
 
 
 # ============================================================================

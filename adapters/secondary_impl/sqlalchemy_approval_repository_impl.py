@@ -121,7 +121,9 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
         comments: str | None = None,
     ) -> None:
         """
-        Update the status of an approval request.
+        Update the status of an approval request with pessimistic locking.
+
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
 
         Args:
             request_id: UUID of the request.
@@ -130,24 +132,30 @@ class SQLAlchemyApprovalRepository(ApprovalRepositoryPort):
             comments: Optional comments.
 
         Raises:
-            ValueError: If status is not allowed.
+            ValueError: If status is not allowed or request not found.
         """
         allowed_statuses = {"approved", "rejected", "pending"}
         if status not in allowed_statuses:
             raise ValueError(f"Invalid status: {status}. Allowed: {allowed_statuses}")
 
         session = await self._get_session()
-        stmt = (
-            update(ApprovalRequestTable)
-            .where(ApprovalRequestTable.id == request_id)
-            .values(
-                status=status,
-                approved_by=approved_by,
-                approved_at=datetime.now(UTC),
-                comments=comments,
-            )
-        )
-        await session.execute(stmt)
+        async with session.begin():
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(ApprovalRequestTable).where(
+                ApprovalRequestTable.id == request_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            request = result.scalar_one_or_none()
+            if not request:
+                raise ValueError(f"Approval request {request_id} not found")
+
+            # 2. Update the locked row
+            request.status = status
+            request.approved_by = approved_by
+            request.approved_at = datetime.now(UTC)
+            if comments is not None:
+                request.comments = comments
+            await session.flush()
 
     # ========== Approval Rules ==========
 

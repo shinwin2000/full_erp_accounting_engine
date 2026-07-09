@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
 from datetime import datetime
+from typing import Any
+from uuid import UUID
 
 from sqlalchemy import Column, DateTime, Index, Integer, String, Text, desc, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -19,10 +22,14 @@ from sqlalchemy.orm import declarative_base
 
 from ports.primary.audit_repository_port import AuditEvent, AuditRepositoryPort
 
+logger = logging.getLogger(__name__)
+
 Base = declarative_base()
 
 
 class AuditEventTable(Base):
+    """SQLAlchemy ORM model for audit events with hash chaining."""
+
     __tablename__ = "audit_events"
     __table_args__ = (
         Index("idx_audit_aggregate", "aggregate_id", "version"),
@@ -45,7 +52,7 @@ class AuditEventTable(Base):
 
 class SQLAlchemyAuditRepository(AuditRepositoryPort):
     """
-    Implementasi AuditRepositoryPort dengan SQLAlchemy.
+    SQLAlchemy implementation of AuditRepositoryPort.
     """
 
     def __init__(self, session: AsyncSession | None = None):
@@ -62,34 +69,39 @@ class SQLAlchemyAuditRepository(AuditRepositoryPort):
             "aggregate_id": str(event.aggregate_id),
             "version": event.version,
             "event_type": event.event_type,
-            "event_data": event.event_data,
+            "event_data": event.payload,  # payload is dict
             "previous_hash": event.previous_hash,
         }
         return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
+    # ========================================================================
+    # PORT METHODS (9 methods)
+    # ========================================================================
+
     async def append_event(self, event: AuditEvent) -> None:
+        """Append an immutable audit event."""
         session = await self._get_session()
-        # Compute hash (include previous hash if any)
+        # Get previous hash if any
         prev = await self.get_last_event(event.aggregate_id)
         event.previous_hash = prev.hash if prev else None
         event.hash = self._compute_hash(event)
 
-        new = AuditEventTable(
+        record = AuditEventTable(
             aggregate_id=event.aggregate_id,
-            aggregate_type=event.aggregate_type,
+            aggregate_type=event.event_type,
             version=event.version,
             event_type=event.event_type,
-            event_data=json.dumps(event.event_data, default=str),
+            event_data=json.dumps(event.payload, default=str),
             correlation_id=event.correlation_id,
             previous_hash=event.previous_hash,
             hash=event.hash,
-            event_time=event.event_time or datetime.utcnow(),
+            event_time=event.occurred_at or datetime.utcnow(),
         )
-        session.add(new)
+        session.add(record)
         await session.commit()
 
     async def get_events_by_aggregate(
-        self, aggregate_id: uuid.UUID, from_version: int | None = None, limit: int = 1000
+        self, aggregate_id: UUID, from_version: int | None = None, limit: int = 1000
     ) -> list[AuditEvent]:
         session = await self._get_session()
         stmt = select(AuditEventTable).where(AuditEventTable.aggregate_id == aggregate_id)
@@ -120,19 +132,24 @@ class SQLAlchemyAuditRepository(AuditRepositoryPort):
 
     async def get_events_by_correlation_id(self, correlation_id: str) -> list[AuditEvent]:
         session = await self._get_session()
-        stmt = select(AuditEventTable).where(AuditEventTable.correlation_id == correlation_id).order_by(AuditEventTable.version)
+        stmt = select(AuditEventTable).where(
+            AuditEventTable.correlation_id == correlation_id
+        ).order_by(AuditEventTable.version)
         result = await session.execute(stmt)
         rows = result.scalars().all()
         return [self._to_domain(row) for row in rows]
 
-    async def get_last_event(self, aggregate_id: uuid.UUID) -> AuditEvent | None:
+    async def get_last_event(self, aggregate_id: UUID) -> AuditEvent | None:
         session = await self._get_session()
-        stmt = select(AuditEventTable).where(AuditEventTable.aggregate_id == aggregate_id).order_by(desc(AuditEventTable.version)).limit(1)
+        stmt = select(AuditEventTable).where(
+            AuditEventTable.aggregate_id == aggregate_id
+        ).order_by(desc(AuditEventTable.version)).limit(1)
         result = await session.execute(stmt)
         row = result.scalar_one_or_none()
         return self._to_domain(row) if row else None
 
-    async def verify_hash_chain(self, aggregate_id: uuid.UUID) -> bool:
+    async def verify_hash_chain(self, aggregate_id: UUID) -> bool:
+        """Verify the integrity of the hash chain."""
         events = await self.get_events_by_aggregate(aggregate_id, limit=999999)
         if not events:
             return True
@@ -147,33 +164,43 @@ class SQLAlchemyAuditRepository(AuditRepositoryPort):
                 return False
         return True
 
-    async def get_hash_chain_root(self, aggregate_id: uuid.UUID) -> str | None:
+    async def get_hash_chain_root(self, aggregate_id: UUID) -> str | None:
         last = await self.get_last_event(aggregate_id)
         return last.hash if last else None
 
     async def replay_events(
         self,
-        aggregate_id: uuid.UUID,
+        aggregate_id: UUID,
         from_version: int | None = None,
         to_version: int | None = None,
     ) -> list[AuditEvent]:
-        return await self.get_events_by_aggregate(aggregate_id, from_version, limit=10000)
+        events = await self.get_events_by_aggregate(aggregate_id, from_version, limit=10000)
+        if to_version is not None:
+            events = [e for e in events if e.version <= to_version]
+        return events
+
+    # ========================================================================
+    # Helper
+    # ========================================================================
 
     def _to_domain(self, row: AuditEventTable) -> AuditEvent:
+        """Convert ORM row to AuditEvent."""
         return AuditEvent(
+            event_id=row.id,
             aggregate_id=row.aggregate_id,
-            aggregate_type=row.aggregate_type,
-            version=row.version,
             event_type=row.event_type,
-            event_data=json.loads(row.event_data),
+            payload=json.loads(row.event_data),
+            occurred_at=row.event_time,
+            user_id=None,  # not stored
             correlation_id=row.correlation_id,
-            previous_hash=row.previous_hash,
-            hash=row.hash,
-            event_time=row.event_time,
+            causation_id=None,
+            version=row.version,
+            hash_chain_previous=row.previous_hash,
+            hash_chain_current=row.hash,
         )
 
 
-# Alias untuk protocol
+# Alias for protocol compatibility
 SQLAlchemyAuditRepositoryProtocol = SQLAlchemyAuditRepository
 
 __all__ = ["AuditEventTable", "SQLAlchemyAuditRepository", "SQLAlchemyAuditRepositoryProtocol"]

@@ -2,12 +2,17 @@
 """
 Module: ap_repository_port.py
 Layer: Ports (Primary)
-Responsibility: Implementasi in-memory repository untuk Account Payable Invoice
-               dengan fitur lengkap: siklus hidup invoice (draft, submitted, approved,
-               paid, cancelled, disputed), aging buckets, payment scheduling,
-               three-way matching, credit/debit notes, vendor balance,
-               due date tracking, audit trail, import/export CSV, dan statistik.
+Responsibility: Port (interface) untuk Account Payable Invoice repository.
+Implementasi in-memory disediakan sebagai InMemoryAPRepository.
+
+Fitur: siklus hidup invoice (draft, submitted, approved, paid, cancelled, disputed),
+aging buckets, payment scheduling, three-way matching, credit/debit notes,
+vendor balance, due date tracking, audit trail, import/export CSV, dan statistik.
 Audit: Setiap perubahan status invoice tercatat.
+
+Perbaikan presisi:
+    - Semua konversi float() pada nilai moneter diubah menjadi str() untuk menghindari
+      kehilangan presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -15,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -99,13 +105,13 @@ class APInvoice:
             "goods_receipt_id": str(self.goods_receipt_id) if self.goods_receipt_id else None,
             "invoice_date": self.invoice_date.isoformat(),
             "due_date": self.due_date.isoformat(),
-            "total_amount": float(self.total_amount),
-            "tax_amount": float(self.tax_amount),
-            "discount_amount": float(self.discount_amount),
-            "paid_amount": float(self.paid_amount),
-            "outstanding_amount": float(self.outstanding_amount),
+            "total_amount": str(self.total_amount),
+            "tax_amount": str(self.tax_amount),
+            "discount_amount": str(self.discount_amount),
+            "paid_amount": str(self.paid_amount),
+            "outstanding_amount": str(self.outstanding_amount),
             "currency_code": self.currency_code,
-            "exchange_rate": float(self.exchange_rate),
+            "exchange_rate": str(self.exchange_rate),
             "status": self.status.value,
             "matching_status": self.matching_status.value,
             "description": self.description,
@@ -146,9 +152,176 @@ class CreditNoteAP:
     created_by: UUID
 
 
-class APRepositoryPort:
+# ============================================================================
+# PORT INTERFACE (Abstract Base Class)
+# ============================================================================
+
+class APRepositoryPort(ABC):
     """
-    In-memory repository untuk Account Payable.
+    Port (interface) untuk repository Account Payable.
+    Semua metode wajib diimplementasikan oleh repository concrete.
+    """
+
+    @abstractmethod
+    async def add(self, invoice: APInvoice) -> None:
+        """Menambahkan invoice AP baru."""
+        pass
+
+    @abstractmethod
+    async def get_by_id(self, invoice_id: UUID) -> APInvoice | None:
+        """Mengambil invoice berdasarkan ID."""
+        pass
+
+    @abstractmethod
+    async def get_by_invoice_number(self, invoice_number: str, vendor_id: UUID) -> APInvoice | None:
+        """Mengambil invoice berdasarkan nomor invoice dan vendor."""
+        pass
+
+    @abstractmethod
+    async def update(self, invoice: APInvoice) -> None:
+        """Memperbarui invoice yang sudah ada."""
+        pass
+
+    @abstractmethod
+    async def delete(self, invoice_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
+        """Soft delete atau permanent delete invoice."""
+        pass
+
+    # Workflow actions
+    @abstractmethod
+    async def submit_for_approval(self, invoice_id: UUID, user_id: UUID) -> bool:
+        """Submit invoice untuk approval."""
+        pass
+
+    @abstractmethod
+    async def approve(self, invoice_id: UUID, approver_id: UUID) -> bool:
+        """Menyetujui invoice."""
+        pass
+
+    @abstractmethod
+    async def mark_as_paid(
+        self,
+        invoice_id: UUID,
+        payment_id: UUID,
+        paid_amount: Decimal,
+        paid_date: date,
+        user_id: UUID,
+    ) -> bool:
+        """Menandai invoice sebagai sudah dibayar (sebagian atau penuh)."""
+        pass
+
+    @abstractmethod
+    async def cancel(self, invoice_id: UUID, reason: str, user_id: UUID) -> bool:
+        """Membatalkan invoice."""
+        pass
+
+    @abstractmethod
+    async def dispute(self, invoice_id: UUID, reason: str, user_id: UUID) -> bool:
+        """Menandai invoice sebagai disputed."""
+        pass
+
+    # Credit note
+    @abstractmethod
+    async def add_credit_note(self, credit_note: CreditNoteAP) -> None:
+        """Menambahkan credit note dan mengupdate outstanding."""
+        pass
+
+    # Queries
+    @abstractmethod
+    async def find_by_vendor(
+        self, vendor_id: UUID, limit: int = 100, offset: int = 0
+    ) -> list[APInvoice]:
+        """Mencari invoice berdasarkan vendor."""
+        pass
+
+    @abstractmethod
+    async def find_due_for_payment(
+        self, as_of_date: date, legal_entity_id: UUID
+    ) -> list[APInvoice]:
+        """Mencari invoice yang jatuh tempo pada tanggal tertentu."""
+        pass
+
+    @abstractmethod
+    async def get_outstanding_balance(self, vendor_id: UUID, as_of_date: date) -> Decimal:
+        """Menghitung outstanding balance vendor per tanggal."""
+        pass
+
+    @abstractmethod
+    async def find_by_payment_run(self, payment_run_id: UUID) -> list[APInvoice]:
+        """Mencari invoice dalam payment run tertentu."""
+        pass
+
+    @abstractmethod
+    async def find_by_status(
+        self, status: APInvoiceStatus, legal_entity_id: UUID
+    ) -> list[APInvoice]:
+        """Mencari invoice berdasarkan status."""
+        pass
+
+    @abstractmethod
+    async def find_by_date_range(
+        self, start_date: date, end_date: date, legal_entity_id: UUID
+    ) -> list[APInvoice]:
+        """Mencari invoice berdasarkan rentang tanggal invoice."""
+        pass
+
+    @abstractmethod
+    async def get_aging_buckets(
+        self, legal_entity_id: UUID, as_of_date: date
+    ) -> dict[str, Decimal]:
+        """Mendapatkan aging buckets."""
+        pass
+
+    @abstractmethod
+    async def get_vendor_balance_history(
+        self, vendor_id: UUID, start_date: date, end_date: date
+    ) -> list[dict[str, Any]]:
+        """Riwayat saldo vendor per bulan."""
+        pass
+
+    # Three-way matching
+    @abstractmethod
+    async def perform_three_way_match(
+        self, invoice_id: UUID, po_total: Decimal, grn_total: Decimal
+    ) -> MatchingStatus:
+        """Melakukan three-way matching antara invoice, PO, dan GRN."""
+        pass
+
+    # Import/Export
+    @abstractmethod
+    async def export_to_csv(self, legal_entity_id: UUID) -> str:
+        """Ekspor invoice ke CSV."""
+        pass
+
+    @abstractmethod
+    async def import_from_csv(self, csv_content: str, legal_entity_id: UUID, user_id: UUID) -> int:
+        """Impor invoice dari CSV."""
+        pass
+
+    # Statistics & Audit
+    @abstractmethod
+    async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
+        """Statistik AP."""
+        pass
+
+    @abstractmethod
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Audit log AP."""
+        pass
+
+    @abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """Health check repository."""
+        pass
+
+
+# ============================================================================
+# IMPLEMENTASI KONKRET (In-Memory)
+# ============================================================================
+
+class InMemoryAPRepository(APRepositoryPort):
+    """
+    Implementasi in-memory repository untuk Account Payable.
     """
 
     def __init__(self):
@@ -244,7 +417,7 @@ class APRepositoryPort:
             {
                 "invoice_number": invoice.invoice_number,
                 "vendor_id": str(invoice.vendor_id),
-                "amount": float(invoice.total_amount),
+                "amount": str(invoice.total_amount),
             },
         )
 
@@ -381,7 +554,7 @@ class APRepositoryPort:
             invoice_id,
             user_id,
             {
-                "amount": float(paid_amount),
+                "amount": str(paid_amount),
                 "payment_id": str(payment_id),
             },
         )
@@ -426,7 +599,7 @@ class APRepositoryPort:
             credit_note.created_by,
             {
                 "credit_note_id": str(credit_note.id),
-                "amount": float(credit_note.amount),
+                "amount": str(credit_note.amount),
             },
         )
 
@@ -523,7 +696,7 @@ class APRepositoryPort:
             month_end = date(current_date.year, current_date.month, 1) + timedelta(days=32)
             month_end = date(month_end.year, month_end.month, 1) - timedelta(days=1)
             balance = await self.get_outstanding_balance(vendor_id, month_end)
-            result.append({"period": month_end.strftime("%Y-%m"), "balance": float(balance)})
+            result.append({"period": month_end.strftime("%Y-%m"), "balance": str(balance)})
             current_date = (
                 date(current_date.year, current_date.month + 1, 1)
                 if current_date.month < 12
@@ -588,9 +761,9 @@ class APRepositoryPort:
                     str(inv.vendor_id),
                     inv.invoice_date.isoformat(),
                     inv.due_date.isoformat(),
-                    float(inv.total_amount),
-                    float(inv.paid_amount),
-                    float(inv.outstanding_amount),
+                    str(inv.total_amount),
+                    str(inv.paid_amount),
+                    str(inv.outstanding_amount),
                     inv.status.value,
                     inv.currency_code,
                 ]
@@ -645,8 +818,8 @@ class APRepositoryPort:
         )
         return {
             "total_invoices": total_invoices,
-            "total_amount": float(total_amount),
-            "total_outstanding": float(total_outstanding),
+            "total_amount": str(total_amount),
+            "total_outstanding": str(total_outstanding),
             "paid_count": paid_count,
             "overdue_count": overdue_count,
             "by_status": {
@@ -666,15 +839,24 @@ class APRepositoryPort:
         }
 
 
-# === ALIAS FOR TEST COMPATIBILITY ===
+# ============================================================================
+# ALIAS UNTUK KOMPATIBILITAS
+# ============================================================================
+
+# Untuk backward compatibility: APRepository mengarah ke implementasi in-memory
+APRepository = InMemoryAPRepository
+
+# Alias untuk test compatibility
 ApRepositoryPort = APRepositoryPort
 
-# === EXPORTS ===
+
 __all__ = [
     "APInvoice",
     "APInvoiceStatus",
+    "APRepository",
     "APRepositoryPort",
     "ApRepositoryPort",
     "CreditNoteAP",
+    "InMemoryAPRepository",
     "MatchingStatus",
 ]

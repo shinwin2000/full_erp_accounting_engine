@@ -1,7 +1,7 @@
 """
 ALL EVENT HANDLERS - AUTO-GENERATED (CLEANED & FIXED)
 ======================================================
-Total events: 298
+Total events: 298 + tambahan alias tanpa suffix
 Setiap event memiliki handler sendiri (spesifik).
 Handler saat ini hanya mencatat log; Anda dapat menambahkan logika bisnis.
 """
@@ -1163,6 +1163,32 @@ async def handle_WorkOrderStartedEvent(envelope: EventEnvelope) -> None:
 
 
 # ============================================================================
+# HANDLER UNTUK EVENT YANG HILANG (FOREX, BAD DEBT, INVENTORY, DLL)
+# ============================================================================
+
+# --- Forex Events ---
+async def handle_ForexRateUpdatedEvent(envelope: EventEnvelope) -> None:
+    logger.info(f"ForexRateUpdatedEvent diterima: {envelope.event}")
+
+
+async def handle_ForexTransactionRecordedEvent(envelope: EventEnvelope) -> None:
+    logger.info(f"ForexTransactionRecordedEvent diterima: {envelope.event}")
+
+
+async def handle_ForexRevaluationCompletedEvent(envelope: EventEnvelope) -> None:
+    logger.info(f"ForexRevaluationCompletedEvent diterima: {envelope.event}")
+
+
+async def handle_ForexTransactionExecutedEvent(envelope: EventEnvelope) -> None:
+    logger.info(f"ForexTransactionExecutedEvent diterima: {envelope.event}")
+
+
+# --- Bad Debt Provision ---
+async def handle_BadDebtProvisionRecordedEvent(envelope: EventEnvelope) -> None:
+    logger.info(f"BadDebtProvisionRecordedEvent diterima: {envelope.event}")
+
+
+# ============================================================================
 # REGISTRATION
 # ============================================================================
 
@@ -1457,6 +1483,60 @@ def register_all_handlers(registry=None) -> int:
         "WorkOrderCompletedEvent": handle_WorkOrderCompletedEvent,
         "WorkOrderCreatedEvent": handle_WorkOrderCreatedEvent,
         "WorkOrderStartedEvent": handle_WorkOrderStartedEvent,
+
+        # ======= TAMBAHAN UNTUK EVENT YANG HILANG (tanpa suffix atau baru) =======
+        "ForexRateUpdatedEvent": handle_ForexRateUpdatedEvent,
+        "ForexTransactionRecordedEvent": handle_ForexTransactionRecordedEvent,
+        "ForexRevaluationCompletedEvent": handle_ForexRevaluationCompletedEvent,
+        "ForexTransactionExecutedEvent": handle_ForexTransactionExecutedEvent,
+        "BadDebtProvisionRecordedEvent": handle_BadDebtProvisionRecordedEvent,
+
+        # ALIAS tanpa suffix Event (untuk event yang dipublikasikan tanpa suffix)
+        "BudgetCreated": handle_BudgetCreatedEvent,
+        "BudgetApproved": handle_BudgetApprovedEvent,
+        "BudgetRejected": handle_BudgetRejectedEvent,
+        "BudgetRevised": handle_BudgetRevisedEvent,
+        "BudgetCancelled": handle_BudgetCancelledEvent,
+        "BudgetClosed": handle_BudgetClosedEvent,
+        "BudgetArchived": handle_BudgetArchivedEvent,
+        "BudgetLineAdded": handle_BudgetLineAddedEvent,
+        "BudgetLineRemoved": handle_BudgetLineRemovedEvent,
+        "BudgetLineAdjusted": handle_BudgetLineAdjustedEvent,
+        "BudgetStatusChanged": handle_BudgetStatusChangedEvent,
+
+        "ConsolidationCreated": handle_ConsolidationCreatedEvent,
+        "ConsolidationStarted": handle_ConsolidationStartedEvent,
+        "ConsolidationCompleted": handle_ConsolidationCompletedEvent,
+        "ConsolidationArchived": handle_ConsolidationArchivedEvent,
+        "ConsolidationCancelled": handle_ConsolidationCancelledEvent,
+
+        # ======= TAMBAHAN: ALIAS UNTUK CONSOLIDATION YANG HILANG =======
+        "IntercompanyTransactionDetected": handle_IntercompanyTransactionDetectedEvent,
+        "EliminationEntryCreated": handle_EliminationEntryCreatedEvent,
+        "NCICalculated": handle_NCICalculatedEvent,
+
+        "BankAccountCreated": handle_BankAccountCreatedEvent,
+        "BankAccountUpdated": handle_BankAccountUpdatedEvent,
+        "BankTransactionRecorded": handle_BankTransactionRecordedEvent,
+        "BankReconciliationCompleted": handle_BankReconciliationCompletedEvent,
+        "BankTransferExecuted": handle_BankTransferExecutedEvent,
+        "CashReceiptIssued": handle_CashReceiptIssuedEvent,
+        "CashDisbursementIssued": handle_CashDisbursementIssuedEvent,
+        "PettyCashFundCreated": handle_PettyCashFundCreatedEvent,
+        "PettyCashReplenished": handle_PettyCashReplenishedEvent,
+
+        # ======= TAMBAHAN: ALIAS UNTUK LEGAL ENTITY YANG HILANG =======
+        "LegalEntityCreated": handle_LegalEntityCreatedEvent,
+        "LegalEntityDeactivated": handle_LegalEntityDeactivatedEvent,
+        "LegalEntityUpdated": handle_LegalEntityUpdatedEvent,
+
+        "ForexRateUpdated": handle_ForexRateUpdatedEvent,
+        "ForexTransactionRecorded": handle_ForexTransactionRecordedEvent,
+        "ForexRevaluationCompleted": handle_ForexRevaluationCompletedEvent,
+        "ForexTransactionExecuted": handle_ForexTransactionExecutedEvent,
+
+        "BadDebtProvisionRecorded": handle_BadDebtProvisionRecordedEvent,
+        "InventoryValuationUpdated": handle_InventoryValuationUpdatedEvent,
     }
 
     registered_count = 0

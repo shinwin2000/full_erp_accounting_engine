@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any, ClassVar
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # === 1. DOMAIN EVENT TYPE ENUM ===
 class DomainEventType(Enum):
     INVOICE_ISSUED = "invoice_issued"
-    INVOICE_APPROVED = "invoice_approved"          # added
+    INVOICE_APPROVED = "invoice_approved"
     INVOICE_PAID = "invoice_paid"
     INVOICE_PARTIALLY_PAID = "invoice_partially_paid"
     INVOICE_OVERDUE = "invoice_overdue"
@@ -69,20 +69,35 @@ class DomainEventType(Enum):
             DomainEventType.DEBIT_NOTE_APPLIED: "Debit Note Applied",
             DomainEventType.CUSTOMER_CREDIT_LIMIT_CHANGED: "Customer Credit Limit Changed",
             DomainEventType.CUSTOMER_RISK_RATING_CHANGED: "Customer Risk Rating Changed",
+            DomainEventType.BAD_DEBT_PROVISION_RECORDED: "Bad Debt Provision Recorded",
         }
         return names.get(self, self.value)
 
 
 # === 2. BASE DOMAIN EVENT CLASS (dengan entity dasar) ===
-@dataclass
+@dataclass(frozen=True)
 class DomainEvent:
-    event_id: UUID
+    """
+    Base class untuk semua domain event di Subledger AR.
+
+    Attributes:
+        event_type: Jenis event (DomainEventType).
+        aggregate_id: UUID agregat yang terkait.
+        aggregate_type: Tipe agregat (default "ARSubledger").
+        aggregate_version: Versi agregat saat event terjadi.
+        event_id: UUID unik event (default auto-generated).
+        occurred_at: Waktu kejadian (UTC).
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+    """
     event_type: DomainEventType
     aggregate_id: UUID
     aggregate_type: str
     aggregate_version: int
-    occurred_at: datetime
-    event_data: dict[str, Any]
+    event_id: UUID = field(default_factory=uuid4)
+    occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    event_data: dict[str, Any] = field(default_factory=dict)
     user_id: str | None = None
     correlation_id: str | None = None
 
@@ -90,7 +105,7 @@ class DomainEvent:
     _audit_trail: ClassVar[list[dict[str, Any]]] = []
     _snapshots: ClassVar[list[dict[str, Any]]] = []
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.aggregate_version < 1:
             raise ValueError("aggregate_version must be >= 1")
         if self.occurred_at.tzinfo is None:
@@ -98,6 +113,7 @@ class DomainEvent:
 
     # ==================== METODA ENTITY DASAR ====================
     def validate(self) -> dict[str, Any]:
+        """Validasi event."""
         errors = []
         if not isinstance(self.event_type, DomainEventType):
             errors.append("Invalid event_type")
@@ -106,6 +122,7 @@ class DomainEvent:
         return {"is_valid": len(errors) == 0, "errors": errors}
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert event to dictionary."""
         return {
             "event_id": str(self.event_id),
             "event_type": self.event_type.value,
@@ -119,13 +136,16 @@ class DomainEvent:
         }
 
     def to_json(self) -> str:
+        """Serialize to JSON string."""
         return json.dumps(self.to_dict(), default=str)
 
     def serialize(self) -> bytes:
+        """Serialize to bytes."""
         return self.to_json().encode("utf-8")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DomainEvent:
+        """Create event from dictionary."""
         return cls(
             event_id=UUID(data["event_id"]),
             event_type=DomainEventType(data["event_type"]),
@@ -140,13 +160,16 @@ class DomainEvent:
 
     @classmethod
     def from_json(cls, json_str: str) -> DomainEvent:
+        """Create event from JSON string."""
         return cls.from_dict(json.loads(json_str))
 
     @classmethod
     def deserialize(cls, data: bytes) -> DomainEvent:
+        """Deserialize from bytes."""
         return cls.from_json(data.decode("utf-8"))
 
     def clone(self) -> DomainEvent:
+        """Clone event with new event_id and occurred_at."""
         return DomainEvent(
             event_id=uuid4(),
             event_type=self.event_type,
@@ -160,6 +183,7 @@ class DomainEvent:
         )
 
     def snapshot(self) -> dict[str, Any]:
+        """Create snapshot of event."""
         return {
             "event_id": str(self.event_id),
             "event_type": self.event_type.value,
@@ -169,18 +193,32 @@ class DomainEvent:
         }
 
     def version(self) -> int:
-        return 1  # Events are immutable
+        """Get version (events are immutable, returns 1)."""
+        return 1
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Get audit trail entries (limited)."""
         return self._audit_trail[-limit:]
 
     def touch(self, touched_by: str) -> DomainEvent:
+        """Touch event (returns clone)."""
         return self.clone()
 
 
 # === 3. CONCRETE EVENT CLASSES ===
-@dataclass
+@dataclass(frozen=True)
 class InvoiceIssuedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika invoice AR diterbitkan.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity Invoice.
+        issued_by: User ID penerbit.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -201,20 +239,29 @@ class InvoiceIssuedEvent(DomainEvent):
             "issued_by": issued_by,
         }
         super().__init__(
-            event_id=uuid4(),
             event_type=DomainEventType.INVOICE_ISSUED,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceApprovedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika invoice AR disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity Invoice.
+        approved_by: User ID yang menyetujui.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -230,20 +277,30 @@ class InvoiceApprovedEvent(DomainEvent):
             "approved_by": approved_by,
         }
         super().__init__(
-            event_id=uuid4(),
             event_type=DomainEventType.INVOICE_APPROVED,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoicePaidEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika invoice AR dilunasi.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity Invoice.
+        payment_id: ID pembayaran.
+        payment_amount: Jumlah pembayaran.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -262,20 +319,31 @@ class InvoicePaidEvent(DomainEvent):
             "final_status": InvoiceStatus.FULLY_PAID.value,
         }
         super().__init__(
-            event_id=uuid4(),
             event_type=DomainEventType.INVOICE_PAID,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoicePartiallyPaidEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika invoice AR dibayar sebagian.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity Invoice.
+        payment_id: ID pembayaran.
+        payment_amount: Jumlah pembayaran.
+        remaining_amount: Sisa tagihan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -296,20 +364,30 @@ class InvoicePartiallyPaidEvent(DomainEvent):
             "status": InvoiceStatus.PARTIALLY_PAID.value,
         }
         super().__init__(
-            event_id=uuid4(),
             event_type=DomainEventType.INVOICE_PARTIALLY_PAID,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceCancelledEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika invoice AR dibatalkan.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity Invoice.
+        reason: Alasan pembatalan.
+        cancelled_by: User ID pembatalan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -327,20 +405,31 @@ class InvoiceCancelledEvent(DomainEvent):
             "cancelled_by": cancelled_by,
         }
         super().__init__(
-            event_id=uuid4(),
             event_type=DomainEventType.INVOICE_CANCELLED,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceWrittenOffEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika invoice AR dihapusbukukan (write-off).
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity Invoice.
+        reason: Alasan write-off.
+        amount: Jumlah yang di-write-off.
+        written_off_by: User ID yang melakukan write-off.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -360,20 +449,29 @@ class InvoiceWrittenOffEvent(DomainEvent):
             "written_off_by": written_off_by,
         }
         super().__init__(
-            event_id=uuid4(),
             event_type=DomainEventType.INVOICE_WRITTEN_OFF,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PaymentReceivedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pembayaran AR diterima.
+
+    Attributes:
+        aggregate_id: ID agregat payment.
+        aggregate_version: Versi agregat.
+        payment: Entity Payment.
+        received_by: User ID penerima.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -394,20 +492,30 @@ class PaymentReceivedEvent(DomainEvent):
             "received_by": received_by,
         }
         super().__init__(
-            event_id=uuid4(),
             event_type=DomainEventType.PAYMENT_RECEIVED,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PaymentAllocatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pembayaran AR dialokasikan ke invoice.
+
+    Attributes:
+        aggregate_id: ID agregat payment.
+        aggregate_version: Versi agregat.
+        payment: Entity Payment.
+        invoice_id: ID invoice.
+        allocated_amount: Jumlah yang dialokasikan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -426,20 +534,29 @@ class PaymentAllocatedEvent(DomainEvent):
             "remaining_unallocated": str(payment.amount - allocated_amount),
         }
         super().__init__(
-            event_id=uuid4(),
             event_type=DomainEventType.PAYMENT_ALLOCATED,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CreditNoteIssuedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika credit note AR diterbitkan.
+
+    Attributes:
+        aggregate_id: ID agregat credit note.
+        aggregate_version: Versi agregat.
+        credit_note: Entity CreditNote.
+        issued_by: User ID penerbit.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -459,20 +576,31 @@ class CreditNoteIssuedEvent(DomainEvent):
             "issued_by": issued_by,
         }
         super().__init__(
-            event_id=uuid4(),
             event_type=DomainEventType.CREDIT_NOTE_ISSUED,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CreditNoteAppliedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika credit note AR diterapkan ke invoice.
+
+    Attributes:
+        aggregate_id: ID agregat credit note.
+        aggregate_version: Versi agregat.
+        credit_note: Entity CreditNote.
+        invoice_id: ID invoice.
+        applied_amount: Jumlah yang diterapkan.
+        applied_by: User ID penerap.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -492,20 +620,29 @@ class CreditNoteAppliedEvent(DomainEvent):
             "applied_by": applied_by,
         }
         super().__init__(
-            event_id=uuid4(),
             event_type=DomainEventType.CREDIT_NOTE_APPLIED,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class DebitNoteIssuedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika debit note AR diterbitkan.
+
+    Attributes:
+        aggregate_id: ID agregat debit note.
+        aggregate_version: Versi agregat.
+        debit_note: Entity DebitNote.
+        issued_by: User ID penerbit.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -525,19 +662,29 @@ class DebitNoteIssuedEvent(DomainEvent):
             "issued_by": issued_by,
         }
         super().__init__(
-            event_id=uuid4(),
             event_type=DomainEventType.DEBIT_NOTE_ISSUED,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
-@dataclass
+
+@dataclass(frozen=True)
 class PaymentVoidedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pembayaran AR dibatalkan/dihapus.
+
+    Attributes:
+        aggregate_id: ID agregat payment.
+        aggregate_version: Versi agregat.
+        payment_number: Nomor pembayaran.
+        reason: Alasan pembatalan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -552,20 +699,31 @@ class PaymentVoidedEvent(DomainEvent):
             "reason": reason,
         }
         super().__init__(
-            event_id=uuid4(),
-            event_type=DomainEventType.PAYMENT_REFUNDED,  # atau tambahkan tipe baru
+            event_type=DomainEventType.PAYMENT_REFUNDED,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BadDebtProvisionRecordedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pencadangan piutang tak tertagih (bad debt provision) dicatat.
+
+    Attributes:
+        aggregate_id: ID agregat pencadangan.
+        aggregate_version: Versi agregat.
+        legal_entity_id: ID entitas legal.
+        as_of_date: Tanggal pencadangan.
+        total_receivables: Total piutang.
+        provision_amount: Jumlah pencadangan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -584,25 +742,33 @@ class BadDebtProvisionRecordedEvent(DomainEvent):
             "provision_amount": str(provision_amount),
         }
         super().__init__(
-            event_id=uuid4(),
-            event_type=DomainEventType.BAD_DEBT_PROVISION_RECORDED,  # tambahkan enum
+            event_type=DomainEventType.BAD_DEBT_PROVISION_RECORDED,
             aggregate_id=aggregate_id,
             aggregate_type="ARSubledger",
             aggregate_version=aggregate_version,
-            occurred_at=datetime.now(UTC),
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
         )
 
+
 # === 4. DOMAIN EVENT PUBLISHER (dengan repository interface) ===
 class DomainEventPublisher:
+    """
+    Publisher untuk domain event Subledger AR.
+    Menyimpan event yang dipublikasikan untuk keperluan testing atau replay.
+    """
     _published_events: ClassVar[list[DomainEvent]] = []
     _max_history: ClassVar[int] = 10000
 
     @classmethod
     async def publish(cls, event: DomainEvent) -> None:
-        """Publish a single domain event."""
+        """
+        Publikasikan satu event.
+
+        Args:
+            event: DomainEvent yang akan dipublikasikan.
+        """
         cls._published_events.append(event)
         if len(cls._published_events) > cls._max_history:
             cls._published_events = cls._published_events[-cls._max_history :]
@@ -610,26 +776,40 @@ class DomainEventPublisher:
 
     @classmethod
     async def publish_many(cls, events: list[DomainEvent]) -> None:
-        """Publish multiple domain events."""
+        """
+        Publikasikan banyak event.
+
+        Args:
+            events: List DomainEvent yang akan dipublikasikan.
+        """
         for event in events:
             await cls.publish(event)
 
     # Repository interface methods
     @classmethod
     async def add(cls, event: DomainEvent) -> None:
-        """Alias for publish."""
+        """Alias untuk publish."""
         await cls.publish(event)
 
     @classmethod
     async def save(cls, event: DomainEvent) -> None:
-        """Alias for publish."""
+        """Alias untuk publish."""
         await cls.publish(event)
 
     @classmethod
     async def get_events(
         cls, limit: int = 100, event_type: DomainEventType | None = None
     ) -> list[DomainEvent]:
-        """Get published events with optional filter."""
+        """
+        Dapatkan event yang sudah dipublikasikan dengan filter opsional.
+
+        Args:
+            limit: Jumlah maksimum event.
+            event_type: Filter berdasarkan tipe event (opsional).
+
+        Returns:
+            List[DomainEvent]: Daftar event.
+        """
         events = cls._published_events[-limit:] if limit > 0 else cls._published_events
         if event_type:
             events = [e for e in events if e.event_type == event_type]
@@ -637,12 +817,17 @@ class DomainEventPublisher:
 
     @classmethod
     async def clear(cls) -> None:
-        """Clear all published events."""
+        """Hapus semua event yang sudah dipublikasikan."""
         cls._published_events.clear()
 
     @classmethod
     def get_statistics(cls) -> dict[str, Any]:
-        """Get statistics about published events."""
+        """
+        Dapatkan statistik event yang sudah dipublikasikan.
+
+        Returns:
+            dict: Statistik dengan total dan breakdown per tipe event.
+        """
         by_type = {}
         for event in cls._published_events:
             by_type[event.event_type.value] = by_type.get(event.event_type.value, 0) + 1
@@ -654,12 +839,17 @@ class DomainEventPublisher:
 
     @classmethod
     def reset(cls) -> None:
-        """Reset publisher (for testing)."""
+        """Reset publisher (untuk testing)."""
         cls._published_events.clear()
 
     @classmethod
     def set_max_history(cls, max_history: int) -> None:
-        """Set maximum number of events to keep."""
+        """
+        Set maksimum jumlah event yang disimpan.
+
+        Args:
+            max_history: Jumlah maksimum event.
+        """
         cls._max_history = max_history
         if len(cls._published_events) > cls._max_history:
             cls._published_events = cls._published_events[-cls._max_history :]
@@ -673,10 +863,9 @@ ARInvoiceCancelled = InvoiceCancelledEvent
 ARInvoiceWrittenOff = InvoiceWrittenOffEvent
 ARPaymentReceived = PaymentReceivedEvent
 ARPaymentApplied = PaymentAllocatedEvent
-ARPaymentVoided = PaymentAllocatedEvent  # placeholder
+ARPaymentVoided = PaymentVoidedEvent
 ARCreditNoteIssued = CreditNoteIssuedEvent
 ARDebitNoteIssued = DebitNoteIssuedEvent
-BadDebtProvisionRecorded = None  # will be added separately
 
 
 # === 5. EXPORTS ===

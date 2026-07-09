@@ -234,13 +234,25 @@ class SQLAlchemyUMKMRepository(UMKMRepositoryPort):
         return result.scalar_one_or_none()
 
     async def update_profile_tax_status(self, profile_id: UUID, uses_umkm_tax: bool) -> None:
+        """
+        Update UMKM tax status with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
-        stmt = (
-            update(UMKMProfileTable)
-            .where(UMKMProfileTable.id == profile_id)
-            .values(uses_umkm_tax=uses_umkm_tax)
-        )
-        await session.execute(stmt)
+        async with session.begin():
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(UMKMProfileTable).where(
+                UMKMProfileTable.id == profile_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            profile = result.scalar_one_or_none()
+            if not profile:
+                raise ValueError(f"UMKM profile {profile_id} not found")
+
+            # 2. Update the locked row
+            profile.uses_umkm_tax = uses_umkm_tax
+            await session.flush()
+            logger.info(f"UMKM profile {profile_id} tax status updated to {uses_umkm_tax}")
 
     async def get_transaction_by_id(self, transaction_id: UUID) -> UMKMTransactionTable | None:
         session = await self._get_session()

@@ -3,6 +3,8 @@
 Module: sqlalchemy_budget_repository_impl.py
 Layer: Infrastructure (Secondary Adapter)
 Responsibility: Implementasi repository Budget (anggaran) menggunakan SQLAlchemy.
+Perbaikan:
+  - [FIX] Race condition pada update dan update_budget_amount dengan pessimistic locking.
 """
 
 from __future__ import annotations
@@ -72,8 +74,21 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
 
     async def update(self, budget: BudgetTable) -> None:
         session = await self._get_session()
-        await session.merge(budget)
-        await session.flush()
+        async with session.begin():
+            # Lock the row to prevent race conditions
+            stmt = select(BudgetTable).where(BudgetTable.id == budget.id).with_for_update()
+            result = await session.execute(stmt)
+            existing = result.scalar_one_or_none()
+            if not existing:
+                raise ValueError(f"Budget {budget.id} not found")
+            # Merge changes into the locked instance
+            # We can update fields manually or use merge, but merge might not use the locked instance.
+            # Better to update explicitly:
+            for key, value in budget.__dict__.items():
+                if key not in ('_sa_instance_state', 'id', 'created_at', 'created_by'):
+                    setattr(existing, key, value)
+            existing.updated_at = func.now()
+            await session.flush()
 
     async def get_last_budget_number(self, legal_entity_id: uuid.UUID) -> str | None:
         session = await self._get_session()
@@ -112,8 +127,16 @@ class SQLAlchemyBudgetRepository(BudgetRepositoryPort):
 
     async def update_budget_amount(self, budget_id: uuid.UUID, amount: Decimal) -> None:
         session = await self._get_session()
-        stmt = update(BudgetTable).where(BudgetTable.id == budget_id).values(amount=amount, updated_at=func.now())
-        await session.execute(stmt)
+        async with session.begin():
+            # Lock the row to prevent race conditions
+            stmt = select(BudgetTable).where(BudgetTable.id == budget_id).with_for_update()
+            result = await session.execute(stmt)
+            existing = result.scalar_one_or_none()
+            if not existing:
+                raise ValueError(f"Budget {budget_id} not found")
+            existing.amount = amount
+            existing.updated_at = func.now()
+            await session.flush()
 
     # ---------- Budget Actual ----------
     async def save_budget_actual(self, actual: BudgetActualTable) -> BudgetActualTable:

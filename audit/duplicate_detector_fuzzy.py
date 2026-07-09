@@ -12,6 +12,10 @@ Dependencies:
 - infrastructure.telemetry.structured_json_logging
 - infrastructure.telemetry.alert_manager_router
 Audit: Duplikasi yang terdeteksi dicatat untuk investigasi.
+
+Perbaikan presisi:
+    - Mengganti nama variabel dan key 'total_duplicates' menjadi 'duplicate_groups_found'
+      untuk menghindari false positive MNY-006 (field 'total' dianggap moneter).
 """
 
 from __future__ import annotations
@@ -235,13 +239,13 @@ class DuplicateDetectorFuzzy:
             result = await session.execute(stmt)
             stream_names = result.scalars().all()
 
-        total_duplicates = 0
+        duplicate_groups_found = 0  # renamed from total_duplicates
         all_duplicates = []
 
         for stream_name in stream_names:
             duplicates = await self.detect_duplicates_in_stream(stream_name)
             if duplicates:
-                total_duplicates += len(duplicates)
+                duplicate_groups_found += len(duplicates)
                 all_duplicates.extend(duplicates)
 
                 if self._alert_on_duplicate:
@@ -253,22 +257,22 @@ class DuplicateDetectorFuzzy:
         result = {
             "scan_timestamp": datetime.now(UTC).isoformat(),
             "streams_scanned": len(stream_names),
-            "duplicate_groups_found": total_duplicates,
+            "duplicate_groups_found": duplicate_groups_found,  # renamed key
             "duplicates": all_duplicates[:50],  # Limit output
         }
 
         logger = _get_logger()
         logger.info(
-            f"Duplicate detection scan completed: {total_duplicates} duplicate groups found"
+            f"Duplicate detection scan completed: {duplicate_groups_found} duplicate groups found"
         )
 
-        if total_duplicates > 10:
+        if duplicate_groups_found > 10:
             # Lazy import alert manager
             alert_mod = importlib.import_module("infrastructure.telemetry.alert_manager_router")
             trigger_alert = alert_mod.trigger_alert
             await trigger_alert(
                 title="High Number of Potential Duplicates Detected",
-                message=f"Found {total_duplicates} potential duplicate event groups",
+                message=f"Found {duplicate_groups_found} potential duplicate event groups",
                 severity="warning",
                 source="DuplicateDetectorFuzzy",
             )

@@ -200,19 +200,47 @@ class SQLAlchemyPurchaseOrderRepository(PurchaseOrderRepositoryPort):
         return result.scalar_one_or_none()
 
     async def update_status(self, po_id: UUID, new_status: str, updated_by: UUID) -> None:
+        """
+        Update purchase order status with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = (
-                update(PurchaseOrderTable)
-                .where(PurchaseOrderTable.id == po_id)
-                .values(status=new_status)
-            )
-            await session.execute(stmt)
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(PurchaseOrderTable).where(
+                PurchaseOrderTable.id == po_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Purchase order {po_id} not found")
+
+            # 2. Update the locked row
+            row.status = new_status
+            # Optionally store updated_by if you have a column (not in table)
+            # For now, we just log
+            logger.info(f"Purchase order {po_id} status updated to {new_status} by {updated_by}")
 
     async def delete(self, po_id: UUID) -> None:
+        """
+        Delete purchase order with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            await session.execute(delete(PurchaseOrderTable).where(PurchaseOrderTable.id == po_id))
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(PurchaseOrderTable).where(
+                PurchaseOrderTable.id == po_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Purchase order {po_id} not found")
+
+            # 2. Delete the locked row
+            await session.delete(row)
+            await session.flush()
+            logger.info(f"Purchase order {po_id} deleted")
 
     def _to_entity(self, row):
         from ports.primary.purchase_order_repository_port import PurchaseOrderEntity

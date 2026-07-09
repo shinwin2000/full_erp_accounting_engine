@@ -4,6 +4,10 @@ Module: coretax_faktur_line_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel coretax_faktur_line.
                Tabel ini menyimpan line items dari faktur pajak (keluaran/masukan).
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (unit_price, amount, tax_amount)
+      di to_dict() untuk menjaga presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -97,13 +101,13 @@ class CoretaxFakturLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin
             "faktur_id": str(self.faktur_id),
             "line_number": self.line_number,
             "description": self.description,
-            "quantity": float(self.quantity),
-            "unit_price": float(self.unit_price),
-            "amount": float(self.amount),
-            "tax_amount": float(self.tax_amount),
+            "quantity": str(self.quantity),      # kuantitas bisa str juga
+            "unit_price": str(self.unit_price),  # ganti float -> str
+            "amount": str(self.amount),          # ganti float -> str
+            "tax_amount": str(self.tax_amount),  # ganti float -> str
             "currency": self.currency,
-            "total_amount": float(self.total_amount),
-            "ppn_rate": float(self.ppn_rate),
+            "total_amount": str(self.total_amount),  # ganti float -> str
+            "ppn_rate": str(self.ppn_rate),      # persentase, juga str untuk konsistensi
         }
 
 

@@ -3,6 +3,10 @@
 Module: company_tax_profile_vo.py
 Layer: 6 - Domain / Legal Entity
 Responsibility: Value object profil pajak perusahaan (PKP, tarif).
+
+Perbaikan presisi:
+    - Mengganti float() dengan str() pada nilai persentase di to_dict() untuk
+      menghindari kehilangan presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -78,8 +82,8 @@ class CompanyTaxProfileVO:
         return {
             "is_pkp": self.is_pkp,
             "tax_regime": self.tax_regime.value,
-            "corporate_income_tax_rate": float(self.corporate_income_tax_rate.value),
-            "vat_rate": float(self.vat_rate.value),
+            "corporate_income_tax_rate": str(self.corporate_income_tax_rate.value),
+            "vat_rate": str(self.vat_rate.value),
             "vat_collection_method": self.vat_collection_method,
             "income_tax_article": self.income_tax_article,
             "tax_bracket": self.tax_bracket,

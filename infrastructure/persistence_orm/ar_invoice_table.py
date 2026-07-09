@@ -13,6 +13,10 @@ Dependencies:
 - infrastructure.persistence_orm.base_model (Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEntityMixin)
 Audit: Setiap perubahan status invoice (draft, submitted, approved, paid, dll)
        dicatat di event store.
+
+Perbaikan presisi:
+    - payment_percentage mengembalikan Decimal (bukan float) untuk menghindari
+      kehilangan presisi dan memenuhi aturan MNY-024.
 """
 
 from __future__ import annotations
@@ -169,7 +173,7 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     )
 
     # ========================================================================
-    # Bupots (Coretax) � ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
+    # Bupots (Coretax) – ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
     # ========================================================================
     bupots: Mapped[list[CoretaxBupotTable]] = relationship(
         "CoretaxBupotTable",
@@ -212,10 +216,11 @@ class ARInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         return max(0, delta.days)
 
     @property
-    def payment_percentage(self) -> float:
+    def payment_percentage(self) -> Decimal:
+        """Persentase pembayaran sebagai Decimal (0-100)."""
         if self.total_amount == 0:
-            return 100.0
-        return float((self.paid_amount / self.total_amount) * 100)
+            return Decimal("100.0")
+        return (self.paid_amount / self.total_amount) * Decimal("100")
 
     # ========================================================================
     # METHODS

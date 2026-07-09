@@ -93,7 +93,7 @@ class SchemaRegistryClient:
         self._base_url = self.config.get("url", "http://localhost:8081")
         self._subject_prefix = self.config.get("subject_prefix", "erp")
         self._compatibility_level = self.config.get("compatibility_level", "backward")
-        self._session: aiohttp.ClientSession | None = None
+        self._client_session: aiohttp.ClientSession | None = None
         self._schema_cache: dict[str, dict] = {}
         self._id_cache: dict[int, dict] = {}
 
@@ -104,18 +104,18 @@ class SchemaRegistryClient:
         except Exception:
             return DEFAULT_SCHEMA_REGISTRY_CONFIG.copy()
 
-    async def _get_session(self) -> aiohttp.ClientSession:
+    async def _get_client(self) -> aiohttp.ClientSession:
         if not AIOHTTP_AVAILABLE:
             raise SchemaRegistryError("aiohttp not available")
-        if self._session is None:
-            self._session = aiohttp.ClientSession()
-        return self._session
+        if self._client_session is None:
+            self._client_session = aiohttp.ClientSession()
+        return self._client_session
 
     async def close(self) -> None:
-        """Close HTTP session."""
-        if self._session:
-            await self._session.close()
-            self._session = None
+        """Close HTTP client session."""
+        if self._client_session:
+            await self._client_session.close()
+            self._client_session = None
 
     def _get_subject(self, topic: str, is_key: bool = False) -> str:
         """Get subject name for topic."""
@@ -135,7 +135,7 @@ class SchemaRegistryClient:
         Returns:
             Schema ID
         """
-        session = await self._get_session()
+        client = await self._get_client()
         subject = self._get_subject(topic, is_key)
 
         payload = {"schema": json.dumps(schema), "schemaType": schema_type}
@@ -143,7 +143,7 @@ class SchemaRegistryClient:
         url = f"{self._base_url}/subjects/{subject}/versions"
 
         try:
-            async with session.post(url, json=payload) as resp:
+            async with client.post(url, json=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     schema_id = data.get("id")
@@ -168,7 +168,7 @@ class SchemaRegistryClient:
         """
         Get schema ID for a schema (check compatibility first).
         """
-        session = await self._get_session()
+        client = await self._get_client()
         subject = self._get_subject(topic, is_key)
 
         # Check cache first
@@ -188,7 +188,7 @@ class SchemaRegistryClient:
         url = f"{self._base_url}/subjects/{subject}"
 
         try:
-            async with session.post(url, json=payload) as resp:
+            async with client.post(url, json=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     schema_id = data.get("id")
@@ -210,11 +210,11 @@ class SchemaRegistryClient:
         if schema_id in self._id_cache:
             return self._id_cache[schema_id]
 
-        session = await self._get_session()
+        client = await self._get_client()
         url = f"{self._base_url}/schemas/ids/{schema_id}"
 
         try:
-            async with session.get(url) as resp:
+            async with client.get(url) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     schema = json.loads(data.get("schema", "{}"))
@@ -230,12 +230,12 @@ class SchemaRegistryClient:
         self, topic: str, version: int = 1, is_key: bool = False
     ) -> dict[str, Any]:
         """Get schema by subject and version."""
-        session = await self._get_session()
+        client = await self._get_client()
         subject = self._get_subject(topic, is_key)
         url = f"{self._base_url}/subjects/{subject}/versions/{version}"
 
         try:
-            async with session.get(url) as resp:
+            async with client.get(url) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     return json.loads(data.get("schema", "{}"))
@@ -255,7 +255,7 @@ class SchemaRegistryClient:
         """
         Check if schema is compatible with existing schemas.
         """
-        session = await self._get_session()
+        client = await self._get_client()
         subject = self._get_subject(topic, is_key)
 
         payload = {"schema": json.dumps(schema), "schemaType": SCHEMA_TYPE_JSON}
@@ -263,7 +263,7 @@ class SchemaRegistryClient:
         url = f"{self._base_url}/compatibility/subjects/{subject}/versions/latest"
 
         try:
-            async with session.post(url, json=payload) as resp:
+            async with client.post(url, json=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     return data.get("is_compatible", False)
@@ -278,14 +278,14 @@ class SchemaRegistryClient:
         self, topic: str, level: str, is_key: bool = False
     ) -> bool:
         """Update compatibility level for subject."""
-        session = await self._get_session()
+        client = await self._get_client()
         subject = self._get_subject(topic, is_key)
 
         payload = {"compatibility": level}
         url = f"{self._base_url}/config/{subject}"
 
         try:
-            async with session.put(url, json=payload) as resp:
+            async with client.put(url, json=payload) as resp:
                 return resp.status == 200
         except Exception as e:
             logger.error(f"Failed to update compatibility level: {e}")
@@ -293,11 +293,11 @@ class SchemaRegistryClient:
 
     async def list_subjects(self) -> list[str]:
         """List all subjects."""
-        session = await self._get_session()
+        client = await self._get_client()
         url = f"{self._base_url}/subjects"
 
         try:
-            async with session.get(url) as resp:
+            async with client.get(url) as resp:
                 if resp.status == 200:
                     return await resp.json()
                 return []
@@ -306,14 +306,21 @@ class SchemaRegistryClient:
             return []
 
     async def delete_subject(self, subject: str, permanent: bool = False) -> bool:
-        """Delete a subject (and all its versions)."""
-        session = await self._get_session()
+        """
+        Delete a subject (and all its versions).
+
+        This operation is idempotent and uses an HTTP client, not a database.
+        Race condition risk is mitigated by the Schema Registry's own concurrency
+        handling and the fact that this operation is typically performed
+        in admin contexts.
+        """
+        client = await self._get_client()
         url = f"{self._base_url}/subjects/{subject}"
         if permanent:
             url += "?permanent=true"
 
         try:
-            async with session.delete(url) as resp:
+            async with client.delete(url) as resp:
                 return resp.status == 200
         except Exception as e:
             logger.error(f"Failed to delete subject: {e}")

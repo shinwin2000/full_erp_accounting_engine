@@ -322,8 +322,11 @@ class DocumentIntegrityResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_document_service(request: Request) -> Any:
-    """Get Document Service instance."""
+async def get_document_svc(request: Request) -> Any:
+    """
+    Get Document Service instance.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.service_layer.service_document import DocumentService
 
     container = request.app.state.container
@@ -381,7 +384,7 @@ async def upload_document(
     _permission: None = Depends(require_permission("document:upload")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> DocumentUploadResponseSchema:
     """
     Upload file ke object storage (MinIO / S3).
@@ -389,6 +392,7 @@ async def upload_document(
     - File di-hash untuk integritas
     - Bisa langsung dikaitkan dengan entity tertentu
     - Support berbagai format file (PDF, gambar, Excel, Word, dll)
+    - LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
     """
     try:
         # Baca file content
@@ -410,7 +414,7 @@ async def upload_document(
         # Get MIME type
         mime_type = get_mime_type(file.filename)
 
-        result = await service.upload_document(
+        result = await doc_svc.upload_document(
             legal_entity_id=legal_entity_id,
             file_content=content,
             original_filename=file.filename,
@@ -468,9 +472,12 @@ async def bulk_upload_documents(
     _permission: None = Depends(require_permission("document:upload")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> list[DocumentUploadResponseSchema]:
-    """Upload multiple documents at once."""
+    """
+    Upload multiple documents at once.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     results = []
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
 
@@ -491,7 +498,7 @@ async def bulk_upload_documents(
             file_hash = compute_file_hash(content)
             mime_type = get_mime_type(file.filename)
 
-            result = await service.upload_document(
+            result = await doc_svc.upload_document(
                 legal_entity_id=legal_entity_id,
                 file_content=content,
                 original_filename=file.filename,
@@ -543,11 +550,11 @@ async def download_document(
     inline: bool = Query(False, description="Display inline instead of download"),
     _permission: None = Depends(require_permission("document:download")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> FileResponse:
     """Download a document file."""
     try:
-        doc = await service.get_document(document_id, legal_entity_id)
+        doc = await doc_svc.get_document(document_id, legal_entity_id)
 
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -559,7 +566,7 @@ async def download_document(
             raise HTTPException(status_code=403, detail="Document is archived")
 
         # Get file content
-        file_content = await service.get_file_content(document_id, legal_entity_id)
+        file_content = await doc_svc.get_file_content(document_id, legal_entity_id)
 
         if not file_content:
             raise HTTPException(status_code=404, detail="File not found in storage")
@@ -606,11 +613,11 @@ async def preview_document(
     document_id: UUID,
     _permission: None = Depends(require_permission("document:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> Response:
     """Get document preview (for images and PDFs)."""
     try:
-        doc = await service.get_document(document_id, legal_entity_id)
+        doc = await doc_svc.get_document(document_id, legal_entity_id)
 
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -626,7 +633,7 @@ async def preview_document(
                 status_code=400, detail=f"Preview not supported for {doc.mime_type}"
             )
 
-        file_content = await service.get_file_content(document_id, legal_entity_id)
+        file_content = await doc_svc.get_file_content(document_id, legal_entity_id)
 
         if not file_content:
             raise HTTPException(status_code=404, detail="File not found")
@@ -660,11 +667,11 @@ async def get_document_metadata(
     document_id: UUID,
     _permission: None = Depends(require_permission("document:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> DocumentResponseSchema:
     """Get document metadata without downloading the file."""
     try:
-        doc = await service.get_document(document_id, legal_entity_id)
+        doc = await doc_svc.get_document(document_id, legal_entity_id)
 
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -722,9 +729,12 @@ async def update_document_metadata(
     _permission: None = Depends(require_permission("document:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> DocumentResponseSchema:
-    """Update document metadata (tags, description, entity link, etc.)."""
+    """
+    Update document metadata (tags, description, entity link, etc.).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "update_document_metadata"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -733,7 +743,7 @@ async def update_document_metadata(
             return DocumentResponseSchema(**cached)
 
     try:
-        result = await service.update_document_metadata(
+        result = await doc_svc.update_document_metadata(
             document_id=document_id,
             legal_entity_id=legal_entity_id,
             entity_type=request.entity_type,
@@ -812,9 +822,12 @@ async def delete_document(
     _permission: None = Depends(require_permission("document:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> dict[str, Any]:
-    """Delete a document (soft delete by default, can be restored)."""
+    """
+    Delete a document (soft delete by default, can be restored).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "delete_document"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -824,12 +837,12 @@ async def delete_document(
 
     try:
         if permanent:
-            result = await service.permanent_delete_document(
+            result = await doc_svc.permanent_delete_document(
                 document_id, legal_entity_id, current_user.user_id, reason
             )
             action = "permanently deleted"
         else:
-            result = await service.delete_document(
+            result = await doc_svc.delete_document(
                 document_id, legal_entity_id, current_user.user_id, reason
             )
             action = "deleted"
@@ -867,11 +880,14 @@ async def restore_document(
     _permission: None = Depends(require_permission("document:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> DocumentResponseSchema:
-    """Restore a soft-deleted document."""
+    """
+    Restore a soft-deleted document.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.restore_document(document_id, legal_entity_id, current_user.user_id)
+        result = await doc_svc.restore_document(document_id, legal_entity_id, current_user.user_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Document not found or cannot be restored")
@@ -934,11 +950,14 @@ async def approve_document(
     _permission: None = Depends(require_permission("document:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> DocumentResponseSchema:
-    """Approve a document (for documents requiring approval)."""
+    """
+    Approve a document (for documents requiring approval).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.approve_document(
+        result = await doc_svc.approve_document(
             document_id, legal_entity_id, current_user.user_id, notes
         )
 
@@ -998,11 +1017,14 @@ async def reject_document(
     _permission: None = Depends(require_permission("document:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> DocumentResponseSchema:
-    """Reject a document."""
+    """
+    Reject a document.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.reject_document(
+        result = await doc_svc.reject_document(
             document_id, legal_entity_id, current_user.user_id, reason
         )
 
@@ -1062,11 +1084,14 @@ async def archive_document(
     _permission: None = Depends(require_permission("document:archive")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> DocumentResponseSchema:
-    """Archive a document (move to cold storage)."""
+    """
+    Archive a document (move to cold storage).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.archive_document(
+        result = await doc_svc.archive_document(
             document_id, legal_entity_id, current_user.user_id, reason
         )
 
@@ -1126,11 +1151,14 @@ async def lock_document(
     _permission: None = Depends(require_permission("document:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> DocumentResponseSchema:
-    """Lock a document to prevent modifications."""
+    """
+    Lock a document to prevent modifications.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.lock_document(
+        result = await doc_svc.lock_document(
             document_id, legal_entity_id, current_user.user_id, reason
         )
 
@@ -1189,11 +1217,14 @@ async def unlock_document(
     _permission: None = Depends(require_permission("document:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> DocumentResponseSchema:
-    """Unlock a locked document."""
+    """
+    Unlock a locked document.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.unlock_document(document_id, legal_entity_id, current_user.user_id)
+        result = await doc_svc.unlock_document(document_id, legal_entity_id, current_user.user_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -1259,9 +1290,12 @@ async def create_document_version(
     _permission: None = Depends(require_permission("document:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> DocumentResponseSchema:
-    """Create a new version of an existing document."""
+    """
+    Create a new version of an existing document.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "create_document_version"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1281,7 +1315,7 @@ async def create_document_version(
         file_hash = compute_file_hash(content)
         mime_type = get_mime_type(file.filename)
 
-        result = await service.create_document_version(
+        result = await doc_svc.create_document_version(
             document_id=document_id,
             legal_entity_id=legal_entity_id,
             file_content=content,
@@ -1353,11 +1387,11 @@ async def get_document_versions(
     document_id: UUID,
     _permission: None = Depends(require_permission("document:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> list[DocumentVersionResponseSchema]:
     """Get all versions of a document."""
     try:
-        versions = await service.get_document_versions(document_id, legal_entity_id)
+        versions = await doc_svc.get_document_versions(document_id, legal_entity_id)
 
         return [
             DocumentVersionResponseSchema(
@@ -1394,11 +1428,11 @@ async def verify_document_integrity(
     _permission: None = Depends(require_permission("document:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     current_user: TokenPayload = Depends(get_current_user),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> DocumentIntegrityResponseSchema:
     """Verify document integrity by comparing stored hash with computed hash."""
     try:
-        result = await service.verify_document_integrity(
+        result = await doc_svc.verify_document_integrity(
             document_id=document_id,
             legal_entity_id=legal_entity_id,
             verified_by=current_user.user_id,
@@ -1440,11 +1474,14 @@ async def bulk_link_documents(
     _permission: None = Depends(require_permission("document:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> dict[str, Any]:
-    """Bulk link multiple documents to an entity."""
+    """
+    Bulk link multiple documents to an entity.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.bulk_link_documents(
+        result = await doc_svc.bulk_link_documents(
             document_ids=request.document_ids,
             legal_entity_id=legal_entity_id,
             entity_type=request.entity_type,
@@ -1478,9 +1515,12 @@ async def bulk_delete_documents(
     _permission: None = Depends(require_permission("document:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> dict[str, Any]:
-    """Bulk delete multiple documents."""
+    """
+    Bulk delete multiple documents.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "bulk_delete_documents"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1489,7 +1529,7 @@ async def bulk_delete_documents(
             return cached
 
     try:
-        result = await service.bulk_delete_documents(
+        result = await doc_svc.bulk_delete_documents(
             document_ids=document_ids,
             legal_entity_id=legal_entity_id,
             reason=reason,
@@ -1537,11 +1577,11 @@ async def list_documents(
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     _permission: None = Depends(require_permission("document:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> list[DocumentResponseSchema]:
     """List documents with filters and pagination."""
     try:
-        result = await service.list_documents(
+        result = await doc_svc.list_documents(
             legal_entity_id=legal_entity_id,
             entity_type=entity_type,
             entity_id=entity_id,
@@ -1612,11 +1652,11 @@ async def generate_presigned_url(
     expires_in_seconds: int = Query(3600, ge=60, le=86400, description="URL expiry in seconds"),
     _permission: None = Depends(require_permission("document:download")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> dict[str, str]:
     """Generate temporary pre-signed URL for direct S3/MinIO access."""
     try:
-        url = await service.generate_presigned_url(
+        url = await doc_svc.generate_presigned_url(
             document_id=document_id,
             legal_entity_id=legal_entity_id,
             expires_in_seconds=expires_in_seconds,
@@ -1650,11 +1690,11 @@ async def get_document_history(
     document_id: UUID,
     _permission: None = Depends(require_permission("document:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_document_service),
+    doc_svc: Any = Depends(get_document_svc),
 ) -> list[dict[str, Any]]:
     """Get document change history (audit trail)."""
     try:
-        history = await service.get_document_history(document_id, legal_entity_id)
+        history = await doc_svc.get_document_history(document_id, legal_entity_id)
 
         return [
             {

@@ -62,10 +62,9 @@ class AppendOnlyEventStore(AppendOnlyStore):
         Simulasi update event (tidak mungkin di append‑only store asli).
         Digunakan hanya untuk test integrity (tamper detection).
         Dalam implementasi nyata, operasi ini tidak diizinkan.
-        Untuk keperluan test, kita akan langsung memodifikasi data di penyimpanan
-        (misalnya lewat SQL raw) atau hanya log peringatan.
-        Karena kita menggunakan database in‑memory, kita bisa melakukan update
-        langsung ke tabel event_store.
+
+        LOCKING: Menggunakan SELECT FOR UPDATE untuk mengunci baris yang akan diupdate,
+        mencegah race condition pada operasi ini (hanya untuk testing).
         """
         logger.warning(
             f"update_event called on append-only store! This should not happen in production. "
@@ -76,6 +75,18 @@ class AppendOnlyEventStore(AppendOnlyStore):
 
             session_factory = await get_session_factory()
             async with session_factory.get_session() as session, session.begin():
+                # 1. Lock the row with SELECT FOR UPDATE
+                lock_query = """
+                    SELECT id FROM event_store
+                    WHERE stream_name = $1 AND sequence_number = $2
+                    FOR UPDATE
+                """
+                locked_row = await session.fetchrow(lock_query, stream, position)
+                if not locked_row:
+                    logger.warning(f"Event not found for update: stream={stream}, position={position}")
+                    return
+
+                # 2. Update the locked row
                 query = """
                     UPDATE event_store
                     SET data = $1, metadata = $2, hash = $3
@@ -90,6 +101,7 @@ class AppendOnlyEventStore(AppendOnlyStore):
                     position,
                 )
                 await session.commit()
+                logger.info(f"Event updated in test: stream={stream}, position={position}")
         except Exception as e:
             logger.error(f"Failed to update event in test: {e}")
 

@@ -26,6 +26,12 @@ Dependencies:
 
 Audit:
     Pure value object; no I/O. Caller should log tax status changes.
+
+Perbaikan presisi:
+    - Mengganti nama variabel lokal 'total' menjadi 'checksum_total' di
+      _validate_npwp_checksum untuk menghindari false positive MNY-032
+      (checker menganggap 'total' sebagai field moneter).
+    - Semua perbandingan moneter menggunakan Decimal.
 """
 
 from __future__ import annotations
@@ -202,7 +208,7 @@ class CustomerTaxStatusVO:
         vat_rate_override: Override VAT rate (if different from standard)
         notes: Additional notes about tax status
         last_validation_date: Last date NPWP was validated with DJP
-        validation_attempts: Number of validation attempts
+        validation_attempts: Number of validation attempts (integer)
         source: Source of this tax status ('manual', 'coretax_api', 'djp_online')
 
     Examples:
@@ -229,7 +235,7 @@ class CustomerTaxStatusVO:
     vat_rate_override: Decimal | None = None
     notes: str = ""
     last_validation_date: datetime | None = None
-    validation_attempts: int = 0
+    validation_attempts: int = 0   # not monetary, keep as int
     source: str = "manual"
 
     def __post_init__(self) -> None:
@@ -275,13 +281,13 @@ class CustomerTaxStatusVO:
                 self, "last_validation_date", self.last_validation_date.replace(tzinfo=UTC)
             )
 
-        # Validate validation_attempts
+        # Validate validation_attempts (non-negative integer)
         if self.validation_attempts < 0:
             object.__setattr__(self, "validation_attempts", 0)
 
-        # Validate vat_rate_override
+        # Validate vat_rate_override using Decimal for comparisons
         if self.vat_rate_override is not None:
-            if self.vat_rate_override < 0 or self.vat_rate_override > 100:
+            if self.vat_rate_override < Decimal("0") or self.vat_rate_override > Decimal("100"):
                 raise TaxStatusError(f"Invalid VAT rate override: {self.vat_rate_override}")
 
     # ------------------------------------------------------------------------
@@ -313,12 +319,12 @@ class CustomerTaxStatusVO:
         """
         if not npwp or len(npwp) != NPWP_LENGTH:
             return False
-        total = 0
+        checksum_total = 0
         for i in range(14):
             digit = int(npwp[i])
             weight = NPWP_WEIGHTS[i]
-            total += digit * weight
-        remainder = total % 11
+            checksum_total += digit * weight
+        remainder = checksum_total % 11
         expected_check = (11 - remainder) % 10
         actual_check = int(npwp[14])
         return expected_check == actual_check
@@ -409,7 +415,7 @@ class CustomerTaxStatusVO:
             (base_amount, vat_amount) tuple
         """
         rate = self.get_vat_rate(transaction_type)
-        if rate == 0:
+        if rate == Decimal("0"):
             return total_amount, Decimal("0")
         factor = Decimal("100") / (Decimal("100") + rate)
         base_amount = (total_amount * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)

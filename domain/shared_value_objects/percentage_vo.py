@@ -22,6 +22,11 @@ Dependencies:
 
 Audit:
     Pure value object; no I/O. Caller may log percentage usage.
+
+Perbaikan presisi:
+    - Menghapus properti as_float yang menggunakan float() pada nilai persentase.
+      (Persentase bukan moneter, tetapi penggunaan float() tetap dihindari untuk
+      menjaga konsistensi presisi.)
 """
 
 from __future__ import annotations
@@ -158,10 +163,7 @@ class PercentageVO:
         """Return the percentage as a decimal factor (0.0 to 1.0)."""
         return self.value / self.MAX_PERCENT
 
-    @property
-    def as_float(self) -> float:
-        """Return as float (warning: precision loss)."""
-        return float(self.value)
+    # as_float property removed to avoid float() usage on numeric values
 
     @property
     def is_zero(self) -> bool:

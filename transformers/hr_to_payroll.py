@@ -9,6 +9,10 @@ Responsibility: Mentransformasi event dari sistem HR (Employee Master, Attendanc
 Metode yang ditambahkan:
 - BaseTransformer dengan entity dasar: validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch.
 - Untuk PayrollCalculator, HRToPayrollTransformer.
+
+Perbaikan presisi:
+    - Menghilangkan float() pada nilai moneter, mengganti dengan str() atau Decimal.
+    - Semua operasi moneter menggunakan Decimal untuk presisi.
 """
 
 from __future__ import annotations
@@ -52,22 +56,22 @@ BPJS_KESEHATAN_RATE_EMPLOYER = Decimal("0.0400")
 BPJS_KESEHATAN_RATE_EMPLOYEE = Decimal("0.0100")
 
 PPh21_BRACKETS = [
-    (0, 60000000, Decimal("0.05")),
-    (60000000, 250000000, Decimal("0.15")),
-    (250000000, 500000000, Decimal("0.25")),
-    (500000000, 5000000000, Decimal("0.30")),
-    (5000000000, float("inf"), Decimal("0.35")),
+    (Decimal(0), Decimal(60000000), Decimal("0.05")),
+    (Decimal(60000000), Decimal(250000000), Decimal("0.15")),
+    (Decimal(250000000), Decimal(500000000), Decimal("0.25")),
+    (Decimal(500000000), Decimal(5000000000), Decimal("0.30")),
+    (Decimal(5000000000), Decimal("inf"), Decimal("0.35")),
 ]
 
 PTKP_AMOUNTS = {
-    "TK/0": 54000000,
-    "TK/1": 58500000,
-    "TK/2": 63000000,
-    "TK/3": 67500000,
-    "K/0": 58500000,
-    "K/1": 63000000,
-    "K/2": 67500000,
-    "K/3": 72000000,
+    "TK/0": Decimal(54000000),
+    "TK/1": Decimal(58500000),
+    "TK/2": Decimal(63000000),
+    "TK/3": Decimal(67500000),
+    "K/0": Decimal(58500000),
+    "K/1": Decimal(63000000),
+    "K/2": Decimal(67500000),
+    "K/3": Decimal(72000000),
 }
 
 HANDLED_EVENT_TYPES = [
@@ -191,10 +195,10 @@ class PayrollCalculator(BaseTransformer):
         basic_salary = Decimal(str(employee_data.get("basic_salary", 0)))
         days_present = employee_data.get("days_present", 20)
         total_work_days = 20
-        salary_ratio = days_present / total_work_days
+        salary_ratio = Decimal(days_present) / Decimal(total_work_days)
         prorated_salary = basic_salary * salary_ratio
         overtime_hours = Decimal(str(employee_data.get("overtime_hours", 0)))
-        overtime_pay = overtime_hours * (basic_salary / 173) * Decimal("1.5")
+        overtime_pay = overtime_hours * (basic_salary / Decimal(173)) * Decimal("1.5")
         allowances = Decimal(str(employee_data.get("allowances", 0)))
         bonus = Decimal(str(employee_data.get("bonus", 0)))
         deductions = Decimal(str(employee_data.get("deductions", 0)))
@@ -247,24 +251,22 @@ class PayrollCalculator(BaseTransformer):
         bpjs_deductions: Decimal,
     ) -> Decimal:
         ptkp_status = employee_data.get("ptkp_status", "TK/0")
-        ptkp_annual = PTKP_AMOUNTS.get(ptkp_status, 54000000)
-        previous_months_gross = employee_data.get("ytd_gross_income", 0)
-        ytd_gross = previous_months_gross + float(monthly_gross)
-        annualized_gross = (ytd_gross / period_month) * 12 if period_month > 0 else 0
-        taxable_income = max(0, annualized_gross - ptkp_annual)
+        ptkp_annual = PTKP_AMOUNTS.get(ptkp_status, Decimal(54000000))
+        previous_months_gross = Decimal(str(employee_data.get("ytd_gross_income", 0)))
+        ytd_gross = previous_months_gross + monthly_gross
+        annualized_gross = (ytd_gross / Decimal(period_month)) * Decimal(12) if period_month > 0 else Decimal(0)
+        taxable_income = max(Decimal(0), annualized_gross - ptkp_annual)
         annual_tax = Decimal(0)
         remaining = taxable_income
         for lower, upper, rate in PPh21_BRACKETS:
             if remaining <= 0:
                 break
-            bracket_amount = (
-                min(remaining, Decimal(str(upper - lower))) if upper != float("inf") else remaining
-            )
-            annual_tax += Decimal(str(bracket_amount)) * rate
-            remaining -= Decimal(str(bracket_amount))
-        monthly_tax = annual_tax / 12
-        tax_paid_ytd = employee_data.get("tax_paid_ytd", 0)
-        current_month_tax = max(0, monthly_tax - Decimal(str(tax_paid_ytd)))
+            bracket_amount = min(remaining, upper - lower) if upper != Decimal("inf") else remaining
+            annual_tax += bracket_amount * rate
+            remaining -= bracket_amount
+        monthly_tax = annual_tax / Decimal(12)
+        tax_paid_ytd = Decimal(str(employee_data.get("tax_paid_ytd", 0)))
+        current_month_tax = max(Decimal(0), monthly_tax - tax_paid_ytd)
         return current_month_tax
 
     def validate(self) -> dict[str, Any]:
@@ -480,7 +482,7 @@ class HRToPayrollTransformer(BaseTransformer):
                 "type": "payment.create",
                 "data": {
                     "payroll_run_id": str(payroll_run_id),
-                    "amount": float(total_net_salary),
+                    "amount": str(total_net_salary),  # ganti float dengan str
                     "payment_date": datetime.now(UTC).date().isoformat(),
                     "payment_method": "bank_transfer",
                     "legal_entity_id": str(legal_entity_id),
@@ -537,8 +539,8 @@ class HRToPayrollTransformer(BaseTransformer):
                 "employee_id": emp.id,
                 "employee_code": emp.employee_code,
                 "employee_name": emp.full_name,
-                "basic_salary": float(emp.basic_salary.amount) if emp.basic_salary else 0,
-                "allowances": float(emp.allowances.amount) if emp.allowances else 0,
+                "basic_salary": str(emp.basic_salary.amount) if emp.basic_salary else "0",
+                "allowances": str(emp.allowances.amount) if emp.allowances else "0",
                 "ptkp_status": emp.tax_status or "TK/0",
                 "npwp": str(emp.npwp) if emp.npwp else None,
             }

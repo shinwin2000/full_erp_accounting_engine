@@ -3,7 +3,12 @@
 Module: ntpn_validator.py
 Layer: Adapters (Coretax DJP)
 Responsibility: Memvalidasi NTPN (Nomor Transaksi Penerimaan Negara) ke sistem Coretax DJP.
+
+Perbaikan presisi (MNY-003):
+    - Semua nilai moneter (amount) diserialisasi sebagai string (bukan float) untuk menjaga presisi.
+    - Untuk payload API eksternal, konversi ke float dilakukan hanya saat diperlukan (boundary).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -276,7 +281,7 @@ class NTPN:
                 "ntpn_id": str(self._ntpn_id),
                 "ntpn": self.ntpn_masked,
                 "npwp": self._npwp,
-                "amount": float(self._amount),
+                "amount": str(self._amount),  # ganti float -> str untuk presisi
                 "payment_date": self._payment_date.isoformat(),
                 "created_by": str(created_by),
             },
@@ -430,7 +435,7 @@ class NTPN:
                 "ntpn_id": str(self._ntpn_id),
                 "ntpn": self.ntpn_masked,
                 "validator_id": str(validator_id),
-                "amount": float(self._amount),
+                "amount": str(self._amount),  # ganti float -> str untuk presisi
             },
         )
         return self
@@ -497,7 +502,7 @@ class NTPN:
             "is_valid": self.is_valid,
             "is_used": self.is_used,
             "is_locked": self.is_locked,
-            "amount": float(self._amount),
+            "amount": str(self._amount),  # ganti float -> str untuk presisi
             "payment_date": self._payment_date.isoformat(),
             "npwp": self._npwp,
             "tax_type": self._tax_type,
@@ -515,7 +520,7 @@ class NTPN:
             "ntpn_id": str(self._ntpn_id),
             "ntpn": self.ntpn,
             "ntpn_masked": self.ntpn_masked,
-            "amount": float(self._amount),
+            "amount": str(self._amount),  # ganti float -> str untuk presisi
             "payment_date": self._payment_date.isoformat(),
             "npwp": self._npwp,
             "tax_type": self._tax_type,
@@ -538,7 +543,7 @@ class NTPN:
         return {
             "ntpn_id": str(self._ntpn_id),
             "ntpn": self._ntpn,
-            "amount": float(self._amount),
+            "amount": str(self._amount),  # ganti float -> str untuk presisi
             "payment_date": self._payment_date.isoformat(),
             "npwp": self._npwp,
             "tax_type": self._tax_type,
@@ -921,9 +926,10 @@ class NTPNValidator:
         if cached is not None:
             return cached
         client = await self._get_coretax_client()
+        # Untuk payload API, konversi ke float hanya untuk batas eksternal
         payload = {
             "ntpn": ntpn,
-            "amount": float(amount),
+            "amount": float(amount),  # boundary: Coretax API expects float
             "payment_date": payment_date.isoformat(),
         }
         if tax_type:

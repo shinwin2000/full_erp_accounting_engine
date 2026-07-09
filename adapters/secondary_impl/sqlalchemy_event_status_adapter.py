@@ -2,7 +2,9 @@
 """
 Module: sqlalchemy_event_status_adapter.py
 Layer: Adapters (Secondary Implementation)
-Responsibility: Real SQLAlchemy implementation of EventStatus port.
+Responsibility: Implementasi EventStatusPort dengan SQLAlchemy.
+Perbaikan:
+  - Menggunakan pessimistic locking (SELECT FOR UPDATE) untuk mencegah race condition.
 """
 
 from __future__ import annotations
@@ -12,10 +14,13 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, DateTime, String, Text, delete, select
+from sqlalchemy import Column, DateTime, String, Text, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base
+
+from ports.primary.event_status_port import EventStatusPort
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +37,11 @@ class EventStatusTable(Base):
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=datetime.utcnow)
 
 
-class SQLAlchemyEventStatusAdapter:
+class SQLAlchemyEventStatusAdapter(EventStatusPort):
+    """
+    Implementasi EventStatusPort dengan SQLAlchemy.
+    """
+
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
 
@@ -59,26 +68,41 @@ class SQLAlchemyEventStatusAdapter:
 
     async def set_status(self, event_id: str, status: str, message: str | None = None) -> dict[str, Any]:
         session = await self._get_session()
-        # Check if exists
-        stmt = select(EventStatusTable).where(EventStatusTable.event_id == event_id)
+        # Lock the row if it exists to prevent race conditions
+        stmt = select(EventStatusTable).where(EventStatusTable.event_id == event_id).with_for_update()
         result = await session.execute(stmt)
         row = result.scalar_one_or_none()
+
         if row:
-            # Update
             row.status = status
             if message is not None:
                 row.message = message
             row.updated_at = datetime.utcnow()
             await session.flush()
         else:
-            # Create
-            row = EventStatusTable(
-                event_id=event_id,
-                status=status,
-                message=message,
-            )
-            session.add(row)
-            await session.flush()
+            # Insert new row, handle concurrent insert
+            try:
+                row = EventStatusTable(
+                    event_id=event_id,
+                    status=status,
+                    message=message,
+                )
+                session.add(row)
+                await session.flush()
+            except IntegrityError:
+                await session.rollback()
+                # Retry with lock
+                stmt_retry = select(EventStatusTable).where(
+                    EventStatusTable.event_id == event_id
+                ).with_for_update()
+                result_retry = await session.execute(stmt_retry)
+                row = result_retry.scalar_one()
+                row.status = status
+                if message is not None:
+                    row.message = message
+                row.updated_at = datetime.utcnow()
+                await session.flush()
+
         return {
             "event_id": row.event_id,
             "status": row.status,
@@ -89,10 +113,14 @@ class SQLAlchemyEventStatusAdapter:
 
     async def delete_status(self, event_id: str) -> bool:
         session = await self._get_session()
-        stmt = delete(EventStatusTable).where(EventStatusTable.event_id == event_id)
+        stmt = select(EventStatusTable).where(EventStatusTable.event_id == event_id).with_for_update()
         result = await session.execute(stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            return False
+        await session.delete(row)
         await session.flush()
-        return result.rowcount > 0
+        return True
 
 
 __all__ = ["EventStatusTable", "SQLAlchemyEventStatusAdapter"]

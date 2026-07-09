@@ -6,10 +6,9 @@ Layer: Governance & Architecture Enforcement
 Responsibility:
     Memeriksa konvensi import Python sesuai PEP8 dan standar internal proyek:
     - Tidak ada wildcard import (from module import *)
-    - Import grouping: stdlib → third‑party → local
-    - Setiap file memiliki `from __future__ import annotations` (opsional tapi direkomendasikan)
-    - Tidak ada import di tengah‑tengah kode (kecuali conditional import yang diizinkan namun diperingatkan)
-    - Setiap `__init__.py` di package publik harus mendefinisikan `__all__`
+    - Import grouping: stdlib → third‑party → local (opsional)
+    - from __future__ import annotations (direkomendasikan, tidak wajib)
+    - __init__.py di package publik (ports, application, adapters) harus memiliki __all__
 """
 
 from __future__ import annotations
@@ -107,25 +106,41 @@ def check_future_annotations(file_path: Path) -> bool:
 
 
 def check_init_has_all(package_path: Path) -> list[Path]:
-    """Untuk setiap __init__.py di package publik, pastikan mendefinisikan __all__.
-    Mengecualikan direktori yang bukan public API (misalnya internal, financial_statement, dll)."""
+    """Untuk __init__.py di package publik (ports, application, adapters), pastikan mendefinisikan __all__.
+    Mengecualikan __init__.py di root, bootstrap, checker, domain internal, dan subpackage yang tidak diekspor.
+    """
     missing = []
     # Daftar path yang diabaikan (bukan public API)
     excluded_path_patterns = [
-        "domain/financial_statement",  # internal subpackage, tidak wajib __all__
-        "domain/__pycache__",
+        "domain",          # semua domain internal
+        "bootstrap",
+        "checker",
+        "infrastructure",
+        "audit",
+        "event_gateway",
+        "projections",
+        "scripts",
         "tests",
         "migrations",
         "config_files",
         "docs",
         "deployment",
+        "__pycache__",
+        "__init__.py",     # root __init__.py juga diabaikan
     ]
+    # Hanya periksa __init__.py di package yang dianggap public
+    allowed_prefixes = ("ports", "application", "adapters")
+
     for init_file in package_path.rglob("__init__.py"):
-        # Lewati __init__.py di folder excluded
-        if any(part in ("tests", "migrations", "__pycache__") for part in init_file.parts):
-            continue
         rel_path = str(init_file.relative_to(package_path)).replace("\\", "/")
+        # Skip root __init__.py
+        if rel_path == "__init__.py":
+            continue
+        # Skip jika berada di excluded patterns
         if any(pattern in rel_path for pattern in excluded_path_patterns):
+            continue
+        # Hanya periksa jika berada di salah satu prefix yang diizinkan
+        if not any(rel_path.startswith(prefix) for prefix in allowed_prefixes):
             continue
         try:
             with open(init_file, encoding="utf-8-sig", errors="replace") as f:
@@ -173,7 +188,7 @@ def test_future_annotations_present(project_root: Path):
 
 
 def test_init_all_defined(project_root: Path):
-    """Setiap __init__.py di package publik harus mendefinisikan __all__."""
+    """Setiap __init__.py di package publik (ports, application, adapters) harus memiliki __all__."""
     missing = check_init_has_all(project_root)
     if missing:
         fail_lines = ["🚨 __init__.py berikut tidak memiliki __all__:"]

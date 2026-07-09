@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Module: sqlalchemy_core_tax_port_impl.py
-Adapter for CoreTaxPort using SQLAlchemy with full implementation.
+Adapter for CoreTaxPort using SQLAlchemy.
+Fully implements CoreTaxPort with correct signatures.
 """
 
 from __future__ import annotations
@@ -10,9 +11,8 @@ import json
 import logging
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID, uuid4
-from enum import Enum
 
 from sqlalchemy import Column, DateTime, String, Text, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -21,14 +21,12 @@ from sqlalchemy.orm import declarative_base
 
 from ports.primary.core_tax_port import CoreTaxPort
 
-# Sekarang import langsung — TaxStatus sudah tersedia di value_objects
+# Import domain value objects (if needed)
 from domain.tax_transaction.value_objects import TaxStatus
 
 logger = logging.getLogger(__name__)
 
 Base = declarative_base()
-
-
 
 
 class CoreTaxSubmissionTable(Base):
@@ -37,11 +35,11 @@ class CoreTaxSubmissionTable(Base):
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     legal_entity_id = Column(PGUUID(as_uuid=True), nullable=False)
-    tax_type = Column(String(50), nullable=False)   # e.g., "PPN", "PPh21", "PPh23"
-    period = Column(String(10), nullable=False)     # e.g., "2024-01"
-    submission_data = Column(Text, nullable=False)  # JSON string
+    tax_type = Column(String(50), nullable=False)
+    period = Column(String(10), nullable=False)
+    submission_data = Column(Text, nullable=False)
     status = Column(String(50), nullable=False, default="PENDING")
-    response = Column(Text, nullable=True)          # JSON response from authority
+    response = Column(Text, nullable=True)
     submitted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=lambda: datetime.now(timezone.utc))
@@ -50,6 +48,7 @@ class CoreTaxSubmissionTable(Base):
 class SQLAlchemyCoreTaxAdapter(CoreTaxPort):
     """
     Implementasi CoreTaxPort dengan SQLAlchemy.
+    Semua method mengikuti port signature.
     """
 
     def __init__(
@@ -75,57 +74,66 @@ class SQLAlchemyCoreTaxAdapter(CoreTaxPort):
         return self._session
 
     # ========================================================================
-    # PORT METHODS (CoreTaxPort) � LENGKAP
+    # PORT METHODS (CoreTaxPort)
     # ========================================================================
 
-    async def submit_tax(
-        self,
-        legal_entity_id: UUID,
-        tax_type: str,
-        period: str,
-        data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Submit data pajak ke CoreTax (otoritas) dan simpan status."""
+    async def submit_tax(self, data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Submit data pajak ke otoritas pajak.
+        Data harus berisi: legal_entity_id, tax_type, period, dan data pajak lainnya.
+        """
         session = await self._get_session()
-        data_json = json.dumps(data, default=str, ensure_ascii=False)
 
+        # Ekstrak field yang diperlukan dari data
+        legal_entity_id = data.get("legal_entity_id")
+        tax_type = data.get("tax_type", "UNKNOWN")
+        period = data.get("period", "")
+        submission_data = data.get("submission_data", data)  # fallback
+
+        if not legal_entity_id:
+            raise ValueError("Missing 'legal_entity_id' in data")
+
+        # Simpan submission
         submission = CoreTaxSubmissionTable(
             id=uuid4(),
-            legal_entity_id=legal_entity_id,
+            legal_entity_id=UUID(str(legal_entity_id)),
             tax_type=tax_type,
             period=period,
-            submission_data=data_json,
+            submission_data=json.dumps(submission_data, default=str, ensure_ascii=False),
             status="PENDING",
             created_at=datetime.now(timezone.utc),
         )
         session.add(submission)
         await session.flush()
 
+        # Kirim ke otoritas jika adapter tersedia
         response_data = None
-        status = "SUBMITTED"
         error = None
+        status = "PENDING"
 
         if self._authority_adapter is not None:
             try:
                 response_data = await self._authority_adapter.submit(data)
+                status = "SUBMITTED"
                 submission.status = "SUBMITTED"
                 submission.submitted_at = datetime.now(timezone.utc)
                 submission.response = json.dumps(response_data, default=str, ensure_ascii=False)
-                logger.info(f"CoreTax submission successful for {tax_type} period {period}")
+                logger.info("CoreTax submission successful for %s period %s", tax_type, period)
             except Exception as e:
                 error = str(e)
+                status = "FAILED"
                 submission.status = "FAILED"
                 submission.response = json.dumps({"error": error}, ensure_ascii=False)
-                logger.error(f"CoreTax submission failed: {e}")
+                logger.error("CoreTax submission failed: %s", e)
         else:
-            submission.status = "PENDING"
+            status = "PENDING"
             logger.info("No authority adapter, submission saved as PENDING")
 
         await session.commit()
 
         result = {
             "submission_id": str(submission.id),
-            "status": submission.status,
+            "status": status,
             "submitted_at": submission.submitted_at.isoformat() if submission.submitted_at else None,
         }
         if response_data:
@@ -134,97 +142,90 @@ class SQLAlchemyCoreTaxAdapter(CoreTaxPort):
             result["error"] = error
         return result
 
-    async def check_status(self, submission_id: UUID) -> Dict[str, Any]:
-        """Periksa status submission berdasarkan ID."""
-        session = await self._get_session()
-        stmt = select(CoreTaxSubmissionTable).where(CoreTaxSubmissionTable.id == submission_id)
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-        if not row:
-            raise ValueError(f"Submission with id {submission_id} not found")
-        return {
-            "submission_id": str(row.id),
-            "tax_type": row.tax_type,
-            "period": row.period,
-            "status": row.status,
-            "response": json.loads(row.response) if row.response else None,
-            "submitted_at": row.submitted_at.isoformat() if row.submitted_at else None,
-            "created_at": row.created_at.isoformat(),
-        }
-
-    # ========================================================================
-    # METHOD YANG HILANG � DITAMBAHKAN
-    # ========================================================================
-
-    async def get_status(self, tax_id: str) -> TaxStatus:
+    async def get_status(self, submission_id: str) -> dict[str, Any]:
         """
-        Mendapatkan status pajak berdasarkan tax_id (misal NPWP).
+        Mendapatkan status submission berdasarkan submission_id (string UUID).
         """
-        # Contoh implementasi: cek di database atau API
-        # Untuk sementara, ambil dari submission terbaru jika ada
         session = await self._get_session()
-        stmt = (
-            select(CoreTaxSubmissionTable)
-            .where(CoreTaxSubmissionTable.submission_data.contains(tax_id))  # approximate
-            .order_by(CoreTaxSubmissionTable.created_at.desc())
-            .limit(1)
-        )
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-        if row:
-            # Mapping status string ke TaxStatus
-            status_map = {
-                "PENDING": TaxStatus.PENDING,
-                "SUBMITTED": TaxStatus.SUBMITTED,
-                "FAILED": TaxStatus.FAILED,
-                "ACTIVE": TaxStatus.ACTIVE,
-                "INACTIVE": TaxStatus.INACTIVE,
+        try:
+            stmt = select(CoreTaxSubmissionTable).where(CoreTaxSubmissionTable.id == UUID(submission_id))
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if not row:
+                return {"status": "NOT_FOUND", "message": f"Submission {submission_id} not found"}
+            return {
+                "submission_id": str(row.id),
+                "tax_type": row.tax_type,
+                "period": row.period,
+                "status": row.status,
+                "response": json.loads(row.response) if row.response else None,
+                "submitted_at": row.submitted_at.isoformat() if row.submitted_at else None,
+                "created_at": row.created_at.isoformat(),
             }
-            return status_map.get(row.status, TaxStatus.PENDING)
-        return TaxStatus.INACTIVE  # default jika tidak ditemukan
+        except ValueError:
+            return {"status": "ERROR", "message": f"Invalid submission_id format: {submission_id}"}
+        except Exception as e:
+            logger.error("Error getting status: %s", e)
+            return {"status": "ERROR", "message": str(e)}
 
-    async def calculate_tax(self, amount: Decimal, tax_rate: Decimal) -> Decimal:
+    async def calculate_tax(self, data: dict[str, Any]) -> dict[str, Any]:
         """
-        Menghitung pajak berdasarkan jumlah dan tarif.
+        Menghitung pajak berdasarkan data transaksi.
+        Data minimal: amount (Decimal), tax_code (str), date (str YYYY-MM-DD).
         """
-        return amount * tax_rate / Decimal(100)
+        amount = data.get("amount")
+        tax_code = data.get("tax_code")
+        effective_date = data.get("date")
+
+        if amount is None or tax_code is None:
+            raise ValueError("Missing 'amount' or 'tax_code' in data")
+
+        # Dapatkan tarif
+        rate = await self.get_tax_rate(tax_code, effective_date)
+        tax_amount = Decimal(str(amount)) * rate / Decimal(100)
+
+        return {
+            "tax_amount": str(tax_amount),
+            "tax_base": str(amount),
+            "tax_rate": str(rate),
+            "currency": data.get("currency", "IDR"),
+            "tax_code": tax_code,
+            "effective_date": effective_date,
+            "status": "calculated",
+        }
 
     async def validate_tax_id(self, tax_id: str) -> bool:
         """
-        Memvalidasi tax_id (misal NPWP).
-        Contoh: NPWP 15 digit, cek modulo.
+        Memvalidasi NPWP / tax ID.
+        Contoh sederhana: NPWP harus 15 digit dengan checksum.
         """
         if not tax_id or len(tax_id) != 15:
             return False
-        # Implementasi validasi NPWP sederhana
-        # NPWP = 15 digit, cek digit terakhir
         try:
             digits = [int(c) for c in tax_id]
-            # Validasi checksum (contoh sederhana)
+            # Checksum sederhana: modulo 9 dari 14 digit pertama
             sum_digits = sum(digits[:14])
             expected = sum_digits % 9
             return expected == digits[14]
         except ValueError:
             return False
 
-    async def get_tax_rate(self, tax_type: str, effective_date: date) -> Decimal:
+    async def get_tax_rate(self, tax_code: str, date: str) -> Decimal:
         """
-        Mendapatkan tarif pajak berdasarkan tipe dan tanggal berlaku.
-        Bisa diambil dari database atau API.
+        Mendapatkan tarif pajak untuk kode dan tanggal tertentu.
         """
-        # Contoh: tarif PPN = 11%, PPh21 = 5%, dst.
+        # Contoh tarif statis; bisa diperluas dengan lookup database/API
         rates = {
             "PPN": Decimal("11.0"),
-            "PPh21": Decimal("5.0"),
-            "PPh23": Decimal("2.0"),
-            "PPh22": Decimal("1.5"),
+            "PPH21": Decimal("5.0"),
+            "PPH23": Decimal("2.0"),
+            "PPH22": Decimal("1.5"),
             "PPH4": Decimal("0.5"),
         }
-        # Jika tarif bergantung tanggal, bisa tambahkan logika
-        return rates.get(tax_type, Decimal("0.0"))
+        return rates.get(tax_code, Decimal("0.0"))
 
     # ========================================================================
-    # HELPER METHODS (opsional, tetap dipertahankan)
+    # METODE TAMBAHAN (opsional, tidak mengganggu kontrak)
     # ========================================================================
 
     async def get_submissions_by_legal_entity(
@@ -232,7 +233,7 @@ class SQLAlchemyCoreTaxAdapter(CoreTaxPort):
         legal_entity_id: UUID,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Ambil semua submission untuk legal entity tertentu."""
         session = await self._get_session()
         stmt = (
@@ -256,15 +257,15 @@ class SQLAlchemyCoreTaxAdapter(CoreTaxPort):
             for row in rows
         ]
 
-    async def get_submission_by_id(self, submission_id: UUID) -> Dict[str, Any] | None:
+    async def get_submission_by_id(self, submission_id: UUID) -> dict[str, Any] | None:
         """Ambil detail submission berdasarkan ID (tanpa raise jika tidak ditemukan)."""
-        try:
-            return await self.check_status(submission_id)
-        except ValueError:
+        result = await self.get_status(str(submission_id))
+        if result.get("status") == "NOT_FOUND":
             return None
+        return result
 
 
-# Alias untuk backward compatibility (jika diperlukan)
+# Alias untuk backward compatibility
 __all__ = [
     "SQLAlchemyCoreTaxAdapter",
     "CoreTaxSubmissionTable",

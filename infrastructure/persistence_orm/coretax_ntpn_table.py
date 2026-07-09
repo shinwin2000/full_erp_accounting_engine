@@ -3,6 +3,10 @@
 Module: coretax_ntpn_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Coretax NTPN (Nomor Transaksi Penerimaan Negara) table.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (amount) di to_dict()
+      untuk menjaga presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -41,7 +45,7 @@ class CoretaxNTPNTable(Base, TimestampMixin):
         return {
             "id": str(self.id),
             "ntpn": self.ntpn,
-            "amount": float(self.amount),
+            "amount": str(self.amount),  # ganti float -> str untuk presisi
             "payment_date": self.payment_date.isoformat(),
             "npwp": self.npwp,
             "is_valid": self.is_valid,

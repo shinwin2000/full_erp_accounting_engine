@@ -4,6 +4,11 @@ Module: ap_invoice_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Mendefinisikan model SQLAlchemy untuk tabel ap_invoice.
 Fitur lengkap: event recording, credit note, write off, reconstruct dari event.
+
+Perbaikan presisi:
+    - Mengubah payment_percentage mengembalikan Decimal (bukan float)
+      untuk menghindari false positive MNY-024.
+    - Semua perhitungan menggunakan Decimal.
 """
 
 from __future__ import annotations
@@ -159,7 +164,7 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
     )
 
     # =========================================================================
-    # Bupots (Coretax) � ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
+    # Bupots (Coretax) – ditambahkan untuk melengkapi back_populates di CoretaxBupotTable
     # =========================================================================
     bupots: Mapped[list[CoretaxBupotTable]] = relationship(
         "CoretaxBupotTable",
@@ -258,10 +263,11 @@ class APInvoiceTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalE
         return date.today() > self.due_date
 
     @property
-    def payment_percentage(self) -> float:
+    def payment_percentage(self) -> Decimal:
+        """Persentase pembayaran sebagai Decimal (0-100)."""
         if self.total_amount == 0:
-            return 100.0
-        return float((self.paid_amount / self.total_amount) * 100)
+            return Decimal("100.0")
+        return (self.paid_amount / self.total_amount) * Decimal("100")
 
     # =========================================================================
     # STATE TRANSITIONS

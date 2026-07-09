@@ -4,6 +4,11 @@ Module: spt_masa_pph_21_builder.py
 Layer: Adapters (Coretax DJP)
 Responsibility: Membangun SPT Masa PPh Pasal 21 (Formulir 1721) berdasarkan data
                payroll dan pemotongan PPh 21 setiap bulan.
+
+Perbaikan presisi:
+    - Mengganti semua float() pada nilai moneter menjadi str() untuk serialisasi,
+      menghindari kehilangan presisi dan memenuhi aturan MNY-003.
+    - Perhitungan tetap menggunakan Decimal.
 """
 from __future__ import annotations
 
@@ -636,8 +641,8 @@ class SPTMasaPPH21:
             "spt_number": self._spt_number,
             "tracking_id": self._tracking_id,
             "masa_pajak": self.masa_pajak,
-            "kurang_bayar": float(self.kurang_bayar),
-            "lebih_bayar": float(self.lebih_bayar),
+            "kurang_bayar": str(self.kurang_bayar),  # ganti float -> str
+            "lebih_bayar": str(self.lebih_bayar),    # ganti float -> str
         }
 
     def get_history(self) -> list[dict[str, Any]]:
@@ -654,11 +659,11 @@ class SPTMasaPPH21:
             "correction_number": self._correction_number,
             "status": self._status.value,
             "version": self._version,
-            "total_bruto": float(self._total_bruto),
-            "total_pph_terutang": float(self._total_pph_terutang),
-            "total_bayar": float(self._total_bayar),
-            "kurang_bayar": float(self.kurang_bayar),
-            "lebih_bayar": float(self.lebih_bayar),
+            "total_bruto": str(self._total_bruto),             # ganti float -> str
+            "total_pph_terutang": str(self._total_pph_terutang), # ganti float -> str
+            "total_bayar": str(self._total_bayar),             # ganti float -> str
+            "kurang_bayar": str(self.kurang_bayar),            # ganti float -> str
+            "lebih_bayar": str(self.lebih_bayar),              # ganti float -> str
             "ntpn": self.ntpn_masked,
             "spt_number": self._spt_number,
             "tracking_id": self._tracking_id,
@@ -682,9 +687,9 @@ class SPTMasaPPH21:
             "bulan": self._bulan,
             "spt_type": self._spt_type.value,
             "correction_number": self._correction_number,
-            "total_bruto": float(self._total_bruto),
-            "total_pph_terutang": float(self._total_pph_terutang),
-            "total_bayar": float(self._total_bayar),
+            "total_bruto": str(self._total_bruto),                 # ganti float -> str
+            "total_pph_terutang": str(self._total_pph_terutang),   # ganti float -> str
+            "total_bayar": str(self._total_bayar),                 # ganti float -> str
             "ntpn": self._ntpn,
             "status": self._status.value,
             "version": self._version,
@@ -832,8 +837,8 @@ class SPTMasaPPH21:
                     "npwp": emp.get("npwp"),
                     "nama": emp.get("name"),
                     "ptkp_status": emp.get("ptkp_status", "TK/0"),
-                    "bruto": float(gross),
-                    "pph21": float(pph21),
+                    "bruto": str(gross),   # ganti float -> str
+                    "pph21": str(pph21),   # ganti float -> str
                 }
             )
             self._total_bruto += gross
@@ -901,8 +906,8 @@ class SPTMasaPPH21:
                         ET.SubElement(karyawan, "NPWP").text = emp["npwp"]
                     ET.SubElement(karyawan, "Nama").text = emp["nama"]
                     ET.SubElement(karyawan, "StatusPTKP").text = emp.get("ptkp_status", "TK/0")
-                    ET.SubElement(karyawan, "Bruto").text = f"{emp['bruto']:.2f}"
-                    ET.SubElement(karyawan, "PPh21").text = f"{emp['pph21']:.2f}"
+                    ET.SubElement(karyawan, "Bruto").text = f"{Decimal(emp['bruto']):.2f}"  # emp['bruto'] sudah str, kita konversi ke Decimal untuk format
+                    ET.SubElement(karyawan, "PPh21").text = f"{Decimal(emp['pph21']):.2f}"
             xml_str = ET.tostring(root, encoding="utf-8")
             dom = minidom.parseString(xml_str)
             self._xml_content = dom.toprettyxml(indent="  ")
@@ -1093,8 +1098,8 @@ class SPTMasaPPH21Builder:
                         "npwp": emp.get("npwp"),
                         "nama": emp.get("name"),
                         "ptkp_status": emp.get("ptkp_status", "TK/0"),
-                        "bruto": float(gross),
-                        "pph21": float(pph21),
+                        "bruto": str(gross),      # ganti float -> str
+                        "pph21": str(pph21),      # ganti float -> str
                     }
                 )
             tax_service = await self._get_tax_service()
@@ -1142,8 +1147,8 @@ class SPTMasaPPH21Builder:
             "success": True,
             "spt_id": str(spt.spt_id),
             "masa_pajak": spt.masa_pajak,
-            "total_bruto": float(spt.total_bruto),
-            "total_pph_terutang": float(spt.total_pph_terutang),
+            "total_bruto": str(spt.total_bruto),           # ganti float -> str
+            "total_pph_terutang": str(spt.total_pph_terutang), # ganti float -> str
             "employee_count": spt.employee_count,
             "status": spt.status.value,
         }

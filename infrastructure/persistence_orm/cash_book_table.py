@@ -9,6 +9,10 @@ Dependencies:
 - sqlalchemy.orm (Mapped, mapped_column)
 - infrastructure.persistence_orm.base_model
 Audit: Setiap transaksi kas dicatat di event store.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (current_balance, opening_balance)
+      untuk menghindari kehilangan presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -64,8 +68,8 @@ class CashBookTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, LegalEn
             "id": str(self.id),
             "legal_entity_id": str(self.legal_entity_id),
             "currency_code": self.currency_code,
-            "current_balance": float(self.current_balance),
-            "opening_balance": float(self.opening_balance),
+            "current_balance": str(self.current_balance),   # ganti float -> str
+            "opening_balance": str(self.opening_balance),   # ganti float -> str
             "opening_balance_date": self.opening_balance_date.isoformat(),
             "gl_cash_account_id": str(self.gl_cash_account_id) if self.gl_cash_account_id else None,
             "gl_bank_account_id": str(self.gl_bank_account_id) if self.gl_bank_account_id else None,

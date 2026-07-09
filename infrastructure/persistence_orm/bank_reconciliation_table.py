@@ -3,6 +3,11 @@
 Module: bank_reconciliation_table.py
 Layer: Infrastructure / Persistence ORM
 Responsibility: SQLAlchemy ORM model for bank reconciliation records.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (statement_ending_balance,
+      system_ending_balance, difference, amount) di to_dict() untuk menjaga
+      presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -109,9 +114,9 @@ class BankReconciliationTable(Base, TimestampMixin, LegalEntityMixin):
             "statement_date": self.statement_date.isoformat(),
             "period_start": self.period_start.isoformat(),
             "period_end": self.period_end.isoformat(),
-            "statement_ending_balance": float(self.statement_ending_balance),
-            "system_ending_balance": float(self.system_ending_balance),
-            "difference": float(self.difference),
+            "statement_ending_balance": str(self.statement_ending_balance),  # ganti float -> str
+            "system_ending_balance": str(self.system_ending_balance),        # ganti float -> str
+            "difference": str(self.difference),                              # ganti float -> str
             "status": self.status,
             "reconciled_by": str(self.reconciled_by) if self.reconciled_by else None,
             "reconciled_at": self.reconciled_at.isoformat() if self.reconciled_at else None,
@@ -164,7 +169,7 @@ class BankReconciliationItemTable(Base):
             "transaction_id": str(self.transaction_id) if self.transaction_id else None,
             "transaction_date": self.transaction_date.isoformat(),
             "description": self.description,
-            "amount": float(self.amount),
+            "amount": str(self.amount),          # ganti float -> str untuk presisi
             "item_type": self.item_type,
             "source": self.source,
             "is_matched": self.is_matched,

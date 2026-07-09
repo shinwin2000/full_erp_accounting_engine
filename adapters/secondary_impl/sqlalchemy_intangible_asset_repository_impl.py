@@ -3,6 +3,8 @@
 Module: sqlalchemy_intangible_asset_repository_impl.py
 Layer: Adapters (Secondary Implementation)
 Responsibility: Implementasi repository untuk intangible assets menggunakan SQLAlchemy.
+Perbaikan:
+  - [FIX] Race condition pada update dan delete_asset dengan pessimistic locking.
 """
 
 from __future__ import annotations
@@ -239,18 +241,25 @@ class SQLAlchemyIntangibleAssetRepository(IntangibleAssetRepositoryPort):
             logger.error(f"Failed to save intangible asset: {e}")
             raise
 
-    # ---- update ----
+    # ---- update (dengan pessimistic locking) ----
     async def update(self, asset: IntangibleAssetEntity) -> None:
         session = await self._get_session()
         try:
-            orm_asset = await session.get(IntangibleAssetTable, asset.id)
+            # Ambil row dengan lock untuk mencegah race condition
+            stmt = select(IntangibleAssetTable).where(
+                IntangibleAssetTable.id == asset.id
+            ).with_for_update()
+            result = await session.execute(stmt)
+            orm_asset = result.scalar_one_or_none()
             if not orm_asset:
                 raise ValueError(f"Asset {asset.id} not found")
-            # Update fields
+
+            # Update field dari asset yang diberikan
             for key, value in asset.to_dict().items():
                 if hasattr(orm_asset, key):
                     setattr(orm_asset, key, value)
             orm_asset.updated_at = datetime.utcnow()
+            orm_asset.version = (orm_asset.version or 0) + 1  # increment version
             await session.flush()
             logger.debug(f"Updated intangible asset: {asset.asset_code}")
         except Exception as e:
@@ -466,21 +475,25 @@ class SQLAlchemyIntangibleAssetRepository(IntangibleAssetRepositoryPort):
             "total_pages": (total + page_size - 1) // page_size if total else 0,
         }
 
+    # ---- delete_asset (dengan pessimistic locking) ----
     async def delete_asset(self, asset_id: UUID, legal_entity_id: UUID) -> bool:
         session = await self._get_session()
         try:
-            result = await session.execute(
-                select(IntangibleAssetTable).where(
-                    IntangibleAssetTable.id == asset_id,
-                    IntangibleAssetTable.legal_entity_id == legal_entity_id,
-                )
-            )
+            # Ambil row dengan lock untuk mencegah race condition
+            stmt = select(IntangibleAssetTable).where(
+                IntangibleAssetTable.id == asset_id,
+                IntangibleAssetTable.legal_entity_id == legal_entity_id,
+            ).with_for_update()
+            result = await session.execute(stmt)
             orm_asset = result.scalar_one_or_none()
             if not orm_asset:
                 return False
+
+            # Soft delete: ubah status dan aktifitas
             orm_asset.status = "ARCHIVED"
             orm_asset.is_active = False
             orm_asset.updated_at = datetime.utcnow()
+            orm_asset.version = (orm_asset.version or 0) + 1  # increment version
             await session.flush()
             logger.info(f"Archived intangible asset: {asset_id}")
             return True

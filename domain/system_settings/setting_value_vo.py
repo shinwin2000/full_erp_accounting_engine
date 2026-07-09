@@ -6,6 +6,9 @@ Responsibility: Value object nilai pengaturan dengan validasi tipe.
                Mendefinisikan value object immutable untuk nilai pengaturan
                sistem, termasuk metadata seperti siapa yang mengubah dan kapan.
 
+Perbaikan presisi:
+  - Menghilangkan float() pada nilai Decimal di to_serializable(), diganti dengan str().
+
 Dependencies:
 - standard library (datetime, decimal, json, logging)
 - domain.system_settings.setting_definition_entity (SettingDataType)
@@ -132,7 +135,8 @@ class SettingValueVO:
     def to_serializable(self) -> Any:
         """Mengkonversi ke format yang dapat diserialisasi JSON."""
         if self.data_type == SettingDataType.DECIMAL:
-            return float(self.value) if self.value is not None else None
+            # Hindari float(), gunakan string untuk presisi
+            return str(self.value) if self.value is not None else None
         elif self.data_type == SettingDataType.DATE or self.data_type == SettingDataType.DATETIME:
             if hasattr(self.value, "isoformat"):
                 return self.value.isoformat()

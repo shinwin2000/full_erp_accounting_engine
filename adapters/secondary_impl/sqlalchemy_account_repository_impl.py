@@ -2,10 +2,9 @@
 """
 Module: sqlalchemy_account_repository_impl.py
 Layer: Adapters (Secondary Implementation)
-Responsibility: Implementasi repository untuk aggregate Account (Chart of Accounts)
-               menggunakan SQLAlchemy ORM.
-Perbaikan: Semua float() pada nilai moneter dihilangkan (diganti str atau Decimal)
-           untuk memenuhi money precision checker.
+
+Implementasi repository Account menggunakan SQLAlchemy AsyncSession.
+Mengimplementasikan AccountRepositoryPort, BankAccountRepositoryPort, dan CustomerRepositoryPort.
 """
 
 from __future__ import annotations
@@ -59,11 +58,16 @@ class OptimisticLockError(AccountRepositoryError):
     pass
 
 
-class SQLAlchemyAccountRepository(
+class SQLAlchemyAccountRepositoryImpl(
     AccountRepositoryPort,
     BankAccountRepositoryPort,
     CustomerRepositoryPort,
 ):
+    """
+    Implementasi repository Account dengan SQLAlchemy.
+    Mendukung pessimistic locking untuk delete dan restore.
+    """
+
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
         self._audit_log: list[dict[str, Any]] = []
@@ -73,6 +77,16 @@ class SQLAlchemyAccountRepository(
             from infrastructure.database.session_factory_sqlalchemy import get_async_session
             self._session = await get_async_session()
         return self._session
+
+    async def _log_audit(self, action: str, account_id: UUID, details: dict[str, Any]) -> None:
+        self._audit_log.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "action": action,
+            "account_id": str(account_id),
+            "details": details
+        })
+        if len(self._audit_log) > 10000:
+            self._audit_log = self._audit_log[-5000:]
 
     # ========================================================================
     # MAPPING
@@ -97,7 +111,7 @@ class SQLAlchemyAccountRepository(
             is_cash_account=table.is_cash_account,
             is_intercompany=table.is_intercompany,
             is_header=table.is_header,
-            opening_balance=Money(amount=table.opening_balance or 0, currency=table.currency_code or "IDR"),
+            opening_balance=Money(amount=table.opening_balance or Decimal(0), currency=table.currency_code or "IDR"),
             created_at=table.created_at,
             updated_at=table.updated_at,
             created_by=table.created_by,
@@ -121,7 +135,7 @@ class SQLAlchemyAccountRepository(
             is_cash_account=aggregate.is_cash_account,
             is_intercompany=aggregate.is_intercompany,
             is_header=aggregate.is_header,
-            opening_balance=aggregate.opening_balance.amount if aggregate.opening_balance else 0,
+            opening_balance=aggregate.opening_balance.amount if aggregate.opening_balance else Decimal(0),
             created_at=aggregate.created_at,
             updated_at=datetime.utcnow(),
             created_by=aggregate.created_by,
@@ -130,25 +144,14 @@ class SQLAlchemyAccountRepository(
             is_active=aggregate.status == AccountStatus.ACTIVE,
         )
 
-    async def _log_audit(self, action: str, account_id: UUID, details: dict[str, Any]) -> None:
-        self._audit_log.append({
-            "timestamp": datetime.utcnow().isoformat(),
-            "action": action,
-            "account_id": str(account_id),
-            "details": details
-        })
-        if len(self._audit_log) > 10000:
-            self._audit_log = self._audit_log[-5000:]
-
     # ========================================================================
-    # CORE CRUD (AccountRepositoryPort)
+    # ACCOUNT REPOSITORY PORT (AccountRepositoryPort)
     # ========================================================================
 
     async def add(self, account: AccountAggregate) -> None:
         session = await self._get_session()
         try:
-            exists = await self.is_code_unique(str(account.account_code), account.legal_entity_id)
-            if not exists:
+            if not await self.is_code_unique(str(account.account_code), account.legal_entity_id):
                 raise DuplicateAccountCodeError(
                     f"Account code {account.account_code} already exists in legal entity {account.legal_entity_id}"
                 )
@@ -162,7 +165,7 @@ class SQLAlchemyAccountRepository(
             await session.flush()
             await self._log_audit("ADD", account.id, {"account_code": str(account.account_code)})
             logger.info("Account added: %s", account.account_code)
-        except DuplicateAccountCodeError:
+        except (DuplicateAccountCodeError, AccountNotFoundError):
             raise
         except IntegrityError as e:
             await session.rollback()
@@ -174,12 +177,13 @@ class SQLAlchemyAccountRepository(
     async def get_by_id(self, account_id: UUID) -> AccountAggregate | None:
         session = await self._get_session()
         try:
-            stmt = select(AccountTable).where(AccountTable.id == account_id, AccountTable.deleted_at.is_(None))
+            stmt = select(AccountTable).where(
+                AccountTable.id == account_id,
+                AccountTable.deleted_at.is_(None)
+            )
             result = await session.execute(stmt)
             table = result.scalar_one_or_none()
-            if not table:
-                return None
-            return self._to_domain(table)
+            return self._to_domain(table) if table else None
         except Exception as e:
             logger.error("Failed to get account by id %s: %s", account_id, e)
             raise AccountRepositoryError(f"Failed to get account: {e}") from e
@@ -194,9 +198,7 @@ class SQLAlchemyAccountRepository(
             )
             result = await session.execute(stmt)
             table = result.scalar_one_or_none()
-            if not table:
-                return None
-            return self._to_domain(table)
+            return self._to_domain(table) if table else None
         except Exception as e:
             logger.error("Failed to get account by code %s: %s", account_code, e)
             raise AccountRepositoryError(f"Failed to get account: {e}") from e
@@ -211,6 +213,7 @@ class SQLAlchemyAccountRepository(
                 raise AccountNotFoundError(f"Account {account.id} not found")
             if current_version != account.version:
                 raise OptimisticLockError(f"Version mismatch: expected {account.version}, got {current_version}")
+
             table = await self._to_orm(account)
             table.version = account.version + 1
             table.updated_at = datetime.utcnow()
@@ -218,7 +221,7 @@ class SQLAlchemyAccountRepository(
             await session.flush()
             await self._log_audit("UPDATE", account.id, {"account_code": str(account.account_code)})
             logger.info("Account updated: %s", account.account_code)
-        except OptimisticLockError:
+        except (AccountNotFoundError, OptimisticLockError):
             raise
         except Exception as e:
             await session.rollback()
@@ -227,44 +230,65 @@ class SQLAlchemyAccountRepository(
     async def delete(self, account_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
         session = await self._get_session()
         try:
-            # Cek anak
-            children_stmt = select(func.count()).select_from(AccountTable).where(
-                AccountTable.parent_account_id == account_id, AccountTable.deleted_at.is_(None)
-            )
-            children_result = await session.execute(children_stmt)
-            children_count = children_result.scalar()
-            if children_count > 0:
-                raise AccountHasChildrenError(f"Account {account_id} has {children_count} children")
+            async with session.begin():
+                stmt_lock = select(AccountTable).where(
+                    AccountTable.id == account_id,
+                    AccountTable.deleted_at.is_(None)
+                ).with_for_update()
+                result = await session.execute(stmt_lock)
+                table = result.scalar_one_or_none()
+                if table is None:
+                    raise AccountNotFoundError(f"Account {account_id} not found")
 
-            acct = await self.get_by_id(account_id)
-            if acct and acct.is_used_in_transaction:
-                raise AccountHasTransactionsError(f"Account {account_id} has transactions")
+                current_version = table.version
 
-            if permanent:
-                stmt = delete(AccountTable).where(AccountTable.id == account_id)
-                result = await session.execute(stmt)
-                deleted = result.rowcount > 0
-                if deleted:
+                children_stmt = select(func.count()).select_from(AccountTable).where(
+                    AccountTable.parent_account_id == account_id,
+                    AccountTable.deleted_at.is_(None)
+                )
+                children_result = await session.execute(children_stmt)
+                if children_result.scalar() > 0:
+                    raise AccountHasChildrenError(f"Account {account_id} has children")
+
+                acct = await self.get_by_id(account_id)
+                if acct and acct.is_used_in_transaction:
+                    raise AccountHasTransactionsError(f"Account {account_id} has transactions")
+
+                if permanent:
+                    stmt = delete(AccountTable).where(
+                        AccountTable.id == account_id,
+                        AccountTable.version == current_version
+                    )
+                    result = await session.execute(stmt)
+                    if result.rowcount == 0:
+                        raise OptimisticLockError(f"Version mismatch for account {account_id}")
+                    deleted = True
                     await self._log_audit("DELETE_PERMANENT", account_id, {"user_id": str(user_id)})
                     logger.info("Account %s permanently deleted by %s", account_id, user_id)
-            else:
-                stmt = update(AccountTable).where(AccountTable.id == account_id).values(
-                    deleted_at=datetime.utcnow(),
-                    status="inactive",
-                    is_active=False,
-                    updated_at=datetime.utcnow(),
-                    updated_by=user_id,
-                )
-                result = await session.execute(stmt)
-                deleted = result.rowcount > 0
-                if deleted:
+                else:
+                    new_version = current_version + 1
+                    stmt = update(AccountTable).where(
+                        AccountTable.id == account_id,
+                        AccountTable.version == current_version
+                    ).values(
+                        deleted_at=datetime.utcnow(),
+                        status="inactive",
+                        is_active=False,
+                        updated_at=datetime.utcnow(),
+                        updated_by=user_id,
+                        version=new_version,
+                    )
+                    result = await session.execute(stmt)
+                    if result.rowcount == 0:
+                        raise OptimisticLockError(f"Version mismatch for account {account_id}")
+                    deleted = True
                     await self._log_audit("DELETE_SOFT", account_id, {"user_id": str(user_id)})
                     logger.info("Account %s soft deleted by %s", account_id, user_id)
 
-            await session.flush()
-            return deleted
+                await session.flush()
+                return deleted
 
-        except (AccountHasChildrenError, AccountHasTransactionsError):
+        except (AccountHasChildrenError, AccountHasTransactionsError, OptimisticLockError, AccountNotFoundError):
             raise
         except Exception as e:
             await session.rollback()
@@ -273,35 +297,49 @@ class SQLAlchemyAccountRepository(
     async def restore(self, account_id: UUID, user_id: UUID) -> bool:
         session = await self._get_session()
         try:
-            stmt = select(AccountTable).where(AccountTable.id == account_id, AccountTable.deleted_at.is_not(None))
-            result = await session.execute(stmt)
-            table = result.scalar_one_or_none()
-            if not table:
-                return False
-            await session.execute(
-                update(AccountTable)
-                .where(AccountTable.id == account_id)
-                .values(
-                    deleted_at=None,
-                    status="active",
-                    is_active=True,
-                    updated_at=datetime.utcnow(),
-                    updated_by=user_id,
+            async with session.begin():
+                stmt_lock = select(AccountTable).where(
+                    AccountTable.id == account_id,
+                    AccountTable.deleted_at.is_not(None)
+                ).with_for_update()
+                result = await session.execute(stmt_lock)
+                table = result.scalar_one_or_none()
+                if not table:
+                    return False
+
+                current_version = table.version
+                new_version = current_version + 1
+
+                result = await session.execute(
+                    update(AccountTable)
+                    .where(
+                        AccountTable.id == account_id,
+                        AccountTable.version == current_version,
+                        AccountTable.deleted_at.is_not(None)
+                    )
+                    .values(
+                        deleted_at=None,
+                        status="active",
+                        is_active=True,
+                        updated_at=datetime.utcnow(),
+                        updated_by=user_id,
+                        version=new_version,
+                    )
                 )
-            )
-            await session.flush()
-            await self._log_audit("RESTORE", account_id, {"user_id": str(user_id)})
-            logger.info("Account %s restored by %s", account_id, user_id)
-            return True
+                if result.rowcount == 0:
+                    raise OptimisticLockError(f"Version mismatch for account {account_id} during restore")
+
+                await session.flush()
+                await self._log_audit("RESTORE", account_id, {"user_id": str(user_id)})
+                logger.info("Account %s restored by %s", account_id, user_id)
+                return True
+        except OptimisticLockError:
+            raise
         except Exception as e:
             await session.rollback()
             raise AccountRepositoryError(f"Failed to restore account: {e}") from e
 
-    # ========================================================================
-    # QUERY METHODS (AccountRepositoryPort)
-    # ========================================================================
-
-    async def get_children(self, parent_account_id: UUID) -> list[AccountAggregate]:
+    async def get_children(self, parent_account_id: UUID, recursive: bool = False) -> list[AccountAggregate]:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -310,7 +348,11 @@ class SQLAlchemyAccountRepository(
             ).order_by(AccountTable.account_code)
             result = await session.execute(stmt)
             tables = result.scalars().all()
-            return [self._to_domain(table) for table in tables]
+            children = [self._to_domain(table) for table in tables]
+            if recursive:
+                for child in children:
+                    children.extend(await self.get_children(child.id, recursive=True))
+            return children
         except Exception as e:
             raise AccountRepositoryError(f"Failed to get children: {e}") from e
 
@@ -342,11 +384,13 @@ class SQLAlchemyAccountRepository(
         except Exception as e:
             raise AccountRepositoryError(f"Failed to find accounts by type: {e}") from e
 
-    async def find_by_name_contains(self, name_fragment: str, legal_entity_id: UUID, limit: int = 50) -> list[AccountAggregate]:
+    async def find_by_name_contains(
+        self, keyword: str, legal_entity_id: UUID, limit: int = 50
+    ) -> list[AccountAggregate]:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
-                AccountTable.account_name.ilike(func.concat('%', name_fragment, '%')),
+                AccountTable.account_name.ilike(func.concat('%', keyword, '%')),
                 AccountTable.legal_entity_id == legal_entity_id,
                 AccountTable.deleted_at.is_(None),
             ).limit(limit).order_by(AccountTable.account_code)
@@ -371,12 +415,18 @@ class SQLAlchemyAccountRepository(
         except Exception as e:
             raise AccountRepositoryError(f"Failed to find active accounts: {e}") from e
 
-    async def get_all(self, legal_entity_id: UUID, limit: int = 1000, offset: int = 0) -> list[AccountAggregate]:
+    async def get_all(
+        self,
+        legal_entity_id: UUID,
+        include_inactive: bool = False,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[AccountAggregate]:
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
                 AccountTable.legal_entity_id == legal_entity_id,
-                AccountTable.deleted_at.is_(None),
+                AccountTable.deleted_at.is_(None) if not include_inactive else True,
             ).order_by(AccountTable.account_code).limit(limit).offset(offset)
             result = await session.execute(stmt)
             tables = result.scalars().all()
@@ -392,12 +442,13 @@ class SQLAlchemyAccountRepository(
                 AccountTable.deleted_at.is_(None),
             )
             result = await session.execute(stmt)
-            count = result.scalar()
-            return count > 0
+            return result.scalar() > 0
         except Exception as e:
             raise AccountRepositoryError(f"Failed to check children: {e}") from e
 
-    async def is_code_unique(self, account_code: str, legal_entity_id: UUID) -> bool:
+    async def is_code_unique(
+        self, account_code: str, legal_entity_id: UUID, exclude_id: UUID | None = None
+    ) -> bool:
         session = await self._get_session()
         try:
             stmt = select(func.count()).select_from(AccountTable).where(
@@ -405,9 +456,10 @@ class SQLAlchemyAccountRepository(
                 AccountTable.legal_entity_id == legal_entity_id,
                 AccountTable.deleted_at.is_(None),
             )
+            if exclude_id:
+                stmt = stmt.where(AccountTable.id != exclude_id)
             result = await session.execute(stmt)
-            count = result.scalar()
-            return count == 0
+            return result.scalar() == 0
         except Exception as e:
             raise AccountRepositoryError(f"Failed to check uniqueness: {e}") from e
 
@@ -422,7 +474,7 @@ class SQLAlchemyAccountRepository(
                 if current_id in visited:
                     continue
                 visited.add(current_id)
-                children = await self.get_children(current_id)
+                children = await self.get_children(current_id, recursive=False)
                 for child in children:
                     result.append(child)
                     stack.append(child.id)
@@ -514,41 +566,45 @@ class SQLAlchemyAccountRepository(
         except Exception as e:
             raise AccountRepositoryError(f"Failed to get income statement accounts: {e}") from e
 
-    # ========================================================================
-    # STATISTICS (AccountRepositoryPort)
-    # ========================================================================
-
     async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
         session = await self._get_session()
         try:
-            stmt_total = select(func.count()).select_from(AccountTable).where(
-                AccountTable.legal_entity_id == legal_entity_id,
-                AccountTable.deleted_at.is_(None),
+            total = await session.execute(
+                select(func.count()).select_from(AccountTable).where(
+                    AccountTable.legal_entity_id == legal_entity_id,
+                    AccountTable.deleted_at.is_(None),
+                )
             )
-            result = await session.execute(stmt_total)
-            total = result.scalar() or 0
+            total = total.scalar() or 0
 
-            stmt_active = select(func.count()).select_from(AccountTable).where(
-                AccountTable.legal_entity_id == legal_entity_id,
-                AccountTable.status == "active",
-                AccountTable.deleted_at.is_(None),
+            active = await session.execute(
+                select(func.count()).select_from(AccountTable).where(
+                    AccountTable.legal_entity_id == legal_entity_id,
+                    AccountTable.status == "active",
+                    AccountTable.deleted_at.is_(None),
+                )
             )
-            result = await session.execute(stmt_active)
-            active = result.scalar() or 0
+            active = active.scalar() or 0
 
-            stmt_types = select(AccountTable.account_type, func.count()).where(
-                AccountTable.legal_entity_id == legal_entity_id,
-                AccountTable.deleted_at.is_(None),
-            ).group_by(AccountTable.account_type)
-            result = await session.execute(stmt_types)
-            by_type = {row[0]: row[1] for row in result.all()}
+            by_type_result = await session.execute(
+                select(AccountTable.account_type, func.count())
+                .where(
+                    AccountTable.legal_entity_id == legal_entity_id,
+                    AccountTable.deleted_at.is_(None),
+                )
+                .group_by(AccountTable.account_type)
+            )
+            by_type = {row[0]: row[1] for row in by_type_result.all()}
 
-            stmt_levels = select(AccountTable.level, func.count()).where(
-                AccountTable.legal_entity_id == legal_entity_id,
-                AccountTable.deleted_at.is_(None),
-            ).group_by(AccountTable.level)
-            result = await session.execute(stmt_levels)
-            by_level = {row[0]: row[1] for row in result.all()}
+            by_level_result = await session.execute(
+                select(AccountTable.level, func.count())
+                .where(
+                    AccountTable.legal_entity_id == legal_entity_id,
+                    AccountTable.deleted_at.is_(None),
+                )
+                .group_by(AccountTable.level)
+            )
+            by_level = {row[0]: row[1] for row in by_level_result.all()}
 
             return {
                 "total_accounts": total,
@@ -560,12 +616,8 @@ class SQLAlchemyAccountRepository(
         except Exception as e:
             raise AccountRepositoryError(f"Failed to get statistics: {e}") from e
 
-    # ========================================================================
-    # EXPORT / IMPORT (AccountRepositoryPort)
-    # ========================================================================
-
     async def export_to_csv(self, legal_entity_id: UUID) -> str:
-        accounts = await self.get_all(legal_entity_id, limit=10000, offset=0)
+        accounts = await self.get_all(legal_entity_id, include_inactive=True, limit=10000)
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
@@ -588,11 +640,11 @@ class SQLAlchemyAccountRepository(
                 acc.is_cash_account,
                 acc.is_intercompany,
                 acc.is_header,
-                acc.opening_balance.amount,  # Decimal, CSV writer will convert to string
+                acc.opening_balance.amount,
             ])
         return output.getvalue()
 
-    async def import_from_csv(self, csv_content: str, legal_entity_id: UUID, created_by: UUID) -> int:
+    async def import_from_csv(self, csv_content: str, legal_entity_id: UUID, user_id: UUID) -> int:
         reader = csv.DictReader(io.StringIO(csv_content))
         count = 0
         for row in reader:
@@ -614,23 +666,16 @@ class SQLAlchemyAccountRepository(
                     is_header=row.get("is_header", "false").lower() == "true",
                     opening_balance=Money(amount=Decimal(row.get("opening_balance", 0)), currency=row.get("currency_code", "IDR")),
                     legal_entity_id=legal_entity_id,
-                    created_by=created_by,
+                    created_by=user_id,
                 )
                 await self.add(account)
                 count += 1
             except Exception as e:
-                logger.warning(f"Failed to import row: {e}")
+                logger.warning("Failed to import row: %s", e)
         return count
 
-    # ========================================================================
-    # AUDIT & HEALTH (AccountRepositoryPort)
-    # ========================================================================
-
-    async def get_audit_log(self, account_id: UUID | None = None, limit: int = 100) -> list[dict[str, Any]]:
-        logs = self._audit_log
-        if account_id:
-            logs = [l for l in logs if l.get("account_id") == str(account_id)]
-        return logs[-limit:]
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        return self._audit_log[offset:offset+limit]
 
     async def health_check(self) -> dict[str, Any]:
         try:
@@ -641,10 +686,11 @@ class SQLAlchemyAccountRepository(
             return {"status": "unhealthy", "repository": "AccountRepository", "error": str(e)}
 
     # ========================================================================
-    # ALIAS UNTUK KONTRAK PORT (AccountRepositoryPort)
+    # ALIAS UNTUK KEMUDAHAN (opsional)
     # ========================================================================
 
     async def save(self, account: AccountAggregate) -> None:
+        """Simpan atau update account (alias)."""
         existing = await self.get_by_id(account.id)
         if existing:
             await self.update(account)
@@ -652,49 +698,18 @@ class SQLAlchemyAccountRepository(
             await self.add(account)
 
     async def find_by_id(self, account_id: UUID) -> AccountAggregate | None:
+        """Alias untuk get_by_id."""
         return await self.get_by_id(account_id)
 
     async def find_by_code(self, legal_entity_id: UUID, account_code: str) -> AccountAggregate | None:
+        """Alias untuk get_by_code."""
         return await self.get_by_code(account_code, legal_entity_id)
 
-    async def find_by_normal_balance(self, normal_balance: str, legal_entity_id: UUID) -> list[AccountAggregate]:
-        session = await self._get_session()
-        try:
-            stmt = select(AccountTable).where(
-                AccountTable.normal_balance == normal_balance,
-                AccountTable.legal_entity_id == legal_entity_id,
-                AccountTable.deleted_at.is_(None),
-            ).order_by(AccountTable.account_code)
-            result = await session.execute(stmt)
-            tables = result.scalars().all()
-            return [self._to_domain(table) for table in tables]
-        except Exception as e:
-            raise AccountRepositoryError(f"Failed to find accounts by normal balance: {e}") from e
-
-    async def list_by_legal_entity(self, legal_entity_id: UUID) -> list[AccountAggregate]:
-        return await self.get_all(legal_entity_id)
-
-    async def count_by_type(self, legal_entity_id: UUID) -> dict[str, int]:
-        stats = await self.get_statistics(legal_entity_id)
-        return stats.get("by_type", {})
-
-    async def get_account_with_children(self, account_id: UUID) -> dict[str, Any]:
-        account = await self.get_by_id(account_id)
-        if not account:
-            return {}
-        children = await self.get_children(account_id)
-        return {
-            "account": account,
-            "children": children,
-            "has_children": len(children) > 0,
-        }
-
     # ========================================================================
-    # BankAccountRepositoryPort METHODS
+    # BANK ACCOUNT REPOSITORY PORT (BankAccountRepositoryPort)
     # ========================================================================
 
     async def find_by_legal_entity(self, legal_entity_id: UUID) -> list[AccountAggregate]:
-        """Find all bank accounts for a legal entity."""
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -709,14 +724,12 @@ class SQLAlchemyAccountRepository(
             raise AccountRepositoryError(f"Failed to find bank accounts: {e}") from e
 
     async def get_balance(self, bank_account_id: UUID, as_of_date: date | None = None) -> Decimal:
-        """Get current balance of a bank account (simplified)."""
         account = await self.get_by_id(bank_account_id)
         if not account:
             raise AccountNotFoundError(f"Account {bank_account_id} not found")
         return account.opening_balance.amount if account.opening_balance else Decimal(0)
 
     async def get_by_account_number(self, account_number: str, bank_code: str, legal_entity_id: UUID) -> AccountAggregate | None:
-        """Get bank account by account number and bank code."""
         session = await self._get_session()
         try:
             stmt = select(AccountTable).where(
@@ -727,9 +740,7 @@ class SQLAlchemyAccountRepository(
             )
             result = await session.execute(stmt)
             table = result.scalar_one_or_none()
-            if not table:
-                return None
-            return self._to_domain(table)
+            return self._to_domain(table) if table else None
         except Exception as e:
             raise AccountRepositoryError(f"Failed to get bank account: {e}") from e
 
@@ -741,8 +752,7 @@ class SQLAlchemyAccountRepository(
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Get transactions for a bank account (stub - no transaction table)."""
-        logger.warning("get_transactions is a stub - no bank transaction table implemented")
+        logger.warning("get_transactions is a stub")
         return []
 
     async def reconcile(
@@ -752,7 +762,6 @@ class SQLAlchemyAccountRepository(
         ending_balance: Decimal,
         transactions: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Perform bank reconciliation (stub)."""
         account = await self.get_by_id(account_id)
         if not account:
             raise AccountNotFoundError(f"Account {account_id} not found")
@@ -777,8 +786,7 @@ class SQLAlchemyAccountRepository(
         transaction_type: str = "other",
         created_by: UUID | None = None,
     ) -> dict[str, Any]:
-        """Record a bank transaction (stub - no actual storage)."""
-        logger.info("Recording transaction for account %s: amount %s, description %s", account_id, amount, description)
+        logger.info("Recording transaction for account %s: amount %s", account_id, amount)
         return {
             "id": UUID(int=0),
             "account_id": account_id,
@@ -792,15 +800,13 @@ class SQLAlchemyAccountRepository(
         }
 
     # ========================================================================
-    # CustomerRepositoryPort METHODS
+    # CUSTOMER REPOSITORY PORT (CustomerRepositoryPort)
     # ========================================================================
 
     async def add_order(self, customer_id: UUID, order_id: UUID, amount: Decimal) -> None:
-        """Add an order to a customer's history (stub)."""
         logger.info("Adding order %s for customer %s amount %s", order_id, customer_id, amount)
 
     async def blacklist(self, customer_id: UUID, reason: str) -> bool:
-        """Mark a customer as blacklisted (stub)."""
         account = await self.get_by_id(customer_id)
         if not account:
             return False
@@ -809,19 +815,21 @@ class SQLAlchemyAccountRepository(
         return True
 
     async def find_by_category(self, category: str, legal_entity_id: UUID) -> list[AccountAggregate]:
-        """Find customers by category (stub)."""
-        logger.warning("find_by_category is a stub - no customer category field")
+        logger.warning("find_by_category is a stub")
         return []
 
     async def update_credit_usage(self, customer_id: UUID, amount_used: Decimal) -> None:
-        """Update credit usage for a customer (stub)."""
         account = await self.get_by_id(customer_id)
         if not account:
             raise AccountNotFoundError(f"Customer {customer_id} not found")
         logger.info("Updating credit usage for customer %s: %s", customer_id, amount_used)
 
 
-SQLAlchemyAccountRepositoryImpl = SQLAlchemyAccountRepository
+# ============================================================================
+# ALIAS UNTUK BACKWARD COMPATIBILITY
+# ============================================================================
+
+SQLAlchemyAccountRepository = SQLAlchemyAccountRepositoryImpl
 
 __all__ = [
     "AccountHasChildrenError",

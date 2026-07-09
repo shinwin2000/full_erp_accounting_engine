@@ -15,6 +15,11 @@ Dependencies:
 - infrastructure.persistence_orm.fiscal_period_table
 - projections.ledger.general_ledger_table (optional)
 Audit: Build dan update cube dicatat.
+
+Perbaikan presisi:
+    - Mengganti float() dengan str() pada semua nilai moneter (closing_balance,
+      debit, credit, dll.) untuk menghindari kehilangan presisi dan memenuhi
+      aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -121,7 +126,7 @@ class TrialBalanceCube:
 
         Returns:
             List of dict dengan keys: account_code, account_name, account_type,
-            opening_balance, movement, closing_balance
+            opening_balance, movement, closing_balance (semua sebagai string).
         """
         async with await self._get_session() as session:
             # Get all accounts for legal entity
@@ -190,13 +195,13 @@ class TrialBalanceCube:
                         "account_name": account.account_name,
                         "account_type": account.account_type,
                         "normal_balance": account.normal_balance,
-                        "opening_balance_debit": float(opening_debit),
-                        "opening_balance_credit": float(opening_credit),
-                        "movement_debit": float(movement_debit),
-                        "movement_credit": float(movement_credit),
-                        "closing_balance_debit": float(closing_debit),
-                        "closing_balance_credit": float(closing_credit),
-                        "closing_balance": float(closing_balance),
+                        "opening_balance_debit": str(opening_debit),
+                        "opening_balance_credit": str(opening_credit),
+                        "movement_debit": str(movement_debit),
+                        "movement_credit": str(movement_credit),
+                        "closing_balance_debit": str(closing_debit),
+                        "closing_balance_credit": str(closing_credit),
+                        "closing_balance": str(closing_balance),
                     }
                 )
 
@@ -220,19 +225,20 @@ class TrialBalanceCube:
 
     async def get_aggregated_by_account_type(
         self, legal_entity_id: UUID, as_of_date: date
-    ) -> dict[str, Decimal]:
+    ) -> dict[str, str]:
         """
         Mendapatkan total balance per tipe akun (Asset, Liability, Equity, Revenue, Expense).
+        Mengembalikan string untuk presisi.
         """
         tb = await self.get_trial_balance(legal_entity_id, as_of_date, include_zero_balance=False)
 
         result = {}
         for line in tb:
             account_type = line["account_type"]
-            balance = Decimal(str(line["closing_balance"]))
-            result[account_type] = result.get(account_type, Decimal(0)) + balance
+            balance = Decimal(line["closing_balance"])
+            result[account_type] = str(result.get(account_type, Decimal(0)) + balance)
 
-        return {k: float(v) for k, v in result.items()}
+        return result
 
     async def get_hierarchical_trial_balance(
         self, legal_entity_id: UUID, as_of_date: date
@@ -301,8 +307,8 @@ class TrialBalanceCube:
                     {
                         "account_code": row[0],
                         "account_name": row[1],
-                        "total_debit": float(row[2] or 0),
-                        "total_credit": float(row[3] or 0),
+                        "total_debit": str(row[2] or 0),
+                        "total_credit": str(row[3] or 0),
                     }
                     for row in rows
                 ]
@@ -328,8 +334,8 @@ class TrialBalanceCube:
                 return [
                     {
                         "posting_date": row[0].isoformat(),
-                        "total_debit": float(row[1] or 0),
-                        "total_credit": float(row[2] or 0),
+                        "total_debit": str(row[1] or 0),
+                        "total_credit": str(row[2] or 0),
                     }
                     for row in rows
                 ]
@@ -357,8 +363,8 @@ class TrialBalanceCube:
                     {
                         "account_code": row[0],
                         "posting_date": row[1].isoformat(),
-                        "total_debit": float(row[2] or 0),
-                        "total_credit": float(row[3] or 0),
+                        "total_debit": str(row[2] or 0),
+                        "total_credit": str(row[3] or 0),
                     }
                     for row in rows
                 ]
@@ -387,8 +393,8 @@ class TrialBalanceCube:
                     {
                         "cost_center": row[0],
                         "account_code": row[1],
-                        "total_debit": float(row[2] or 0),
-                        "total_credit": float(row[3] or 0),
+                        "total_debit": str(row[2] or 0),
+                        "total_credit": str(row[3] or 0),
                     }
                     for row in rows
                 ]
@@ -412,23 +418,19 @@ class TrialBalanceCube:
                     continue
 
                 tb = await self.get_trial_balance(legal_entity_id, period.end_date)
-                total_assets = sum(l["closing_balance"] for l in tb if l["account_type"] == "Asset")
-                total_liabilities = sum(
-                    l["closing_balance"] for l in tb if l["account_type"] == "Liability"
-                )
-                total_equity = sum(
-                    l["closing_balance"] for l in tb if l["account_type"] == "Equity"
-                )
+                total_assets = sum(Decimal(l["closing_balance"]) for l in tb if l["account_type"] == "Asset")
+                total_liabilities = sum(Decimal(l["closing_balance"]) for l in tb if l["account_type"] == "Liability")
+                total_equity = sum(Decimal(l["closing_balance"]) for l in tb if l["account_type"] == "Equity")
 
                 result.append(
                     {
                         "period_id": str(period_id),
                         "period_name": period.period_name,
                         "end_date": period.end_date.isoformat(),
-                        "total_assets": total_assets,
-                        "total_liabilities": total_liabilities,
-                        "total_equity": total_equity,
-                        "net_assets": total_assets - (total_liabilities + total_equity),
+                        "total_assets": str(total_assets),
+                        "total_liabilities": str(total_liabilities),
+                        "total_equity": str(total_equity),
+                        "net_assets": str(total_assets - (total_liabilities + total_equity)),
                     }
                 )
 

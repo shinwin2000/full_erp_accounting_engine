@@ -181,32 +181,33 @@ class SnapshotManager:
     async def delete_old_snapshots(self, aggregate_type: str, keep_count: int = 5) -> int:
         """
         Menghapus snapshot lama, hanya menyisakan keep_count terbaru per aggregate.
+        Menggunakan pessimistic locking (FOR UPDATE) untuk mencegah race condition.
 
-        Args:
-            aggregate_type: Tipe aggregate
-            keep_count: Jumlah snapshot terbaru yang disimpan
-
-        Returns:
-            Jumlah snapshot yang dihapus
+        LOCKING: SELECT FOR UPDATE memastikan exclusive lock pada baris yang akan dihapus.
         """
         try:
             async with await self._get_session() as session, session.begin():
-                # Subquery untuk mendapatkan snapshot yang akan dihapus
-                result = await session.execute(
-                    """
-                    DELETE FROM snapshot
-                    WHERE (aggregate_id, aggregate_type, version) IN (
-                        SELECT aggregate_id, aggregate_type, version
-                        FROM snapshot
-                        WHERE aggregate_type = $1
-                        ORDER BY version DESC
-                        OFFSET $2
-                    )
-                    """,
-                    aggregate_type,
-                    keep_count,
-                )
+                # 1. Ambil ID snapshot yang akan dihapus dengan lock (FOR UPDATE)
+                # Subquery: ambil semua ID, skip keep_count terbaru
+                # Gunakan FOR UPDATE untuk mengunci baris yang dipilih
+                select_ids_sql = """
+                    SELECT id FROM snapshot
+                    WHERE aggregate_type = $1
+                    ORDER BY version DESC
+                    OFFSET $2
+                    FOR UPDATE
+                """
+                rows = await session.fetch(select_ids_sql, aggregate_type, keep_count)
+                ids_to_delete = [row["id"] for row in rows]
+
+                if not ids_to_delete:
+                    return 0
+
+                # 2. Delete berdasarkan ID yang sudah dikunci
+                delete_sql = "DELETE FROM snapshot WHERE id = ANY($1)"
+                result = await session.execute(delete_sql, ids_to_delete)
                 deleted = result.rowcount
+
                 await session.commit()
                 logger.info(f"Deleted {deleted} old snapshots for type {aggregate_type}")
                 return deleted

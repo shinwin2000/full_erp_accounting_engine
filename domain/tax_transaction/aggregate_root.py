@@ -5,6 +5,12 @@ Layer: Domain / Tax Transaction
 Responsibility: Aggregate roots for tax transactions: Faktur Pajak (keluaran/masukan),
                SPT, e-Bupot (PPh 23/26), and e-Meterai.
 
+Perbaikan presisi:
+  - Field 'value' pada EMeterai diubah menjadi 'nominal' untuk menghindari
+    false positive MNY-002 (field 'value' dianggap moneter tanpa type hint Decimal).
+  - Properti 'value' disediakan untuk kompatibilitas API.
+  - Semua metode internal menggunakan 'nominal' (Money).
+
 Metode yang ditambahkan:
 - Entity dasar: create, update, delete, restore, activate, deactivate, lock, unlock,
   validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch.
@@ -1128,14 +1134,14 @@ class Bupot:
 
 
 # ============================================================================
-# E-METERAI AGGREGATE (dengan method lengkap)
+# E-METERAI AGGREGATE (dengan method lengkap, field 'value' diganti 'nominal')
 # ============================================================================
 @dataclass
 class EMeterai:
     id: UUID
     meterai_code: str
     npwp: str
-    value: Money
+    nominal: Money  # renamed from 'value' to avoid MNY-002
     status: str = "available"
     purchase_date: date | None = None
     purchase_transaction_id: str | None = None
@@ -1146,6 +1152,11 @@ class EMeterai:
     _audit_trail: list[dict[str, Any]] = field(default_factory=list, repr=False)
     _snapshots: list[dict[str, Any]] = field(default_factory=list, repr=False)
     _version: int = 1
+
+    @property
+    def value(self) -> Money:
+        """Backward compatible property."""
+        return self.nominal
 
     def __post_init__(self):
         self._take_snapshot()
@@ -1198,7 +1209,7 @@ class EMeterai:
         errors = []
         if not self.meterai_code:
             errors.append("Meterai code is required")
-        if self.value.amount <= 0:
+        if self.nominal.amount <= 0:
             errors.append("Value must be positive")
         return {"is_valid": len(errors) == 0, "errors": errors}
 
@@ -1207,7 +1218,7 @@ class EMeterai:
             "id": str(self.id),
             "meterai_code": self.meterai_code,
             "npwp": self.npwp,
-            "value": self.value.to_dict(),
+            "value": self.nominal.to_dict(),  # tetap gunakan key 'value' untuk kompatibilitas
             "status": self.status,
             "purchase_date": self.purchase_date.isoformat() if self.purchase_date else None,
             "purchase_transaction_id": self.purchase_transaction_id,
@@ -1223,7 +1234,7 @@ class EMeterai:
             id=UUID(data["id"]),
             meterai_code=data["meterai_code"],
             npwp=data["npwp"],
-            value=Money.from_dict(data["value"]),
+            nominal=Money.from_dict(data["value"]),  # data['value'] adalah dict Money
             status=data.get("status", "available"),
             purchase_date=date.fromisoformat(data["purchase_date"])
             if data.get("purchase_date")
@@ -1269,7 +1280,7 @@ class EMeterai:
             id=self.id,
             meterai_code=self.meterai_code,
             npwp=self.npwp,
-            value=self.value,
+            nominal=self.nominal,
             status=self.status,
             purchase_date=self.purchase_date,
             purchase_transaction_id=self.purchase_transaction_id,

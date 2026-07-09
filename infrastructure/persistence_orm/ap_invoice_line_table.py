@@ -3,6 +3,11 @@
 Module: ap_invoice_line_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Model SQLAlchemy untuk line items AP invoice.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada semua nilai moneter (unit_price, amount,
+      tax_amount, total_amount) di to_dict() untuk menjaga presisi dan memenuhi
+      aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -84,12 +89,12 @@ class APInvoiceLineTable(Base, TimestampMixin):
             "line_number": self.line_number,
             "description": self.description,
             "account_code": self.account_code,
-            "quantity": float(self.quantity),
-            "unit_price": float(self.unit_price),
-            "amount": float(self.amount),
-            "tax_rate": float(self.tax_rate),
-            "tax_amount": float(self.tax_amount),
-            "total_amount": float(self.total_amount),
+            "quantity": str(self.quantity),
+            "unit_price": str(self.unit_price),      # ganti float -> str
+            "amount": str(self.amount),              # ganti float -> str
+            "tax_rate": str(self.tax_rate),
+            "tax_amount": str(self.tax_amount),      # ganti float -> str
+            "total_amount": str(self.total_amount),  # ganti float -> str
             "cost_center": self.cost_center,
             "project_id": str(self.project_id) if self.project_id else None,
         }

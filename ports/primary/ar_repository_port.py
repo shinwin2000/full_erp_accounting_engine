@@ -2,13 +2,16 @@
 """
 Module: ar_repository_port.py
 Layer: Ports (Primary)
-Responsibility: Implementasi in-memory repository untuk Account Receivable Invoice
-               dengan fitur lengkap: siklus hidup invoice (draft, submitted, approved,
-               partially_paid, paid, cancelled, disputed), aging buckets,
-               collection status, credit limit monitoring, dunning letters,
-               payment scheduling, credit/debit notes, customer balance,
-               due date tracking, audit trail, import/export CSV, dan statistik.
-Audit: Setiap perubahan status invoice tercatat.
+Responsibility: Port interface untuk Account Receivable Invoice repository.
+
+Fitur: siklus hidup invoice (draft, submitted, approved, partially_paid, paid,
+cancelled, disputed, written_off), aging buckets, collection status,
+credit limit monitoring, dunning letters, payment scheduling, credit/debit notes,
+customer balance, due date tracking, audit trail, import/export CSV, dan statistik.
+
+Perbaikan presisi:
+  - Semua nilai moneter disimpan sebagai Decimal.
+  - Tidak ada konversi ke float pada nilai moneter (diganti dengan str() untuk output).
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -109,13 +113,13 @@ class ARInvoice:
             "sales_order_id": str(self.sales_order_id) if self.sales_order_id else None,
             "invoice_date": self.invoice_date.isoformat(),
             "due_date": self.due_date.isoformat(),
-            "total_amount": float(self.total_amount),
-            "tax_amount": float(self.tax_amount),
-            "discount_amount": float(self.discount_amount),
-            "paid_amount": float(self.paid_amount),
-            "outstanding_amount": float(self.outstanding_amount),
+            "total_amount": str(self.total_amount),
+            "tax_amount": str(self.tax_amount),
+            "discount_amount": str(self.discount_amount),
+            "paid_amount": str(self.paid_amount),
+            "outstanding_amount": str(self.outstanding_amount),
             "currency_code": self.currency_code,
-            "exchange_rate": float(self.exchange_rate),
+            "exchange_rate": str(self.exchange_rate),
             "status": self.status.value,
             "collection_status": self.collection_status.value,
             "description": self.description,
@@ -126,7 +130,7 @@ class ARInvoice:
             "payment_received_date": self.payment_received_date.isoformat()
             if self.payment_received_date
             else None,
-            "last_payment_amount": float(self.last_payment_amount),
+            "last_payment_amount": str(self.last_payment_amount),
             "last_payment_date": self.last_payment_date.isoformat()
             if self.last_payment_date
             else None,
@@ -136,7 +140,7 @@ class ARInvoice:
             "cancelled_at": self.cancelled_at.isoformat() if self.cancelled_at else None,
             "cancellation_reason": self.cancellation_reason,
             "disputed_reason": self.disputed_reason,
-            "write_off_amount": float(self.write_off_amount),
+            "write_off_amount": str(self.write_off_amount),
             "write_off_date": self.write_off_date.isoformat() if self.write_off_date else None,
             "write_off_reason": self.write_off_reason,
             "dunning_level": self.dunning_level,
@@ -185,9 +189,203 @@ class DebitNoteAR:
     created_by: UUID
 
 
-class ARRepositoryPort:
+# ============================================================================
+# PORT INTERFACE (Abstract Base Class)
+# ============================================================================
+
+class ARRepositoryPort(ABC):
     """
-    In-memory repository untuk Account Receivable.
+    Port (interface) untuk repository Account Receivable.
+    Semua metode wajib diimplementasikan oleh repository concrete.
+    """
+
+    # === CRUD ===
+
+    @abstractmethod
+    async def add(self, invoice: ARInvoice) -> None:
+        """Menambahkan invoice AR baru."""
+        pass
+
+    @abstractmethod
+    async def get_by_id(self, invoice_id: UUID) -> ARInvoice | None:
+        """Mengambil invoice berdasarkan ID."""
+        pass
+
+    @abstractmethod
+    async def get_by_invoice_number(self, invoice_number: str, legal_entity_id: UUID) -> ARInvoice | None:
+        """Mengambil invoice berdasarkan nomor invoice dan legal entity."""
+        pass
+
+    @abstractmethod
+    async def update(self, invoice: ARInvoice) -> None:
+        """Memperbarui invoice yang sudah ada."""
+        pass
+
+    @abstractmethod
+    async def delete(self, invoice_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
+        """Soft delete atau permanent delete invoice."""
+        pass
+
+    # === WORKFLOW ACTIONS ===
+
+    @abstractmethod
+    async def submit_for_approval(self, invoice_id: UUID, user_id: UUID) -> bool:
+        """Submit invoice untuk approval."""
+        pass
+
+    @abstractmethod
+    async def approve(self, invoice_id: UUID, approver_id: UUID) -> bool:
+        """Menyetujui invoice."""
+        pass
+
+    @abstractmethod
+    async def record_payment(
+        self, invoice_id: UUID, amount: Decimal, payment_date: date, user_id: UUID
+    ) -> bool:
+        """Merekam pembayaran dari customer."""
+        pass
+
+    @abstractmethod
+    async def cancel(self, invoice_id: UUID, reason: str, user_id: UUID) -> bool:
+        """Membatalkan invoice."""
+        pass
+
+    @abstractmethod
+    async def dispute(self, invoice_id: UUID, reason: str, user_id: UUID) -> bool:
+        """Menandai invoice sebagai disputed."""
+        pass
+
+    @abstractmethod
+    async def write_off(
+        self, invoice_id: UUID, amount: Decimal, reason: str, user_id: UUID
+    ) -> bool:
+        """Menghapuskan piutang (write-off)."""
+        pass
+
+    # === CREDIT / DEBIT NOTES ===
+
+    @abstractmethod
+    async def add_credit_note(self, credit_note: CreditNoteAR) -> None:
+        """Menambahkan credit note dan mengupdate outstanding."""
+        pass
+
+    @abstractmethod
+    async def add_debit_note(self, debit_note: DebitNoteAR) -> None:
+        """Menambahkan debit note dan mengupdate outstanding."""
+        pass
+
+    # === QUERY ===
+
+    @abstractmethod
+    async def find_by_customer(
+        self, customer_id: UUID, legal_entity_id: UUID, limit: int = 100, offset: int = 0
+    ) -> list[ARInvoice]:
+        """Mencari invoice berdasarkan customer."""
+        pass
+
+    @abstractmethod
+    async def find_overdue_invoices(
+        self, as_of_date: date, legal_entity_id: UUID
+    ) -> list[ARInvoice]:
+        """Mencari invoice yang telah jatuh tempo."""
+        pass
+
+    @abstractmethod
+    async def get_outstanding_balance(self, customer_id: UUID, as_of_date: date) -> Decimal:
+        """Menghitung outstanding balance customer per tanggal."""
+        pass
+
+    @abstractmethod
+    async def find_by_status(
+        self, status: ARInvoiceStatus, legal_entity_id: UUID
+    ) -> list[ARInvoice]:
+        """Mencari invoice berdasarkan status."""
+        pass
+
+    @abstractmethod
+    async def find_by_date_range(
+        self, start_date: date, end_date: date, legal_entity_id: UUID
+    ) -> list[ARInvoice]:
+        """Mencari invoice berdasarkan rentang tanggal invoice."""
+        pass
+
+    @abstractmethod
+    async def get_aging_buckets(
+        self, legal_entity_id: UUID, as_of_date: date
+    ) -> dict[str, Decimal]:
+        """Mendapatkan aging buckets piutang."""
+        pass
+
+    @abstractmethod
+    async def get_dunning_candidates(
+        self, legal_entity_id: UUID, min_overdue_days: int = 30
+    ) -> list[ARInvoice]:
+        """Mendapatkan invoice yang perlu dikirimi surat tagihan."""
+        pass
+
+    @abstractmethod
+    async def increment_dunning_level(self, invoice_id: UUID, user_id: UUID) -> int:
+        """Menaikkan level dunning untuk invoice."""
+        pass
+
+    @abstractmethod
+    async def get_customer_balance_history(
+        self, customer_id: UUID, start_date: date, end_date: date
+    ) -> list[dict[str, Any]]:
+        """Riwayat saldo customer per bulan."""
+        pass
+
+    # === CREDIT LIMIT ===
+
+    @abstractmethod
+    async def get_total_outstanding_for_customer(self, customer_id: UUID) -> Decimal:
+        """Total outstanding customer saat ini."""
+        pass
+
+    @abstractmethod
+    async def is_credit_limit_exceeded(
+        self, customer_id: UUID, credit_limit: Decimal, additional_amount: Decimal = Decimal(0)
+    ) -> bool:
+        """Cek apakah credit limit sudah terlampaui."""
+        pass
+
+    # === IMPORT / EXPORT ===
+
+    @abstractmethod
+    async def export_to_csv(self, legal_entity_id: UUID) -> str:
+        """Ekspor invoice ke CSV."""
+        pass
+
+    @abstractmethod
+    async def import_from_csv(self, csv_content: str, legal_entity_id: UUID, user_id: UUID) -> int:
+        """Impor invoice dari CSV."""
+        pass
+
+    # === STATISTICS & AUDIT ===
+
+    @abstractmethod
+    async def get_statistics(self, legal_entity_id: UUID) -> dict[str, Any]:
+        """Statistik AR."""
+        pass
+
+    @abstractmethod
+    async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Audit log AR."""
+        pass
+
+    @abstractmethod
+    async def health_check(self) -> dict[str, Any]:
+        """Health check repository."""
+        pass
+
+
+# ============================================================================
+# IMPLEMENTASI KONKRET (In-Memory)
+# ============================================================================
+
+class InMemoryARRepository(ARRepositoryPort):
+    """
+    Implementasi in-memory repository untuk Account Receivable.
     """
 
     def __init__(self):
@@ -309,7 +507,7 @@ class ARRepositoryPort:
             {
                 "invoice_number": invoice.invoice_number,
                 "customer_id": str(invoice.customer_id),
-                "amount": float(invoice.total_amount),
+                "amount": str(invoice.total_amount),
             },
         )
 
@@ -447,7 +645,7 @@ class ARRepositoryPort:
             invoice_id,
             user_id,
             {
-                "amount": float(amount),
+                "amount": str(amount),
                 "payment_date": payment_date.isoformat(),
             },
         )
@@ -498,7 +696,7 @@ class ARRepositoryPort:
             invoice_id,
             user_id,
             {
-                "amount": float(amount),
+                "amount": str(amount),
                 "reason": reason,
             },
         )
@@ -518,7 +716,7 @@ class ARRepositoryPort:
             credit_note.created_by,
             {
                 "credit_note_id": str(credit_note.id),
-                "amount": float(credit_note.amount),
+                "amount": str(credit_note.amount),
             },
         )
 
@@ -534,7 +732,7 @@ class ARRepositoryPort:
             debit_note.created_by,
             {
                 "debit_note_id": str(debit_note.id),
-                "amount": float(debit_note.amount),
+                "amount": str(debit_note.amount),
             },
         )
 
@@ -665,7 +863,7 @@ class ARRepositoryPort:
             month_end = date(current_date.year, current_date.month, 1) + timedelta(days=32)
             month_end = date(month_end.year, month_end.month, 1) - timedelta(days=1)
             balance = await self.get_outstanding_balance(customer_id, month_end)
-            result.append({"period": month_end.strftime("%Y-%m"), "balance": float(balance)})
+            result.append({"period": month_end.strftime("%Y-%m"), "balance": str(balance)})
             if current_date.month == 12:
                 current_date = date(current_date.year + 1, 1, 1)
             else:
@@ -721,9 +919,9 @@ class ARRepositoryPort:
                     str(inv.customer_id),
                     inv.invoice_date.isoformat(),
                     inv.due_date.isoformat(),
-                    float(inv.total_amount),
-                    float(inv.paid_amount),
-                    float(inv.outstanding_amount),
+                    str(inv.total_amount),
+                    str(inv.paid_amount),
+                    str(inv.outstanding_amount),
                     inv.status.value,
                     inv.collection_status.value,
                     inv.currency_code,
@@ -780,8 +978,8 @@ class ARRepositoryPort:
         written_off = sum(1 for inv in invoices if inv.status == ARInvoiceStatus.WRITTEN_OFF)
         return {
             "total_invoices": total_invoices,
-            "total_amount": float(total_amount),
-            "total_outstanding": float(total_outstanding),
+            "total_amount": str(total_amount),
+            "total_outstanding": str(total_outstanding),
             "paid_count": paid_count,
             "overdue_count": overdue_count,
             "written_off_count": written_off,
@@ -807,16 +1005,25 @@ class ARRepositoryPort:
         }
 
 
-# === ALIAS FOR TEST COMPATIBILITY ===
+# ============================================================================
+# ALIAS UNTUK KOMPATIBILITAS
+# ============================================================================
+
+# Untuk backward compatibility: ARRepository mengarah ke implementasi in-memory
+ARRepository = InMemoryARRepository
+
+# Alias untuk test compatibility
 ArRepositoryPort = ARRepositoryPort
 
-# === EXPORTS ===
+
 __all__ = [
     "ARInvoice",
     "ARInvoiceStatus",
+    "ARRepository",
     "ARRepositoryPort",
     "ArRepositoryPort",
     "CollectionStatus",
     "CreditNoteAR",
     "DebitNoteAR",
+    "InMemoryARRepository",
 ]

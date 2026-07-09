@@ -90,42 +90,62 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         await self.add(tax_transaction)
 
     async def update(self, tax_transaction: TaxTransaction) -> None:
+        """
+        Update tax transaction with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
-        stmt = select(TaxTransactionTable).where(TaxTransactionTable.id == tax_transaction.id)
-        result = await session.execute(stmt)
-        existing = result.scalar_one_or_none()
-        if not existing:
-            raise ValueError(f"Transaction {tax_transaction.id} not found")
-        existing.tax_type = tax_transaction.tax_type.value
-        existing.tax_amount = tax_transaction.tax_amount
-        existing.period_year = tax_transaction.tax_period_year
-        existing.period_month = tax_transaction.tax_period_month
-        existing.legal_entity_id = tax_transaction.legal_entity_id
-        existing.source_document_id = tax_transaction.reference_id
-        existing.source_document_type = tax_transaction.reference_type
-        existing.submission_status = tax_transaction.status.value if tax_transaction.status else None
-        existing.updated_at = datetime.utcnow()
-        existing.updated_by = tax_transaction.updated_by
-        await session.flush()
-        await self._log_audit("UPDATE", tax_transaction.id, {"tax_type": tax_transaction.tax_type.value})
+        async with session.begin():
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(TaxTransactionTable).where(
+                TaxTransactionTable.id == tax_transaction.id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            existing = result.scalar_one_or_none()
+            if not existing:
+                raise ValueError(f"Transaction {tax_transaction.id} not found")
+
+            # 2. Update the locked row
+            existing.tax_type = tax_transaction.tax_type.value
+            existing.tax_amount = tax_transaction.tax_amount
+            existing.period_year = tax_transaction.tax_period_year
+            existing.period_month = tax_transaction.tax_period_month
+            existing.legal_entity_id = tax_transaction.legal_entity_id
+            existing.source_document_id = tax_transaction.reference_id
+            existing.source_document_type = tax_transaction.reference_type
+            existing.submission_status = tax_transaction.status.value if tax_transaction.status else None
+            existing.updated_at = datetime.utcnow()
+            existing.updated_by = tax_transaction.updated_by
+            await session.flush()
+            await self._log_audit("UPDATE", tax_transaction.id, {"tax_type": tax_transaction.tax_type.value})
 
     async def delete(self, tax_transaction_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
-        """Soft delete or permanent delete with user_id."""
+        """
+        Soft delete or permanent delete with pessimistic locking.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
-        if permanent:
-            stmt = delete(TaxTransactionTable).where(TaxTransactionTable.id == tax_transaction_id)
-        else:
-            stmt = update(TaxTransactionTable).where(TaxTransactionTable.id == tax_transaction_id).values(
-                deleted_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
-                updated_by=user_id,
-            )
-        result = await session.execute(stmt)
-        await session.flush()
-        if result.rowcount > 0:
+        async with session.begin():
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(TaxTransactionTable).where(
+                TaxTransactionTable.id == tax_transaction_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            existing = result.scalar_one_or_none()
+            if not existing:
+                return False
+
+            # 2. Perform delete on the locked row
+            if permanent:
+                await session.delete(existing)
+            else:
+                existing.deleted_at = datetime.utcnow()
+                existing.updated_at = datetime.utcnow()
+                existing.updated_by = user_id
+            await session.flush()
             await self._log_audit("DELETE", tax_transaction_id, {"permanent": permanent, "user_id": str(user_id)})
             logger.info(f"Tax transaction {tax_transaction_id} deleted (permanent={permanent})")
-        return result.rowcount > 0
+            return True
 
     async def get_by_id(self, tax_transaction_id: UUID) -> TaxTransaction | None:
         session = await self._get_session()

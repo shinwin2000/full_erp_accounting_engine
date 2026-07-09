@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import zlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -84,6 +84,12 @@ class SnapshotNotFoundError(SnapshotStoreError):
 
 class SnapshotCorruptedError(SnapshotStoreError):
     """Snapshot corrupted (compression/encryption error)."""
+
+    pass
+
+
+class OptimisticLockError(SnapshotStoreError):
+    """Optimistic lock conflict (version mismatch)."""
 
     pass
 
@@ -301,28 +307,62 @@ class SnapshotStoreAggregate:
 
     async def delete_snapshot(self, snapshot_id: UUID) -> bool:
         """
-        Delete (soft delete) a snapshot.
+        Delete (soft delete) a snapshot with pessimistic + optimistic locking.
+
+        LOCKING: SELECT FOR UPDATE (pessimistic lock) + optimistic lock (version check).
         """
         try:
             async with self._session_factory() as session, session.begin():
-                stmt = (
-                    update(SnapshotStoreTable)
-                    .where(SnapshotStoreTable.id == snapshot_id)
-                    .values(status=SNAPSHOT_STATUS_DELETED, deleted_at=datetime.now(UTC))
+                # 1. Lock the row with SELECT FOR UPDATE (pessimistic lock)
+                stmt_lock = (
+                    select(SnapshotStoreTable)
+                    .where(
+                        SnapshotStoreTable.id == snapshot_id,
+                        SnapshotStoreTable.status == SNAPSHOT_STATUS_ACTIVE,
+                    )
+                    .with_for_update()
                 )
-                result = await session.execute(stmt)
+                result = await session.execute(stmt_lock)
+                snapshot = result.scalar_one_or_none()
+                if not snapshot:
+                    return False
+
+                current_version = snapshot.version
+                new_version = current_version + 1
+
+                # 2. Update with version check (optimistic lock)
+                update_stmt = (
+                    update(SnapshotStoreTable)
+                    .where(
+                        SnapshotStoreTable.id == snapshot_id,
+                        SnapshotStoreTable.version == current_version,
+                    )
+                    .values(
+                        status=SNAPSHOT_STATUS_DELETED,
+                        deleted_at=datetime.now(UTC),
+                        version=new_version,
+                    )
+                )
+                update_result = await session.execute(update_stmt)
+
+                if update_result.rowcount == 0:
+                    raise OptimisticLockError(
+                        f"Snapshot {snapshot_id} was modified concurrently (version mismatch)"
+                    )
+
                 await session.commit()
 
-                deleted = result.rowcount > 0
-                if deleted:
-                    # Remove from cache if present
-                    for key, val in list(self._cache.items()):
-                        if val.get("snapshot_id") == snapshot_id:
-                            del self._cache[key]
-                            break
-                    logger.info(f"Snapshot {snapshot_id} deleted")
-                return deleted
+                # Remove from cache if present
+                for key, val in list(self._cache.items()):
+                    if val.get("snapshot_id") == snapshot_id:
+                        del self._cache[key]
+                        break
 
+                logger.info(f"Snapshot {snapshot_id} deleted")
+                return True
+
+        except OptimisticLockError:
+            raise
         except Exception as e:
             logger.error(f"Failed to delete snapshot {snapshot_id}: {e}")
             raise SnapshotStoreError(f"Failed to delete snapshot: {e}") from e
@@ -409,29 +449,55 @@ class SnapshotStoreAggregate:
         self, older_than_days: int = DEFAULT_SNAPSHOT_TTL_DAYS
     ) -> int:
         """
-        Delete snapshots older than specified days (soft delete).
+        Delete snapshots older than specified days (soft delete) with pessimistic locking.
+
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on records being updated.
         """
         cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
 
         try:
             async with self._session_factory() as session, session.begin():
-                stmt = (
-                    update(SnapshotStoreTable)
+                # 1. Select records to delete with lock (FOR UPDATE)
+                stmt_select = (
+                    select(SnapshotStoreTable)
                     .where(
                         SnapshotStoreTable.taken_at < cutoff,
                         SnapshotStoreTable.status == SNAPSHOT_STATUS_ACTIVE,
                     )
-                    .values(status=SNAPSHOT_STATUS_DELETED, deleted_at=datetime.now(UTC))
+                    .with_for_update()
                 )
-                result = await session.execute(stmt)
-                await session.commit()
+                result = await session.execute(stmt_select)
+                snapshots = result.scalars().all()
 
-                deleted = result.rowcount
-                if deleted > 0:
-                    logger.info(
-                        f"Cleaned up {deleted} expired snapshots older than {older_than_days} days"
+                if not snapshots:
+                    return 0
+
+                # 2. Update each record with version check
+                updated_count = 0
+                for snapshot in snapshots:
+                    current_version = snapshot.version
+                    new_version = current_version + 1
+                    update_stmt = (
+                        update(SnapshotStoreTable)
+                        .where(
+                            SnapshotStoreTable.id == snapshot.id,
+                            SnapshotStoreTable.version == current_version,
+                        )
+                        .values(
+                            status=SNAPSHOT_STATUS_DELETED,
+                            deleted_at=datetime.now(UTC),
+                            version=new_version,
+                        )
                     )
-                return deleted
+                    update_result = await session.execute(update_stmt)
+                    if update_result.rowcount > 0:
+                        updated_count += 1
+
+                await session.commit()
+                logger.info(
+                    f"Cleaned up {updated_count} expired snapshots older than {older_than_days} days"
+                )
+                return updated_count
 
         except Exception as e:
             logger.error(f"Failed to cleanup expired snapshots: {e}")
@@ -551,6 +617,7 @@ async def get_snapshot_store() -> SnapshotStoreAggregate:
 __all__ = [
     "DEFAULT_MAX_SNAPSHOTS_PER_AGGREGATE",
     "DEFAULT_SNAPSHOT_INTERVAL",
+    "OptimisticLockError",
     "SnapshotCorruptedError",
     "SnapshotNotFoundError",
     "SnapshotStoreAggregate",

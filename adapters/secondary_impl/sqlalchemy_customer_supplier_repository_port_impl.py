@@ -105,17 +105,28 @@ class SQLAlchemyCustomerCategoryAdapter:
         }
 
     async def update_category(self, category_id: uuid.UUID, data: dict[str, Any]) -> dict[str, Any]:
+        """
+        Update category with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
-        stmt = select(CustomerCategoryTable).where(CustomerCategoryTable.id == category_id)
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-        if not row:
-            raise ValueError(f"Category {category_id} not found")
-        for key, value in data.items():
-            if hasattr(row, key) and key not in ("id", "created_at", "legal_entity_id"):
-                setattr(row, key, value)
-        row.updated_at = datetime.utcnow()
-        await session.flush()
+        async with session.begin():
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(CustomerCategoryTable).where(
+                CustomerCategoryTable.id == category_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Category {category_id} not found")
+
+            # 2. Update the locked row
+            for key, value in data.items():
+                if hasattr(row, key) and key not in ("id", "created_at", "legal_entity_id"):
+                    setattr(row, key, value)
+            row.updated_at = datetime.utcnow()
+            await session.flush()
+
         return {
             "id": str(row.id),
             "code": row.code,
@@ -126,11 +137,25 @@ class SQLAlchemyCustomerCategoryAdapter:
         }
 
     async def delete_category(self, category_id: uuid.UUID) -> bool:
+        """
+        Delete category with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
-        stmt = delete(CustomerCategoryTable).where(CustomerCategoryTable.id == category_id)
-        result = await session.execute(stmt)
-        await session.flush()
-        return result.rowcount > 0
+        async with session.begin():
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(CustomerCategoryTable).where(
+                CustomerCategoryTable.id == category_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                return False
+
+            # 2. Delete the locked row
+            await session.delete(row)
+            await session.flush()
+            return True
 
     async def deactivate_category(self, category_id: uuid.UUID) -> bool:
         session = await self._get_session()

@@ -422,11 +422,6 @@ class QuantityVO:
         return self.value > 0
 
     @property
-    def as_float(self) -> float:
-        """Return as float (warning: precision loss)."""
-        return float(self.value)
-
-    @property
     def as_integer(self) -> int | None:
         """Return as integer if value is integer (no fractional part)."""
         if self.value == self.value.to_integral():

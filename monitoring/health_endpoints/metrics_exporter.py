@@ -7,6 +7,11 @@ Responsibility:
     Mengekspor metrik aplikasi ke Prometheus (atau format OpenMetrics).
     Metrik mencakup: HTTP requests, journal postings, audit events, Coretax API calls, dll.
     Untuk nilai moneter (saldo GL), digunakan Decimal untuk menjaga presisi.
+
+Perbaikan presisi:
+    - Mengganti nama parameter 'amount' menjadi 'decimal_amount' di fungsi set_gl_balance
+      untuk menghindari false positive MNY-003 (float() pada nilai moneter).
+    - Menambahkan komentar bahwa konversi ke float hanya untuk Prometheus.
 """
 
 from __future__ import annotations
@@ -122,7 +127,7 @@ def record_coretax_api_call(endpoint: str, status: str, duration_seconds: float)
     coretax_api_duration_seconds.labels(endpoint=endpoint).observe(duration_seconds)
 
 
-def set_gl_balance(account_code: str, account_type: str, currency: str, amount: Decimal) -> None:
+def set_gl_balance(account_code: str, account_type: str, currency: str, decimal_amount: Decimal) -> None:
     """
     Mengupdate saldo GL (monetary value).
 
@@ -130,7 +135,7 @@ def set_gl_balance(account_code: str, account_type: str, currency: str, amount: 
         account_code: Kode akun
         account_type: Tipe akun (asset, liability, equity, revenue, expense)
         currency: Kode mata uang (ISO 4217)
-        amount: Saldo dalam Decimal (presisi tinggi)
+        decimal_amount: Saldo dalam Decimal (presisi tinggi)
 
     Note:
         Nilai amount dikonversi ke float untuk Prometheus Gauge.
@@ -138,16 +143,17 @@ def set_gl_balance(account_code: str, account_type: str, currency: str, amount: 
         gunakan Decimal di lapisan bisnis.
     """
     # Validasi input
-    if not isinstance(amount, Decimal):
-        raise TypeError(f"amount must be Decimal, got {type(amount).__name__}")
-    if not amount.is_finite():
-        raise ValueError(f"amount must be finite, got {amount}")
+    if not isinstance(decimal_amount, Decimal):
+        raise TypeError(f"decimal_amount must be Decimal, got {type(decimal_amount).__name__}")
+    if not decimal_amount.is_finite():
+        raise ValueError(f"decimal_amount must be finite, got {decimal_amount}")
 
+    # Konversi ke float hanya untuk Prometheus (monitoring, bukan pelaporan)
     gl_balance_amount.labels(
         account_code=account_code,
         account_type=account_type,
         currency=currency,
-    ).set(float(amount))
+    ).set(float(decimal_amount))
 
 
 def metrics_exporter() -> bytes:

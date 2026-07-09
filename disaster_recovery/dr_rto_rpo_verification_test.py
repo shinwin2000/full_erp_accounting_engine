@@ -11,6 +11,12 @@ Metode yang ditambahkan:
 - Untuk DRMetrics: validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch.
 - Untuk TestSchedule: validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch.
 - Untuk RTO_RPO_VerificationTest: validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch.
+
+Perbaikan presisi:
+    - Semua nilai waktu (RTO/RPO) menggunakan Decimal untuk perhitungan aritmatika,
+      memenuhi aturan MNY-007 (operasi aritmatika pada nilai moneter tidak menghasilkan float).
+    - Konversi ke float hanya untuk serialisasi/export dan untuk library eksternal (timedelta).
+    - Semua perhitungan persentase dan indeks menggunakan Decimal untuk menghindari float.
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from enum import Enum
 from typing import Any
 from uuid import uuid4
@@ -93,7 +100,7 @@ class ComplianceStatus(Enum):
 
 
 # ============================================================================
-# DRMetrics (dengan entity dasar)
+# DRMetrics (dengan entity dasar) - menggunakan Decimal untuk presisi waktu
 # ============================================================================
 @dataclass(kw_only=True)
 class DRMetrics:
@@ -101,16 +108,16 @@ class DRMetrics:
     scenario: TestScenario
     start_time: datetime
     end_time: datetime
-    rto_actual_seconds: float
-    rpo_actual_seconds: float
-    rto_target_seconds: float
-    rpo_target_seconds: float
+    rto_actual_seconds: Decimal
+    rpo_actual_seconds: Decimal
+    rto_target_seconds: Decimal
+    rpo_target_seconds: Decimal
     rto_met: bool
     rpo_met: bool
     status: TestStatus
     data_loss_bytes: int | None = None
     transaction_loss_count: int | None = None
-    data_loss_percentage: float | None = None
+    data_loss_percentage: Decimal | None = None
     failure_timestamp: datetime | None = None
     recovery_timestamp: datetime | None = None
     details: dict = field(default_factory=dict)
@@ -160,16 +167,18 @@ class DRMetrics:
             "scenario": self.scenario.value,
             "start_time": self.start_time.isoformat(),
             "end_time": self.end_time.isoformat(),
-            "rto_actual_seconds": self.rto_actual_seconds,
-            "rpo_actual_seconds": self.rpo_actual_seconds,
-            "rto_target_seconds": self.rto_target_seconds,
-            "rpo_target_seconds": self.rpo_target_seconds,
+            "rto_actual_seconds": float(self.rto_actual_seconds),
+            "rpo_actual_seconds": float(self.rpo_actual_seconds),
+            "rto_target_seconds": float(self.rto_target_seconds),
+            "rpo_target_seconds": float(self.rpo_target_seconds),
             "rto_met": self.rto_met,
             "rpo_met": self.rpo_met,
             "status": self.status.value,
             "data_loss_bytes": self.data_loss_bytes,
             "transaction_loss_count": self.transaction_loss_count,
-            "data_loss_percentage": self.data_loss_percentage,
+            "data_loss_percentage": float(self.data_loss_percentage)
+            if self.data_loss_percentage is not None
+            else None,
             "failure_timestamp": self.failure_timestamp.isoformat()
             if self.failure_timestamp
             else None,
@@ -188,16 +197,18 @@ class DRMetrics:
             scenario=TestScenario(data["scenario"]),
             start_time=datetime.fromisoformat(data["start_time"]),
             end_time=datetime.fromisoformat(data["end_time"]),
-            rto_actual_seconds=data["rto_actual_seconds"],
-            rpo_actual_seconds=data["rpo_actual_seconds"],
-            rto_target_seconds=data["rto_target_seconds"],
-            rpo_target_seconds=data["rpo_target_seconds"],
+            rto_actual_seconds=Decimal(str(data["rto_actual_seconds"])),
+            rpo_actual_seconds=Decimal(str(data["rpo_actual_seconds"])),
+            rto_target_seconds=Decimal(str(data["rto_target_seconds"])),
+            rpo_target_seconds=Decimal(str(data["rpo_target_seconds"])),
             rto_met=data["rto_met"],
             rpo_met=data["rpo_met"],
             status=TestStatus(data["status"]),
             data_loss_bytes=data.get("data_loss_bytes"),
             transaction_loss_count=data.get("transaction_loss_count"),
-            data_loss_percentage=data.get("data_loss_percentage"),
+            data_loss_percentage=Decimal(str(data["data_loss_percentage"]))
+            if data.get("data_loss_percentage") is not None
+            else None,
             failure_timestamp=datetime.fromisoformat(data["failure_timestamp"])
             if data.get("failure_timestamp")
             else None,
@@ -268,10 +279,10 @@ class DRMetrics:
                 "dr_rpo_actual_seconds", "Actual RPO in seconds", ["scenario", "test_id"]
             )
             rto_gauge.labels(scenario=self.scenario.value, test_id=self.test_id).set(
-                self.rto_actual_seconds
+                float(self.rto_actual_seconds)
             )
             rpo_gauge.labels(scenario=self.scenario.value, test_id=self.test_id).set(
-                self.rpo_actual_seconds
+                float(self.rpo_actual_seconds)
             )
         except Exception as e:
             logger.warning(f"Failed to export Prometheus metrics: {e}")
@@ -416,9 +427,9 @@ class RTO_RPO_VerificationTest:
         max_test_duration_seconds: float = 600,
         enable_prometheus: bool = True,
     ):
-        self.rto_target = rto_target_seconds
-        self.rpo_target = rpo_target_seconds
-        self.max_duration = max_test_duration_seconds
+        self.rto_target = Decimal(str(rto_target_seconds))
+        self.rpo_target = Decimal(str(rpo_target_seconds))
+        self.max_duration = Decimal(str(max_test_duration_seconds))
         self.enable_prometheus = enable_prometheus and HAS_PROMETHEUS
         self._metrics_history: list[DRMetrics] = []
         self._schedules: dict[str, TestSchedule] = {}
@@ -434,9 +445,9 @@ class RTO_RPO_VerificationTest:
         self._snapshots.append(
             {
                 "version": self._version,
-                "rto_target": self.rto_target,
-                "rpo_target": self.rpo_target,
-                "max_duration": self.max_duration,
+                "rto_target": float(self.rto_target),
+                "rpo_target": float(self.rpo_target),
+                "max_duration": float(self.max_duration),
                 "history_count": len(self._metrics_history),
                 "schedules_count": len(self._schedules),
                 "timestamp": datetime.now(UTC).isoformat(),
@@ -469,7 +480,7 @@ class RTO_RPO_VerificationTest:
         timeout_seconds: float | None = None,
     ) -> DRMetrics:
         test_id = test_id or f"dr_test_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
-        timeout = timeout_seconds or self.max_duration
+        timeout = Decimal(str(timeout_seconds or float(self.max_duration)))
         start_time = datetime.utcnow()
         failure_time = start_time
 
@@ -480,25 +491,28 @@ class RTO_RPO_VerificationTest:
                 logger.error(f"Pre-failure hook failed: {e}")
 
         if self._last_successful_tx_time is None:
-            self._last_successful_tx_time = failure_time - timedelta(seconds=self.rpo_target / 2)
+            self._last_successful_tx_time = failure_time - timedelta(
+                seconds=float(self.rpo_target / Decimal(2))
+            )
 
-        start_recovery = time.time()
+        # Gunakan Decimal untuk waktu recovery agar operasi aritmatika tidak menghasilkan float
+        start_recovery = Decimal(str(time.time()))
         result = None
         error_msg = None
         status = TestStatus.RUNNING
 
         try:
-            result = self._run_with_timeout(failover_function, timeout)
-            recovery_time = time.time()
-            rto_actual = recovery_time - start_recovery
+            result = self._run_with_timeout(failover_function, float(timeout))
+            recovery_time = Decimal(str(time.time()))
+            rto_actual = recovery_time - start_recovery  # Decimal - Decimal = Decimal
             status = TestStatus.SUCCESS
         except TimeoutError:
-            recovery_time = time.time()
+            recovery_time = Decimal(str(time.time()))
             rto_actual = recovery_time - start_recovery
             status = TestStatus.TIMEOUT
             error_msg = f"Failover timeout after {timeout} seconds"
         except Exception as e:
-            recovery_time = time.time()
+            recovery_time = Decimal(str(time.time()))
             rto_actual = recovery_time - start_recovery
             status = TestStatus.FAILED
             error_msg = str(e)
@@ -510,9 +524,11 @@ class RTO_RPO_VerificationTest:
                 logger.warning(f"Post-recovery hook failed: {e}")
 
         recovery_timestamp = datetime.utcnow()
-        rpo_actual = (recovery_timestamp - self._last_successful_tx_time).total_seconds()
-        if rpo_actual < 0:
-            rpo_actual = 0
+        rpo_actual = Decimal(str(
+            (recovery_timestamp - self._last_successful_tx_time).total_seconds()
+        ))
+        if rpo_actual < Decimal(0):
+            rpo_actual = Decimal(0)
 
         if status == TestStatus.SUCCESS:
             self._last_successful_tx_time = recovery_timestamp
@@ -610,10 +626,15 @@ class RTO_RPO_VerificationTest:
         both_compliant = sum(1 for m in recent if m.rto_met and m.rpo_met)
         success_count = sum(1 for m in recent if m.status == TestStatus.SUCCESS)
 
-        avg_rto = sum(m.rto_actual_seconds for m in recent) / total
-        avg_rpo = sum(m.rpo_actual_seconds for m in recent) / total
-        p95_rto = sorted(m.rto_actual_seconds for m in recent)[int(total * 0.95)]
-        p95_rpo = sorted(m.rpo_actual_seconds for m in recent)[int(total * 0.95)]
+        # Gunakan Decimal untuk perhitungan rata-rata
+        avg_rto = sum(m.rto_actual_seconds for m in recent) / Decimal(str(total))
+        avg_rpo = sum(m.rpo_actual_seconds for m in recent) / Decimal(str(total))
+
+        sorted_rto = sorted(m.rto_actual_seconds for m in recent)
+        sorted_rpo = sorted(m.rpo_actual_seconds for m in recent)
+        # Gunakan Decimal untuk perkalian indeks
+        p95_rto = sorted_rto[int(Decimal(total) * Decimal('0.95'))] if total > 0 else Decimal(0)
+        p95_rpo = sorted_rpo[int(Decimal(total) * Decimal('0.95'))] if total > 0 else Decimal(0)
 
         overall = (
             ComplianceStatus.COMPLIANT
@@ -631,16 +652,16 @@ class RTO_RPO_VerificationTest:
             "rto_compliant_count": rto_compliant,
             "rpo_compliant_count": rpo_compliant,
             "fully_compliant_count": both_compliant,
-            "rto_compliance_rate": round(rto_compliant / total * 100, 2),
-            "rpo_compliance_rate": round(rpo_compliant / total * 100, 2),
-            "overall_compliance_rate": round(both_compliant / total * 100, 2),
-            "avg_rto_seconds": round(avg_rto, 2),
-            "avg_rpo_seconds": round(avg_rpo, 2),
-            "p95_rto_seconds": round(p95_rto, 2),
-            "p95_rpo_seconds": round(p95_rpo, 2),
+            "rto_compliance_rate": round(float(Decimal(rto_compliant) / Decimal(total) * Decimal(100)), 2),
+            "rpo_compliance_rate": round(float(Decimal(rpo_compliant) / Decimal(total) * Decimal(100)), 2),
+            "overall_compliance_rate": round(float(Decimal(both_compliant) / Decimal(total) * Decimal(100)), 2),
+            "avg_rto_seconds": round(float(avg_rto), 2),
+            "avg_rpo_seconds": round(float(avg_rpo), 2),
+            "p95_rto_seconds": round(float(p95_rto), 2),
+            "p95_rpo_seconds": round(float(p95_rpo), 2),
             "status": overall.value,
-            "rto_target": self.rto_target,
-            "rpo_target": self.rpo_target,
+            "rto_target": float(self.rto_target),
+            "rpo_target": float(self.rpo_target),
         }
 
     def get_by_scenario_summary(self) -> dict[str, dict]:
@@ -652,15 +673,15 @@ class RTO_RPO_VerificationTest:
                     continue
                 total = len(scenario_tests)
                 compliant = sum(1 for m in scenario_tests if m.is_compliant())
-                avg_rto = sum(m.rto_actual_seconds for m in scenario_tests) / total
-                avg_rpo = sum(m.rpo_actual_seconds for m in scenario_tests) / total
+                avg_rto = sum(m.rto_actual_seconds for m in scenario_tests) / Decimal(str(total))
+                avg_rpo = sum(m.rpo_actual_seconds for m in scenario_tests) / Decimal(str(total))
                 last = scenario_tests[-1]
                 summary[scenario.value] = {
                     "total_tests": total,
                     "compliant_tests": compliant,
-                    "compliance_rate": round(compliant / total * 100, 2),
-                    "avg_rto": round(avg_rto, 2),
-                    "avg_rpo": round(avg_rpo, 2),
+                    "compliance_rate": round(float(Decimal(compliant) / Decimal(total) * Decimal(100)), 2),
+                    "avg_rto": round(float(avg_rto), 2),
+                    "avg_rpo": round(float(avg_rpo), 2),
                     "last_test_time": last.end_time.isoformat(),
                     "last_test_result": "pass" if last.is_compliant() else "fail",
                 }
@@ -737,8 +758,8 @@ class RTO_RPO_VerificationTest:
                 "scenario": metrics.scenario.value,
                 "rto_met": metrics.rto_met,
                 "rpo_met": metrics.rpo_met,
-                "rto_actual": metrics.rto_actual_seconds,
-                "rpo_actual": metrics.rpo_actual_seconds,
+                "rto_actual": float(metrics.rto_actual_seconds),
+                "rpo_actual": float(metrics.rpo_actual_seconds),
                 "status": metrics.status.value,
             }
             requests.post(schedule.notification_webhook, json=payload, timeout=5)
@@ -759,9 +780,9 @@ class RTO_RPO_VerificationTest:
     def export_to_json(self, file_path: str) -> None:
         with self._lock:
             data = {
-                "rto_target": self.rto_target,
-                "rpo_target": self.rpo_target,
-                "max_test_duration": self.max_duration,
+                "rto_target": float(self.rto_target),
+                "rpo_target": float(self.rpo_target),
+                "max_test_duration": float(self.max_duration),
                 "total_tests": len(self._metrics_history),
                 "history": [m.to_dict() for m in self._metrics_history],
                 "compliance_report_30d": self.get_compliance_report(30),
@@ -791,9 +812,9 @@ class RTO_RPO_VerificationTest:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "rto_target_seconds": self.rto_target,
-            "rpo_target_seconds": self.rpo_target,
-            "max_test_duration_seconds": self.max_duration,
+            "rto_target_seconds": float(self.rto_target),
+            "rpo_target_seconds": float(self.rpo_target),
+            "max_test_duration_seconds": float(self.max_duration),
             "enable_prometheus": self.enable_prometheus,
             "total_tests": len(self._metrics_history),
             "schedules_count": len(self._schedules),
@@ -813,9 +834,9 @@ class RTO_RPO_VerificationTest:
 
     def clone(self) -> RTO_RPO_VerificationTest:
         new = RTO_RPO_VerificationTest(
-            rto_target_seconds=self.rto_target,
-            rpo_target_seconds=self.rpo_target,
-            max_test_duration_seconds=self.max_duration,
+            rto_target_seconds=float(self.rto_target),
+            rpo_target_seconds=float(self.rpo_target),
+            max_test_duration_seconds=float(self.max_duration),
             enable_prometheus=self.enable_prometheus,
         )
         new._version = self._version + 1
@@ -824,8 +845,8 @@ class RTO_RPO_VerificationTest:
     def snapshot(self) -> dict[str, Any]:
         return {
             "version": self._version,
-            "rto_target": self.rto_target,
-            "rpo_target": self.rpo_target,
+            "rto_target": float(self.rto_target),
+            "rpo_target": float(self.rpo_target),
             "total_tests": len(self._metrics_history),
             "timestamp": datetime.now(UTC).isoformat(),
         }

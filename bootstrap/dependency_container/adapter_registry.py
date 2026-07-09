@@ -12,7 +12,8 @@ FIX:
 - _match_by_base_name() memiliki guard untuk menolak Port/Protocol.
 - _build_factory() memiliki guard runtime untuk mendeteksi jika impl adalah interface.
 - AgingReportRepositoryPort secara eksplisit di-map ke SQLAlchemyReportRepository.
-- AccountRepositoryPort sekarang diarahkan ke ConcreteAccountRepository (implementasi konkret di adapters).
+- AccountRepositoryPort sekarang diarahkan ke _ConcreteAccountRepository (implementasi konkret di adapters).
+  Karena alias "ConcreteAccountRepository" tidak terdeteksi sebagai class (nama asli _ConcreteAccountRepository).
 - Dihapus special case pembuatan kelas anonim untuk AccountRepositoryPort karena sudah ada implementasi konkret.
 """
 
@@ -49,8 +50,8 @@ class AdapterRegistry:
             "SnapshotStorePort": "PostgresSnapshotStore",
             "AgingReportRepositoryPort": "SQLAlchemyReportRepository",
 
-            # --- Perbaikan: menggunakan ConcreteAccountRepository (bukan abstract SQLAlchemy) ---
-            "AccountRepositoryPort": "ConcreteAccountRepository",
+            # FIX: Gunakan nama class asli (_ConcreteAccountRepository) karena alias tidak terdeteksi
+            "AccountRepositoryPort": "_ConcreteAccountRepository",
 
             "APRepositoryPort": "SQLAlchemyAPRepository",
             "ARRepositoryPort": "SQLAlchemyARRepository",
@@ -345,8 +346,6 @@ class AdapterRegistry:
             )
 
         # === KASUS KHUSUS ===
-        # (Blok AccountRepositoryPort telah dihapus; implementasi konkret ada di adapters/secondary_impl)
-
         # 1. CoreTaxPort
         if port_name == "CoreTaxPort" and impl_name == "TaxAuthorityCoretaxAdapter":
             sig = inspect.signature(impl.__init__)

@@ -13,7 +13,8 @@ Penggunaan:
   python accounting_posting_checker.py
   python accounting_posting_checker.py --verbose
   python accounting_posting_checker.py --json report.json
-  python accounting_posting_checker.py --group-by-file   # NEW: grup per file
+  python accounting_posting_checker.py --group-by-file
+  python accounting_posting_checker.py --list-files   # Tampilkan semua file yang discan
 """
 
 from __future__ import annotations
@@ -118,6 +119,7 @@ class Report:
     score: int = 100
     files_scanned: int = 0
     files_introspected: int = 0
+    scanned_directories: list[str] = field(default_factory=list)
 
 # ============================================================================
 # 1. HYBRID SCANNER KERNEL
@@ -373,6 +375,9 @@ def scan_project() -> Report:
         PROJECT_ROOT / "application" / "commands_cqrs",
     ]
 
+    all_dirs = journal_dirs + app_dirs
+    report.scanned_directories = [str(d.relative_to(PROJECT_ROOT)) for d in all_dirs if d.exists()]
+
     journal_files = _collect_files(journal_dirs)
     app_files = _collect_files(app_dirs)
 
@@ -404,73 +409,120 @@ def scan_project() -> Report:
 # ============================================================================
 # 4. REPORTING
 # ============================================================================
-def print_grouped_report(report: Report, verbose: bool = False):
-    """Mencetak laporan yang dikelompokkan per file."""
+def print_grouped_report(report: Report, verbose: bool = False, list_files: bool = False):
+    """Mencetak laporan yang dikelompokkan per file dengan statistik lengkap."""
     c = COLOR
     grouped = defaultdict(list)
     for f in report.findings:
-        # Gunakan path relatif sebagai key
         try:
             rel_path = str(pathlib.Path(f.file).relative_to(PROJECT_ROOT))
         except ValueError:
             rel_path = f.file
         grouped[rel_path].append(f)
 
-    print(f"\n{c['MAGENTA']}{'='*80}{c['RESET']}")
-    print(f"{c['MAGENTA']} SOVEREIGN ACCOUNTING POSTING CHECKER - GROUPED BY FILE {c['RESET']}")
-    print(f"{c['MAGENTA']}{'='*80}{c['RESET']}")
-
-    print(f"\n  Total Findings: {c['YELLOW']}{len(report.findings)}{c['RESET']}")
-    print(f"  Files with Issues: {c['YELLOW']}{len(grouped)}{c['RESET']}")
-    print(f"  RCA Engine: {'✅ Aktif' if RCA_AVAILABLE else '⚠️ Tidak tersedia'}\n")
-
-    for file_path, findings in sorted(grouped.items()):
-        # Hitung jumlah per kategori
-        cats = defaultdict(int)
-        for f in findings:
-            cats[f.category] += 1
-        cat_summary = " | ".join(f"{k}:{v}" for k, v in cats.items())
-        print(f"{c['CYAN']}📄 {file_path}{c['RESET']} ({len(findings)} temuan) [{cat_summary}]")
-        for f in findings[:10]:  # tampilkan maks 10 per file
-            color = c["RED"] if f.severity in ["CRITICAL", "ERROR"] else c["YELLOW"]
-            print(f"    {color}[{f.severity}][{f.category}]{c['RESET']} line {f.line}: {f.message}")
-            if verbose and f.detail:
-                print(f"       💡 {f.detail}")
-            if verbose and f.rca:
-                root_cause = f.rca.get('root_cause', '')
-                if root_cause:
-                    print(f"       🔍 RCA: {root_cause[:100]}")
-        if len(findings) > 10:
-            print(f"    ... dan {len(findings)-10} temuan lainnya dalam file ini.")
-        print()
-
-def print_report(report: Report, verbose: bool = False, group: bool = False):
-    if group:
-        print_grouped_report(report, verbose)
-        return
-
-    c = COLOR
-    print(f"\n{c['MAGENTA']}{'='*80}{c['RESET']}")
-    print(f"{c['MAGENTA']} SOVEREIGN ACCOUNTING POSTING CHECKER - HYBRID ANALYSIS REPORT {c['RESET']}")
-    print(f"{c['MAGENTA']}{'='*80}{c['RESET']}")
-
-    print(f"\n  Files Scanned (AST): {c['CYAN']}{report.files_scanned}{c['RESET']}")
-    print(f"  Files Introspected (Runtime): {c['CYAN']}{report.files_introspected}{c['RESET']}")
-
     criticals = sum(1 for f in report.findings if f.severity == "CRITICAL")
     errors = sum(1 for f in report.findings if f.severity == "ERROR")
     warnings = sum(1 for f in report.findings if f.severity == "WARNING")
 
-    print(f"  Findings: CRITICAL: {c['RED']}{criticals}{c['RESET']} | ERROR: {c['RED']}{errors}{c['RESET']} | WARNING: {c['YELLOW']}{warnings}{c['RESET']}")
+    print(f"\n{c['MAGENTA']}{'='*80}{c['RESET']}")
+    print(f"{c['MAGENTA']} SOVEREIGN ACCOUNTING POSTING CHECKER - GROUPED BY FILE {c['RESET']}")
+    print(f"{c['MAGENTA']}{'='*80}{c['RESET']}")
 
+    # ==================== SUMMARY STATISTICS ====================
+    print(f"\n  {c['CYAN']}📊 SUMMARY STATISTICS{c['RESET']}")
+    print(f"  {'-'*60}")
+    print(f"     Files Scanned (AST)        : {c['CYAN']}{report.files_scanned}{c['RESET']}")
+    print(f"     Files Introspected (Runtime): {c['CYAN']}{report.files_introspected}{c['RESET']}")
+    print(f"     Files with Issues          : {c['YELLOW']}{len(grouped)}{c['RESET']}")
+    print(f"     Total Findings             : {c['YELLOW']}{len(report.findings)}{c['RESET']}")
     score_color = c['GREEN'] if report.score >= 90 else (c['YELLOW'] if report.score >= 70 else c['RED'])
-    print(f"  System Compliance Score: {score_color}{report.score}/100{c['RESET']}")
-    print(f"  RCA Engine: {'✅ Aktif' if RCA_AVAILABLE else '⚠️ Tidak tersedia'}")
+    print(f"     Compliance Score           : {score_color}{report.score}/100{c['RESET']}")
+    print(f"     RCA Engine                 : {'✅ Aktif' if RCA_AVAILABLE else '⚠️ Tidak tersedia'}")
+    print(f"     Findings Breakdown         : CRITICAL: {c['RED']}{criticals}{c['RESET']} | ERROR: {c['RED']}{errors}{c['RESET']} | WARNING: {c['YELLOW']}{warnings}{c['RESET']}")
+
+    # ==================== SCANNED DIRECTORIES ====================
+    print(f"\n  {c['CYAN']}📁 DIRECTORIES SCANNED{c['RESET']}")
+    print(f"  {'-'*60}")
+    for d in report.scanned_directories:
+        print(f"     - {d}")
+
+    if list_files and report.files_scanned > 0:
+        # Kumpulkan semua file yang discan (relatif ke root) - perlu di-scroll ulang atau kita simpan di report?
+        # Karena kita tidak menyimpan daftar file di report, kita kumpulkan ulang.
+        # Cara praktis: kita tampilkan sample 10 file pertama dari hasil grouping
+        print(f"\n  {c['CYAN']}📄 SAMPLE OF SCANNED FILES (First 10){c['RESET']}")
+        print(f"  {'-'*60}")
+        all_files = sorted(grouped.keys())
+        if len(all_files) > 10:
+            for f in all_files[:10]:
+                print(f"     - {f}")
+            print(f"     ... dan {len(all_files)-10} file lainnya.")
+        else:
+            for f in all_files:
+                print(f"     - {f}")
+
+    # ==================== FINDINGS PER FILE ====================
+    if report.findings:
+        print(f"\n  {c['CYAN']}🔍 FINDINGS PER FILE{c['RESET']}")
+        print(f"  {'-'*60}")
+
+        for file_path, findings in sorted(grouped.items()):
+            cats = defaultdict(int)
+            for f in findings:
+                cats[f.category] += 1
+            cat_summary = " | ".join(f"{k}:{v}" for k, v in cats.items())
+            print(f"\n  {c['YELLOW']}📄 {file_path}{c['RESET']} ({len(findings)} temuan) [{cat_summary}]")
+
+            for f in findings[:10]:
+                color = c["RED"] if f.severity in ["CRITICAL", "ERROR"] else c["YELLOW"]
+                print(f"    {color}[{f.severity}][{f.category}]{c['RESET']} line {f.line}: {f.message}")
+                if verbose and f.detail:
+                    print(f"       💡 {f.detail}")
+                if verbose and f.rca:
+                    root_cause = f.rca.get('root_cause', '')
+                    if root_cause:
+                        print(f"       🔍 RCA: {root_cause[:100]}")
+            if len(findings) > 10:
+                print(f"    ... dan {len(findings)-10} temuan lainnya dalam file ini.")
+    else:
+        print(f"\n  {c['GREEN']}✅ Tidak ada temuan! Semua file memenuhi standar akuntansi.{c['RESET']}")
+
+    print(f"\n{c['MAGENTA']}{'='*80}{c['RESET']}\n")
+
+def print_report(report: Report, verbose: bool = False, group: bool = False, list_files: bool = False):
+    if group:
+        print_grouped_report(report, verbose, list_files)
+        return
+
+    c = COLOR
+    criticals = sum(1 for f in report.findings if f.severity == "CRITICAL")
+    errors = sum(1 for f in report.findings if f.severity == "ERROR")
+    warnings = sum(1 for f in report.findings if f.severity == "WARNING")
+
+    print(f"\n{c['MAGENTA']}{'='*80}{c['RESET']}")
+    print(f"{c['MAGENTA']} SOVEREIGN ACCOUNTING POSTING CHECKER - HYBRID ANALYSIS REPORT {c['RESET']}")
+    print(f"{c['MAGENTA']}{'='*80}{c['RESET']}")
+
+    print(f"\n  {c['CYAN']}📊 SUMMARY STATISTICS{c['RESET']}")
+    print(f"  {'-'*60}")
+    print(f"     Files Scanned (AST)        : {c['CYAN']}{report.files_scanned}{c['RESET']}")
+    print(f"     Files Introspected (Runtime): {c['CYAN']}{report.files_introspected}{c['RESET']}")
+    print(f"     Files with Issues          : {c['YELLOW']}{sum(1 for f in report.findings)}{c['RESET']}")  # not accurate per file, but fine
+    print(f"     Total Findings             : {c['YELLOW']}{len(report.findings)}{c['RESET']}")
+    score_color = c['GREEN'] if report.score >= 90 else (c['YELLOW'] if report.score >= 70 else c['RED'])
+    print(f"     Compliance Score           : {score_color}{report.score}/100{c['RESET']}")
+    print(f"     RCA Engine                 : {'✅ Aktif' if RCA_AVAILABLE else '⚠️ Tidak tersedia'}")
+    print(f"     Findings Breakdown         : CRITICAL: {c['RED']}{criticals}{c['RESET']} | ERROR: {c['RED']}{errors}{c['RESET']} | WARNING: {c['YELLOW']}{warnings}{c['RESET']}")
+
+    print(f"\n  {c['CYAN']}📁 DIRECTORIES SCANNED{c['RESET']}")
+    print(f"  {'-'*60}")
+    for d in report.scanned_directories:
+        print(f"     - {d}")
 
     if report.findings:
-        print(f"\n{c['RED'] if errors or criticals else c['YELLOW']}Detail Temuan (sample 50):{c['RESET']}")
+        print(f"\n  {c['CYAN']}🔍 DETAIL TEMUAN (sample 50){c['RESET']}")
+        print(f"  {'-'*60}")
         sorted_findings = sorted(report.findings, key=lambda x: {"CRITICAL": 0, "ERROR": 1, "WARNING": 2}[x.severity])
-
         for idx, f in enumerate(sorted_findings[:50]):
             color = c["RED"] if f.severity in ["CRITICAL", "ERROR"] else c["YELLOW"]
             try:
@@ -486,10 +538,12 @@ def print_report(report: Report, verbose: bool = False, group: bool = False):
                 root_cause = f.rca.get('root_cause', '')
                 if root_cause:
                     print(f"     {c['MAGENTA']}🔍 RCA: {root_cause[:120]}{c['RESET']}")
-
         if len(report.findings) > 50:
             print(f"\n  ... dan {len(report.findings)-50} temuan lainnya.")
-            print("  Gunakan --group-by-file untuk melihat per file.")
+    else:
+        print(f"\n  {c['GREEN']}✅ Tidak ada temuan! Semua file memenuhi standar akuntansi.{c['RESET']}")
+
+    print(f"\n{c['MAGENTA']}{'='*80}{c['RESET']}\n")
 
 def save_json(report: Report, filepath: str):
     data = {
@@ -497,7 +551,8 @@ def save_json(report: Report, filepath: str):
             "files_scanned": report.files_scanned,
             "files_introspected": report.files_introspected,
             "score": report.score,
-            "rca_enabled": RCA_AVAILABLE
+            "rca_enabled": RCA_AVAILABLE,
+            "scanned_directories": report.scanned_directories,
         },
         "findings": [
             {
@@ -523,6 +578,7 @@ def main():
     parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan resolusi dan detail rekomendasi kode")
     parser.add_argument("--json", metavar="FILE", help="Ekspor laporan ke format JSON")
     parser.add_argument("--group-by-file", "-g", action="store_true", help="Tampilkan laporan yang dikelompokkan per file")
+    parser.add_argument("--list-files", "-l", action="store_true", help="Tampilkan daftar file yang discan (hanya untuk mode --group-by-file)")
     parser.add_argument("--debug", action="store_true", help="Tampilkan log debug untuk proses Introspection")
     args = parser.parse_args()
 
@@ -532,7 +588,7 @@ def main():
         logging.basicConfig(level=logging.WARNING)
 
     report = scan_project()
-    print_report(report, args.verbose, args.group_by_file)
+    print_report(report, args.verbose, args.group_by_file, args.list_files)
 
     if args.json:
         save_json(report, args.json)

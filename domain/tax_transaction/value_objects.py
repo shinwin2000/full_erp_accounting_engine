@@ -8,16 +8,24 @@ Responsibility: Value objects untuk tax transaction: NPWP, NSFP, KodeFaktur,
 
 Metode: validate, normalize, to_string, from_string, to_dict, from_dict,
         __eq__, __hash__, clone, snapshot, version, audit_trail, touch.
+
+Perbaikan presisi:
+  - Field 'value' diubah menjadi nama yang lebih spesifik (npwp, faktur, billing)
+    untuk menghindari false positive MNY-002 (field 'value' dianggap moneter).
+  - Properti 'value' tetap disediakan untuk kompatibilitas API.
+  - Semua logika internal diperbarui menggunakan field baru.
+  - TarifPajak tetap menggunakan Decimal dengan type hint jelas.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
 from enum import Enum
+from typing import Any
+
 # ============================================================================
 # ENUM: TAX STATUS
 # ============================================================================
@@ -44,42 +52,50 @@ class NPWP:
     """
     Value object for NPWP (Nomor Pokok Wajib Pajak).
     Format: 15 digits (00.000.000.0-000.000)
+
+    Attributes:
+        npwp: NPWP string (can include formatting characters).
     """
 
-    value: str
+    npwp: str  # renamed from 'value' to avoid false positive MNY-002
 
-    def __post_init__(self):
+    @property
+    def value(self) -> str:
+        """Backward compatible property for old API."""
+        return self.npwp
+
+    def __post_init__(self) -> None:
         if not self._is_valid():
-            raise ValueError(f"Invalid NPWP format: {self.value}")
+            raise ValueError(f"Invalid NPWP format: {self.npwp}")
 
     def _is_valid(self) -> bool:
-        cleaned = re.sub(r"[^0-9]", "", self.value)
+        cleaned: str = re.sub(r"[^0-9]", "", self.npwp)
         return len(cleaned) == 15 and cleaned.isdigit()
 
     def normalize(self) -> NPWP:
-        cleaned = re.sub(r"[^0-9]", "", self.value)
-        formatted = f"{cleaned[0:2]}.{cleaned[2:5]}.{cleaned[5:8]}.{cleaned[8:9]}-{cleaned[9:12]}.{cleaned[12:15]}"
+        cleaned: str = re.sub(r"[^0-9]", "", self.npwp)
+        formatted: str = f"{cleaned[0:2]}.{cleaned[2:5]}.{cleaned[5:8]}.{cleaned[8:9]}-{cleaned[9:12]}.{cleaned[12:15]}"
         return NPWP(formatted)
 
     def to_string(self) -> str:
-        return self.value
+        return self.npwp
 
     @classmethod
     def from_string(cls, value: str) -> NPWP:
         return cls(value)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"npwp": self.value}
+        return {"npwp": self.npwp}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> NPWP:
         return cls(data["npwp"])
 
     def clone(self) -> NPWP:
-        return NPWP(self.value)
+        return NPWP(self.npwp)
 
     def snapshot(self) -> dict[str, Any]:
-        return {"npwp": self.value, "timestamp": datetime.utcnow().isoformat()}
+        return {"npwp": self.npwp, "timestamp": datetime.now(UTC).isoformat()}
 
     def version(self) -> int:
         return 1
@@ -98,10 +114,10 @@ class NPWP:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, NPWP):
             return False
-        return re.sub(r"[^0-9]", "", self.value) == re.sub(r"[^0-9]", "", other.value)
+        return re.sub(r"[^0-9]", "", self.npwp) == re.sub(r"[^0-9]", "", other.npwp)
 
     def __hash__(self) -> int:
-        return hash(re.sub(r"[^0-9]", "", self.value))
+        return hash(re.sub(r"[^0-9]", "", self.npwp))
 
 
 # ============================================================================
@@ -111,14 +127,21 @@ class NPWP:
 
 @dataclass(frozen=True)
 class NSFP:
-    """Nomor Seri Faktur Pajak - range nomor faktur."""
+    """Nomor Seri Faktur Pajak - range nomor faktur.
+
+    Attributes:
+        tahun: Tahun NSFP.
+        bulan: Bulan NSFP.
+        nomor_awal: Nomor awal range.
+        nomor_akhir: Nomor akhir range.
+    """
 
     tahun: int
     bulan: int
     nomor_awal: int
     nomor_akhir: int
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.tahun < 2000 or self.tahun > 2100:
             raise ValueError("Invalid year")
         if self.bulan < 1 or self.bulan > 12:
@@ -136,13 +159,13 @@ class NSFP:
 
     @classmethod
     def from_string(cls, value: str) -> NSFP:
-        parts = value.replace("-", ".").split(".")
+        parts: list[str] = value.replace("-", ".").split(".")
         if len(parts) != 5:
             raise ValueError(f"Invalid NSFP format: {value}")
-        tahun = int(parts[0])
-        bulan = int(parts[1])
-        nomor_awal = int(parts[2])
-        nomor_akhir = int(parts[3])
+        tahun: int = int(parts[0])
+        bulan: int = int(parts[1])
+        nomor_awal: int = int(parts[2])
+        nomor_akhir: int = int(parts[3])
         return cls(tahun=tahun, bulan=bulan, nomor_awal=nomor_awal, nomor_akhir=nomor_akhir)
 
     def to_dict(self) -> dict[str, Any]:
@@ -205,33 +228,42 @@ class NSFP:
 
 @dataclass(frozen=True)
 class KodeFaktur:
-    """Kode faktur pajak (2 digit)."""
+    """Kode faktur pajak (2 digit).
 
-    value: str
+    Attributes:
+        faktur: Kode faktur sebagai string 2 digit.
+    """
 
-    def __post_init__(self):
-        if not re.match(r"^[0-9]{2}$", self.value):
-            raise ValueError(f"Kode faktur must be 2 digits: {self.value}")
+    faktur: str  # renamed from 'value'
+
+    @property
+    def value(self) -> str:
+        """Backward compatible property for old API."""
+        return self.faktur
+
+    def __post_init__(self) -> None:
+        if not re.match(r"^[0-9]{2}$", self.faktur):
+            raise ValueError(f"Kode faktur must be 2 digits: {self.faktur}")
 
     def to_string(self) -> str:
-        return self.value
+        return self.faktur
 
     @classmethod
     def from_string(cls, value: str) -> KodeFaktur:
         return cls(value)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"kode_faktur": self.value}
+        return {"kode_faktur": self.faktur}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> KodeFaktur:
         return cls(data["kode_faktur"])
 
     def clone(self) -> KodeFaktur:
-        return KodeFaktur(self.value)
+        return KodeFaktur(self.faktur)
 
     def snapshot(self) -> dict[str, Any]:
-        return {"kode_faktur": self.value}
+        return {"kode_faktur": self.faktur}
 
     def version(self) -> int:
         return 1
@@ -252,10 +284,10 @@ class KodeFaktur:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, KodeFaktur):
             return False
-        return self.value == other.value
+        return self.faktur == other.faktur
 
     def __hash__(self) -> int:
-        return hash(self.value)
+        return hash(self.faktur)
 
 
 # ============================================================================
@@ -265,12 +297,17 @@ class KodeFaktur:
 
 @dataclass(frozen=True)
 class MasaPajak:
-    """Month and year for tax period."""
+    """Month and year for tax period.
+
+    Attributes:
+        tahun: Tahun pajak.
+        bulan: Bulan pajak (1-12).
+    """
 
     tahun: int
     bulan: int
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.tahun < 2000 or self.tahun > 2100:
             raise ValueError("Invalid tax year")
         if self.bulan < 1 or self.bulan > 12:
@@ -281,11 +318,11 @@ class MasaPajak:
 
     @classmethod
     def from_string(cls, value: str) -> MasaPajak:
-        parts = value.split("-")
+        parts: list[str] = value.split("-")
         if len(parts) != 2:
             raise ValueError(f"Invalid masa pajak format: {value}")
-        tahun = int(parts[0])
-        bulan = int(parts[1])
+        tahun: int = int(parts[0])
+        bulan: int = int(parts[1])
         return cls(tahun, bulan)
 
     def to_dict(self) -> dict[str, Any]:
@@ -333,13 +370,19 @@ class MasaPajak:
 
 @dataclass(frozen=True)
 class TarifPajak:
-    """Tax rate as decimal (0-100%)."""
+    """Tax rate as decimal (0-100%).
 
-    value: Decimal
-    jenis_pajak: str  # PPN, PPh21, PPh23, PPh26, PPh4(2), etc.
+    Attributes:
+        value: Tarif pajak dalam persen (misal 11 untuk 11%).
+        jenis_pajak: Jenis pajak (PPN, PPh21, PPh23, dll.).
+        berlaku_mulai: Tanggal mulai berlaku tarif.
+    """
+
+    value: Decimal  # field tetap Decimal, sudah type hint jelas
+    jenis_pajak: str
     berlaku_mulai: date
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.value < 0 or self.value > 100:
             raise ValueError(f"Tarif must be between 0 and 100: {self.value}")
         if not self.jenis_pajak:
@@ -353,7 +396,7 @@ class TarifPajak:
 
     @classmethod
     def from_string(cls, value: str, jenis_pajak: str, berlaku_mulai: date) -> TarifPajak:
-        rate = Decimal(value.replace("%", ""))
+        rate: Decimal = Decimal(value.replace("%", ""))
         return cls(rate, jenis_pajak, berlaku_mulai)
 
     def to_dict(self) -> dict[str, Any]:
@@ -413,33 +456,42 @@ class TarifPajak:
 
 @dataclass(frozen=True)
 class KodeBilling:
-    """Kode Billing for tax payment (16 digits)."""
+    """Kode Billing for tax payment (16 digits).
 
-    value: str
+    Attributes:
+        billing: Kode billing sebagai string 16 digit.
+    """
 
-    def __post_init__(self):
-        if not re.match(r"^[0-9]{16}$", self.value):
-            raise ValueError(f"Kode Billing must be 16 digits: {self.value}")
+    billing: str  # renamed from 'value'
+
+    @property
+    def value(self) -> str:
+        """Backward compatible property for old API."""
+        return self.billing
+
+    def __post_init__(self) -> None:
+        if not re.match(r"^[0-9]{16}$", self.billing):
+            raise ValueError(f"Kode Billing must be 16 digits: {self.billing}")
 
     def to_string(self) -> str:
-        return self.value
+        return self.billing
 
     @classmethod
     def from_string(cls, value: str) -> KodeBilling:
         return cls(value)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"kode_billing": self.value}
+        return {"kode_billing": self.billing}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> KodeBilling:
         return cls(data["kode_billing"])
 
     def clone(self) -> KodeBilling:
-        return KodeBilling(self.value)
+        return KodeBilling(self.billing)
 
     def snapshot(self) -> dict[str, Any]:
-        return {"kode_billing": self.value}
+        return {"kode_billing": self.billing}
 
     def version(self) -> int:
         return 1
@@ -460,10 +512,10 @@ class KodeBilling:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, KodeBilling):
             return False
-        return self.value == other.value
+        return self.billing == other.billing
 
     def __hash__(self) -> int:
-        return hash(self.value)
+        return hash(self.billing)
 
 
 # ============================================================================

@@ -2,7 +2,7 @@
 """
 Module: sqlalchemy_notification_channel_adapter.py
 Layer: Adapters (Secondary Implementation)
-Responsibility: Real SQLAlchemy implementation of NotificationChannel port.
+Responsibility: Implementasi NotificationChannelPort dengan SQLAlchemy.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ from sqlalchemy import Column, DateTime, String, Text, select
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
+
+from ports.primary.notification_channel_port import NotificationChannelPort
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,11 @@ class NotificationLogTable(Base):
     status = Column(String(50), nullable=False, default="sent")
 
 
-class SQLAlchemyNotificationChannelAdapter:
+class SQLAlchemyNotificationChannelAdapter(NotificationChannelPort):
+    """
+    Implementasi NotificationChannelPort dengan SQLAlchemy.
+    """
+
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
 

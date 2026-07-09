@@ -3,6 +3,10 @@
 Module: umkm_transaction_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Model untuk transaksi UMKM (simplified accounting).
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (amount) di to_dict()
+      untuk menjaga presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -88,7 +92,7 @@ class UMKMTransactionTable(Base):
             "transaction_number": self.transaction_number,
             "transaction_date": self.transaction_date.isoformat(),
             "transaction_type": self.transaction_type,
-            "amount": float(self.amount),
+            "amount": str(self.amount),  # ganti float -> str untuk presisi
             "description": self.description,
             "category": self.category,
             "status": self.status,

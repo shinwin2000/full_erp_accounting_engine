@@ -12,6 +12,11 @@ Dependencies:
 - config.loader_yaml (lazy import)
 - infrastructure.telemetry.structured_json_logging (lazy import)
 Audit: Sampling methodology dicatat untuk audit trail dan review oleh auditor.
+
+Perbaikan presisi:
+    - Menggunakan Decimal untuk semua perhitungan margin dan error projection.
+    - Menghilangkan konversi float -> Decimal yang tidak aman.
+    - Menggunakan Decimal.sqrt() untuk akurasi.
 """
 
 from __future__ import annotations
@@ -221,15 +226,17 @@ class AuditStatisticalSampling:
         expected_misstatement = population_value * Decimal(str(expected_error_percent / 100.0))
 
         # Sample size = (Reliability Factor * Population Value) / Tolerable Misstatement
-        sample_size_numerator = reliability_factor * float(population_value)
-        sample_size_denominator = float(tolerable_misstatement - expected_misstatement)
+        # Gunakan Decimal untuk presisi
+        sample_size_numerator = Decimal(reliability_factor) * population_value
+        sample_size_denominator = tolerable_misstatement - expected_misstatement
         if sample_size_denominator <= 0:
             raise SamplingError("Tolerable misstatement must exceed expected misstatement")
 
-        sample_size = int(math.ceil(sample_size_numerator / sample_size_denominator))
+        # Convert to float only for ceil (then back to int)
+        sample_size = int(math.ceil(float(sample_size_numerator / sample_size_denominator)))
 
         self._sampling_params = {
-            "population_value": float(population_value),
+            "population_value": str(population_value),
             "confidence_level": confidence_level,
             "expected_error_percent": expected_error_percent,
             "tolerable_error_percent": tolerable_error_percent,
@@ -449,40 +456,42 @@ class AuditStatisticalSampling:
                 "confidence_level": confidence_level,
             }
 
-        # Calculate statistics
-        total_error = sum(sample_errors)
-        avg_error = total_error / len(sample_errors)
+        # Calculate statistics menggunakan Decimal
+        total_error = sum(sample_errors)  # Decimal
+        avg_error = total_error / len(sample_errors)  # Decimal
 
         # Project to population
         projected_error = avg_error * population_size / sample_size
 
-        # Calculate standard deviation
-        variance = (
-            sum((e - avg_error) ** 2 for e in sample_errors) / (len(sample_errors) - 1)
-            if len(sample_errors) > 1
-            else 0
-        )
-        std_dev = math.sqrt(float(variance))
+        # Calculate variance and standard deviation dengan Decimal
+        if len(sample_errors) > 1:
+            variance = sum((e - avg_error) ** 2 for e in sample_errors) / (len(sample_errors) - 1)
+        else:
+            variance = Decimal(0)
+
+        # Standard deviation (Decimal.sqrt() available in Python 3.11+)
+        std_dev = variance.sqrt() if variance > 0 else Decimal(0)
 
         # Standard error
-        std_error = std_dev / math.sqrt(sample_size)
+        std_error = std_dev / Decimal(sample_size).sqrt()
 
         # Z-score for confidence level
         if confidence_level == 90:
-            z = SamplingConfidenceLevel.CONFIDENCE_90
+            z = Decimal(SamplingConfidenceLevel.CONFIDENCE_90)
         elif confidence_level == 95:
-            z = SamplingConfidenceLevel.CONFIDENCE_95
+            z = Decimal(SamplingConfidenceLevel.CONFIDENCE_95)
         elif confidence_level == 99:
-            z = SamplingConfidenceLevel.CONFIDENCE_99
+            z = Decimal(SamplingConfidenceLevel.CONFIDENCE_99)
         else:
-            z = 1.96
+            z = Decimal(1.96)
 
-        # Margin of error
-        margin = z * std_error * population_size / sample_size
-        upper_bound = projected_error + Decimal(margin)
-        lower_bound = max(Decimal(0), projected_error - Decimal(margin))
+        # Margin of error (semua Decimal)
+        margin = z * std_error * Decimal(population_size) / Decimal(sample_size)
 
-        # Error rate (percentage)
+        upper_bound = projected_error + margin
+        lower_bound = max(Decimal(0), projected_error - margin)
+
+        # Error rate (percentage) - non-moneter, tetap float
         error_rate = (len([e for e in sample_errors if e > 0]) / sample_size) * 100
 
         result = {
@@ -490,7 +499,7 @@ class AuditStatisticalSampling:
             "error_rate": error_rate,
             "upper_bound": upper_bound,
             "lower_bound": lower_bound,
-            "margin_of_error": Decimal(margin),
+            "margin_of_error": margin,
             "confidence_level": confidence_level,
             "sample_size": sample_size,
             "population_size": population_size,
@@ -545,9 +554,9 @@ class AuditStatisticalSampling:
         projected_error = avg_tainting * population_value
 
         # Basic precision (reliability factor at 95% confidence = 3.0)
-        reliability_factor = 3.0
-        sampling_interval = float(population_value) / sample_size
-        basic_precision = Decimal(reliability_factor * sampling_interval)
+        reliability_factor = Decimal(3.0)
+        sampling_interval = population_value / Decimal(sample_size)
+        basic_precision = reliability_factor * sampling_interval
 
         # Upper bound (incremental allowance)
         # Simplified: upper bound = projected error + basic precision

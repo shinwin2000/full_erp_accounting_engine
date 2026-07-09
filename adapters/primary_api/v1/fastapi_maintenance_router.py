@@ -446,8 +446,11 @@ class MaintenanceCostSummarySchema(BaseModel):
 # ============================================================================
 
 
-async def get_maintenance_service(request: Request) -> Any:
-    """Get Maintenance Service instance."""
+async def get_maintenance_svc(request: Request) -> Any:
+    """
+    Get Maintenance Service instance.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.service_layer.service_maintenance import MaintenanceService
     container = request.app.state.container
     return container.resolve(MaintenanceService)
@@ -495,8 +498,12 @@ async def create_maintenance_asset(
     _permission: None = Depends(require_permission("maintenance:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> MaintenanceAssetResponseSchema:
+    """
+    Create a new maintenance asset.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "create_maintenance_asset"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -505,7 +512,7 @@ async def create_maintenance_asset(
             return MaintenanceAssetResponseSchema(**cached)
 
     try:
-        result = await service.create_maintenance_asset(
+        result = await maintenance_svc.create_maintenance_asset(
             legal_entity_id=legal_entity_id,
             asset_code=request.asset_code,
             asset_name=request.asset_name,
@@ -566,10 +573,10 @@ async def list_maintenance_assets(
     search: str | None = Query(None, description="Search in code or name"),
     _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> list[MaintenanceAssetResponseSchema]:
     try:
-        assets = await service.list_maintenance_assets(
+        assets = await maintenance_svc.list_maintenance_assets(
             legal_entity_id=legal_entity_id,
             category=category,
             status=status.value if status else None,
@@ -616,10 +623,10 @@ async def get_maintenance_asset(
     asset_id: UUID,
     _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> MaintenanceAssetResponseSchema:
     try:
-        asset = await service.get_maintenance_asset_by_id(asset_id, legal_entity_id)
+        asset = await maintenance_svc.get_maintenance_asset_by_id(asset_id, legal_entity_id)
         if not asset:
             raise HTTPException(status_code=404, detail="Asset not found")
         return MaintenanceAssetResponseSchema(
@@ -664,8 +671,12 @@ async def update_maintenance_asset(
     _permission: None = Depends(require_permission("maintenance:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> MaintenanceAssetResponseSchema:
+    """
+    Update maintenance asset.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "update_maintenance_asset"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -674,7 +685,7 @@ async def update_maintenance_asset(
             return MaintenanceAssetResponseSchema(**cached)
 
     try:
-        result = await service.update_maintenance_asset(
+        result = await maintenance_svc.update_maintenance_asset(
             asset_id=asset_id,
             legal_entity_id=legal_entity_id,
             asset_name=request.asset_name,
@@ -731,10 +742,14 @@ async def deactivate_maintenance_asset(
     _permission: None = Depends(require_permission("maintenance:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> dict[str, Any]:
+    """
+    Deactivate a maintenance asset.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.deactivate_maintenance_asset(
+        result = await maintenance_svc.deactivate_maintenance_asset(
             asset_id, legal_entity_id, current_user.user_id, reason
         )
         if not result:
@@ -770,8 +785,12 @@ async def create_maintenance_schedule(
     _permission: None = Depends(require_permission("maintenance:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> MaintenanceScheduleResponseSchema:
+    """
+    Create a new maintenance schedule.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "create_maintenance_schedule"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -780,7 +799,7 @@ async def create_maintenance_schedule(
             return MaintenanceScheduleResponseSchema(**cached)
 
     try:
-        result = await service.create_maintenance_schedule(
+        result = await maintenance_svc.create_maintenance_schedule(
             legal_entity_id=legal_entity_id,
             asset_id=request.asset_id,
             schedule_code=request.schedule_code,
@@ -842,10 +861,10 @@ async def list_maintenance_schedules(
     is_active: bool | None = Query(None),
     _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> list[MaintenanceScheduleResponseSchema]:
     try:
-        schedules = await service.list_maintenance_schedules(
+        schedules = await maintenance_svc.list_maintenance_schedules(
             legal_entity_id=legal_entity_id,
             asset_id=asset_id,
             maintenance_type=maintenance_type.value if maintenance_type else None,
@@ -893,10 +912,10 @@ async def get_maintenance_schedule(
     schedule_id: UUID,
     _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> MaintenanceScheduleResponseSchema:
     try:
-        schedule = await service.get_maintenance_schedule_by_id(schedule_id, legal_entity_id)
+        schedule = await maintenance_svc.get_maintenance_schedule_by_id(schedule_id, legal_entity_id)
         if not schedule:
             raise HTTPException(status_code=404, detail="Schedule not found")
         return MaintenanceScheduleResponseSchema(
@@ -943,8 +962,12 @@ async def update_maintenance_schedule(
     _permission: None = Depends(require_permission("maintenance:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> MaintenanceScheduleResponseSchema:
+    """
+    Update maintenance schedule.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "update_maintenance_schedule"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -953,7 +976,7 @@ async def update_maintenance_schedule(
             return MaintenanceScheduleResponseSchema(**cached)
 
     try:
-        result = await service.update_maintenance_schedule(
+        result = await maintenance_svc.update_maintenance_schedule(
             schedule_id=schedule_id,
             legal_entity_id=legal_entity_id,
             schedule_name=request.schedule_name,
@@ -1015,10 +1038,14 @@ async def deactivate_maintenance_schedule(
     _permission: None = Depends(require_permission("maintenance:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> dict[str, Any]:
+    """
+    Deactivate maintenance schedule.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.deactivate_maintenance_schedule(
+        result = await maintenance_svc.deactivate_maintenance_schedule(
             schedule_id, legal_entity_id, current_user.user_id, reason
         )
         if not result:
@@ -1054,8 +1081,12 @@ async def create_maintenance_work_order(
     _permission: None = Depends(require_permission("maintenance:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> WorkOrderMaintenanceResponseSchema:
+    """
+    Create a new maintenance work order.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "create_maintenance_work_order"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1064,7 +1095,7 @@ async def create_maintenance_work_order(
             return WorkOrderMaintenanceResponseSchema(**cached)
 
     try:
-        result = await service.create_maintenance_work_order(
+        result = await maintenance_svc.create_maintenance_work_order(
             legal_entity_id=legal_entity_id,
             wo_number=request.wo_number,
             asset_id=request.asset_id,
@@ -1136,10 +1167,10 @@ async def list_maintenance_work_orders(
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> list[WorkOrderMaintenanceResponseSchema]:
     try:
-        result = await service.list_maintenance_work_orders(
+        result = await maintenance_svc.list_maintenance_work_orders(
             legal_entity_id=legal_entity_id,
             asset_id=asset_id,
             status=status.value if status else None,
@@ -1198,10 +1229,10 @@ async def get_maintenance_work_order(
     wo_id: UUID,
     _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> WorkOrderMaintenanceResponseSchema:
     try:
-        wo = await service.get_maintenance_work_order_by_id(wo_id, legal_entity_id)
+        wo = await maintenance_svc.get_maintenance_work_order_by_id(wo_id, legal_entity_id)
         if not wo:
             raise HTTPException(status_code=404, detail="Work order not found")
         return WorkOrderMaintenanceResponseSchema(
@@ -1255,8 +1286,12 @@ async def update_maintenance_work_order(
     _permission: None = Depends(require_permission("maintenance:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> WorkOrderMaintenanceResponseSchema:
+    """
+    Update maintenance work order.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "update_maintenance_work_order"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1265,7 +1300,7 @@ async def update_maintenance_work_order(
             return WorkOrderMaintenanceResponseSchema(**cached)
 
     try:
-        result = await service.update_maintenance_work_order(
+        result = await maintenance_svc.update_maintenance_work_order(
             wo_id=wo_id,
             legal_entity_id=legal_entity_id,
             description=request.description,
@@ -1336,8 +1371,12 @@ async def complete_maintenance_work_order(
     _permission: None = Depends(require_permission("maintenance:complete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> WorkOrderMaintenanceResponseSchema:
+    """
+    Complete a maintenance work order.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "complete_maintenance_work_order"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1346,7 +1385,7 @@ async def complete_maintenance_work_order(
             return WorkOrderMaintenanceResponseSchema(**cached)
 
     try:
-        result = await service.complete_maintenance_work_order(
+        result = await maintenance_svc.complete_maintenance_work_order(
             wo_id=wo_id,
             legal_entity_id=legal_entity_id,
             actual_end_date=actual_end_date,
@@ -1410,8 +1449,12 @@ async def cancel_maintenance_work_order(
     _permission: None = Depends(require_permission("maintenance:cancel")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> dict[str, Any]:
+    """
+    Cancel a maintenance work order.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "cancel_maintenance_work_order"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1420,7 +1463,7 @@ async def cancel_maintenance_work_order(
             return cached
 
     try:
-        result = await service.cancel_maintenance_work_order(
+        result = await maintenance_svc.cancel_maintenance_work_order(
             wo_id=wo_id,
             legal_entity_id=legal_entity_id,
             reason=reason,
@@ -1462,8 +1505,12 @@ async def record_spare_parts_usage(
     _permission: None = Depends(require_permission("maintenance:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> SparePartUsageResponseSchema:
+    """
+    Record spare parts usage for a work order.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "record_spare_parts_usage"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1472,7 +1519,7 @@ async def record_spare_parts_usage(
             return SparePartUsageResponseSchema(**cached)
 
     try:
-        result = await service.record_spare_parts_usage(
+        result = await maintenance_svc.record_spare_parts_usage(
             legal_entity_id=legal_entity_id,
             item_id=request.item_id,
             quantity=request.quantity,
@@ -1525,10 +1572,10 @@ async def get_maintenance_cost_summary(
     end_date: date = Query(..., description="End date"),
     _permission: None = Depends(require_permission("maintenance:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> MaintenanceCostSummarySchema:
     try:
-        summary = await service.get_maintenance_cost_summary(
+        summary = await maintenance_svc.get_maintenance_cost_summary(
             legal_entity_id=legal_entity_id,
             start_date=start_date,
             end_date=end_date,
@@ -1568,10 +1615,10 @@ async def export_maintenance_work_orders(
     status: WorkOrderStatus | None = Query(None, description="Filter by status"),
     _permission: None = Depends(require_permission("maintenance:export")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_maintenance_service),
+    maintenance_svc: Any = Depends(get_maintenance_svc),
 ) -> Response:
     try:
-        data = await service.export_maintenance_work_orders(
+        data = await maintenance_svc.export_maintenance_work_orders(
             legal_entity_id=legal_entity_id,
             start_date=start_date,
             end_date=end_date,

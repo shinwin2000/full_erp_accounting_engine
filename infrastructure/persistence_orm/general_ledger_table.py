@@ -3,6 +3,10 @@
 Module: general_ledger_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: ORM model untuk tabel general ledger (read model).
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (debit, credit)
+      untuk menghindari kehilangan presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -61,8 +65,8 @@ class GeneralLedgerEntry(Base, TimestampMixin, SoftDeleteMixin, VersionMixin):
             "journal_id": str(self.journal_id),
             "journal_number": self.journal_number,
             "account_code": self.account_code,
-            "debit": float(self.debit),
-            "credit": float(self.credit),
+            "debit": str(self.debit),   # ganti float -> str untuk presisi
+            "credit": str(self.credit), # ganti float -> str untuk presisi
             "posting_date": self.posting_date.isoformat(),
             "fiscal_period": self.fiscal_period,
             "legal_entity_id": str(self.legal_entity_id),

@@ -46,8 +46,22 @@ class DomainEventType(Enum):
         return cls.COMPANY_REGISTERED
 
 
-@dataclass
+@dataclass(frozen=True)
 class DomainEvent:
+    """
+    Base class untuk semua domain event di Legal Entity.
+
+    Attributes:
+        event_id: UUID unik event.
+        event_type: Jenis event (DomainEventType).
+        aggregate_id: UUID agregat yang terkait.
+        aggregate_version: Versi agregat saat event terjadi.
+        occurred_at: Waktu kejadian (UTC).
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+        causation_id: ID penyebab event (opsional).
+    """
     event_id: UUID
     event_type: DomainEventType
     aggregate_id: UUID
@@ -105,8 +119,20 @@ class DomainEvent:
 # ----------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class CompanyRegisteredEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika perusahaan baru terdaftar.
+
+    Attributes:
+        aggregate_id: ID agregat perusahaan.
+        aggregate_version: Versi agregat.
+        company: Entity Company.
+        legal_entity_data: Dictionary data LegalEntity.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -153,8 +179,20 @@ class CompanyRegisteredEvent(DomainEvent):
 # ----------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class CompanySuspendedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika perusahaan ditangguhkan.
+
+    Attributes:
+        aggregate_id: ID agregat perusahaan.
+        aggregate_version: Versi agregat.
+        legal_entity_data: Dictionary data LegalEntity.
+        reason: Alasan penangguhan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -191,8 +229,20 @@ class CompanySuspendedEvent(DomainEvent):
 # ----------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class CompanyReactivatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika perusahaan diaktifkan kembali.
+
+    Attributes:
+        aggregate_id: ID agregat perusahaan.
+        aggregate_version: Versi agregat.
+        legal_entity_data: Dictionary data LegalEntity.
+        reason: Alasan reaktivasi.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -229,8 +279,20 @@ class CompanyReactivatedEvent(DomainEvent):
 # ----------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class CompanyDissolvedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika perusahaan dibubarkan/dilikuidasi.
+
+    Attributes:
+        aggregate_id: ID agregat perusahaan.
+        aggregate_version: Versi agregat.
+        legal_entity_data: Dictionary data LegalEntity.
+        effective_date: Tanggal efektif pembubaran.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -267,8 +329,21 @@ class CompanyDissolvedEvent(DomainEvent):
 # ----------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class TaxProfileUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika profil pajak perusahaan diubah.
+
+    Attributes:
+        aggregate_id: ID agregat perusahaan.
+        aggregate_version: Versi agregat.
+        legal_entity_id: ID entitas legal.
+        old_profile: Profil pajak lama.
+        new_profile: Profil pajak baru.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -303,8 +378,22 @@ class TaxProfileUpdatedEvent(DomainEvent):
 # ----------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class CompanyAddressUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika alamat perusahaan diubah.
+
+    Attributes:
+        aggregate_id: ID agregat perusahaan.
+        aggregate_version: Versi agregat.
+        company: Entity Company.
+        old_address: Alamat lama.
+        old_city: Kota lama.
+        old_province: Provinsi lama.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -346,8 +435,21 @@ class CompanyAddressUpdatedEvent(DomainEvent):
 # ----------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class CompanyContactUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika kontak perusahaan diubah.
+
+    Attributes:
+        aggregate_id: ID agregat perusahaan.
+        aggregate_version: Versi agregat.
+        company: Entity Company.
+        old_phone: Nomor telepon lama.
+        old_email: Email lama.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -385,8 +487,21 @@ class CompanyContactUpdatedEvent(DomainEvent):
 # ----------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class PKPStatusChangedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika status PKP perusahaan berubah.
+
+    Attributes:
+        aggregate_id: ID agregat perusahaan.
+        aggregate_version: Versi agregat.
+        company: Entity Company.
+        old_status: Status PKP lama.
+        registration_date: Tanggal registrasi PKP.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -421,8 +536,19 @@ class PKPStatusChangedEvent(DomainEvent):
 # LegalEntityAggregate Events (added for completeness)
 # ----------------------------------------------------------------------
 
-@dataclass
+@dataclass(frozen=True)
 class LegalEntityCreated(DomainEvent):
+    """
+    Event yang diterbitkan ketika Legal Entity baru dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat Legal Entity.
+        aggregate_version: Versi agregat.
+        legal_entity_id: ID Legal Entity yang dibuat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -448,8 +574,19 @@ class LegalEntityCreated(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class LegalEntityDeactivated(DomainEvent):
+    """
+    Event yang diterbitkan ketika Legal Entity dinonaktifkan.
+
+    Attributes:
+        aggregate_id: ID agregat Legal Entity.
+        aggregate_version: Versi agregat.
+        reason: Alasan penonaktifan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -475,8 +612,19 @@ class LegalEntityDeactivated(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class LegalEntityUpdated(DomainEvent):
+    """
+    Event yang diterbitkan ketika data Legal Entity diperbarui.
+
+    Attributes:
+        aggregate_id: ID agregat Legal Entity.
+        aggregate_version: Versi agregat.
+        updated_fields: Daftar field yang diperbarui.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -508,6 +656,9 @@ class LegalEntityUpdated(DomainEvent):
 
 
 class DomainEventPublisher:
+    """
+    Publisher untuk domain event Legal Entity.
+    """
     async def publish(self, event: DomainEvent) -> None:
         raise NotImplementedError
 

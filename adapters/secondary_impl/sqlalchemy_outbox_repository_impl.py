@@ -278,19 +278,39 @@ class SQLAlchemyOutboxRepository(OutboxRepositoryPort):
             raise OutboxRepositoryError(f"Failed to mark as failed: {e}") from e
 
     async def delete_sent_messages_older_than(self, cutoff_date: datetime) -> int:
-        """Menghapus pesan yang sudah terkirim (sent_at not NULL) lebih tua dari cutoff_date."""
+        """
+        Menghapus pesan yang sudah terkirim (sent_at not NULL) lebih tua dari cutoff_date.
+        LOCKING: SELECT FOR UPDATE untuk mengunci baris yang akan dihapus.
+        """
         try:
             if cutoff_date.tzinfo is None:
                 cutoff = cutoff_date
             else:
                 cutoff = cutoff_date.astimezone(UTC).replace(tzinfo=None)
-            stmt = delete(OutboxTable).where(
-                OutboxTable.status == OUTBOX_STATUS_SENT,
-                OutboxTable.sent_at < cutoff,
+
+            session = self.session
+
+            # 1. Select IDs with lock
+            stmt_select = (
+                select(OutboxTable.id)
+                .where(
+                    OutboxTable.status == OUTBOX_STATUS_SENT,
+                    OutboxTable.sent_at < cutoff,
+                )
+                .with_for_update()
             )
-            result = await self.session.execute(stmt)
-            await self.session.flush()
-            deleted = result.rowcount
+            result = await session.execute(stmt_select)
+            ids = [row[0] for row in result.all()]
+
+            if not ids:
+                return 0
+
+            # 2. Delete by IDs
+            stmt_delete = delete(OutboxTable).where(OutboxTable.id.in_(ids))
+            delete_result = await session.execute(stmt_delete)
+            await session.flush()
+
+            deleted = delete_result.rowcount
             logger.info("Deleted %d sent messages older than %s", deleted, cutoff)
             return deleted
         except Exception as e:
@@ -413,16 +433,39 @@ class SQLAlchemyOutboxRepository(OutboxRepositoryPort):
             raise OutboxRepositoryError(f"Failed to move to DLQ: {e}") from e
 
     async def delete_processed_records(self, older_than_hours: int = 168) -> int:
-        """Hapus record yang sudah terkirim dan lebih tua dari older_than_hours."""
+        """
+        Hapus record yang sudah terkirim dan lebih tua dari older_than_hours.
+        LOCKING: SELECT FOR UPDATE untuk mengunci baris yang akan dihapus.
+        """
         cutoff = datetime.utcnow() - timedelta(hours=older_than_hours)
-        stmt = delete(OutboxTable).where(
-            OutboxTable.status == OUTBOX_STATUS_SENT,
-            OutboxTable.sent_at < cutoff,
-            OutboxTable.deleted_at.is_(None),
-        )
-        result = await self.session.execute(stmt)
-        await self.session.flush()
-        return result.rowcount
+        try:
+            session = self.session
+
+            # 1. Select IDs with lock
+            stmt_select = (
+                select(OutboxTable.id)
+                .where(
+                    OutboxTable.status == OUTBOX_STATUS_SENT,
+                    OutboxTable.sent_at < cutoff,
+                    OutboxTable.deleted_at.is_(None),
+                )
+                .with_for_update()
+            )
+            result = await session.execute(stmt_select)
+            ids = [row[0] for row in result.all()]
+
+            if not ids:
+                return 0
+
+            # 2. Delete by IDs
+            stmt_delete = delete(OutboxTable).where(OutboxTable.id.in_(ids))
+            delete_result = await session.execute(stmt_delete)
+            await session.flush()
+
+            return delete_result.rowcount
+        except Exception as e:
+            logger.error("Failed to delete processed records: %s", e)
+            raise OutboxRepositoryError(f"Failed to delete processed records: {e}") from e
 
     # ========================================================================
     # LEGACY METHODS (untuk kompatibilitas)
@@ -463,24 +506,38 @@ class SQLAlchemyOutboxRepository(OutboxRepositoryPort):
         return checkpoint.last_processed_at if checkpoint else None
 
     async def update_checkpoint(self, relay_id: str, last_processed_at: datetime) -> None:
-        stmt = select(OutboxCheckpointTable).where(OutboxCheckpointTable.relay_id == relay_id)
-        result = await self.session.execute(stmt)
-        existing = result.scalar_one_or_none()
-        if existing:
-            stmt = (
-                update(OutboxCheckpointTable)
-                .where(OutboxCheckpointTable.relay_id == relay_id)
-                .values(last_processed_at=last_processed_at, updated_at=datetime.utcnow())
-            )
-        else:
-            stmt = insert(OutboxCheckpointTable).values(
-                id=uuid4(),
-                relay_id=relay_id,
-                last_processed_at=last_processed_at,
-                created_at=datetime.utcnow(),
-            )
-        await self.session.execute(stmt)
-        await self.session.flush()
+        """
+        Update checkpoint dengan pessimistic locking.
+        LOCKING: SELECT FOR UPDATE untuk mengunci baris checkpoint.
+        """
+        session = self.session
+        try:
+            # 1. Lock the row (if exists) with SELECT FOR UPDATE
+            stmt_select = select(OutboxCheckpointTable).where(
+                OutboxCheckpointTable.relay_id == relay_id
+            ).with_for_update()
+            result = await session.execute(stmt_select)
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                stmt = (
+                    update(OutboxCheckpointTable)
+                    .where(OutboxCheckpointTable.relay_id == relay_id)
+                    .values(last_processed_at=last_processed_at, updated_at=datetime.utcnow())
+                )
+            else:
+                # Insert new checkpoint (no lock needed for insert, but we could use a lock on a dummy row)
+                stmt = insert(OutboxCheckpointTable).values(
+                    id=uuid4(),
+                    relay_id=relay_id,
+                    last_processed_at=last_processed_at,
+                    created_at=datetime.utcnow(),
+                )
+            await session.execute(stmt)
+            await session.flush()
+        except Exception as e:
+            logger.error("Failed to update checkpoint: %s", e)
+            raise OutboxRepositoryError(f"Failed to update checkpoint: {e}") from e
 
     async def get_outbox_stats(self) -> dict[str, int]:
         stats = {}

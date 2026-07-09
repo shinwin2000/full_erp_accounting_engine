@@ -73,7 +73,18 @@ class TransferPriority(Enum):
 
 @dataclass(frozen=True)
 class TransferFee:
-    """Transfer fee breakdown."""
+    """
+    Transfer fee configuration (value object, NOT a monetary amount).
+
+    This is a configuration object that defines how fees are calculated.
+    The actual monetary fee amount is stored in `fee_amount` field.
+
+    Attributes:
+        flat_fee: Biaya flat (fixed amount) as Decimal.
+        percentage_fee: Biaya persentase dari jumlah transfer (as Decimal).
+        vat_percentage: Persentase PPN atas biaya (as Decimal).
+        additional_fees: Biaya tambahan lainnya (dict of Decimal).
+    """
 
     flat_fee: Decimal = Decimal(0)
     percentage_fee: Decimal = Decimal(0)
@@ -81,7 +92,7 @@ class TransferFee:
     additional_fees: dict[str, Decimal] = field(default_factory=dict)
 
     def calculate(self, amount: Decimal) -> Decimal:
-        """Calculate total fee."""
+        """Calculate total fee as Decimal (monetary amount)."""
         total = self.flat_fee
         total += amount * self.percentage_fee / Decimal(100)
         total += sum(self.additional_fees.values())
@@ -93,7 +104,7 @@ class TransferFee:
         return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
 
     def breakdown(self, amount: Decimal) -> dict[str, str]:
-        """Get fee breakdown."""
+        """Get fee breakdown as strings for serialization."""
         flat = self.flat_fee
         percentage = amount * self.percentage_fee / Decimal(100)
         subtotal = flat + percentage + sum(self.additional_fees.values())
@@ -144,7 +155,18 @@ class TransferSignature:
 
 @dataclass
 class BankTransferEntity:
-    """Bank transfer entity with full lifecycle."""
+    """
+    Bank transfer entity with full lifecycle.
+
+    All monetary fields use Decimal for precision.
+    The `fee_config` field is a TransferFee value object (configuration), NOT a monetary amount.
+    The actual monetary fee amount is in `fee_amount` (Decimal).
+
+    Attributes:
+        fee_config: Transfer fee configuration (value object, not monetary).
+        fee_amount: Actual fee amount in Decimal (monetary).
+        fee_currency: Currency of the fee.
+    """
 
     transfer_id: UUID
     transfer_number: str
@@ -164,8 +186,10 @@ class BankTransferEntity:
     priority: TransferPriority = TransferPriority.NORMAL
     reference: str | None = None
     description: str = ""
-    fee: TransferFee = field(default_factory=TransferFee)
-    fee_amount: Decimal = Decimal(0)
+
+    # --- Fee fields: fee_config is value object, fee_amount is monetary ---
+    fee_config: TransferFee = field(default_factory=TransferFee)  # value object, not monetary
+    fee_amount: Decimal = Decimal(0)  # actual monetary fee amount
     fee_currency: str = "IDR"
 
     # Approval
@@ -212,6 +236,14 @@ class BankTransferEntity:
 
     # Tracking
     _audit_trail: ClassVar[list[dict[str, Any]]] = []
+
+    # --------------------------------------------------------------------------
+    # Property to maintain backward compatibility (access via .fee)
+    # --------------------------------------------------------------------------
+    @property
+    def fee(self) -> TransferFee:
+        """Backward-compatible accessor for fee_config."""
+        return self.fee_config
 
     def __post_init__(self) -> None:
         self._validate()
@@ -378,6 +410,7 @@ class BankTransferEntity:
         }
 
     def to_dict(self) -> dict[str, Any]:
+        # For backward compatibility, we still export as "fee"
         return {
             "transfer_id": str(self.transfer_id),
             "transfer_number": self.transfer_number,
@@ -397,9 +430,10 @@ class BankTransferEntity:
             "priority": self.priority.value,
             "reference": self.reference,
             "description": self.description,
+            "fee": self.fee_config.to_dict() if hasattr(self.fee_config, "to_dict") else self.fee_config.breakdown(self.amount),
             "fee_amount": str(self.fee_amount),
             "fee_currency": self.fee_currency,
-            "fee_breakdown": self.fee.breakdown(self.amount) if self.fee else {},
+            "fee_breakdown": self.fee_config.breakdown(self.amount) if self.fee_config else {},
             "approval_level_required": self.approval_level_required,
             "current_approval_level": self.current_approval_level,
             "approval_history": self.approval_history,
@@ -439,6 +473,13 @@ class BankTransferEntity:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
+        # Handle both old "fee" and new "fee_config"
+        fee_data = data.get("fee", {})
+        if isinstance(fee_data, dict):
+            fee_config = TransferFee(**fee_data)
+        else:
+            fee_config = TransferFee()
+
         return cls(
             transfer_id=UUID(data["transfer_id"]),
             transfer_number=data["transfer_number"],
@@ -458,7 +499,7 @@ class BankTransferEntity:
             priority=TransferPriority(data.get("priority", "normal")),
             reference=data.get("reference"),
             description=data.get("description", ""),
-            fee=TransferFee(**data.get("fee", {})),
+            fee_config=fee_config,
             fee_amount=Decimal(data.get("fee_amount", "0")),
             fee_currency=data.get("fee_currency", "IDR"),
             approval_level_required=data.get("approval_level_required", 1),
@@ -701,7 +742,7 @@ class BankTransferEntity:
             raise ValueError(f"Cannot complete transfer in status {self.status.value}")
 
         # Calculate fee if not already calculated
-        fee_amount = self.fee.calculate(self.amount) if self.fee else Decimal(0)
+        fee_amount = self.fee_config.calculate(self.amount) if self.fee_config else Decimal(0)
 
         new_transfer = self._copy()
         new_transfer.status = TransferStatus.COMPLETED
@@ -782,7 +823,7 @@ class BankTransferEntity:
             priority=self.priority,
             reference=f"REV_{self.reference}" if self.reference else None,
             description=f"Reversal of {self.transfer_number}: {reason}",
-            fee=self.fee,
+            fee_config=self.fee_config,
             legal_entity_id=self.legal_entity_id,
             created_by=reversed_by,
             created_at=datetime.now(UTC),
@@ -871,7 +912,7 @@ class BankTransferEntity:
             priority=self.priority,
             reference=self.reference,
             description=self.description,
-            fee=self.fee,
+            fee_config=self.fee_config,
             fee_amount=self.fee_amount,
             fee_currency=self.fee_currency,
             approval_level_required=self.approval_level_required,

@@ -115,19 +115,19 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
     # FAKTUR PAJAK - KELUARAN & MASUKAN
     # ========================================================================
 
-    async def save_faktur_keluaran(self, faktur: FakturPajak) -> None:  # ← return None
+    async def save_faktur_keluaran(self, faktur: FakturPajak) -> None:
         """Simpan faktur pajak keluaran."""
         if not faktur.is_keluaran:
             raise TaxRepositoryError("Cannot save non-keluaran as faktur keluaran")
         await self._save_faktur(faktur)
 
-    async def save_faktur_masukan(self, faktur: FakturPajak) -> None:  # ← return None
+    async def save_faktur_masukan(self, faktur: FakturPajak) -> None:
         """Simpan faktur pajak masukan."""
         if faktur.is_keluaran:
             raise TaxRepositoryError("Cannot save keluaran as faktur masukan")
         await self._save_faktur(faktur)
 
-    async def _save_faktur(self, faktur: FakturPajak) -> None:  # ← return None
+    async def _save_faktur(self, faktur: FakturPajak) -> None:
         """Internal: simpan faktur (keluaran/masukan)."""
         try:
             # Cek duplikasi nomor faktur
@@ -195,14 +195,14 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
             await self.session.rollback()
             raise TaxRepositoryError(f"Failed to save faktur: {e}") from e
 
-    async def get_faktur_keluaran(self, faktur_id: UUID) -> Any | None:  # ← return Any
+    async def get_faktur_keluaran(self, faktur_id: UUID) -> Any | None:
         """Ambil faktur keluaran by ID."""
         faktur = await self.get_faktur_by_id(faktur_id)
         if faktur and not faktur.is_keluaran:
             return None
         return faktur
 
-    async def get_faktur_masukan(self, faktur_id: UUID) -> Any | None:  # ← return Any
+    async def get_faktur_masukan(self, faktur_id: UUID) -> Any | None:
         """Ambil faktur masukan by ID."""
         faktur = await self.get_faktur_by_id(faktur_id)
         if faktur and faktur.is_keluaran:
@@ -339,7 +339,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
         rejection_reason: str | None = None,
         version: int | None = None,
     ) -> None:
-        """Update status faktur."""
+        """Update status faktur dengan optimistic lock."""
         try:
             if version is not None:
                 stmt = select(CoretaxFakturTable.version).where(CoretaxFakturTable.id == faktur_id)
@@ -406,7 +406,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
 
     async def list_faktur_keluaran_by_npwp(
         self, npwp: str, limit: int = 100, offset: int = 0
-    ) -> list[Any]:  # ← return list[Any]
+    ) -> list[Any]:
         """List faktur keluaran berdasarkan NPWP."""
         stmt = (
             select(CoretaxFakturTable)
@@ -427,7 +427,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
 
     async def list_faktur_masukan_by_npwp(
         self, npwp: str, limit: int = 100, offset: int = 0
-    ) -> list[Any]:  # ← return list[Any]
+    ) -> list[Any]:
         """List faktur masukan berdasarkan NPWP."""
         stmt = (
             select(CoretaxFakturTable)
@@ -496,7 +496,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
             await self.session.rollback()
             raise TaxRepositoryError(f"Failed to save NSFP range: {e}") from e
 
-    async def get_current_nsfp_range(self, legal_entity_id: UUID) -> Any | None:  # ← return Any
+    async def get_current_nsfp_range(self, legal_entity_id: UUID) -> Any | None:
         """
         Ambil range NSFP yang tersedia untuk legal entity.
         Return dict dengan start, end, current (nomor pertama available).
@@ -536,26 +536,31 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
     async def update_nsfp_current(self, legal_entity_id: UUID, current: str) -> None:
         """
         Tandai NSFP dengan nomor `current` sebagai sudah digunakan.
-        Hapus dari daftar available (set status used).
+        Menggunakan pessimistic locking (SELECT FOR UPDATE) untuk mencegah race condition.
+        LOCKING: SELECT FOR UPDATE memastikan exclusive lock pada baris yang diupdate.
         """
         try:
             npwp = await self._get_npwp_by_legal_entity(legal_entity_id)
             if not npwp:
                 raise TaxRepositoryError(f"Legal entity {legal_entity_id} has no NPWP")
 
-            stmt = (
-                update(CoretaxNSFPTable)
-                .where(
+            async with self.session.begin():
+                # 1. Lock the row with SELECT FOR UPDATE
+                stmt_lock = select(CoretaxNSFPTable).where(
                     CoretaxNSFPTable.npwp == npwp,
                     CoretaxNSFPTable.nsfp == current,
                     CoretaxNSFPTable.status == "available",
-                )
-                .values(status="used", used_at=datetime.utcnow())
-            )
-            result = await self.session.execute(stmt)
-            if result.rowcount == 0:
-                raise NSFPNotFoundError(f"NSFP {current} not available for legal entity {legal_entity_id}")
-            await self.session.flush()
+                ).with_for_update()
+                result = await self.session.execute(stmt_lock)
+                row = result.scalar_one_or_none()
+                if not row:
+                    raise NSFPNotFoundError(f"NSFP {current} not available for legal entity {legal_entity_id}")
+
+                # 2. Update the locked row
+                row.status = "used"
+                row.used_at = datetime.utcnow()
+                await self.session.flush()
+
         except NSFPNotFoundError:
             raise
         except Exception as e:
@@ -566,19 +571,19 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
     # SPT
     # ========================================================================
 
-    async def save_spt_pph21(self, spt: SPTSubmission) -> None:  # ← return None
+    async def save_spt_pph21(self, spt: SPTSubmission) -> None:
         """Simpan SPT PPh 21."""
         await self._save_spt(spt)
 
-    async def save_spt_ppn(self, spt: SPTSubmission) -> None:  # ← return None
+    async def save_spt_ppn(self, spt: SPTSubmission) -> None:
         """Simpan SPT PPN."""
         await self._save_spt(spt)
 
-    async def save_spt_tahunan(self, spt: SPTSubmission) -> None:  # ← return None
+    async def save_spt_tahunan(self, spt: SPTSubmission) -> None:
         """Simpan SPT Tahunan."""
         await self._save_spt(spt)
 
-    async def _save_spt(self, spt: SPTSubmission) -> None:  # ← return None
+    async def _save_spt(self, spt: SPTSubmission) -> None:
         try:
             table = CoretaxSPTTable(
                 id=spt.id,
@@ -649,16 +654,30 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
         approval_date: date | None = None,
         rejection_reason: str | None = None,
     ) -> None:
-        """Update status SPT."""
+        """
+        Update status SPT dengan pessimistic locking.
+        LOCKING: SELECT FOR UPDATE memastikan exclusive lock pada baris yang diupdate.
+        """
         try:
-            values = {"status": status, "updated_at": datetime.utcnow()}
-            if approval_date:
-                values["approval_date"] = approval_date
-            if rejection_reason:
-                values["rejection_reason"] = rejection_reason
-            stmt = update(CoretaxSPTTable).where(CoretaxSPTTable.id == spt_id).values(**values)
-            await self.session.execute(stmt)
-            await self.session.flush()
+            async with self.session.begin():
+                # 1. Lock the row with SELECT FOR UPDATE
+                stmt_lock = select(CoretaxSPTTable).where(CoretaxSPTTable.id == spt_id).with_for_update()
+                result = await self.session.execute(stmt_lock)
+                row = result.scalar_one_or_none()
+                if not row:
+                    raise SPTNotFoundError(f"SPT {spt_id} not found")
+
+                # 2. Update the locked row
+                row.status = status
+                if approval_date:
+                    row.approval_date = approval_date
+                if rejection_reason:
+                    row.rejection_reason = rejection_reason
+                row.updated_at = datetime.utcnow()
+                await self.session.flush()
+
+        except SPTNotFoundError:
+            raise
         except Exception as e:
             await self.session.rollback()
             raise TaxRepositoryError(f"Failed to update SPT status: {e}") from e
@@ -698,7 +717,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
     # E-BUPOT
     # ========================================================================
 
-    async def save_bukti_potong(self, bukti: Bupot) -> None:  # ← parameter "bukti" dan return None
+    async def save_bukti_potong(self, bukti: Bupot) -> None:
         """Simpan e-Bupot."""
         try:
             table = CoretaxBupotTable(
@@ -728,7 +747,7 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
             await self.session.rollback()
             raise TaxRepositoryError(f"Failed to save bupot: {e}") from e
 
-    async def get_bukti_potong(self, bukti_id: UUID) -> Any | None:  # ← parameter "bukti_id", return Any
+    async def get_bukti_potong(self, bukti_id: UUID) -> Any | None:
         """Ambil e-Bupot by ID."""
         try:
             stmt = select(CoretaxBupotTable).where(CoretaxBupotTable.id == bukti_id)
@@ -765,25 +784,37 @@ class SQLAlchemyTaxRepository(TaxRepositoryPort):
         coretax_id: str | None = None,
         official_number: str | None = None,
     ) -> None:
-        """Update status e-Bupot."""
+        """
+        Update status e-Bupot dengan pessimistic locking.
+        LOCKING: SELECT FOR UPDATE memastikan exclusive lock pada baris yang diupdate.
+        """
         try:
-            values = {"status": status, "updated_at": datetime.utcnow()}
-            if coretax_id:
-                values["coretax_id"] = coretax_id
-            if official_number:
-                values["bupot_number"] = official_number
-            stmt = (
-                update(CoretaxBupotTable).where(CoretaxBupotTable.id == bupot_id).values(**values)
-            )
-            await self.session.execute(stmt)
-            await self.session.flush()
+            async with self.session.begin():
+                # 1. Lock the row with SELECT FOR UPDATE
+                stmt_lock = select(CoretaxBupotTable).where(CoretaxBupotTable.id == bupot_id).with_for_update()
+                result = await self.session.execute(stmt_lock)
+                row = result.scalar_one_or_none()
+                if not row:
+                    raise BupotNotFoundError(f"Bupot {bupot_id} not found")
+
+                # 2. Update the locked row
+                row.status = status
+                if coretax_id:
+                    row.coretax_id = coretax_id
+                if official_number:
+                    row.bupot_number = official_number
+                row.updated_at = datetime.utcnow()
+                await self.session.flush()
+
+        except BupotNotFoundError:
+            raise
         except Exception as e:
             await self.session.rollback()
             raise TaxRepositoryError(f"Failed to update bupot: {e}") from e
 
     async def list_bupot(
         self, npwp_pemotong: str, masa_pajak: int | None = None, tahun_pajak: int | None = None
-    ) -> list[Any]:  # ← return list[Any]
+    ) -> list[Any]:
         """List e-Bupot."""
         conditions = [CoretaxBupotTable.npwp_pemotong == npwp_pemotong]
         if masa_pajak:

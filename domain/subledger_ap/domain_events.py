@@ -8,6 +8,7 @@ Responsibility: Event: InvoiceReceived, PaymentSent, CreditNoteApplied.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -19,6 +20,8 @@ from domain.subledger_ap.credit_note_entity import APCreditNoteEntity
 from domain.subledger_ap.debit_note_entity import APDebitNoteEntity
 from domain.subledger_ap.invoice_entity import APInvoiceEntity, APInvoiceStatus
 from domain.subledger_ap.payment_entity import APPaymentEntity
+
+logger = logging.getLogger(__name__)
 
 
 class DomainEventType(Enum):
@@ -57,13 +60,25 @@ class DomainEventType(Enum):
         return cls.INVOICE_RECEIVED
 
 
-@dataclass
+@dataclass(frozen=True)
 class DomainEvent:
-    # Non-default fields first (required)
+    """
+    Base class untuk semua domain event di Subledger AP.
+
+    Attributes:
+        event_type: Jenis event (DomainEventType).
+        aggregate_id: UUID agregat yang terkait.
+        aggregate_version: Versi agregat saat event terjadi.
+        event_id: UUID unik event (default auto-generated).
+        occurred_at: Waktu kejadian (UTC).
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+        causation_id: ID penyebab event (opsional).
+    """
     event_type: DomainEventType
     aggregate_id: UUID
     aggregate_version: int
-    # Default fields (optional) after
     event_id: UUID = field(default_factory=uuid4)
     occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     event_data: dict[str, Any] = field(default_factory=dict)
@@ -115,9 +130,20 @@ class DomainEvent:
 
 # ==================== INVOICE EVENTS ====================
 
-
-@dataclass
+@dataclass(frozen=True)
 class InvoiceReceivedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika invoice AP diterima dari vendor.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity APInvoice.
+        received_by: User ID penerima.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -149,8 +175,21 @@ class InvoiceReceivedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceVerifiedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika invoice AP diverifikasi.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity APInvoice.
+        verified_by: User ID verifikator.
+        match_result: Hasil three-way match.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -179,8 +218,21 @@ class InvoiceVerifiedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoicePaidEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika invoice AP dibayar (lunas).
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity APInvoice.
+        payment_id: ID pembayaran.
+        payment_amount: Jumlah pembayaran.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -210,8 +262,22 @@ class InvoicePaidEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceCancelledEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika invoice AP dibatalkan.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        invoice_number: Nomor invoice.
+        reason: Alasan pembatalan.
+        cancelled_by: User ID pembatalan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -241,8 +307,22 @@ class InvoiceCancelledEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceDisputedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika invoice AP diperselisihkan.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        invoice_number: Nomor invoice.
+        reason: Alasan perselisihan.
+        disputed_by: User ID yang memperselisihkan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -272,8 +352,23 @@ class InvoiceDisputedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceCreatedEvent(DomainEvent):
+    """
+    Event generic ketika invoice AP dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        legal_entity_id: ID entitas legal.
+        invoice_number: Nomor invoice.
+        vendor_id: ID vendor.
+        amount: Jumlah invoice.
+        due_date: Tanggal jatuh tempo.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -305,8 +400,20 @@ class InvoiceCreatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceApprovedEvent(DomainEvent):
+    """
+    Event generic ketika invoice AP disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_number: Nomor invoice.
+        approver_id: User ID yang menyetujui.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -334,9 +441,20 @@ class InvoiceApprovedEvent(DomainEvent):
 
 # ==================== PAYMENT EVENTS ====================
 
-
-@dataclass
+@dataclass(frozen=True)
 class PaymentSentEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pembayaran AP dikirim.
+
+    Attributes:
+        aggregate_id: ID agregat payment.
+        aggregate_version: Versi agregat.
+        payment: Entity APPayment.
+        sent_by: User ID pengirim.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -368,8 +486,20 @@ class PaymentSentEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PaymentApprovedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pembayaran AP disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat payment.
+        aggregate_version: Versi agregat.
+        payment: Entity APPayment.
+        approved_by: User ID yang menyetujui.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -397,8 +527,21 @@ class PaymentApprovedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PaymentProcessedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pembayaran AP diproses.
+
+    Attributes:
+        aggregate_id: ID agregat payment.
+        aggregate_version: Versi agregat.
+        payment: Entity APPayment.
+        processed_by: User ID pemroses.
+        reference_number: Nomor referensi (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -428,8 +571,21 @@ class PaymentProcessedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PaymentConfirmedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pembayaran AP dikonfirmasi.
+
+    Attributes:
+        aggregate_id: ID agregat payment.
+        aggregate_version: Versi agregat.
+        payment: Entity APPayment.
+        confirmed_by: User ID konfirmasi.
+        bank_reference: Referensi bank.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -459,8 +615,22 @@ class PaymentConfirmedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PaymentCancelledEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pembayaran AP dibatalkan.
+
+    Attributes:
+        aggregate_id: ID agregat payment.
+        aggregate_version: Versi agregat.
+        payment_id: ID payment.
+        payment_number: Nomor payment.
+        reason: Alasan pembatalan.
+        cancelled_by: User ID pembatalan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -490,8 +660,21 @@ class PaymentCancelledEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PaymentMadeEvent(DomainEvent):
+    """
+    Event generic ketika pembayaran AP dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat payment.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        amount: Jumlah pembayaran.
+        payment_number: Nomor payment.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -519,8 +702,21 @@ class PaymentMadeEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PaymentAppliedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pembayaran AP diterapkan ke invoice.
+
+    Attributes:
+        aggregate_id: ID agregat payment.
+        aggregate_version: Versi agregat.
+        payment_id: ID payment.
+        invoice_id: ID invoice.
+        amount: Jumlah yang diterapkan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -548,8 +744,20 @@ class PaymentAppliedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PaymentVoidedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pembayaran AP dibatalkan/dihapus.
+
+    Attributes:
+        aggregate_id: ID agregat payment.
+        aggregate_version: Versi agregat.
+        payment_number: Nomor payment.
+        reason: Alasan pembatalan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -577,9 +785,20 @@ class PaymentVoidedEvent(DomainEvent):
 
 # ==================== CREDIT NOTE EVENTS ====================
 
-
-@dataclass
+@dataclass(frozen=True)
 class CreditNoteReceivedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika credit note AP diterima.
+
+    Attributes:
+        aggregate_id: ID agregat credit note.
+        aggregate_version: Versi agregat.
+        credit_note: Entity APCreditNote.
+        received_by: User ID penerima.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -610,8 +829,22 @@ class CreditNoteReceivedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CreditNoteAppliedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika credit note AP diterapkan ke invoice.
+
+    Attributes:
+        aggregate_id: ID agregat credit note.
+        aggregate_version: Versi agregat.
+        credit_note: Entity APCreditNote.
+        invoice_id: ID invoice.
+        applied_amount: Jumlah yang diterapkan.
+        applied_by: User ID penerap.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -642,8 +875,23 @@ class CreditNoteAppliedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CreditNoteIssuedEvent(DomainEvent):
+    """
+    Event generic ketika credit note AP diterbitkan.
+
+    Attributes:
+        aggregate_id: ID agregat credit note.
+        aggregate_version: Versi agregat.
+        legal_entity_id: ID entitas legal.
+        credit_note_number: Nomor credit note.
+        vendor_id: ID vendor.
+        amount: Jumlah credit note.
+        original_invoice_id: ID invoice asal (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -677,9 +925,20 @@ class CreditNoteIssuedEvent(DomainEvent):
 
 # ==================== DEBIT NOTE EVENTS ====================
 
-
-@dataclass
+@dataclass(frozen=True)
 class DebitNoteIssuedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika debit note AP diterbitkan.
+
+    Attributes:
+        aggregate_id: ID agregat debit note.
+        aggregate_version: Versi agregat.
+        debit_note: Entity APDebitNote.
+        issued_by: User ID penerbit.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -710,8 +969,20 @@ class DebitNoteIssuedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class DebitNoteAppliedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika debit note AP diterapkan.
+
+    Attributes:
+        aggregate_id: ID agregat debit note.
+        aggregate_version: Versi agregat.
+        debit_note: Entity APDebitNote.
+        applied_by: User ID penerap.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -738,8 +1009,23 @@ class DebitNoteAppliedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class DebitNoteIssuedServiceEvent(DomainEvent):
+    """
+    Event generic ketika debit note AP untuk jasa diterbitkan.
+
+    Attributes:
+        aggregate_id: ID agregat debit note.
+        aggregate_version: Versi agregat.
+        legal_entity_id: ID entitas legal.
+        debit_note_number: Nomor debit note.
+        vendor_id: ID vendor.
+        amount: Jumlah debit note.
+        original_invoice_id: ID invoice asal (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -773,9 +1059,21 @@ class DebitNoteIssuedServiceEvent(DomainEvent):
 
 # ==================== THREE WAY MATCH EVENTS ====================
 
-
-@dataclass
+@dataclass(frozen=True)
 class ThreeWayMatchResultEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika hasil three-way match selesai.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        match_status: Status match.
+        differences: Dictionary perbedaan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -805,9 +1103,21 @@ class ThreeWayMatchResultEvent(DomainEvent):
 
 # ==================== PAYMENT RUN EVENTS ====================
 
-
-@dataclass
+@dataclass(frozen=True)
 class PaymentRunGeneratedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika payment run AP dihasilkan.
+
+    Attributes:
+        aggregate_id: ID agregat payment run.
+        aggregate_version: Versi agregat.
+        run_number: Nomor run.
+        total_amount: Total amount.
+        payment_count: Jumlah payment.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -835,8 +1145,19 @@ class PaymentRunGeneratedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PaymentRunExecutedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika payment run AP dieksekusi.
+
+    Attributes:
+        aggregate_id: ID agregat payment run.
+        aggregate_version: Versi agregat.
+        run_number: Nomor run.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -876,8 +1197,10 @@ APPaymentRunExecuted = PaymentRunExecutedEvent
 
 # ==================== PUBLISHER ====================
 
-
 class DomainEventPublisher:
+    """
+    Publisher untuk domain event Subledger AP.
+    """
     async def publish(self, event: DomainEvent) -> None:
         raise NotImplementedError
 
@@ -886,6 +1209,13 @@ class DomainEventPublisher:
             await self.publish(event)
 
     async def publish_with_retry(self, event: DomainEvent, max_retries: int = 3) -> None:
+        """
+        Publikasikan event dengan mekanisme retry.
+
+        Args:
+            event: DomainEvent yang akan dipublikasikan.
+            max_retries: Jumlah maksimum percobaan.
+        """
         import asyncio
 
         last_error = None
@@ -895,6 +1225,7 @@ class DomainEventPublisher:
                 return
             except Exception as e:
                 last_error = e
+                logger.warning(f"Publish attempt {attempt + 1}/{max_retries} failed: {e}")
                 await asyncio.sleep(0.1 * (2**attempt))
         raise last_error
 

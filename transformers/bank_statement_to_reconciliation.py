@@ -8,6 +8,10 @@ Responsibility: Mentransformasi event dari bank statement import atau webhook
 Metode yang ditambahkan:
 - BaseTransformer dengan entity dasar: validate, to_dict, from_dict, clone, snapshot, version, audit_trail, touch.
 - Untuk StatementParser, BankTransactionMatcher, BankStatementToReconciliationTransformer.
+
+Perbaikan presisi (MNY-003):
+    - Semua nilai moneter (amount) dikonversi ke string (bukan float) untuk serialisasi
+      ke command bus, menjaga presisi desimal.
 """
 
 from __future__ import annotations
@@ -630,13 +634,14 @@ class BankStatementToReconciliationTransformer(BaseTransformer):
         if not bank_account:
             logger.warning(f"Bank account {bank_account_number} not found for webhook")
             return
+        # Gunakan string untuk amount untuk menjaga presisi
         await self._command_bus.dispatch(
             {
                 "type": "bank.transaction.record",
                 "data": {
                     "bank_account_id": str(bank_account.id),
                     "transaction_date": transaction_date.isoformat(),
-                    "amount": float(amount),
+                    "amount": str(amount),  # konversi ke string
                     "description": description,
                     "reference_number": reference,
                     "status": "pending_reconciliation",

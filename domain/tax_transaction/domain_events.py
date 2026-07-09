@@ -57,8 +57,22 @@ class DomainEventType(Enum):
 
 
 # === 2. BASE DOMAIN EVENT CLASS ===
-@dataclass
+@dataclass(frozen=True)
 class DomainEvent:
+    """
+    Base class untuk semua domain event di Tax Transaction.
+
+    Attributes:
+        event_id: UUID unik event.
+        event_type: Jenis event (DomainEventType).
+        aggregate_id: UUID agregat yang terkait.
+        aggregate_type: Tipe agregat (default "TaxTransaction").
+        aggregate_version: Versi agregat saat event terjadi.
+        occurred_at: Waktu kejadian (UTC).
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+    """
     event_id: UUID
     event_type: DomainEventType
     aggregate_id: UUID
@@ -72,7 +86,7 @@ class DomainEvent:
     _audit_trail: ClassVar[list[dict[str, Any]]] = []
     _snapshots: ClassVar[list[dict[str, Any]]] = []
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.aggregate_version < 1:
             raise ValueError("aggregate_version must be >= 1")
         if self.occurred_at.tzinfo is None:
@@ -80,6 +94,7 @@ class DomainEvent:
 
     # ==================== ENTITY DASAR METHODS ====================
     def validate(self) -> dict[str, Any]:
+        """Validasi event."""
         errors = []
         if not isinstance(self.event_type, DomainEventType):
             errors.append("Invalid event_type")
@@ -88,6 +103,7 @@ class DomainEvent:
         return {"is_valid": len(errors) == 0, "errors": errors}
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert event ke dictionary."""
         return {
             "event_id": str(self.event_id),
             "event_type": self.event_type.value,
@@ -101,13 +117,16 @@ class DomainEvent:
         }
 
     def to_json(self) -> str:
+        """Serialize ke JSON string."""
         return json.dumps(self.to_dict(), default=str)
 
     def serialize(self) -> bytes:
+        """Serialize ke bytes."""
         return self.to_json().encode("utf-8")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DomainEvent:
+        """Create event dari dictionary."""
         return cls(
             event_id=UUID(data["event_id"]),
             event_type=DomainEventType(data["event_type"]),
@@ -122,13 +141,16 @@ class DomainEvent:
 
     @classmethod
     def from_json(cls, json_str: str) -> DomainEvent:
+        """Create event dari JSON string."""
         return cls.from_dict(json.loads(json_str))
 
     @classmethod
     def deserialize(cls, data: bytes) -> DomainEvent:
+        """Deserialize dari bytes."""
         return cls.from_json(data.decode("utf-8"))
 
     def clone(self) -> DomainEvent:
+        """Clone event dengan event_id dan occurred_at baru."""
         return DomainEvent(
             event_id=uuid4(),
             event_type=self.event_type,
@@ -142,6 +164,7 @@ class DomainEvent:
         )
 
     def snapshot(self) -> dict[str, Any]:
+        """Buat snapshot dari event."""
         return {
             "event_id": str(self.event_id),
             "event_type": self.event_type.value,
@@ -151,18 +174,32 @@ class DomainEvent:
         }
 
     def version(self) -> int:
+        """Get version (events are immutable, returns 1)."""
         return 1
 
     def audit_trail(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Get audit trail entries (limited)."""
         return self._audit_trail[-limit:]
 
     def touch(self, touched_by: str) -> DomainEvent:
+        """Touch event (returns clone)."""
         return self.clone()
 
 
 # === 3. CONCRETE EVENT CLASSES ===
-@dataclass
+@dataclass(frozen=True)
 class FakturSubmittedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Faktur Pajak disubmit.
+
+    Attributes:
+        aggregate_id: ID agregat faktur.
+        aggregate_version: Versi agregat.
+        faktur_number: Nomor faktur.
+        submitted_by: User ID yang mensubmit.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -189,8 +226,20 @@ class FakturSubmittedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class FakturApprovedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Faktur Pajak disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat faktur.
+        aggregate_version: Versi agregat.
+        faktur_number: Nomor faktur.
+        approval_code: Kode approval dari DJP.
+        approved_by: User ID yang menyetujui.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -219,8 +268,20 @@ class FakturApprovedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class FakturRejectedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Faktur Pajak ditolak.
+
+    Attributes:
+        aggregate_id: ID agregat faktur.
+        aggregate_version: Versi agregat.
+        faktur_number: Nomor faktur.
+        reason: Alasan penolakan.
+        rejected_by: User ID yang menolak.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -249,8 +310,19 @@ class FakturRejectedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class SPTSubmittedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika SPT disubmit.
+
+    Attributes:
+        aggregate_id: ID agregat SPT.
+        aggregate_version: Versi agregat.
+        spt_number: Nomor SPT.
+        submitted_by: User ID yang mensubmit.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -277,8 +349,19 @@ class SPTSubmittedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class SPTApprovedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika SPT disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat SPT.
+        aggregate_version: Versi agregat.
+        spt_number: Nomor SPT.
+        tracking_id: ID tracking dari DJP.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -305,8 +388,19 @@ class SPTApprovedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BupotSubmittedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika e-Bupot disubmit.
+
+    Attributes:
+        aggregate_id: ID agregat Bupot.
+        aggregate_version: Versi agregat.
+        bupot_number: Nomor Bupot.
+        submitted_by: User ID yang mensubmit.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -333,8 +427,19 @@ class BupotSubmittedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BupotApprovedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika e-Bupot disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat Bupot.
+        aggregate_version: Versi agregat.
+        bupot_number: Nomor Bupot.
+        coretax_id: ID dari Coretax.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -361,8 +466,20 @@ class BupotApprovedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class MeteraiUsedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika e-Meterai digunakan.
+
+    Attributes:
+        aggregate_id: ID agregat Meterai.
+        aggregate_version: Versi agregat.
+        meterai_code: Kode Meterai.
+        document_id: ID dokumen.
+        used_by: User ID yang menggunakan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -393,11 +510,21 @@ class MeteraiUsedEvent(DomainEvent):
 
 # === 4. DOMAIN EVENT PUBLISHER ===
 class DomainEventPublisher:
+    """
+    Publisher untuk domain event Tax Transaction.
+    Menyimpan event yang dipublikasikan untuk keperluan testing atau replay.
+    """
     _published_events: ClassVar[list[DomainEvent]] = []
     _max_history: ClassVar[int] = 10000
 
     @classmethod
     async def publish(cls, event: DomainEvent) -> None:
+        """
+        Publikasikan satu event.
+
+        Args:
+            event: DomainEvent yang akan dipublikasikan.
+        """
         cls._published_events.append(event)
         if len(cls._published_events) > cls._max_history:
             cls._published_events = cls._published_events[-cls._max_history :]
@@ -407,21 +534,39 @@ class DomainEventPublisher:
 
     @classmethod
     async def publish_many(cls, events: list[DomainEvent]) -> None:
+        """
+        Publikasikan banyak event.
+
+        Args:
+            events: List DomainEvent yang akan dipublikasikan.
+        """
         for event in events:
             await cls.publish(event)
 
     @classmethod
     async def add(cls, event: DomainEvent) -> None:
+        """Alias untuk publish."""
         await cls.publish(event)
 
     @classmethod
     async def save(cls, event: DomainEvent) -> None:
+        """Alias untuk publish."""
         await cls.publish(event)
 
     @classmethod
     async def get_events(
         cls, limit: int = 100, event_type: DomainEventType | None = None
     ) -> list[DomainEvent]:
+        """
+        Dapatkan event yang sudah dipublikasikan dengan filter opsional.
+
+        Args:
+            limit: Jumlah maksimum event.
+            event_type: Filter berdasarkan tipe event (opsional).
+
+        Returns:
+            List[DomainEvent]: Daftar event.
+        """
         events = cls._published_events[-limit:] if limit > 0 else cls._published_events
         if event_type:
             events = [e for e in events if e.event_type == event_type]
@@ -429,10 +574,17 @@ class DomainEventPublisher:
 
     @classmethod
     async def clear(cls) -> None:
+        """Hapus semua event yang sudah dipublikasikan."""
         cls._published_events.clear()
 
     @classmethod
     def get_statistics(cls) -> dict[str, Any]:
+        """
+        Dapatkan statistik event yang sudah dipublikasikan.
+
+        Returns:
+            dict: Statistik dengan total dan breakdown per tipe event.
+        """
         by_type = {}
         for event in cls._published_events:
             by_type[event.event_type.value] = by_type.get(event.event_type.value, 0) + 1
@@ -444,10 +596,17 @@ class DomainEventPublisher:
 
     @classmethod
     def reset(cls) -> None:
+        """Reset publisher (untuk testing)."""
         cls._published_events.clear()
 
     @classmethod
     def set_max_history(cls, max_history: int) -> None:
+        """
+        Set maksimum jumlah event yang disimpan.
+
+        Args:
+            max_history: Jumlah maksimum event.
+        """
         cls._max_history = max_history
         if len(cls._published_events) > cls._max_history:
             cls._published_events = cls._published_events[-cls._max_history :]

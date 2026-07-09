@@ -7,8 +7,10 @@ filter ketat untuk menghindari false positive. Dilengkapi heuristik risiko
 untuk membedakan duplikasi yang berbahaya vs yang tidak.
 
 Cara pakai:
+  python checker/duplicate_symbol_checker.py
   python checker/duplicate_symbol_checker.py --min-risk MEDIUM
   python checker/duplicate_symbol_checker.py --min-risk HIGH --json report.json
+  python checker/duplicate_symbol_checker.py --list-files   # Tampilkan semua file yang discan
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from typing import Any, Optional, Set, List, Dict, Tuple
 # ============================================================
 # Warna terminal
 # ============================================================
-COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "RESET": ""}
+COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "", "RESET": ""}
 try:
     import colorama
     colorama.init(autoreset=True)
@@ -35,6 +37,7 @@ try:
     COLOR["GREEN"] = colorama.Fore.GREEN
     COLOR["YELLOW"] = colorama.Fore.YELLOW
     COLOR["CYAN"] = colorama.Fore.CYAN
+    COLOR["MAGENTA"] = colorama.Fore.MAGENTA
     COLOR["RESET"] = colorama.Style.RESET_ALL
 except ImportError:
     pass
@@ -49,7 +52,7 @@ class SymbolType(str, Enum):
     ENUM = "enum"
     DATACLASS = "dataclass"
     DTO = "dto"
-    TYPEDICT = "typeddict"
+    TYPEDICT = "typedict"
     PROTOCOL = "protocol"
     EXCEPTION = "exception"
     CONSTANT = "constant"
@@ -110,6 +113,10 @@ class Report:
     duplicate_groups: list[DuplicateGroup] = field(default_factory=list)
     score: int = 100
     summary: dict[str, int] = field(default_factory=dict)
+    scanned_files: int = 0
+    files_with_symbols: int = 0
+    total_symbols: int = 0
+    scanned_directories: list[str] = field(default_factory=list)
 
 # ============================================================
 # Ekstraksi simbol (sama seperti sebelumnya)
@@ -286,7 +293,6 @@ def compute_similarity(s1: SymbolInfo, s2: SymbolInfo) -> float:
         return _similarity_class(s1, s2)
 
 def _similarity_class(c1: SymbolInfo, c2: SymbolInfo) -> float:
-    # Bandingkan method (nama + parameter)
     m1 = {m.name: len(m.params) for m in c1.methods}
     m2 = {m.name: len(m.params) for m in c2.methods}
     common_methods = set(m1.keys()) & set(m2.keys())
@@ -438,9 +444,6 @@ def find_duplicates(
             risk_sev = "LOW"
             risk_exp = "Struktural mirip, periksa apakah seharusnya di-shared."
 
-            # HIGH jika:
-            #   - Enum dengan anggota identik (nama & nilai)
-            #   - Class/Dataclass/DTO dengan field identik (nama & tipe) dan jumlah field sama
             if s1.symbol_type == SymbolType.ENUM:
                 if s1.enum_members == s2.enum_members:
                     risk_sev = "HIGH"
@@ -465,7 +468,6 @@ def find_duplicates(
                     risk_exp = "Exception dengan base class sama, pertimbangkan untuk menyatukan."
 
             elif s1.symbol_type == SymbolType.PROTOCOL:
-                # Protocol biasanya didefinisikan ulang di banyak tempat, beri MEDIUM jika sangat mirip
                 if sim >= 0.9:
                     risk_sev = "MEDIUM"
                     risk_exp = "Protocol sangat mirip, periksa apakah bisa di-shared."
@@ -501,15 +503,24 @@ def scan_project(
     exclude_set = set(exclude_dirs)
 
     all_symbols: list[SymbolInfo] = []
+    scanned_files = 0
+    files_with_symbols = 0
+
+    # Kumpulkan direktori yang discan
+    scanned_dirs = set()
     for py_file in PROJECT_ROOT.rglob("*.py"):
         if any(part in exclude_set for part in py_file.parts):
             continue
         if py_file.name.startswith("duplicate_symbol_checker"):
             continue
+        scanned_files += 1
         rel = py_file.relative_to(PROJECT_ROOT)
+        scanned_dirs.add(str(rel.parent))
         module = str(rel.with_suffix("")).replace("/", ".")
         syms = extract_symbols_from_file(py_file, module)
         all_symbols.extend(syms)
+        if syms:
+            files_with_symbols += 1
 
     groups = find_duplicates(
         all_symbols,
@@ -523,60 +534,100 @@ def scan_project(
     for g in groups:
         summary[g.symbol_type] += 1
 
+    # Hitung score: Hanya HIGH dan MEDIUM yang mengurangi score
     score = 100
     for g in groups:
         if g.risk_severity == "HIGH":
             score -= 20
         elif g.risk_severity == "MEDIUM":
             score -= 10
-        else:
-            score -= 2
+        # LOW tidak mengurangi
     score = max(0, score)
 
     return Report(
         duplicate_groups=groups,
         score=score,
-        summary=dict(summary)
+        summary=dict(summary),
+        scanned_files=scanned_files,
+        files_with_symbols=files_with_symbols,
+        total_symbols=len(all_symbols),
+        scanned_directories=sorted(scanned_dirs)
     )
 
 # ============================================================
 # Output
 # ============================================================
-def print_report(report: Report, verbose: bool = False, min_risk: str = "LOW"):
+def print_report(report: Report, verbose: bool = False, min_risk: str = "LOW", list_files: bool = False):
     risk_order = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
     min_level = risk_order.get(min_risk.upper(), 0)
     filtered = [g for g in report.duplicate_groups if risk_order.get(g.risk_severity, 0) >= min_level]
 
     c = COLOR
-    print(f"\n{c['CYAN']}{'='*70}{c['RESET']}")
-    print(f"{c['CYAN']}DUPLICATE SYMBOL CHECKER (RCA-ENHANCED){c['RESET']}")
-    print(f"{c['CYAN']}{'='*70}{c['RESET']}")
+    print(f"\n{c['MAGENTA']}{'='*80}{c['RESET']}")
+    print(f"{c['MAGENTA']}DUPLICATE SYMBOL CHECKER (RCA-ENHANCED){c['RESET']}")
+    print(f"{c['MAGENTA']}{'='*80}{c['RESET']}")
 
-    print(f"\n  Total duplicate groups: {len(report.duplicate_groups)}")
-    print(f"  Displaying groups with risk >= {min_risk}: {len(filtered)}")
-    print(f"  Score: {c['GREEN'] if report.score >= 80 else c['YELLOW']}{report.score}/100{c['RESET']}")
+    # ==================== SUMMARY STATISTICS ====================
+    print(f"\n  {c['CYAN']}📊 SUMMARY STATISTICS{c['RESET']}")
+    print(f"  {'-'*60}")
+    print(f"     Files Scanned          : {c['CYAN']}{report.scanned_files}{c['RESET']}")
+    print(f"     Files with Symbols     : {c['CYAN']}{report.files_with_symbols}{c['RESET']}")
+    print(f"     Total Symbols Found    : {c['CYAN']}{report.total_symbols}{c['RESET']}")
+    print(f"     Duplicate Groups (all) : {c['YELLOW']}{len(report.duplicate_groups)}{c['RESET']}")
+    print(f"     Groups >= {min_risk}    : {c['YELLOW']}{len(filtered)}{c['RESET']}")
+    score_color = c['GREEN'] if report.score >= 80 else c['YELLOW'] if report.score >= 50 else c['RED']
+    print(f"     Compliance Score       : {score_color}{report.score}/100{c['RESET']}")
+
     if report.summary:
-        print("\n  Breakdown by type:")
+        print(f"\n  {c['CYAN']}📋 BREAKDOWN BY SYMBOL TYPE{c['RESET']}")
+        print(f"  {'-'*60}")
         for typ, cnt in report.summary.items():
-            print(f"    {typ.value}: {cnt}")
+            print(f"     {typ.value}: {cnt}")
 
-    if not filtered:
-        print(f"\n{c['GREEN']}✅ No significant duplicate symbols detected (risk >= {min_risk}).{c['RESET']}")
-        return
+    # ==================== SCANNED DIRECTORIES ====================
+    print(f"\n  {c['CYAN']}📁 DIRECTORIES SCANNED{c['RESET']}")
+    print(f"  {'-'*60}")
+    for d in report.scanned_directories[:20]:
+        print(f"     - {d}")
+    if len(report.scanned_directories) > 20:
+        print(f"     ... dan {len(report.scanned_directories)-20} direktori lainnya.")
 
-    print(f"\n{c['YELLOW']}Duplicate Symbols (Risk-aware):{c['RESET']}")
-    groups_by_type = defaultdict(list)
-    for g in filtered:
-        groups_by_type[g.symbol_type].append(g)
+    if list_files:
+        # Kumpulkan file yang memiliki simbol (kita tidak simpan daftar file, tapi kita bisa estimasi dari groups)
+        files_with_duplicates = set()
+        for g in filtered:
+            for f, _, _ in g.locations:
+                files_with_duplicates.add(f)
+        if files_with_duplicates:
+            print(f"\n  {c['CYAN']}📄 FILES WITH DUPLICATES (sample 20){c['RESET']}")
+            print(f"  {'-'*60}")
+            for f in sorted(files_with_duplicates)[:20]:
+                print(f"     - {pathlib.Path(f).relative_to(PROJECT_ROOT)}")
+            if len(files_with_duplicates) > 20:
+                print(f"     ... dan {len(files_with_duplicates)-20} file lainnya.")
 
-    for typ, grps in groups_by_type.items():
-        print(f"\n  {c['CYAN']}--- {typ.value.upper()} ---{c['RESET']}")
-        for group in grps:
-            sev_color = c['GREEN'] if group.risk_severity == "LOW" else c['YELLOW'] if group.risk_severity == "MEDIUM" else c['RED']
-            print(f"\n    {sev_color}[{group.risk_severity}]{c['RESET']} {group.duplicate_type} {group.group_key} (sim: {group.similarity_score:.2f})")
-            print(f"      → {group.risk_explanation}")
-            for file_path, line, module in group.locations:
-                print(f"        - {file_path}:{line}  ({module})")
+    # ==================== DUPLICATE GROUPS ====================
+    if filtered:
+        print(f"\n  {c['CYAN']}🔍 DUPLICATE SYMBOLS (Risk >= {min_risk}){c['RESET']}")
+        print(f"  {'-'*60}")
+
+        groups_by_type = defaultdict(list)
+        for g in filtered:
+            groups_by_type[g.symbol_type].append(g)
+
+        for typ, grps in groups_by_type.items():
+            print(f"\n  {c['YELLOW']}--- {typ.value.upper()} ({len(grps)} groups) ---{c['RESET']}")
+            for group in grps:
+                sev_color = c['GREEN'] if group.risk_severity == "LOW" else c['YELLOW'] if group.risk_severity == "MEDIUM" else c['RED']
+                print(f"\n    {sev_color}[{group.risk_severity}]{c['RESET']} {group.duplicate_type} ({group.similarity_score:.2f})")
+                print(f"      → {group.risk_explanation}")
+                for file_path, line, module in group.locations:
+                    rel = pathlib.Path(file_path).relative_to(PROJECT_ROOT)
+                    print(f"        - {rel}:{line}  ({module})")
+    else:
+        print(f"\n  {c['GREEN']}✅ No duplicate symbols detected with risk >= {min_risk}.{c['RESET']}")
+
+    print(f"\n{c['MAGENTA']}{'='*80}{c['RESET']}\n")
 
 def save_json(report: Report, filepath: str, min_risk: str = "LOW"):
     risk_order = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
@@ -584,7 +635,13 @@ def save_json(report: Report, filepath: str, min_risk: str = "LOW"):
     filtered = [g for g in report.duplicate_groups if risk_order.get(g.risk_severity, 0) >= min_level]
 
     data = {
-        "score": report.score,
+        "metadata": {
+            "scanned_files": report.scanned_files,
+            "files_with_symbols": report.files_with_symbols,
+            "total_symbols": report.total_symbols,
+            "score": report.score,
+            "scanned_directories": report.scanned_directories,
+        },
         "summary": report.summary,
         "duplicate_groups": [
             {
@@ -610,7 +667,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Advanced Duplicate Symbol Checker with RCA integration"
     )
-    parser.add_argument("--verbose", action="store_true", help="Tampilkan detail")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Tampilkan detail")
     parser.add_argument("--json", metavar="FILE", help="Simpan laporan ke JSON")
     parser.add_argument(
         "--exclude",
@@ -646,6 +703,10 @@ def main():
         "--ignore-patterns", type=str, default="",
         help="Tambahkan pola regex untuk mengabaikan nama (dipisahkan koma)"
     )
+    parser.add_argument(
+        "--list-files", "-l", action="store_true",
+        help="Tampilkan daftar file yang memiliki duplikat (hanya untuk mode --min-risk)"
+    )
     args = parser.parse_args()
 
     exclude_dirs = [d.strip() for d in args.exclude.split(",") if d.strip()]
@@ -664,7 +725,7 @@ def main():
         min_occurrences=args.min_occurrences,
     )
 
-    print_report(report, args.verbose, args.min_risk)
+    print_report(report, args.verbose, args.min_risk, args.list_files)
     if args.json:
         save_json(report, args.json, args.min_risk)
 

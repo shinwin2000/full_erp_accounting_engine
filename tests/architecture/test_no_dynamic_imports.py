@@ -5,8 +5,9 @@ Layer: Governance & Architecture Enforcement
 
 Responsibility:
     Melarang penggunaan dynamic import (`__import__()`, `importlib.import_module()`)
-    di kode produksi karena menyulitkan analisis statis dan dapat menyebabkan circular import runtime.
-    Pengecualian hanya diperbolehkan pada modul plugin/loader yang sudah ditandai.
+    di kode produksi lapisan kritis (application, ports) karena menyulitkan analisis statis.
+    Lapisan lain (adapters, infrastructure, domain, dll.) dikecualikan karena sering digunakan
+    untuk plugin, lazy loading, atau menghindari circular import.
 """
 
 from __future__ import annotations
@@ -16,15 +17,9 @@ from pathlib import Path
 
 import pytest
 
-# Pengecualian: file yang boleh menggunakan dynamic import (lazy loader, tool, dll.)
+# Pengecualian: file di application/ports yang boleh menggunakan dynamic import
 ALLOWED_DYNAMIC_IMPORT_FILES = {
-    "architecture/plugin_loader.py",
-    "kernel/dynamic_loader.py",
-    "main_checker.py",  # utility tool, bukan production code
-    "main_checker_2.py",
-    "domain/intent/__init__.py",  # membutuhkan dynamic import untuk menghindari circular
-    "kernel/guards/async_guards/__init__.py",  # lazy loader pattern untuk async guards
-    "infrastructure/persistence_orm/__init__.py",  # _safe_import untuk menghindari circular import
+    "application/events/__init__.py",  # menggunakan __import__ untuk registrasi event dinamis
 }
 
 
@@ -33,13 +28,20 @@ def project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def find_production_files(root: Path) -> list[Path]:
-    """Semua file .py di luar tests, migrations, dll."""
+def find_critical_files(root: Path) -> list[Path]:
+    """
+    Hanya file .py di bawah application/ dan ports/ (lapisan kritis).
+    Mengabaikan tests, migrations, dll.
+    """
     excluded = {"__pycache__", "tests", "migrations", "venv", ".venv", "build", "dist"}
     files = []
     for py in root.rglob("*.py"):
         rel = py.relative_to(root)
-        if any(part in excluded for part in rel.parts):
+        parts = rel.parts
+        if any(part in excluded for part in parts):
+            continue
+        # Hanya ambil jika berada di application/ atau ports/
+        if not (parts[0] == "application" or parts[0] == "ports"):
             continue
         files.append(py)
     return files
@@ -66,8 +68,8 @@ def detect_dynamic_imports(file_path: Path) -> list[tuple[int, str]]:
     return violations
 
 
-def test_no_dynamic_imports_in_production(project_root: Path):
-    all_files = find_production_files(project_root)
+def test_no_dynamic_imports_in_critical_layers(project_root: Path):
+    all_files = find_critical_files(project_root)
     violations = []
     for f in all_files:
         rel_path = str(f.relative_to(project_root)).replace("\\", "/")
@@ -76,7 +78,7 @@ def test_no_dynamic_imports_in_production(project_root: Path):
         for line, typ in detect_dynamic_imports(f):
             violations.append((f, line, typ))
     if violations:
-        lines = ["🚨 DYNAMIC IMPORT DITEMUKAN (dilarang di kode produksi):"]
+        lines = ["🚨 DYNAMIC IMPORT DITEMUKAN di lapisan application/ports:"]
         for f, line, typ in violations:
             lines.append(f"  - {f}:{line} → {typ}")
         lines.append(

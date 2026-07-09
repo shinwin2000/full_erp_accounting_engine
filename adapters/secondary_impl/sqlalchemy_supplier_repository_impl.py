@@ -75,6 +75,7 @@ class SupplierTable(Base):
     created_by = Column(PGUUID(as_uuid=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=datetime.utcnow)
+    deleted_by = Column(PGUUID(as_uuid=True), nullable=True)
 
 
 class SQLAlchemySupplierRepository(SupplierRepositoryPort):
@@ -224,17 +225,23 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
             session.add(new)
 
     async def update(self, supplier: Supplier) -> None:
+        """
+        Update supplier with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = select(SupplierTable).where(
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(SupplierTable).where(
                 SupplierTable.id == supplier.supplier_id,
                 SupplierTable.legal_entity_id == supplier.legal_entity_id,
-            )
-            result = await session.execute(stmt)
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
             existing = result.scalar_one_or_none()
             if not existing:
                 raise ValueError(f"Supplier {supplier.supplier_id} not found")
 
+            # 2. Update the locked row
             existing.supplier_code = supplier.supplier_code
             existing.supplier_name = supplier.supplier_name
             existing.npwp = supplier.tax_id
@@ -252,26 +259,27 @@ class SQLAlchemySupplierRepository(SupplierRepositoryPort):
             existing.updated_at = datetime.utcnow()
 
     async def delete(self, supplier_id: UUID, user_id: UUID, permanent: bool = False) -> None:
+        """
+        Delete supplier with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(SupplierTable).where(SupplierTable.id == supplier_id).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                return
+
+            # 2. Perform delete on the locked row
             if permanent:
-                stmt = select(SupplierTable).where(SupplierTable.id == supplier_id)
-                result = await session.execute(stmt)
-                row = result.scalar_one_or_none()
-                if row:
-                    await session.delete(row)
+                await session.delete(row)
             else:
-                stmt = (
-                    update(SupplierTable)
-                    .where(SupplierTable.id == supplier_id)
-                    .values(
-                        status="DELETED",
-                        is_active=False,
-                        updated_at=datetime.utcnow(),
-                        deleted_by=user_id,
-                    )
-                )
-                await session.execute(stmt)
+                row.status = "DELETED"
+                row.is_active = False
+                row.updated_at = datetime.utcnow()
+                row.deleted_by = user_id
 
     # Return type diubah menjadi list[Any] untuk mengikuti kontrak interface
     async def list_by_entity(

@@ -10,6 +10,10 @@ Dependencies:
 - sqlalchemy.orm (Mapped, mapped_column, relationship)
 - infrastructure.persistence_orm.base_model
 Audit: Setiap komponen gaji dicatat di event store.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (amount, computed_amount)
+      di to_dict() untuk menjaga presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -132,9 +136,9 @@ class SalaryComponentTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, 
             "component_name": self.component_name,
             "component_type": self.component_type,
             "calculation_type": self.calculation_type,
-            "amount": float(self.amount),
+            "amount": str(self.amount),  # ganti float -> str untuk presisi
             "rate_percentage": float(self.rate_percentage) if self.rate_percentage else None,
-            "computed_amount": float(self.computed_amount),
+            "computed_amount": str(self.computed_amount),  # ganti float -> str untuk presisi
             "currency": self.currency,
             "description": self.description,
             "legal_entity_id": str(self.legal_entity_id),

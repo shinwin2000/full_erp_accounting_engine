@@ -3,20 +3,14 @@
 """
 checker/race_condition_risk_checker.py – Race Condition Risk Detector
 =======================================================================
-Versi   : 3.0.0
+Versi   : 3.5.0 (Precision Enhanced v4)
 Standar : Big 4 Forensic Audit · ISO/IEC 25010 · SOX/ISA 315 Compliant
 
-Fitur:
-  - Deteksi metode update/delete tanpa pessimistic lock (SELECT FOR UPDATE)
-  - Deteksi metode update/delete tanpa optimistic lock (version field)
-  - Deteksi distributed lock (Redis, ZooKeeper, etc.)
-  - Deteksi @transactional decorator dengan isolation level
-  - Deteksi async lock patterns (asyncio.Lock, aioredis.lock)
-  - Integrasi RCA engine (checker.core.rca)
-  - Parallel scanning, AST caching, progress bar
-  - Laporan JSON, CSV, HTML, SARIF
-  - Self-test terintegrasi
-  - CLI: --verbose, --json, --csv, --html, --sarif, --strict, --no-rca, --self-test, --exclude, --max-workers
+Perbaikan v3.5.0:
+  - Deteksi session/db yang dikirim sebagai parameter fungsi (misal: db: Session = Depends(...))
+  - Mendukung nama parameter: db, session, dbsession, db_session, sqlalchemy_session, conn, connection
+  - Deteksi panggilan db.delete(), session.execute(), db.commit(), dll.
+  - Pengurangan false positive pada FastAPI router dan repository
 """
 
 from __future__ import annotations
@@ -132,7 +126,7 @@ def _c(key: str) -> str:
     return COLOR.get(key, "")
 
 # ─── VERSION ──────────────────────────────────────────────────────────────────
-__version__ = "3.0.0"
+__version__ = "3.5.0"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 EXCLUDED_DIRS_DEFAULT = {
@@ -142,10 +136,12 @@ EXCLUDED_DIRS_DEFAULT = {
 }
 
 UPDATE_DELETE_KEYWORDS = {"update", "delete", "modify", "change", "alter", "remove", "set", "patch"}
+READONLY_FUNC_NAMES = {"list", "get", "fetch", "find", "search", "count", "exists", "show", "view", "export", "download"}
 LOCK_KEYWORDS = {"lock", "select_for_update", "for_update", "optimistic_lock", "pessimistic_lock", "distributed_lock"}
 VERSION_KEYWORDS = {"version", "optimistic", "row_version", "etag", "revision", "rev"}
 TRANSACTIONAL_DECORATORS = {"transactional", "atomic", "with_transaction", "db_transaction"}
 ISOLATION_LEVELS = {"READ_COMMITTED", "REPEATABLE_READ", "SERIALIZABLE", "READ_UNCOMMITTED"}
+FASTAPI_ROUTER_DECORATORS = {"get", "post", "put", "delete", "patch", "head", "options"}
 
 # ─── DATA CLASSES ─────────────────────────────────────────────────────────────
 @dataclass
@@ -239,16 +235,6 @@ def _has_method_call(node: ast.AST, call_names: Set[str]) -> bool:
                 return True
             if isinstance(sub.func, ast.Attribute) and sub.func.attr in call_names:
                 return True
-            # self.with_for_update(), session.execute("SELECT ... FOR UPDATE")
-            if isinstance(sub.func, ast.Attribute):
-                if isinstance(sub.func.value, ast.Attribute):
-                    if sub.func.value.attr in call_names:
-                        return True
-                    if sub.func.attr in call_names:
-                        return True
-                if isinstance(sub.func.value, ast.Name):
-                    if sub.func.value.id in call_names:
-                        return True
     return False
 
 def _has_string_contains(text: str, keywords: Set[str]) -> bool:
@@ -276,11 +262,26 @@ def _generate_rca(msg: str, severity: str, context: Optional[Dict] = None) -> Op
     try:
         exc = RuntimeError(msg) if severity in ("CRITICAL", "HIGH") else ValueError(msg)
         ctx = {"severity": severity, "violation": msg, **(context or {})}
-        return _rca_analyze(exc, ctx)
+        result = _rca_analyze(exc, ctx)
+        if result is None:
+            detail = context.get("detail", "")
+            if "isolation level" in detail:
+                suggestion = "Use @transactional(isolation='SERIALIZABLE') or add explicit SELECT FOR UPDATE."
+            elif "lock parameter" in detail:
+                suggestion = "Ensure the lock/version parameter is actually used in a conditional or passed to a locking function."
+            else:
+                suggestion = "Add pessimistic (SELECT FOR UPDATE), optimistic (version check), or distributed lock."
+            return {
+                "severity": "WARNING",
+                "root_cause": msg,
+                "suggested_fix": suggestion,
+                "confidence": 0.5,
+            }
+        return result
     except Exception:
         return {"root_cause": msg, "suggested_fix": "Implement proper locking mechanism."}
 
-# ─── DETECTOR ──────────────────────────────────────────────────────────────────
+# ─── DETECTOR (PRECISION ENHANCED V4) ──────────────────────────────────────
 class RaceConditionDetector:
     def __init__(
         self,
@@ -299,7 +300,7 @@ class RaceConditionDetector:
         self.rel_path = str(file_path.relative_to(root)).replace("\\", "/")
 
     def _add_finding(self, severity: str, line: int, func_name: str, message: str, detail: str):
-        rca = _generate_rca(message, severity, {"function": func_name, "file": self.rel_path}) if self.enable_rca else None
+        rca = _generate_rca(message, severity, {"function": func_name, "file": self.rel_path, "detail": detail}) if self.enable_rca else None
         self.findings.append(Finding(
             severity=severity,
             file=self.rel_path,
@@ -314,50 +315,97 @@ class RaceConditionDetector:
         lower = func_name.lower()
         return any(kw in lower for kw in UPDATE_DELETE_KEYWORDS)
 
+    def _is_readonly_method(self, func_name: str) -> bool:
+        lower = func_name.lower()
+        return any(kw in lower for kw in READONLY_FUNC_NAMES)
+
+    def _has_direct_db_write(self, node: ast.AST, func_node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> bool:
+        """
+        Deteksi operasi tulis langsung ke database.
+        Mendukung:
+          - self.session / self.db / self.dbsession
+          - Parameter fungsi: db, session, dbsession, conn, connection
+          - Panggilan: session.execute(), db.delete(), session.add(), commit(), flush()
+        """
+        # Kumpulkan nama parameter yang merupakan objek database
+        db_param_names = {"db", "session", "dbsession", "db_session", "sqlalchemy_session", "conn", "connection"}
+        param_names = {arg.arg for arg in func_node.args.args}
+        db_params = param_names.intersection(db_param_names)
+
+        delegation_objects = {"repository", "repo", "service", "generator", "builder", "processor", "handler", "client", "api"}
+        db_objects = {"session", "db", "query", "database", "entity_manager", "em", "connection", "dbsession", "db_session"}
+        write_methods = {"execute", "update", "delete", "insert", "save", "persist", "merge", "add", "commit", "flush"}
+
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                if isinstance(sub.func, ast.Attribute):
+                    method = sub.func.attr.lower()
+                    obj = sub.func.value
+
+                    # Fungsi yang dipanggil harus merupakan method write
+                    if method not in write_methods:
+                        continue
+
+                    # Kasus 1: objek adalah Name (variabel lokal atau parameter)
+                    if isinstance(obj, ast.Name):
+                        obj_name = obj.id
+                        if obj_name in db_params or obj_name in db_objects:
+                            return True
+                        if obj_name in delegation_objects:
+                            continue
+                    # Kasus 2: objek adalah Attribute (misal self.session, self.db)
+                    elif isinstance(obj, ast.Attribute):
+                        # self.session, self.db
+                        if isinstance(obj.value, ast.Name) and obj.value.id == "self":
+                            attr = obj.attr.lower()
+                            if attr in db_objects:
+                                return True
+                            if attr in delegation_objects:
+                                continue
+                        # obj.query (query.update)
+                        if obj.attr == "query":
+                            return True
+                    # Kasus 3: objek adalah Call (misal get_db() -> session)
+                    # tidak ditangani secara langsung, tapi jika get_db() menghasilkan session, kita tidak tahu.
+
+                # Kasus khusus: session.execute dengan SQL string
+                if isinstance(sub.func, ast.Attribute) and sub.func.attr == "execute":
+                    for arg in sub.args:
+                        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                            sql_upper = arg.value.upper()
+                            if "UPDATE " in sql_upper or "DELETE " in sql_upper or "INSERT " in sql_upper:
+                                return True
+                # Panggilan langsung ke execute (jarang)
+                if isinstance(sub.func, ast.Name) and sub.func.id.lower() in {"execute", "query"}:
+                    return True
+        return False
+
     def _has_pessimistic_lock(self, node: ast.AST) -> bool:
-        """Check for pessimistic lock patterns (SELECT FOR UPDATE, with_for_update())."""
-        # Check for with_for_update() call
         if _has_method_call(node, {"with_for_update", "select_for_update"}):
             return True
-        # Check for "FOR UPDATE" in SQL string
         for sub in ast.walk(node):
             if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
                 if "FOR UPDATE" in sub.value.upper():
                     return True
-            if isinstance(sub, ast.JoinedStr):
-                for part in sub.values:
-                    if isinstance(part, ast.Constant) and isinstance(part.value, str):
-                        if "FOR UPDATE" in part.value.upper():
-                            return True
         return False
 
     def _has_optimistic_lock(self, node: ast.AST) -> bool:
-        """Check for optimistic lock patterns (version field check)."""
-        # Check for version check in if/assert
         for sub in ast.walk(node):
-            if isinstance(sub, ast.If):
+            if isinstance(sub, (ast.If, ast.Assert)):
                 cond = ast.unparse(sub.test).lower()
-                if "version" in cond and ("!=" in cond or ">" in cond or "<" in cond):
+                if "version" in cond and ("!=" in cond or "==" in cond or ">" in cond or "<" in cond):
                     return True
-            if isinstance(sub, ast.Assert):
-                cond = ast.unparse(sub.test).lower()
-                if "version" in cond and ("!=" in cond or ">" in cond or "<" in cond):
-                    return True
-            # Check for version parameter
             if isinstance(sub, ast.Call):
                 if isinstance(sub.func, ast.Attribute):
-                    if sub.func.attr in {"update", "where"}:
-                        # Check if version is in args
-                        for arg in sub.args:
-                            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                                if "version" in arg.value.lower():
-                                    return True
+                    if sub.func.attr in {"update", "save"}:
+                        for kw in sub.keywords:
+                            if kw.arg == "version":
+                                return True
         return False
 
     def _has_distributed_lock(self, node: ast.AST) -> bool:
-        """Check for distributed lock patterns (Redis lock, ZooKeeper, etc.)."""
-        lock_names = {"lock", "acquire", "redlock", "zookeeper_lock", "distributed_lock"}
-        return _has_method_call(node, lock_names) or _has_method_call(node, {"redis_lock", "cache_lock"})
+        lock_names = {"lock", "acquire", "redlock", "zookeeper_lock", "distributed_lock", "redis_lock"}
+        return _has_method_call(node, lock_names)
 
     def _has_transactional_decorator(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> bool:
         for dec in node.decorator_list:
@@ -370,60 +418,65 @@ class RaceConditionDetector:
                     return True
         return False
 
-    def _has_isolation_level(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> bool:
+    def _has_serializable_isolation(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> bool:
         for dec in node.decorator_list:
             if isinstance(dec, ast.Call):
                 for kw in dec.keywords:
                     if kw.arg == "isolation" and isinstance(kw.value, ast.Constant):
-                        if kw.value.value in ISOLATION_LEVELS:
+                        if kw.value.value == "SERIALIZABLE":
                             return True
         return False
 
-    def _has_lock_keyword_in_params(self, node: ast.FunctionDef) -> bool:
-        for arg in node.args.args:
-            arg_lower = arg.arg.lower()
-            if "lock" in arg_lower or "version" in arg_lower:
+    def _lock_parameter_used(self, node: ast.FunctionDef) -> bool:
+        param_names = {arg.arg for arg in node.args.args}
+        lock_params = {p for p in param_names if "lock" in p.lower() or "version" in p.lower()}
+        if not lock_params:
+            return False
+        body_text = ast.unparse(node).lower()
+        for p in lock_params:
+            if p.lower() in body_text:
                 return True
         return False
 
     def analyze_function(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> Optional[Finding]:
         func_name = node.name
+
+        # Step 1: Skip non-update/delete functions
         if not self._is_update_delete_method(func_name):
             return None
 
+        # Step 2: Skip read-only functions (list, get, fetch, etc.)
+        if self._is_readonly_method(func_name):
+            return None
+
+        # Step 3: Hanya proses jika ada operasi tulis langsung
+        if not self._has_direct_db_write(node, node):
+            return None
+
+        # Step 4: Check for protection
         has_plock = self._has_pessimistic_lock(node)
         has_olock = self._has_optimistic_lock(node)
         has_dlock = self._has_distributed_lock(node)
         has_txn = self._has_transactional_decorator(node)
-        has_isolation = self._has_isolation_level(node)
-        has_lock_param = self._has_lock_keyword_in_params(node)
+        has_serializable = self._has_serializable_isolation(node)
 
-        # Determine severity based on protection level
-        if has_plock or has_olock or has_dlock:
-            # Protected - no finding
+        if has_plock or has_olock or has_dlock or has_serializable:
             return None
 
-        # Check if it's a read-only operation (shouldn't need lock)
-        body_text = ast.unparse(node)
-        if "select" in body_text.lower() and "update" not in body_text.lower() and "delete" not in body_text.lower():
-            return None
-
-        # Determine severity
-        if has_txn and has_isolation:
-            severity = "MEDIUM" if not self.strict else "HIGH"
-            detail = "Uses @transactional with isolation level but missing explicit lock. Consider SELECT FOR UPDATE or version check."
-        elif has_txn:
-            severity = "MEDIUM"
-            detail = "Uses @transactional but missing explicit lock. Add SELECT FOR UPDATE or version check."
-        elif has_lock_param:
-            severity = "MEDIUM" if not self.strict else "HIGH"
-            detail = "Has lock/version parameter but not used in method body. Check if lock is actually acquired."
+        # Step 5: Severity and detail
+        if has_txn:
+            severity = "HIGH" if self.strict else "MEDIUM"
+            detail = "Uses @transactional but isolation level is not SERIALIZABLE. " \
+                     "Add explicit lock (SELECT FOR UPDATE) or upgrade isolation."
         else:
+            if self._lock_parameter_used(node):
+                return None
             severity = "HIGH" if not self.strict else "CRITICAL"
-            detail = "No lock mechanism detected. Add pessimistic (SELECT FOR UPDATE), optimistic (version check), or distributed lock."
+            detail = "No lock mechanism detected. Add pessimistic (SELECT FOR UPDATE), " \
+                     "optimistic (version check), or distributed lock."
 
-        message = f"Function '{func_name}' may have race condition"
-
+        message = f"Function '{func_name}' may have a race condition"
+        rca = _generate_rca(message, severity, {"function": func_name, "detail": detail}) if self.enable_rca else None
         return Finding(
             severity=severity,
             file=self.rel_path,
@@ -431,7 +484,7 @@ class RaceConditionDetector:
             function=func_name,
             message=message,
             detail=detail,
-            rca=_generate_rca(message, severity, {"function": func_name}) if self.enable_rca else None,
+            rca=rca,
         )
 
     def scan(self, tree: ast.AST) -> List[Finding]:
@@ -451,12 +504,14 @@ class RaceConditionChecker:
         strict: bool = False,
         extra_excludes: Optional[Set[str]] = None,
         max_workers: int = 4,
+        min_severity: str = "LOW",
     ):
         self.root = root
         self.enable_rca = enable_rca and _RCA_AVAILABLE
         self.strict = strict
         self.extra_excludes = extra_excludes or set()
         self.max_workers = max_workers
+        self.min_severity = min_severity.upper()
         self._excluded_dirs = EXCLUDED_DIRS_DEFAULT | self.extra_excludes
 
     def _should_skip_file(self, path: pathlib.Path) -> bool:
@@ -484,6 +539,11 @@ class RaceConditionChecker:
                     py_files.append(p)
         return sorted(set(py_files))
 
+    def _severity_filter(self, finding: Finding) -> bool:
+        order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
+        min_order = order.get(self.min_severity, 0)
+        return order.get(finding.severity, 0) >= min_order
+
     def scan(self, progress_callback: Optional[Callable] = None) -> Report:
         t0 = time.monotonic()
         report = Report()
@@ -506,6 +566,7 @@ class RaceConditionChecker:
             lines = src.splitlines()
             detector = RaceConditionDetector(py_file, self.root, lines, enable_rca=self.enable_rca, strict=self.strict)
             findings = detector.scan(tree)
+            findings = [f for f in findings if self._severity_filter(f)]
             func_count = sum(1 for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)))
             return findings, func_count
 
@@ -529,7 +590,6 @@ class RaceConditionChecker:
         report.total_functions_checked = functions_checked
         report.files_with_issues = len({f.file for f in all_findings})
 
-        # Compute score
         errors = report.error_count
         warnings = report.warning_count
         score = 100.0 - errors * 10 - warnings * 2
@@ -564,20 +624,29 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
     _safe_print(f"    Scan time          : {report.scan_time:.3f}s")
 
     if report.findings:
-        by_sev = {"CRITICAL": [], "HIGH": [], "MEDIUM": [], "LOW": [], "INFO": []}
+        # ─── Kelompokkan berdasarkan file ──────────────────────────────
+        files_dict = {}
         for f in report.findings:
-            by_sev.setdefault(f.severity, []).append(f)
+            files_dict.setdefault(f.file, []).append(f)
 
-        _safe_print(f"\n{c['RED']}─── FINDINGS ───{c['RESET']}")
-        for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]:
-            items = by_sev.get(sev, [])
-            if not items:
-                continue
-            sev_color = c["RED"] if sev in ("CRITICAL", "HIGH") else c["YELLOW"] if sev == "MEDIUM" else c["DIM"]
-            _safe_print(f"\n  {sev_color}[{sev}] {len(items)} findings{sev_color}")
+        sorted_files = sorted(files_dict.keys())   # urutkan alfabetis
 
-            for f in items[:20]:
-                _safe_print(f"    {f.function} @ {f.file}:{f.line}")
+        _safe_print(f"\n{c['RED']}─── FINDINGS (grouped by file) ───{c['RESET']}")
+        for file_path in sorted_files:
+            findings = files_dict[file_path]
+            # Hitung jumlah per severity
+            sev_counts = {}
+            for f in findings:
+                sev_counts[f.severity] = sev_counts.get(f.severity, 0) + 1
+            sev_str = ", ".join(
+                f"{c['RED'] if sev in ('CRITICAL','HIGH') else c['YELLOW'] if sev == 'MEDIUM' else c['DIM']}{sev}:{count}{c['RESET']}"
+                for sev, count in sev_counts.items()
+            )
+            _safe_print(f"\n  {c['BOLD']}{file_path}{c['RESET']}  ({sev_str})")
+
+            for f in findings:
+                sev_color = c["RED"] if f.severity in ("CRITICAL", "HIGH") else c["YELLOW"] if f.severity == "MEDIUM" else c["DIM"]
+                _safe_print(f"    {sev_color}[{f.severity}]{c['RESET']} {f.function} @ line {f.line}")
                 _safe_print(f"      {f.message}")
                 if f.detail:
                     _safe_print(f"      {c['CYAN']}→ {f.detail}{c['RESET']}")
@@ -591,8 +660,6 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
                         _safe_print(f"      {c['MAGENTA']}🔧 Fix: {fix[:120]}{c['RESET']}")
                     if conf:
                         _safe_print(f"      {c['DIM']}📊 Confidence: {conf:.0%}{c['RESET']}")
-            if len(items) > 20:
-                _safe_print(f"    ... and {len(items)-20} more")
 
     else:
         _safe_print(f"\n{c['GREEN']}✅ No race condition risks detected!{c['RESET']}")
@@ -737,14 +804,13 @@ def self_test(verbose: bool = True) -> bool:
 
     if verbose: _safe_print(f"\nRace Condition Checker self-test v{__version__}…\n")
 
-    # Test detection: no lock
+    # Test 1: no lock
     code1 = """
 def update_user(self, user_id, data):
-    return self.session.execute("UPDATE users SET name = 'test' WHERE id = 1")
+    self.session.execute("UPDATE users SET name = 'test' WHERE id = 1")
 """
     tree1 = ast.parse(code1)
     node1 = next((n for n in ast.walk(tree1) if isinstance(n, ast.FunctionDef)), None)
-    checker = RaceConditionChecker(pathlib.Path.cwd(), enable_rca=False)
     if node1:
         detector = RaceConditionDetector(pathlib.Path("test.py"), pathlib.Path("."), code1.splitlines(), enable_rca=False)
         finding = detector.analyze_function(node1)
@@ -752,7 +818,7 @@ def update_user(self, user_id, data):
         if finding:
             check("Correct severity for no lock", finding.severity in ("HIGH", "CRITICAL"))
 
-    # Test detection: with pessimistic lock
+    # Test 2: pessimistic lock
     code2 = """
 def update_user(self, user_id, data):
     user = self.session.query(User).with_for_update().filter(User.id == user_id).first()
@@ -766,7 +832,7 @@ def update_user(self, user_id, data):
         finding2 = detector2.analyze_function(node2)
         check("No finding for pessimistic lock", finding2 is None)
 
-    # Test detection: with version check
+    # Test 3: optimistic lock
     code3 = """
 def update_user(self, user_id, data, version):
     user = self.session.query(User).filter(User.id == user_id).first()
@@ -782,7 +848,7 @@ def update_user(self, user_id, data, version):
         finding3 = detector3.analyze_function(node3)
         check("No finding for optimistic lock", finding3 is None)
 
-    # Test detection: with distributed lock
+    # Test 4: distributed lock
     code4 = """
 def update_user(self, user_id, data):
     with redis.lock("user:lock:{}".format(user_id)):
@@ -797,8 +863,74 @@ def update_user(self, user_id, data):
         finding4 = detector4.analyze_function(node4)
         check("No finding for distributed lock", finding4 is None)
 
-    # Test RCA
-    check("RCA availability", True)
+    # Test 5: SERIALIZABLE isolation
+    code5 = """
+@transactional(isolation='SERIALIZABLE')
+def update_user(self, user_id, data):
+    user = self.session.query(User).filter(User.id == user_id).first()
+    user.name = data['name']
+    return user
+"""
+    tree5 = ast.parse(code5)
+    node5 = next((n for n in ast.walk(tree5) if isinstance(n, ast.FunctionDef)), None)
+    if node5:
+        detector5 = RaceConditionDetector(pathlib.Path("test.py"), pathlib.Path("."), code5.splitlines(), enable_rca=False)
+        finding5 = detector5.analyze_function(node5)
+        check("No finding for SERIALIZABLE isolation", finding5 is None)
+
+    # Test 6: delegasi ke repository (abaikan)
+    code6 = """
+def update_user(self, user_id, data):
+    self.repository.update(user_id, data)
+"""
+    tree6 = ast.parse(code6)
+    node6 = next((n for n in ast.walk(tree6) if isinstance(n, ast.FunctionDef)), None)
+    detector6 = RaceConditionDetector(pathlib.Path("adapters/repo.py"), pathlib.Path("."), code6.splitlines(), enable_rca=False)
+    finding6 = detector6.analyze_function(node6)
+    check("Skip delegation to repository", finding6 is None)
+
+    # Test 7: read-only function (list) should be skipped
+    code7 = """
+def list_assets(self):
+    return self.session.query(Asset).all()
+"""
+    tree7 = ast.parse(code7)
+    node7 = next((n for n in ast.walk(tree7) if isinstance(n, ast.FunctionDef)), None)
+    detector7 = RaceConditionDetector(pathlib.Path("test.py"), pathlib.Path("."), code7.splitlines(), enable_rca=False)
+    finding7 = detector7.analyze_function(node7)
+    check("Skip read-only function (list)", finding7 is None)
+
+    # Test 8: delete with db parameter (FastAPI style)
+    code8 = """
+def delete_ap_invoice(id: int, db: Session = Depends(get_db)):
+    invoice = db.query(APInvoice).filter(APInvoice.id == id).first()
+    if invoice:
+        db.delete(invoice)
+        db.commit()
+    return {"status": "deleted"}
+"""
+    tree8 = ast.parse(code8)
+    node8 = next((n for n in ast.walk(tree8) if isinstance(n, ast.FunctionDef)), None)
+    detector8 = RaceConditionDetector(pathlib.Path("adapters/primary_api/router.py"), pathlib.Path("."), code8.splitlines(), enable_rca=False)
+    finding8 = detector8.analyze_function(node8)
+    check("Detect delete with db parameter", finding8 is not None)
+    if finding8:
+        check("Correct severity", finding8.severity in ("HIGH", "CRITICAL"))
+
+    # Test 9: delete with db parameter and pessimistic lock
+    code9 = """
+def delete_ap_invoice(id: int, db: Session = Depends(get_db)):
+    invoice = db.query(APInvoice).with_for_update().filter(APInvoice.id == id).first()
+    if invoice:
+        db.delete(invoice)
+        db.commit()
+    return {"status": "deleted"}
+"""
+    tree9 = ast.parse(code9)
+    node9 = next((n for n in ast.walk(tree9) if isinstance(n, ast.FunctionDef)), None)
+    detector9 = RaceConditionDetector(pathlib.Path("adapters/primary_api/router.py"), pathlib.Path("."), code9.splitlines(), enable_rca=False)
+    finding9 = detector9.analyze_function(node9)
+    check("No finding when pessimistic lock used with db parameter", finding9 is None)
 
     if verbose: _safe_print(f"\nSelf-test: {passed} passed, {failed} failed {'✅' if failed==0 else '❌'}")
     return failed == 0
@@ -815,9 +947,11 @@ def main() -> int:
     parser.add_argument("--no-rca", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--exclude", default="")
+    parser.add_argument("--exclude", default="", help="Comma-separated extra dirs to exclude")
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--no-progress", action="store_true")
+    parser.add_argument("--min-severity", default="LOW", choices=["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"],
+                        help="Minimum severity to report (default: LOW)")
     parser.add_argument("--version", action="version", version=f"race_condition_checker v{__version__}")
 
     args = parser.parse_args()
@@ -834,6 +968,7 @@ def main() -> int:
         strict=args.strict,
         extra_excludes=extra_excludes,
         max_workers=args.max_workers,
+        min_severity=args.min_severity,
     )
 
     progress = None

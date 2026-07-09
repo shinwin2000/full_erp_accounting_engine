@@ -3,6 +3,10 @@
 Module: bank_account_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Model SQLAlchemy untuk tabel bank_account.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (current_balance, available_balance, opening_balance)
+      untuk menghindari kehilangan presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -131,9 +135,9 @@ class BankAccountTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Lega
             "status": self.status,
             "is_active": self.is_active,
             "is_default": self.is_default,
-            "current_balance": float(self.current_balance),
-            "available_balance": float(self.available_balance),
-            "opening_balance": float(self.opening_balance),
+            "current_balance": str(self.current_balance),      # ganti float -> str
+            "available_balance": str(self.available_balance),  # ganti float -> str
+            "opening_balance": str(self.opening_balance),      # ganti float -> str
             "opening_balance_date": self.opening_balance_date.isoformat(),
             "gl_account_id": str(self.gl_account_id) if self.gl_account_id else None,
             "last_reconciliation_date": self.last_reconciliation_date.isoformat() if self.last_reconciliation_date else None,

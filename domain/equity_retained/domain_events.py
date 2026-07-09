@@ -86,8 +86,23 @@ class DomainEventType(Enum):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class DomainEvent:
+    """
+    Base class untuk semua domain event di Equity & Retained Earnings.
+
+    Attributes:
+        event_id: UUID unik event.
+        event_type: Jenis event (DomainEventType).
+        aggregate_id: UUID agregat yang terkait.
+        aggregate_type: Tipe agregat (default "EquityAggregate").
+        aggregate_version: Versi agregat saat event terjadi.
+        occurred_at: Waktu kejadian (UTC).
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+        causation_id: ID penyebab event (opsional).
+    """
     event_id: UUID
     event_type: DomainEventType
     aggregate_id: UUID
@@ -154,8 +169,20 @@ class DomainEvent:
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class CapitalContributionRecordedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika kontribusi modal baru dicatat.
+
+    Attributes:
+        aggregate_id: ID agregat kontribusi modal.
+        aggregate_version: Versi agregat.
+        contribution: Entity CapitalContribution.
+        recorded_by: User ID pencatat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -195,8 +222,20 @@ class CapitalContributionRecordedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CapitalContributionApprovedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika kontribusi modal disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat kontribusi modal.
+        aggregate_version: Versi agregat.
+        contribution: Entity CapitalContribution.
+        approved_by: User ID yang menyetujui.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -231,8 +270,20 @@ class CapitalContributionApprovedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CapitalContributionPostedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika kontribusi modal diposting ke GL.
+
+    Attributes:
+        aggregate_id: ID agregat kontribusi modal.
+        aggregate_version: Versi agregat.
+        contribution: Entity CapitalContribution.
+        posted_by: User ID yang memposting.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -264,8 +315,21 @@ class CapitalContributionPostedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CapitalContributionCancelledEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika kontribusi modal dibatalkan.
+
+    Attributes:
+        aggregate_id: ID agregat kontribusi modal.
+        aggregate_version: Versi agregat.
+        contribution: Entity CapitalContribution.
+        cancelled_by: User ID pembatalan.
+        reason: Alasan pembatalan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -306,8 +370,20 @@ class CapitalContributionCancelledEvent(DomainEvent):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class CapitalWithdrawalRecordedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika penarikan modal baru dicatat.
+
+    Attributes:
+        aggregate_id: ID agregat penarikan modal.
+        aggregate_version: Versi agregat.
+        withdrawal: Entity CapitalWithdrawal.
+        recorded_by: User ID pencatat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -346,8 +422,20 @@ class CapitalWithdrawalRecordedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CapitalWithdrawalApprovedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika penarikan modal disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat penarikan modal.
+        aggregate_version: Versi agregat.
+        withdrawal: Entity CapitalWithdrawal.
+        approved_by: User ID yang menyetujui.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -380,8 +468,20 @@ class CapitalWithdrawalApprovedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CapitalWithdrawalPostedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika penarikan modal diposting ke GL.
+
+    Attributes:
+        aggregate_id: ID agregat penarikan modal.
+        aggregate_version: Versi agregat.
+        withdrawal: Entity CapitalWithdrawal.
+        posted_by: User ID yang memposting.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -414,8 +514,21 @@ class CapitalWithdrawalPostedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CapitalWithdrawalCancelledEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika penarikan modal dibatalkan.
+
+    Attributes:
+        aggregate_id: ID agregat penarikan modal.
+        aggregate_version: Versi agregat.
+        withdrawal: Entity CapitalWithdrawal.
+        cancelled_by: User ID pembatalan.
+        reason: Alasan pembatalan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -456,8 +569,23 @@ class CapitalWithdrawalCancelledEvent(DomainEvent):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class RetainedEarningsUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika saldo laba ditahan diperbarui.
+
+    Attributes:
+        aggregate_id: ID agregat laba ditahan.
+        aggregate_version: Versi agregat.
+        legal_entity_id: ID entitas legal.
+        period: Periode akuntansi.
+        net_income: Laba bersih periode.
+        new_balance: Saldo baru laba ditahan.
+        updated_by: User ID pembaru.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -492,8 +620,24 @@ class RetainedEarningsUpdatedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class RetainedEarningsAdjustedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika laba ditahan disesuaikan (koreksi).
+
+    Attributes:
+        aggregate_id: ID agregat laba ditahan.
+        aggregate_version: Versi agregat.
+        legal_entity_id: ID entitas legal.
+        period: Periode akuntansi.
+        adjustment: Jumlah penyesuaian.
+        description: Deskripsi penyesuaian.
+        new_balance: Saldo baru laba ditahan.
+        updated_by: User ID pembaru.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -530,8 +674,24 @@ class RetainedEarningsAdjustedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class RetainedEarningsTransferEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika terjadi transfer ke/dari laba ditahan.
+
+    Attributes:
+        aggregate_id: ID agregat laba ditahan.
+        aggregate_version: Versi agregat.
+        legal_entity_id: ID entitas legal.
+        period: Periode akuntansi.
+        amount: Jumlah transfer.
+        transfer_type: Jenis transfer (misal "DIVIDEND", "CAPITALIZE").
+        new_balance: Saldo baru laba ditahan.
+        updated_by: User ID pembaru.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -573,8 +733,20 @@ class RetainedEarningsTransferEvent(DomainEvent):
 # ============================================================================
 
 
-@dataclass
+@dataclass(frozen=True)
 class DividendDeclaredEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika dividen dideklarasikan.
+
+    Attributes:
+        aggregate_id: ID agregat dividen.
+        aggregate_version: Versi agregat.
+        dividend: Entity DividendDeclaration.
+        declared_by: User ID yang mendeklarasikan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -612,8 +784,20 @@ class DividendDeclaredEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class DividendApprovedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika dividen disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat dividen.
+        aggregate_version: Versi agregat.
+        dividend: Entity DividendDeclaration.
+        approved_by: User ID yang menyetujui.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -645,8 +829,22 @@ class DividendApprovedEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class DividendPaidEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika dividen dibayar (sebagian atau penuh).
+
+    Attributes:
+        aggregate_id: ID agregat dividen.
+        aggregate_version: Versi agregat.
+        dividend: Entity DividendDeclaration.
+        paid_amount: Jumlah yang dibayarkan.
+        paid_by: User ID pembayar.
+        total_paid: Total yang sudah dibayar (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -682,8 +880,23 @@ class DividendPaidEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class DividendPartiallyPaidEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika dividen dibayar sebagian (masih ada sisa).
+
+    Attributes:
+        aggregate_id: ID agregat dividen.
+        aggregate_version: Versi agregat.
+        dividend: Entity DividendDeclaration.
+        paid_amount: Jumlah yang dibayarkan.
+        paid_by: User ID pembayar.
+        total_paid: Total yang sudah dibayar.
+        unpaid_amount: Sisa yang belum dibayar.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -721,8 +934,21 @@ class DividendPartiallyPaidEvent(DomainEvent):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class DividendCancelledEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika dividen dibatalkan.
+
+    Attributes:
+        aggregate_id: ID agregat dividen.
+        aggregate_version: Versi agregat.
+        dividend: Entity DividendDeclaration.
+        cancelled_by: User ID pembatalan.
+        reason: Alasan pembatalan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -762,24 +988,32 @@ class DividendCancelledEvent(DomainEvent):
 
 
 class DomainEventPublisher:
+    """
+    Publisher untuk domain event Equity & Retained Earnings.
+    Menyimpan event yang dipublikasikan untuk keperluan testing/replay.
+    """
     _published_events: ClassVar[list[DomainEvent]] = []
 
     @classmethod
     async def publish(cls, event: DomainEvent) -> None:
+        """Publikasikan satu event."""
         cls._published_events.append(event)
         logger.info(f"Published event: {event.event_type.value} for aggregate {event.aggregate_id}")
 
     @classmethod
     async def publish_many(cls, events: list[DomainEvent]) -> None:
+        """Publikasikan banyak event."""
         for event in events:
             await cls.publish(event)
 
     @classmethod
     def get_published_events(cls) -> list[DomainEvent]:
+        """Dapatkan semua event yang sudah dipublikasikan."""
         return cls._published_events.copy()
 
     @classmethod
     def clear(cls) -> None:
+        """Hapus semua event yang sudah dipublikasikan."""
         cls._published_events.clear()
 
 
@@ -789,12 +1023,30 @@ class DomainEventPublisher:
 
 
 def deserialize_domain_event(json_str: str) -> DomainEvent:
+    """
+    Deserialize JSON string menjadi DomainEvent.
+
+    Args:
+        json_str: String JSON yang berisi event.
+
+    Returns:
+        DomainEvent: Objek DomainEvent yang sudah direkonstruksi.
+    """
     data = json.loads(json_str)
     event_type = DomainEventType(data["event_type"])
     return DomainEvent.from_dict(data)
 
 
 def serialize_domain_event(event: DomainEvent) -> str:
+    """
+    Serialize DomainEvent menjadi JSON string.
+
+    Args:
+        event: DomainEvent yang akan diserialisasi.
+
+    Returns:
+        str: String JSON representasi event.
+    """
     return event.to_json()
 
 

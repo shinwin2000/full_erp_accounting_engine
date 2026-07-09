@@ -38,6 +38,9 @@ from adapters.coretax_djp.api_oauth2_client import CoretaxAuthError, get_coretax
 from adapters.coretax_djp.nsfp_manager import get_nsfp_manager
 from infrastructure.caching.redis_manager import ping_redis
 
+# GANTI: gunakan session factory, bukan connection_pool_asyncpg
+from infrastructure.database.session_factory_sqlalchemy import get_session_factory
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/coretax/health", tags=["Coretax Health"])
@@ -298,11 +301,10 @@ class CoretaxHealthChecker:
     async def check_database(self) -> ComponentHealth:
         start = time.time()
         try:
-            from infrastructure.database.connection_pool_asyncpg import get_pool
-            pool = await get_pool()
-            async with pool.acquire() as conn:
-                # Tambahkan parameter kosong untuk kepatuhan checker SQL injection
-                await conn.execute("SELECT 1", ())
+            # Gunakan session factory yang sudah tersedia
+            session_factory = await get_session_factory()
+            async with session_factory.get_session() as session:
+                await session.execute("SELECT 1")
             latency = (time.time() - start) * 1000
             return ComponentHealth(status=HealthStatus.HEALTHY, message="Database connected", latency_ms=latency)
         except Exception as e:

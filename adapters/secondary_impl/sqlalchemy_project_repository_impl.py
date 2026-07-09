@@ -304,16 +304,24 @@ class SQLAlchemyProjectRepository(ProjectRepositoryPort):
     async def update_project_status(
         self, project_id: UUID, new_status: str, updated_by: UUID
     ) -> None:
+        """
+        Update project status with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = select(ProjectTable).where(ProjectTable.id == project_id)
-            result = await session.execute(stmt)
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(ProjectTable).where(ProjectTable.id == project_id).with_for_update()
+            result = await session.execute(stmt_lock)
             project = result.scalar_one_or_none()
-            if project:
-                project.status = new_status
-                project.updated_at = datetime.utcnow()
-                # updated_by tidak disimpan di ProjectTable, tapi kita log
-                logger.info(f"Project {project_id} status updated to {new_status} by {updated_by}")
+            if not project:
+                raise ValueError(f"Project {project_id} not found")
+
+            # 2. Update the locked row
+            project.status = new_status
+            project.updated_at = datetime.utcnow()
+            # updated_by not stored in ProjectTable, but we log
+            logger.info(f"Project {project_id} status updated to {new_status} by {updated_by}")
 
     async def get_last_project_code(self, legal_entity_id: UUID) -> str | None:
         session = await self._get_session()
@@ -383,14 +391,22 @@ class SQLAlchemyProjectRepository(ProjectRepositoryPort):
     async def update_task_status(
         self, task_id: UUID, new_status: str, updated_by: UUID
     ) -> None:
+        """
+        Update task status with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = select(TaskTable).where(TaskTable.id == task_id)
-            result = await session.execute(stmt)
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(TaskTable).where(TaskTable.id == task_id).with_for_update()
+            result = await session.execute(stmt_lock)
             task = result.scalar_one_or_none()
-            if task:
-                task.status = new_status
-                logger.info(f"Task {task_id} status updated to {new_status} by {updated_by}")
+            if not task:
+                raise ValueError(f"Task {task_id} not found")
+
+            # 2. Update the locked row
+            task.status = new_status
+            logger.info(f"Task {task_id} status updated to {new_status} by {updated_by}")
 
     # ========================================================================
     # TIME ENTRY METHODS
@@ -464,24 +480,40 @@ class SQLAlchemyProjectRepository(ProjectRepositoryPort):
     # ========================================================================
 
     async def update_project_costs(self, project_id: UUID, additional_cost: Decimal) -> None:
+        """
+        Update project actual cost atomically with pessimistic locking.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = select(ProjectTable).where(ProjectTable.id == project_id)
-            result = await session.execute(stmt)
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(ProjectTable).where(ProjectTable.id == project_id).with_for_update()
+            result = await session.execute(stmt_lock)
             project = result.scalar_one_or_none()
-            if project:
-                project.actual_cost += additional_cost
-                project.updated_at = datetime.utcnow()
+            if not project:
+                raise ValueError(f"Project {project_id} not found")
+
+            # 2. Update the locked row atomically
+            project.actual_cost += additional_cost
+            project.updated_at = datetime.utcnow()
 
     async def update_project_billed(self, project_id: UUID, billed_amount: Decimal) -> None:
+        """
+        Update project billed amount atomically with pessimistic locking.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = select(ProjectTable).where(ProjectTable.id == project_id)
-            result = await session.execute(stmt)
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(ProjectTable).where(ProjectTable.id == project_id).with_for_update()
+            result = await session.execute(stmt_lock)
             project = result.scalar_one_or_none()
-            if project:
-                project.billed_amount += billed_amount
-                project.updated_at = datetime.utcnow()
+            if not project:
+                raise ValueError(f"Project {project_id} not found")
+
+            # 2. Update the locked row atomically
+            project.billed_amount += billed_amount
+            project.updated_at = datetime.utcnow()
 
     async def get_project_financial_summary(self, project_id: UUID) -> dict[str, Decimal]:
         project = await self.get_project_by_id(project_id)

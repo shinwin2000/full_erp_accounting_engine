@@ -13,10 +13,13 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+# Import port yang sesuai
+from ports.primary.bank_payment_port import BankPaymentPort
+
 logger = logging.getLogger(__name__)
 
 
-class BankAPIPaymentsAdapter:
+class BankAPIPaymentsAdapter(BankPaymentPort):
     """
     Adapter untuk API pembayaran bank.
     Stub untuk development, tidak melakukan call nyata.
@@ -27,16 +30,13 @@ class BankAPIPaymentsAdapter:
     ):
         self.base_url = base_url
         self.api_key = api_key
-        # Menggunakan lazy logging (%s) alih-alih f-string untuk keamanan dan performa
         logger.info("BankAPIPaymentsAdapter initialized with base_url=%s", base_url)
 
     async def transfer(
         self, from_account: str, to_account: str, amount: Decimal, currency: str = "IDR"
     ) -> dict[str, Any]:
         """Lakukan transfer antar rekening."""
-        # Interpolasi aman yang disarankan oleh standar logger Python
         logger.info("Transfer %s %s from %s to %s", amount, currency, from_account, to_account)
-        # Mock response
         return {
             "success": True,
             "transaction_id": str(UUID(int=123456)),

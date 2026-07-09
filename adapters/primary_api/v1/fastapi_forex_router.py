@@ -419,8 +419,11 @@ class ForexDashboardResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_forex_service(request: Request) -> Any:
-    """Get Forex Service instance."""
+async def get_forex_svc(request: Request) -> Any:
+    """
+    Get Forex Service instance.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.service_layer.service_forex import ForexService
 
     container = request.app.state.container
@@ -460,9 +463,12 @@ async def create_exchange_rate(
     _permission: None = Depends(require_permission("forex:create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> ExchangeRateResponseSchema:
-    """Create a new exchange rate."""
+    """
+    Create a new exchange rate.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "create_exchange_rate"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -471,7 +477,7 @@ async def create_exchange_rate(
             return ExchangeRateResponseSchema(**cached)
 
     try:
-        result = await service.create_exchange_rate(
+        result = await forex_svc.create_exchange_rate(
             from_currency=request.from_currency.value,
             to_currency=request.to_currency.value,
             rate=request.rate,
@@ -528,11 +534,11 @@ async def get_exchange_rate(
     rate_id: UUID,
     _permission: None = Depends(require_permission("forex:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> ExchangeRateResponseSchema:
     """Get exchange rate by ID."""
     try:
-        rate = await service.get_exchange_rate_by_id(rate_id, legal_entity_id)
+        rate = await forex_svc.get_exchange_rate_by_id(rate_id, legal_entity_id)
 
         if not rate:
             raise HTTPException(status_code=404, detail="Exchange rate not found")
@@ -578,11 +584,11 @@ async def get_current_rate(
     as_of_date: date | None = Query(None, description="As of date (default: today)"),
     _permission: None = Depends(require_permission("forex:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> ExchangeRateResponseSchema:
     """Get current exchange rate for currency pair."""
     try:
-        rate = await service.get_current_rate(
+        rate = await forex_svc.get_current_rate(
             from_currency=from_currency.value,
             to_currency=to_currency.value,
             rate_type=rate_type.value,
@@ -640,11 +646,11 @@ async def list_exchange_rates(
     page_size: int = Query(50, ge=1, le=500),
     _permission: None = Depends(require_permission("forex:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> list[ExchangeRateResponseSchema]:
     """List exchange rates with filters."""
     try:
-        rates = await service.list_exchange_rates(
+        rates = await forex_svc.list_exchange_rates(
             legal_entity_id=legal_entity_id,
             from_currency=from_currency.value if from_currency else None,
             to_currency=to_currency.value if to_currency else None,
@@ -697,9 +703,12 @@ async def update_exchange_rate(
     _permission: None = Depends(require_permission("forex:update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> ExchangeRateResponseSchema:
-    """Update an exchange rate."""
+    """
+    Update an exchange rate.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "update_exchange_rate"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -708,7 +717,7 @@ async def update_exchange_rate(
             return ExchangeRateResponseSchema(**cached)
 
     try:
-        result = await service.update_exchange_rate(
+        result = await forex_svc.update_exchange_rate(
             rate_id=rate_id,
             legal_entity_id=legal_entity_id,
             rate=request.rate,
@@ -769,9 +778,12 @@ async def deactivate_exchange_rate(
     _permission: None = Depends(require_permission("forex:delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> dict[str, Any]:
-    """Deactivate an exchange rate."""
+    """
+    Deactivate an exchange rate.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "deactivate_exchange_rate"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -780,7 +792,7 @@ async def deactivate_exchange_rate(
             return cached
 
     try:
-        result = await service.deactivate_exchange_rate(
+        result = await forex_svc.deactivate_exchange_rate(
             rate_id=rate_id,
             legal_entity_id=legal_entity_id,
             reason=reason,
@@ -823,9 +835,12 @@ async def lock_exchange_rate(
     _permission: None = Depends(require_permission("forex:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> ExchangeRateResponseSchema:
-    """Lock an exchange rate to prevent modifications."""
+    """
+    Lock an exchange rate to prevent modifications.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "lock_exchange_rate"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -834,7 +849,7 @@ async def lock_exchange_rate(
             return ExchangeRateResponseSchema(**cached)
 
     try:
-        result = await service.lock_exchange_rate(
+        result = await forex_svc.lock_exchange_rate(
             rate_id=rate_id,
             legal_entity_id=legal_entity_id,
             reason=reason,
@@ -890,9 +905,12 @@ async def unlock_exchange_rate(
     _permission: None = Depends(require_permission("forex:lock")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> ExchangeRateResponseSchema:
-    """Unlock a locked exchange rate."""
+    """
+    Unlock a locked exchange rate.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "unlock_exchange_rate"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -901,7 +919,7 @@ async def unlock_exchange_rate(
             return ExchangeRateResponseSchema(**cached)
 
     try:
-        result = await service.unlock_exchange_rate(
+        result = await forex_svc.unlock_exchange_rate(
             rate_id=rate_id,
             legal_entity_id=legal_entity_id,
             reason=reason,
@@ -959,11 +977,11 @@ async def convert_currency(
     request: CurrencyConversionRequestSchema,
     _permission: None = Depends(require_permission("forex:convert")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> CurrencyConversionResponseSchema:
     """Convert amount from one currency to another."""
     try:
-        result = await service.convert_currency(
+        result = await forex_svc.convert_currency(
             from_currency=request.from_currency.value,
             to_currency=request.to_currency.value,
             amount=request.amount,
@@ -1001,7 +1019,7 @@ async def batch_convert_currency(
     request: BatchConversionRequestSchema,
     _permission: None = Depends(require_permission("forex:convert")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> BatchConversionResponseSchema:
     """Convert multiple amounts in batch."""
     try:
@@ -1012,7 +1030,7 @@ async def batch_convert_currency(
 
         for conv in request.conversions:
             try:
-                result = await service.convert_currency(
+                result = await forex_svc.convert_currency(
                     from_currency=conv.from_currency.value,
                     to_currency=conv.to_currency.value,
                     amount=conv.amount,
@@ -1069,11 +1087,11 @@ async def get_historical_rates(
     rate_type: RateType = Query(RateType.MID, description="Rate type"),
     _permission: None = Depends(require_permission("forex:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> HistoricalRateResponseSchema:
     """Get historical exchange rates for a period."""
     try:
-        history = await service.get_historical_rates(
+        history = await forex_svc.get_historical_rates(
             from_currency=from_currency.value,
             to_currency=to_currency.value,
             start_date=start_date,
@@ -1126,6 +1144,7 @@ async def run_forex_revaluation(
     - Revaluates foreign currency balances to functional currency
     - Calculates unrealized gain/loss
     - Creates journal entry if post_to_ledger is true
+    - LOCKING: Use case layer uses SELECT FOR UPDATE for concurrency control.
     """
     method_name = "run_forex_revaluation"
     if idempotency_key:
@@ -1191,11 +1210,11 @@ async def list_forex_revaluations(
     page_size: int = Query(20, ge=1, le=100),
     _permission: None = Depends(require_permission("forex:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> list[ForexRevaluationResponseSchema]:
     """List forex revaluation runs."""
     try:
-        revaluations = await service.list_revaluations(
+        revaluations = await forex_svc.list_revaluations(
             legal_entity_id=legal_entity_id,
             start_date=start_date,
             end_date=end_date,
@@ -1240,11 +1259,11 @@ async def get_forex_revaluation(
     revaluation_id: UUID,
     _permission: None = Depends(require_permission("forex:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> ForexRevaluationResponseSchema:
     """Get forex revaluation by ID."""
     try:
-        revaluation = await service.get_revaluation_by_id(revaluation_id, legal_entity_id)
+        revaluation = await forex_svc.get_revaluation_by_id(revaluation_id, legal_entity_id)
 
         if not revaluation:
             raise HTTPException(status_code=404, detail="Revaluation not found")
@@ -1288,9 +1307,12 @@ async def reverse_forex_revaluation(
     _permission: None = Depends(require_permission("forex:revaluate")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> ForexRevaluationResponseSchema:
-    """Reverse a forex revaluation entry."""
+    """
+    Reverse a forex revaluation entry.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "reverse_forex_revaluation"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1299,7 +1321,7 @@ async def reverse_forex_revaluation(
             return ForexRevaluationResponseSchema(**cached)
 
     try:
-        result = await service.reverse_revaluation(
+        result = await forex_svc.reverse_revaluation(
             revaluation_id=revaluation_id,
             legal_entity_id=legal_entity_id,
             reversal_date=reversal_date,
@@ -1360,11 +1382,11 @@ async def get_forex_position(
     ),
     _permission: None = Depends(require_permission("forex:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> ForexPositionResponseSchema:
     """Get foreign currency position (open positions, unrealized gain/loss)."""
     try:
-        position = await service.get_forex_position(
+        position = await forex_svc.get_forex_position(
             legal_entity_id=legal_entity_id,
             as_of_date=as_of_date,
             functional_currency=functional_currency.value,
@@ -1398,11 +1420,11 @@ async def get_forex_dashboard(
     ),
     _permission: None = Depends(require_permission("forex:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> ForexDashboardResponseSchema:
     """Get forex dashboard with latest rates and summary."""
     try:
-        dashboard = await service.get_forex_dashboard(
+        dashboard = await forex_svc.get_forex_dashboard(
             legal_entity_id=legal_entity_id,
             as_of_date=as_of_date,
             functional_currency=functional_currency.value,
@@ -1444,9 +1466,12 @@ async def sync_rates_from_provider(
     _permission: None = Depends(require_permission("forex:sync")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> dict[str, Any]:
-    """Sync exchange rates from external provider (Bank Indonesia, Bloomberg, etc.)."""
+    """
+    Sync exchange rates from external provider (Bank Indonesia, Bloomberg, etc.).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     method_name = "sync_rates_from_provider"
     if idempotency_key:
         cached = _idempotency_manager.get_cached_result(idempotency_key, method_name)
@@ -1455,7 +1480,7 @@ async def sync_rates_from_provider(
             return cached
 
     try:
-        result = await service.sync_rates_from_provider(
+        result = await forex_svc.sync_rates_from_provider(
             legal_entity_id=legal_entity_id,
             provider=provider.value,
             effective_date=effective_date,
@@ -1499,11 +1524,11 @@ async def get_rate_history(
     rate_id: UUID,
     _permission: None = Depends(require_permission("forex:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> list[dict[str, Any]]:
     """Get exchange rate change history (audit trail)."""
     try:
-        history = await service.get_rate_history(rate_id, legal_entity_id)
+        history = await forex_svc.get_rate_history(rate_id, legal_entity_id)
 
         return [
             {
@@ -1533,11 +1558,11 @@ async def get_rate_status(
     rate_id: UUID,
     _permission: None = Depends(require_permission("forex:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> dict[str, Any]:
     """Get detailed exchange rate status."""
     try:
-        status_info = await service.get_rate_status(rate_id, legal_entity_id)
+        status_info = await forex_svc.get_rate_status(rate_id, legal_entity_id)
 
         if not status_info:
             raise HTTPException(status_code=404, detail="Exchange rate not found")
@@ -1586,11 +1611,11 @@ async def export_exchange_rates(
     from_currency: CurrencyCode | None = Query(None, description="Filter by from currency"),
     _permission: None = Depends(require_permission("forex:export")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> Response:
     """Export exchange rates to CSV or Excel."""
     try:
-        data = await service.export_rates(
+        data = await forex_svc.export_rates(
             legal_entity_id=legal_entity_id,
             start_date=start_date,
             end_date=end_date,
@@ -1626,11 +1651,11 @@ async def export_revaluation_history(
     format: str = Query("csv", pattern="^(csv|excel)$", description="Export format"),
     _permission: None = Depends(require_permission("forex:export")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_forex_service),
+    forex_svc: Any = Depends(get_forex_svc),
 ) -> Response:
     """Export revaluation history to CSV or Excel."""
     try:
-        data = await service.export_revaluation_history(
+        data = await forex_svc.export_revaluation_history(
             legal_entity_id=legal_entity_id,
             start_date=start_date,
             end_date=end_date,

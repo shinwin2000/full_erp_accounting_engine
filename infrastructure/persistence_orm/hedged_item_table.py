@@ -7,6 +7,10 @@ Dependencies:
 - sqlalchemy.orm (Mapped, mapped_column)
 - infrastructure.persistence_orm.base_model
 Audit: Setiap perubahan hedged item dicatat.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (amount) di to_dict()
+      untuk menjaga presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -70,7 +74,7 @@ class HedgedItemTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Legal
             "item_type": self.item_type,
             "reference_id": str(self.reference_id) if self.reference_id else None,
             "description": self.description,
-            "amount": float(self.amount),
+            "amount": str(self.amount),  # ganti float -> str untuk presisi
             "currency": self.currency,
             "start_date": self.start_date.isoformat(),
             "end_date": self.end_date.isoformat(),

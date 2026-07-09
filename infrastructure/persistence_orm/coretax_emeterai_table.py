@@ -3,6 +3,10 @@
 Module: coretax_emeterai_table.py
 Layer: Infrastructure (Persistence ORM)
 Responsibility: Coretax e-Meterai table for electronic stamp duty.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (value) di to_dict()
+      untuk menjaga presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -50,7 +54,7 @@ class CoretaxEMeteraiTable(Base, TimestampMixin, SoftDeleteMixin):
             "id": str(self.id),
             "meterai_code": self.meterai_code,
             "npwp": self.npwp,
-            "value": float(self.value),
+            "value": str(self.value),  # ganti float -> str untuk presisi
             "status": self.status,
             "purchase_date": self.purchase_date.isoformat() if self.purchase_date else None,
             "purchase_transaction_id": self.purchase_transaction_id,

@@ -312,15 +312,41 @@ class SQLAlchemyBillOfMaterialsRepository(BillOfMaterialsRepositoryPort):
         return result.scalar_one_or_none()
 
     async def update_status(self, bom_id: UUID, new_status: str, updated_by: UUID) -> None:
+        """
+        Update BOM status with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            stmt = update(BOMTable).where(BOMTable.id == bom_id).values(status=new_status)
-            await session.execute(stmt)
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(BOMTable).where(BOMTable.id == bom_id).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Bill of Materials {bom_id} not found")
+
+            # 2. Update the locked row
+            row.status = new_status
+            logger.info(f"BOM {bom_id} status updated to {new_status} by {updated_by}")
 
     async def delete(self, bom_id: UUID) -> None:
+        """
+        Delete BOM with pessimistic locking to prevent race conditions.
+        LOCKING: SELECT FOR UPDATE ensures exclusive lock on the record.
+        """
         session = await self._get_session()
         async with session.begin():
-            await session.execute(delete(BOMTable).where(BOMTable.id == bom_id))
+            # 1. Lock the row with SELECT FOR UPDATE
+            stmt_lock = select(BOMTable).where(BOMTable.id == bom_id).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Bill of Materials {bom_id} not found")
+
+            # 2. Delete the locked row
+            await session.delete(row)
+            await session.flush()
+            logger.info(f"BOM {bom_id} deleted")
 
 
 __all__ = ["BOMItemTable", "BOMTable", "SQLAlchemyBillOfMaterialsRepository"]

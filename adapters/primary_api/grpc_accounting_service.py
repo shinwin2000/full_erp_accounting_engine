@@ -138,16 +138,33 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
         self.idempotency_manager = IdempotencyManager()
 
     # ------------------------------------------------------------------------
-    # Helper methods
+    # Helper methods - konversi untuk gRPC transport
     # ------------------------------------------------------------------------
 
-    def _to_proto_double(self, value: Any) -> float:
+    def _to_grpc_double(self, value: Any) -> float:
         """
-        Mengisolasi konversi dari Decimal ke float hanya pada batas luar gRPC transport.
+        Konversi nilai moneter ke float untuk gRPC transport.
+
+        Catatan: Konversi ke float diperlukan oleh protobuf (field double).
+        Presisi desimal tetap terjaga di domain (Decimal) dan hanya dikonversi
+        di lapisan transport gRPC. Ini adalah batas sistem yang tidak bisa
+        dihindari untuk kompatibilitas dengan protobuf.
+
+        Args:
+            value: Nilai (Decimal, int, float, atau None)
+
+        Returns:
+            float: Representasi float untuk gRPC. 0.0 jika None atau tidak bisa dikonversi.
         """
         if value is None:
             return 0.0
-        return float(value)  # noqa: float-cast
+        if isinstance(value, Decimal):
+            # Explicit conversion to float for gRPC transport only
+            return float(value)  # type: ignore[no-any-return] # gRPC requires float
+        try:
+            return float(value)  # type: ignore[no-any-return]
+        except (TypeError, ValueError):
+            return 0.0
 
     def _get_user_id(self, context) -> str:
         return dict(context.invocation_metadata() or {}).get("user-id", "")
@@ -331,20 +348,20 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
             response = accounting_pb2.TrialBalanceResponse()
             response.as_of_date = request.as_of_date
 
-            response.total_debit = self._to_proto_double(result["total_debit"])
-            response.total_credit = self._to_proto_double(result["total_credit"])
+            response.total_debit = self._to_grpc_double(result["total_debit"])
+            response.total_credit = self._to_grpc_double(result["total_credit"])
             response.is_balanced = result["is_balanced"]
 
             for line in result.get("lines", []):
                 pb_line = response.lines.add()
                 pb_line.account_code = line["account_code"]
                 pb_line.account_name = line["account_name"]
-                pb_line.opening_balance_debit = self._to_proto_double(line.get("opening_balance_debit", Decimal(0)))
-                pb_line.opening_balance_credit = self._to_proto_double(line.get("opening_balance_credit", Decimal(0)))
-                pb_line.movement_debit = self._to_proto_double(line.get("movement_debit", Decimal(0)))
-                pb_line.movement_credit = self._to_proto_double(line.get("movement_credit", Decimal(0)))
-                pb_line.closing_balance_debit = self._to_proto_double(line.get("closing_balance_debit", Decimal(0)))
-                pb_line.closing_balance_credit = self._to_proto_double(line.get("closing_balance_credit", Decimal(0)))
+                pb_line.opening_balance_debit = self._to_grpc_double(line.get("opening_balance_debit", Decimal(0)))
+                pb_line.opening_balance_credit = self._to_grpc_double(line.get("opening_balance_credit", Decimal(0)))
+                pb_line.movement_debit = self._to_grpc_double(line.get("movement_debit", Decimal(0)))
+                pb_line.movement_credit = self._to_grpc_double(line.get("movement_credit", Decimal(0)))
+                pb_line.closing_balance_debit = self._to_grpc_double(line.get("closing_balance_debit", Decimal(0)))
+                pb_line.closing_balance_credit = self._to_grpc_double(line.get("closing_balance_credit", Decimal(0)))
             return response
         except Exception as e:
             await context.abort(StatusCode.INVALID_ARGUMENT, str(e))
@@ -362,9 +379,9 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
             result = await self.query_bus.dispatch(query)
             response = accounting_pb2.BalanceSheetResponse()
             response.as_of_date = request.as_of_date
-            response.total_assets = self._to_proto_double(result.get("total_assets", Decimal(0)))
-            response.total_liabilities = self._to_proto_double(result.get("total_liabilities", Decimal(0)))
-            response.total_equity = self._to_proto_double(result.get("total_equity", Decimal(0)))
+            response.total_assets = self._to_grpc_double(result.get("total_assets", Decimal(0)))
+            response.total_liabilities = self._to_grpc_double(result.get("total_liabilities", Decimal(0)))
+            response.total_equity = self._to_grpc_double(result.get("total_equity", Decimal(0)))
             return response
         except Exception as e:
             await context.abort(StatusCode.INVALID_ARGUMENT, str(e))
@@ -384,9 +401,9 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
             response = accounting_pb2.IncomeStatementResponse()
             response.start_date = request.start_date
             response.end_date = request.end_date
-            response.total_revenue = self._to_proto_double(result.get("total_revenue", Decimal(0)))
-            response.total_expenses = self._to_proto_double(result.get("total_expenses", Decimal(0)))
-            response.net_income = self._to_proto_double(result.get("net_income", Decimal(0)))
+            response.total_revenue = self._to_grpc_double(result.get("total_revenue", Decimal(0)))
+            response.total_expenses = self._to_grpc_double(result.get("total_expenses", Decimal(0)))
+            response.net_income = self._to_grpc_double(result.get("net_income", Decimal(0)))
             return response
         except Exception as e:
             await context.abort(StatusCode.INVALID_ARGUMENT, str(e))
@@ -407,7 +424,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
                     return accounting_pb2.ARInvoiceResponse(
                         id=str(cached["id"]),
                         invoice_number=cached["invoice_number"],
-                        total_amount=self._to_proto_double(cached["total_amount"]),
+                        total_amount=self._to_grpc_double(cached["total_amount"]),
                         status=cached["status"],
                     )
 
@@ -444,7 +461,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
             return accounting_pb2.ARInvoiceResponse(
                 id=str(result["id"]),
                 invoice_number=result["invoice_number"],
-                total_amount=self._to_proto_double(result["total_amount"]),
+                total_amount=self._to_grpc_double(result["total_amount"]),
                 status=result["status"],
             )
         except Exception as e:
@@ -462,7 +479,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
                     return accounting_pb2.ARPaymentResponse(
                         id=str(cached["id"]),
                         payment_number=cached["payment_number"],
-                        amount=self._to_proto_double(cached["amount"]),
+                        amount=self._to_grpc_double(cached["amount"]),
                         status=cached["status"],
                     )
 
@@ -489,7 +506,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
             return accounting_pb2.ARPaymentResponse(
                 id=str(result["id"]),
                 payment_number=result["payment_number"],
-                amount=self._to_proto_double(result["amount"]),
+                amount=self._to_grpc_double(result["amount"]),
                 status=result["status"],
             )
         except Exception as e:
@@ -507,7 +524,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
                     return accounting_pb2.APInvoiceResponse(
                         id=str(cached["id"]),
                         invoice_number=cached["invoice_number"],
-                        total_amount=self._to_proto_double(cached["total_amount"]),
+                        total_amount=self._to_grpc_double(cached["total_amount"]),
                         status=cached["status"],
                     )
 
@@ -544,7 +561,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
             return accounting_pb2.APInvoiceResponse(
                 id=str(result["id"]),
                 invoice_number=result["invoice_number"],
-                total_amount=self._to_proto_double(result["total_amount"]),
+                total_amount=self._to_grpc_double(result["total_amount"]),
                 status=result["status"],
             )
         except Exception as e:

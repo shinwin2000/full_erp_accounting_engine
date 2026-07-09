@@ -16,6 +16,11 @@ Dependencies:
 - domain.journal.aggregate_root (events)
 - projections.ledger.trial_balance_cube (opsional)
 Audit: Setiap pembangunan income statement dicatat. Rebuild dimonitor.
+
+Perbaikan presisi:
+    - Mengganti float() dengan str() pada nilai moneter (amount) di
+      revenue_breakdown dan expense_breakdown untuk menghindari
+      kehilangan presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -194,7 +199,7 @@ class IncomeStatementPeriod:
                         "account_id": str(acc[0]),
                         "account_code": acc[1],
                         "account_name": acc[2],
-                        "amount": float(amount),
+                        "amount": str(amount),  # ganti float -> str
                     }
                 )
 
@@ -228,7 +233,7 @@ class IncomeStatementPeriod:
                         "account_id": str(acc[0]),
                         "account_code": acc[1],
                         "account_name": acc[2],
-                        "amount": float(amount),
+                        "amount": str(amount),  # ganti float -> str
                         "is_cogs": is_cogs,
                     }
                 )
@@ -243,12 +248,12 @@ class IncomeStatementPeriod:
                 "start_date": start_date.isoformat(),
                 "end_date": end_date.isoformat(),
                 "legal_entity_id": str(legal_entity_id),
-                "total_revenue": float(total_revenue),
-                "total_expense": float(total_expense),
-                "total_cogs": float(total_cogs),
-                "gross_profit": float(gross_profit),
-                "operating_income": float(operating_income),
-                "net_income": float(net_income),
+                "total_revenue": str(total_revenue),
+                "total_expense": str(total_expense),
+                "total_cogs": str(total_cogs),
+                "gross_profit": str(gross_profit),
+                "operating_income": str(operating_income),
+                "net_income": str(net_income),
                 "revenue_breakdown": revenue_breakdown,
                 "expense_breakdown": expense_breakdown,
                 "created_at": datetime.now(UTC).isoformat(),
@@ -275,12 +280,12 @@ class IncomeStatementPeriod:
                 period_name=income_data["period_name"],
                 start_date=date.fromisoformat(income_data["start_date"]),
                 end_date=date.fromisoformat(income_data["end_date"]),
-                total_revenue=Decimal(str(income_data["total_revenue"])),
-                total_expense=Decimal(str(income_data["total_expense"])),
-                total_cogs=Decimal(str(income_data["total_cogs"])),
-                gross_profit=Decimal(str(income_data["gross_profit"])),
-                operating_income=Decimal(str(income_data["operating_income"])),
-                net_income=Decimal(str(income_data["net_income"])),
+                total_revenue=Decimal(income_data["total_revenue"]),
+                total_expense=Decimal(income_data["total_expense"]),
+                total_cogs=Decimal(income_data["total_cogs"]),
+                gross_profit=Decimal(income_data["gross_profit"]),
+                operating_income=Decimal(income_data["operating_income"]),
+                net_income=Decimal(income_data["net_income"]),
                 revenue_breakdown=income_data["revenue_breakdown"],
                 expense_breakdown=income_data["expense_breakdown"],
                 created_at=datetime.now(UTC),
@@ -389,12 +394,12 @@ class IncomeStatementPeriod:
                 "period_name": row.period_name,
                 "start_date": row.start_date.isoformat(),
                 "end_date": row.end_date.isoformat(),
-                "total_revenue": float(row.total_revenue),
-                "total_expense": float(row.total_expense),
-                "total_cogs": float(row.total_cogs),
-                "gross_profit": float(row.gross_profit),
-                "operating_income": float(row.operating_income),
-                "net_income": float(row.net_income),
+                "total_revenue": str(row.total_revenue),
+                "total_expense": str(row.total_expense),
+                "total_cogs": str(row.total_cogs),
+                "gross_profit": str(row.gross_profit),
+                "operating_income": str(row.operating_income),
+                "net_income": str(row.net_income),
                 "revenue_breakdown": row.revenue_breakdown,
                 "expense_breakdown": row.expense_breakdown,
                 "created_at": row.created_at.isoformat(),
@@ -436,11 +441,11 @@ class IncomeStatementPeriod:
         return {
             "fiscal_year": fiscal_year,
             "legal_entity_id": str(legal_entity_id),
-            "total_revenue": float(total_revenue),
-            "total_expense": float(total_expense),
-            "total_cogs": float(total_cogs),
-            "gross_profit": float(total_revenue - total_cogs),
-            "net_income": float(total_revenue - total_expense),
+            "total_revenue": str(total_revenue),
+            "total_expense": str(total_expense),
+            "total_cogs": str(total_cogs),
+            "gross_profit": str(total_revenue - total_cogs),
+            "net_income": str(total_revenue - total_expense),
         }
 
     async def get_period_comparison(
@@ -455,27 +460,33 @@ class IncomeStatementPeriod:
         if not income1 or not income2:
             return {"error": "One or both periods not found"}
 
-        revenue_change = income2["total_revenue"] - income1["total_revenue"]
+        # Ubah string ke Decimal untuk perhitungan
+        rev1 = Decimal(income1["total_revenue"])
+        rev2 = Decimal(income2["total_revenue"])
+        net1 = Decimal(income1["net_income"])
+        net2 = Decimal(income2["net_income"])
+        gp1 = Decimal(income1["gross_profit"])
+        gp2 = Decimal(income2["gross_profit"])
+
+        revenue_change = rev2 - rev1
         revenue_change_pct = (
-            (revenue_change / income1["total_revenue"] * 100)
-            if income1["total_revenue"] != 0
-            else 0
+            (revenue_change / rev1 * 100) if rev1 != 0 else Decimal(0)
         )
 
-        net_income_change = income2["net_income"] - income1["net_income"]
+        net_income_change = net2 - net1
         net_income_change_pct = (
-            (net_income_change / income1["net_income"] * 100) if income1["net_income"] != 0 else 0
+            (net_income_change / net1 * 100) if net1 != 0 else Decimal(0)
         )
 
         return {
             "period1": income1,
             "period2": income2,
             "comparison": {
-                "revenue_change": revenue_change,
-                "revenue_change_percent": revenue_change_pct,
-                "net_income_change": net_income_change,
-                "net_income_change_percent": net_income_change_pct,
-                "gross_profit_change": income2["gross_profit"] - income1["gross_profit"],
+                "revenue_change": str(revenue_change),
+                "revenue_change_percent": str(revenue_change_pct),
+                "net_income_change": str(net_income_change),
+                "net_income_change_percent": str(net_income_change_pct),
+                "gross_profit_change": str(gp2 - gp1),
             },
         }
 
@@ -576,9 +587,9 @@ class IncomeStatementProjection:
         return {
             "period": self.period,
             "period_end": self.period_end,
-            "total_revenue": 0.0,
-            "total_expense": 0.0,
-            "net_income": 0.0,
+            "total_revenue": "0.00",
+            "total_expense": "0.00",
+            "net_income": "0.00",
         }
 
 

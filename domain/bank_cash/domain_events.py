@@ -49,6 +49,20 @@ class DomainEventType(Enum):
 
 @dataclass
 class DomainEvent:
+    """
+    Base class untuk semua domain event.
+
+    Attributes:
+        event_id: UUID unik event.
+        event_type: Jenis event (DomainEventType).
+        aggregate_id: UUID agregat yang terkait.
+        aggregate_version: Versi agregat saat event terjadi.
+        occurred_at: Waktu kejadian.
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+        causation_id: ID penyebab event (opsional).
+    """
     event_id: UUID
     event_type: DomainEventType
     aggregate_id: UUID
@@ -109,6 +123,24 @@ class DomainEvent:
 
 @dataclass
 class BankAccountCreatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika akun bank baru dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat akun bank.
+        aggregate_version: Versi agregat.
+        account_id: ID akun bank.
+        account_number: Nomor akun.
+        account_name: Nama akun.
+        account_type: Jenis akun (misal: checking, savings).
+        bank_name: Nama bank.
+        currency: Mata uang akun.
+        initial_balance: Saldo awal.
+        created_by: User ID pembuat.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -150,6 +182,19 @@ class BankAccountCreatedEvent(DomainEvent):
 
 @dataclass
 class BankAccountUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika data akun bank diubah.
+
+    Attributes:
+        aggregate_id: ID agregat akun bank.
+        aggregate_version: Versi agregat.
+        account_id: ID akun bank.
+        changes: Dictionary perubahan field yang diubah.
+        updated_by: User ID pengubah.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -181,6 +226,19 @@ class BankAccountUpdatedEvent(DomainEvent):
 
 @dataclass
 class BankAccountBlockedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika akun bank diblokir.
+
+    Attributes:
+        aggregate_id: ID agregat akun bank.
+        aggregate_version: Versi agregat.
+        account_id: ID akun bank.
+        reason: Alasan pemblokiran.
+        blocked_by: User ID pemblokir.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -212,6 +270,18 @@ class BankAccountBlockedEvent(DomainEvent):
 
 @dataclass
 class BankAccountClosedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika akun bank ditutup.
+
+    Attributes:
+        aggregate_id: ID agregat akun bank.
+        aggregate_version: Versi agregat.
+        account_id: ID akun bank.
+        closed_by: User ID penutup.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -244,6 +314,23 @@ class BankAccountClosedEvent(DomainEvent):
 
 @dataclass
 class BankTransactionRecordedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika transaksi bank dicatat.
+
+    Attributes:
+        aggregate_id: ID agregat transaksi.
+        aggregate_version: Versi agregat.
+        transaction_id: ID transaksi.
+        account_id: ID akun bank terkait.
+        amount: Jumlah transaksi.
+        currency: Mata uang transaksi.
+        transaction_type: Jenis transaksi (debit/kredit).
+        recorded_by: User ID pencatat.
+        reference_number: Nomor referensi (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -283,6 +370,18 @@ class BankTransactionRecordedEvent(DomainEvent):
 
 @dataclass
 class BankTransactionClearedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika transaksi bank sudah clear.
+
+    Attributes:
+        aggregate_id: ID agregat transaksi.
+        aggregate_version: Versi agregat.
+        transaction_id: ID transaksi.
+        cleared_by: User ID yang men-clear.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -312,6 +411,18 @@ class BankTransactionClearedEvent(DomainEvent):
 
 @dataclass
 class BankTransactionReconciledEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika transaksi bank direkonsiliasi.
+
+    Attributes:
+        aggregate_id: ID agregat transaksi.
+        aggregate_version: Versi agregat.
+        transaction_id: ID transaksi.
+        reconciled_by: User ID yang melakukan rekonsiliasi.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -344,6 +455,22 @@ class BankTransactionReconciledEvent(DomainEvent):
 
 @dataclass
 class BankTransferInitiatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika transfer bank dimulai.
+
+    Attributes:
+        aggregate_id: ID agregat transfer.
+        aggregate_version: Versi agregat.
+        transfer_id: ID transfer.
+        from_account_id: ID akun sumber.
+        to_account_id: ID akun tujuan.
+        amount: Jumlah transfer.
+        currency: Mata uang transfer.
+        initiated_by: User ID pemrakarsa.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -381,6 +508,19 @@ class BankTransferInitiatedEvent(DomainEvent):
 
 @dataclass
 class BankTransferCompletedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika transfer bank berhasil diselesaikan.
+
+    Attributes:
+        aggregate_id: ID agregat transfer.
+        aggregate_version: Versi agregat.
+        transfer_id: ID transfer.
+        completed_by: User ID penyelesaian.
+        reference: Referensi transfer (opsional).
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -412,6 +552,19 @@ class BankTransferCompletedEvent(DomainEvent):
 
 @dataclass
 class BankTransferFailedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika transfer bank gagal.
+
+    Attributes:
+        aggregate_id: ID agregat transfer.
+        aggregate_version: Versi agregat.
+        transfer_id: ID transfer.
+        reason: Alasan kegagalan.
+        failed_by: User ID yang mencatat kegagalan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -443,6 +596,19 @@ class BankTransferFailedEvent(DomainEvent):
 
 @dataclass
 class BankTransferCancelledEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika transfer bank dibatalkan.
+
+    Attributes:
+        aggregate_id: ID agregat transfer.
+        aggregate_version: Versi agregat.
+        transfer_id: ID transfer.
+        reason: Alasan pembatalan.
+        cancelled_by: User ID pembatalan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -477,6 +643,21 @@ class BankTransferCancelledEvent(DomainEvent):
 
 @dataclass
 class CashReceiptConfirmedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika penerimaan kas dikonfirmasi.
+
+    Attributes:
+        aggregate_id: ID agregat penerimaan.
+        aggregate_version: Versi agregat.
+        receipt_id: ID penerimaan.
+        receipt_number: Nomor bukti penerimaan.
+        amount: Jumlah penerimaan.
+        currency: Mata uang penerimaan.
+        confirmed_by: User ID konfirmasi.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -512,6 +693,19 @@ class CashReceiptConfirmedEvent(DomainEvent):
 
 @dataclass
 class CashReceiptCancelledEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika penerimaan kas dibatalkan.
+
+    Attributes:
+        aggregate_id: ID agregat penerimaan.
+        aggregate_version: Versi agregat.
+        receipt_id: ID penerimaan.
+        reason: Alasan pembatalan.
+        cancelled_by: User ID pembatalan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -546,6 +740,20 @@ class CashReceiptCancelledEvent(DomainEvent):
 
 @dataclass
 class CashDisbursementApprovedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pengeluaran kas disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat pengeluaran.
+        aggregate_version: Versi agregat.
+        disbursement_id: ID pengeluaran.
+        amount: Jumlah pengeluaran.
+        currency: Mata uang pengeluaran.
+        approved_by: User ID persetujuan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -579,6 +787,18 @@ class CashDisbursementApprovedEvent(DomainEvent):
 
 @dataclass
 class CashDisbursementPaidEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pengeluaran kas dibayarkan.
+
+    Attributes:
+        aggregate_id: ID agregat pengeluaran.
+        aggregate_version: Versi agregat.
+        disbursement_id: ID pengeluaran.
+        paid_by: User ID pembayaran.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -608,6 +828,19 @@ class CashDisbursementPaidEvent(DomainEvent):
 
 @dataclass
 class CashDisbursementCancelledEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika pengeluaran kas dibatalkan.
+
+    Attributes:
+        aggregate_id: ID agregat pengeluaran.
+        aggregate_version: Versi agregat.
+        disbursement_id: ID pengeluaran.
+        reason: Alasan pembatalan.
+        cancelled_by: User ID pembatalan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -642,6 +875,20 @@ class CashDisbursementCancelledEvent(DomainEvent):
 
 @dataclass
 class PettyCashDisbursementEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika terjadi pengeluaran kas kecil.
+
+    Attributes:
+        aggregate_id: ID agregat kas kecil.
+        aggregate_version: Versi agregat.
+        petty_cash_id: ID kas kecil.
+        amount: Jumlah pengeluaran.
+        description: Deskripsi pengeluaran.
+        approved_by: User ID persetujuan.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -675,6 +922,19 @@ class PettyCashDisbursementEvent(DomainEvent):
 
 @dataclass
 class PettyCashReplenishedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika kas kecil diisi ulang.
+
+    Attributes:
+        aggregate_id: ID agregat kas kecil.
+        aggregate_version: Versi agregat.
+        petty_cash_id: ID kas kecil.
+        amount: Jumlah pengisian ulang.
+        replenished_by: User ID pengisi ulang.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -706,6 +966,20 @@ class PettyCashReplenishedEvent(DomainEvent):
 
 @dataclass
 class PettyCashAdjustedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika saldo kas kecil disesuaikan.
+
+    Attributes:
+        aggregate_id: ID agregat kas kecil.
+        aggregate_version: Versi agregat.
+        petty_cash_id: ID kas kecil.
+        adjustment_amount: Jumlah penyesuaian (positif/negatif).
+        reason: Alasan penyesuaian.
+        adjusted_by: User ID penyesuai.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -739,6 +1013,19 @@ class PettyCashAdjustedEvent(DomainEvent):
 
 @dataclass
 class PettyCashSuspendedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika kas kecil ditangguhkan.
+
+    Attributes:
+        aggregate_id: ID agregat kas kecil.
+        aggregate_version: Versi agregat.
+        petty_cash_id: ID kas kecil.
+        reason: Alasan penangguhan.
+        suspended_by: User ID penangguh.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -770,6 +1057,18 @@ class PettyCashSuspendedEvent(DomainEvent):
 
 @dataclass
 class PettyCashActivatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika kas kecil diaktifkan kembali.
+
+    Attributes:
+        aggregate_id: ID agregat kas kecil.
+        aggregate_version: Versi agregat.
+        petty_cash_id: ID kas kecil.
+        activated_by: User ID pengaktif.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -799,6 +1098,19 @@ class PettyCashActivatedEvent(DomainEvent):
 
 @dataclass
 class PettyCashClosedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika kas kecil ditutup.
+
+    Attributes:
+        aggregate_id: ID agregat kas kecil.
+        aggregate_version: Versi agregat.
+        petty_cash_id: ID kas kecil.
+        final_balance: Saldo akhir kas kecil.
+        closed_by: User ID penutup.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -833,6 +1145,22 @@ class PettyCashClosedEvent(DomainEvent):
 
 @dataclass
 class BankReconciliationCompletedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika rekonsiliasi bank selesai.
+
+    Attributes:
+        aggregate_id: ID agregat rekonsiliasi.
+        aggregate_version: Versi agregat.
+        account_id: ID akun bank.
+        statement_date: Tanggal laporan bank.
+        statement_balance: Saldo menurut laporan bank.
+        book_balance: Saldo menurut buku.
+        difference: Selisih saldo.
+        reconciled_by: User ID yang melakukan rekonsiliasi.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -870,6 +1198,21 @@ class BankReconciliationCompletedEvent(DomainEvent):
 
 @dataclass
 class CashBookUpdatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika buku kas diperbarui.
+
+    Attributes:
+        aggregate_id: ID agregat buku kas.
+        aggregate_version: Versi agregat.
+        cash_book_id: ID buku kas.
+        new_balance: Saldo baru.
+        transaction_type: Jenis transaksi.
+        amount: Jumlah transaksi.
+        updated_by: User ID pembaru.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -905,6 +1248,18 @@ class CashBookUpdatedEvent(DomainEvent):
 
 @dataclass
 class CashBookClosedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika buku kas ditutup.
+
+    Attributes:
+        aggregate_id: ID agregat buku kas.
+        aggregate_version: Versi agregat.
+        cash_book_id: ID buku kas.
+        closed_by: User ID penutup.
+        user_id: (opsional) ID pengguna yang memicu event.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -936,6 +1291,9 @@ class CashBookClosedEvent(DomainEvent):
 
 
 class DomainEventPublisher:
+    """
+    Publisher untuk domain event, digunakan untuk menyebarkan event ke handler.
+    """
     async def publish(self, event: DomainEvent) -> None:
         logger.info(
             f"Publishing event: {event.event_type.value} for aggregate {event.aggregate_id}"
@@ -962,6 +1320,9 @@ class DomainEventPublisher:
 
 
 class BankAccountCreated(DomainEvent):
+    """
+    Shim class untuk event BankAccountCreated (tanpa suffix 'Event') – kompatibilitas.
+    """
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
         if "event_id" not in kwargs:
@@ -975,6 +1336,9 @@ class BankAccountCreated(DomainEvent):
 
 
 class BankAccountUpdated(DomainEvent):
+    """
+    Shim class untuk event BankAccountUpdated (tanpa suffix 'Event') – kompatibilitas.
+    """
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
         if "event_id" not in kwargs:
@@ -988,6 +1352,9 @@ class BankAccountUpdated(DomainEvent):
 
 
 class BankTransactionRecorded(DomainEvent):
+    """
+    Shim class untuk event BankTransactionRecorded (tanpa suffix 'Event') – kompatibilitas.
+    """
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
         if "event_id" not in kwargs:
@@ -1001,6 +1368,9 @@ class BankTransactionRecorded(DomainEvent):
 
 
 class BankReconciliationCompleted(DomainEvent):
+    """
+    Shim class untuk event BankReconciliationCompleted (tanpa suffix 'Event') – kompatibilitas.
+    """
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
         if "event_id" not in kwargs:
@@ -1014,6 +1384,9 @@ class BankReconciliationCompleted(DomainEvent):
 
 
 class BankTransferExecuted(DomainEvent):
+    """
+    Shim class untuk event BankTransferExecuted (tanpa suffix 'Event') – kompatibilitas.
+    """
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
         if "event_id" not in kwargs:
@@ -1027,6 +1400,9 @@ class BankTransferExecuted(DomainEvent):
 
 
 class CashReceiptIssued(DomainEvent):
+    """
+    Shim class untuk event CashReceiptIssued (tanpa suffix 'Event') – kompatibilitas.
+    """
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
         if "event_id" not in kwargs:
@@ -1040,6 +1416,9 @@ class CashReceiptIssued(DomainEvent):
 
 
 class CashDisbursementIssued(DomainEvent):
+    """
+    Shim class untuk event CashDisbursementIssued (tanpa suffix 'Event') – kompatibilitas.
+    """
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
         if "event_id" not in kwargs:
@@ -1053,6 +1432,9 @@ class CashDisbursementIssued(DomainEvent):
 
 
 class PettyCashFundCreated(DomainEvent):
+    """
+    Shim class untuk event PettyCashFundCreated (tanpa suffix 'Event') – kompatibilitas.
+    """
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
         if "event_id" not in kwargs:
@@ -1066,6 +1448,9 @@ class PettyCashFundCreated(DomainEvent):
 
 
 class PettyCashReplenished(DomainEvent):
+    """
+    Shim class untuk event PettyCashReplenished (tanpa suffix 'Event') – kompatibilitas.
+    """
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
         if "event_id" not in kwargs:

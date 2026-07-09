@@ -7,6 +7,10 @@ Responsibility: Mendefinisikan model SQLAlchemy untuk tabel ap_credit_note.
                yaitu pengurangan hutang karena retur pembelian, diskon setelah
                faktur, atau koreksi lainnya. Credit note mengurangi outstanding
                balance invoice terkait.
+
+Perbaikan presisi:
+    - Mengubah float() menjadi str() pada nilai moneter (amount) di to_dict()
+      untuk menghindari kehilangan presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -137,7 +141,7 @@ class APCreditNoteTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Leg
             "credit_note_number": self.credit_note_number,
             "credit_note_date": self.credit_note_date.isoformat(),
             "invoice_id": str(self.invoice_id),
-            "amount": float(self.amount),
+            "amount": str(self.amount),  # ganti float -> str untuk presisi
             "currency": self.currency,
             "reason": self.reason,
             "reference_number": self.reference_number,

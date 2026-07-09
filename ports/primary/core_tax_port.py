@@ -3,9 +3,14 @@
 Module: core_tax_port.py
 Layer: Ports (Primary)
 Responsibility: Port untuk Core Tax Authority (API pajak pemerintah).
+
+Perbaikan presisi:
+    - Mengubah return type get_tax_rate dari float menjadi Decimal untuk menjaga presisi
+      dan memenuhi aturan MNY-024.
 """
 
 from abc import ABC, abstractmethod
+from decimal import Decimal
 from typing import Any
 
 
@@ -73,7 +78,7 @@ class CoreTaxPort(ABC):
         pass
 
     @abstractmethod
-    async def get_tax_rate(self, tax_code: str, date: str) -> float:
+    async def get_tax_rate(self, tax_code: str, date: str) -> Decimal:
         """
         Mendapatkan tarif pajak untuk kode pajak dan tanggal tertentu.
 
@@ -82,6 +87,6 @@ class CoreTaxPort(ABC):
             date: Tanggal berlaku (format 'YYYY-MM-DD').
 
         Returns:
-            Tarif pajak sebagai float (misal 0.11 untuk 11%).
+            Tarif pajak sebagai Decimal (misal Decimal('0.11') untuk 11%).
         """
         pass

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 Module: sqlalchemy_customer_category_adapter.py
-Adapter for CustomerCategory (from customer_supplier_repository_port)
-Menggunakan SQLAlchemy real, tanpa stub/mock.
+Adapter for CustomerCategoryRepositoryPort using SQLAlchemy.
 """
 
 from __future__ import annotations
@@ -12,10 +11,12 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Column, DateTime, String, Text, delete, select, update
+from sqlalchemy import Boolean, Column, DateTime, String, Text, select, update
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
+
+from ports.primary.customer_category_repository_port import CustomerCategoryRepositoryPort
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +36,11 @@ class CustomerCategoryTable(Base):
     created_by = Column(PGUUID(as_uuid=True), nullable=True)
 
 
-# Tidak mewarisi dari Enum; ini class biasa yang mengimplementasikan metode yang diharapkan
-class SQLAlchemyCustomerCategoryAdapter:
+class SQLAlchemyCustomerCategoryAdapter(CustomerCategoryRepositoryPort):
+    """
+    Implementasi CustomerCategoryRepositoryPort dengan SQLAlchemy.
+    """
+
     def __init__(self, session: AsyncSession | None = None):
         self._session = session
 
@@ -108,16 +112,21 @@ class SQLAlchemyCustomerCategoryAdapter:
 
     async def update_category(self, category_id: uuid.UUID, data: dict[str, Any]) -> dict[str, Any]:
         session = await self._get_session()
-        stmt = select(CustomerCategoryTable).where(CustomerCategoryTable.id == category_id)
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-        if not row:
-            raise ValueError(f"Category {category_id} not found")
-        for key, value in data.items():
-            if hasattr(row, key) and key not in ("id", "created_at", "legal_entity_id"):
-                setattr(row, key, value)
-        row.updated_at = datetime.utcnow()
-        await session.flush()
+        async with session.begin():
+            stmt_lock = select(CustomerCategoryTable).where(
+                CustomerCategoryTable.id == category_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                raise ValueError(f"Category {category_id} not found")
+
+            for key, value in data.items():
+                if hasattr(row, key) and key not in ("id", "created_at", "legal_entity_id"):
+                    setattr(row, key, value)
+            row.updated_at = datetime.utcnow()
+            await session.flush()
+
         return {
             "id": str(row.id),
             "code": row.code,
@@ -129,10 +138,18 @@ class SQLAlchemyCustomerCategoryAdapter:
 
     async def delete_category(self, category_id: uuid.UUID) -> bool:
         session = await self._get_session()
-        stmt = delete(CustomerCategoryTable).where(CustomerCategoryTable.id == category_id)
-        result = await session.execute(stmt)
-        await session.flush()
-        return result.rowcount > 0
+        async with session.begin():
+            stmt_lock = select(CustomerCategoryTable).where(
+                CustomerCategoryTable.id == category_id
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                return False
+
+            await session.delete(row)
+            await session.flush()
+            return True
 
     async def deactivate_category(self, category_id: uuid.UUID) -> bool:
         session = await self._get_session()

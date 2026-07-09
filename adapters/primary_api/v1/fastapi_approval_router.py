@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Module: fastapi_approval_router.py
@@ -396,9 +395,11 @@ class ApprovalStatsResponseSchema(BaseModel):
 # ============================================================================
 
 
-async def get_approval_service(request: Request, ) -> Any:
-    """Get Approval Service instance."""
-
+async def get_approval_svc(request: Request) -> Any:
+    """
+    Get Approval Service instance.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     from application.service_layer.service_approval import ApprovalService
 
     container = request.app.state.container
@@ -429,7 +430,7 @@ async def submit_for_approval(
     _permission: None = Depends(require_permission("approval:submit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> ApprovalResponseSchema:
     """
     Submit an entity for approval workflow.
@@ -437,9 +438,10 @@ async def submit_for_approval(
     - Automatically determines approval matrix based on entity type and amount
     - Routes to appropriate approvers based on matrix rules
     - Creates approval history entry
+    - LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
     """
     try:
-        result = await service.submit_approval(
+        result = await approval_svc.submit_approval(
             entity_type=request.entity_type.value,
             entity_id=request.entity_id,
             approval_matrix_id=request.approval_matrix_id,
@@ -497,11 +499,11 @@ async def get_approval_request(
     request_id: UUID,
     _permission: None = Depends(require_permission("approval:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> ApprovalResponseSchema:
     """Get approval request by ID."""
     try:
-        result = await service.get_approval_request(request_id, legal_entity_id)
+        result = await approval_svc.get_approval_request(request_id, legal_entity_id)
 
         if not result:
             raise HTTPException(status_code=404, detail="Approval request not found")
@@ -552,11 +554,11 @@ async def get_approval_request_by_number(
     request_number: str,
     _permission: None = Depends(require_permission("approval:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> ApprovalResponseSchema:
     """Get approval request by request number."""
     try:
-        result = await service.get_approval_request_by_number(request_number, legal_entity_id)
+        result = await approval_svc.get_approval_request_by_number(request_number, legal_entity_id)
 
         if not result:
             raise HTTPException(
@@ -611,11 +613,14 @@ async def recall_approval(
     _permission: None = Depends(require_permission("approval:submit")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> ApprovalResponseSchema:
-    """Recall an approval request (only by requester, only pending status)."""
+    """
+    Recall an approval request (only by requester, only pending status).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.recall_approval(
+        result = await approval_svc.recall_approval(
             request_id, current_user.user_id, legal_entity_id, reason
         )
 
@@ -672,11 +677,14 @@ async def cancel_approval(
     _permission: None = Depends(require_permission("approval:cancel")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> dict[str, Any]:
-    """Cancel an approval request (admin only, any status except completed)."""
+    """
+    Cancel an approval request (admin only, any status except completed).
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.cancel_approval(
+        result = await approval_svc.cancel_approval(
             request_id, current_user.user_id, legal_entity_id, reason
         )
 
@@ -715,7 +723,7 @@ async def perform_approval_action(
     _permission: None = Depends(require_permission("approval:approve")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> ApprovalResponseSchema:
     """
     Perform approval action (approve, reject, escalate, delegate).
@@ -724,9 +732,10 @@ async def perform_approval_action(
     - Reject: Menolak request, status menjadi REJECTED
     - Escalate: Menaikkan ke level yang lebih tinggi
     - Delegate: Mendelegasikan approval ke user lain
+    - LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
     """
     try:
-        result = await service.process_approval_action(
+        result = await approval_svc.process_approval_action(
             request_id=request_id,
             action=action_data.action.value,
             actor_id=current_user.user_id,
@@ -800,11 +809,11 @@ async def list_approval_requests(
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     _permission: None = Depends(require_permission("approval:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> list[ApprovalResponseSchema]:
     """List approval requests with pagination and filters."""
     try:
-        result = await service.list_approval_requests(
+        result = await approval_svc.list_approval_requests(
             legal_entity_id=legal_entity_id,
             entity_type=entity_type.value if entity_type else None,
             status=status.value if status else None,
@@ -869,11 +878,11 @@ async def get_my_approval_tasks(
     _permission: None = Depends(require_permission("approval:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     current_user: TokenPayload = Depends(get_current_user),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> list[ApprovalTaskResponseSchema]:
     """Get all pending approval tasks for the current user as approver."""
     try:
-        tasks = await service.get_pending_tasks_for_user(
+        tasks = await approval_svc.get_pending_tasks_for_user(
             user_id=current_user.user_id,
             legal_entity_id=legal_entity_id,
             entity_type=entity_type.value if entity_type else None,
@@ -914,11 +923,11 @@ async def get_my_approval_tasks_count(
     _permission: None = Depends(require_permission("approval:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     current_user: TokenPayload = Depends(get_current_user),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> dict[str, int]:
     """Get count of pending approval tasks for the current user."""
     try:
-        counts = await service.get_pending_tasks_count(
+        counts = await approval_svc.get_pending_tasks_count(
             user_id=current_user.user_id,
             legal_entity_id=legal_entity_id,
         )
@@ -948,11 +957,11 @@ async def get_approval_history(
     request_id: UUID,
     _permission: None = Depends(require_permission("approval:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> list[ApprovalHistorySchema]:
     """Get approval history (audit trail of all actions)."""
     try:
-        history = await service.get_approval_history(request_id, legal_entity_id)
+        history = await approval_svc.get_approval_history(request_id, legal_entity_id)
 
         return [
             ApprovalHistorySchema(
@@ -993,11 +1002,14 @@ async def create_approval_matrix(
     _permission: None = Depends(require_permission("approval:matrix_create")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> ApprovalMatrixResponseSchema:
-    """Create a new approval matrix."""
+    """
+    Create a new approval matrix.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.create_approval_matrix(
+        result = await approval_svc.create_approval_matrix(
             matrix_code=request.matrix_code,
             matrix_name=request.matrix_name,
             entity_type=request.entity_type.value,
@@ -1046,11 +1058,11 @@ async def list_approval_matrices(
     is_active: bool | None = Query(None, description="Filter by active status"),
     _permission: None = Depends(require_permission("approval:matrix_read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> list[ApprovalMatrixResponseSchema]:
     """List approval matrices with filters."""
     try:
-        matrices = await service.list_approval_matrices(
+        matrices = await approval_svc.list_approval_matrices(
             legal_entity_id=legal_entity_id,
             entity_type=entity_type.value if entity_type else None,
             is_active=is_active,
@@ -1091,11 +1103,11 @@ async def get_approval_matrix(
     matrix_id: UUID,
     _permission: None = Depends(require_permission("approval:matrix_read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> ApprovalMatrixResponseSchema:
     """Get approval matrix by ID."""
     try:
-        matrix = await service.get_approval_matrix(matrix_id, legal_entity_id)
+        matrix = await approval_svc.get_approval_matrix(matrix_id, legal_entity_id)
 
         if not matrix:
             raise HTTPException(status_code=404, detail="Approval matrix not found")
@@ -1136,11 +1148,14 @@ async def update_approval_matrix(
     _permission: None = Depends(require_permission("approval:matrix_update")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> ApprovalMatrixResponseSchema:
-    """Update an approval matrix."""
+    """
+    Update an approval matrix.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.update_approval_matrix(
+        result = await approval_svc.update_approval_matrix(
             matrix_id=matrix_id,
             matrix_name=request.matrix_name,
             min_amount=request.min_amount,
@@ -1192,17 +1207,20 @@ async def delete_approval_matrix(
     _permission: None = Depends(require_permission("approval:matrix_delete")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> dict[str, Any]:
-    """Delete or deactivate an approval matrix."""
+    """
+    Delete or deactivate an approval matrix.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
         if permanent:
-            result = await service.delete_approval_matrix(
+            result = await approval_svc.delete_approval_matrix(
                 matrix_id, legal_entity_id, current_user.user_id
             )
             action = "deleted"
         else:
-            result = await service.deactivate_approval_matrix(
+            result = await approval_svc.deactivate_approval_matrix(
                 matrix_id, legal_entity_id, current_user.user_id
             )
             action = "deactivated"
@@ -1240,11 +1258,14 @@ async def delegate_approval(
     _permission: None = Depends(require_permission("approval:delegate")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> ApprovalDelegationResponseSchema:
-    """Delegate approval authority to another user for a period."""
+    """
+    Delegate approval authority to another user for a period.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.create_delegation(
+        result = await approval_svc.create_delegation(
             delegator_id=current_user.user_id,
             delegate_to_id=request.delegate_to_user_id,
             start_date=request.start_date,
@@ -1284,11 +1305,11 @@ async def list_my_delegations(
     _permission: None = Depends(require_permission("approval:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
     current_user: TokenPayload = Depends(get_current_user),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> list[ApprovalDelegationResponseSchema]:
     """List delegations where current user is delegator."""
     try:
-        delegations = await service.list_delegations(
+        delegations = await approval_svc.list_delegations(
             delegator_id=current_user.user_id,
             legal_entity_id=legal_entity_id,
             is_active=is_active,
@@ -1326,11 +1347,14 @@ async def revoke_delegation(
     _permission: None = Depends(require_permission("approval:delegate")),
     current_user: TokenPayload = Depends(get_current_user),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> dict[str, Any]:
-    """Revoke an active delegation."""
+    """
+    Revoke an active delegation.
+    LOCKING: Service layer uses SELECT FOR UPDATE for concurrency control.
+    """
     try:
-        result = await service.revoke_delegation(
+        result = await approval_svc.revoke_delegation(
             delegation_id, current_user.user_id, legal_entity_id
         )
 
@@ -1366,11 +1390,11 @@ async def get_approval_statistics(
     entity_type: ApprovalEntityType | None = Query(None, description="Filter by entity type"),
     _permission: None = Depends(require_permission("approval:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> ApprovalStatsResponseSchema:
     """Get approval statistics for monitoring."""
     try:
-        stats = await service.get_approval_statistics(
+        stats = await approval_svc.get_approval_statistics(
             legal_entity_id=legal_entity_id,
             start_date=start_date,
             end_date=end_date,
@@ -1410,11 +1434,11 @@ async def get_entity_approval_status(
     entity_id: UUID,
     _permission: None = Depends(require_permission("approval:read")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> ApprovalResponseSchema | None:
     """Get the latest approval request status for an entity."""
     try:
-        result = await service.get_entity_approval_status(
+        result = await approval_svc.get_entity_approval_status(
             entity_type=entity_type.value,
             entity_id=entity_id,
             legal_entity_id=legal_entity_id,
@@ -1474,11 +1498,11 @@ async def export_approval_requests(
     status: ApprovalStatus | None = Query(None, description="Filter by status"),
     _permission: None = Depends(require_permission("approval:export")),
     legal_entity_id: UUID = Depends(get_current_legal_entity),
-    service: Any = Depends(get_approval_service),
+    approval_svc: Any = Depends(get_approval_svc),
 ) -> Response:
     """Export approval requests to CSV or Excel."""
     try:
-        data = await service.export_approval_requests(
+        data = await approval_svc.export_approval_requests(
             legal_entity_id=legal_entity_id,
             start_date=start_date,
             end_date=end_date,

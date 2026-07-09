@@ -37,8 +37,7 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
 
     def __init__(self):
         self._session_factory = None
-        # In-memory state for projector management
-        self._projectors: dict[str, dict[str, Any]] = {}  # name -> {status, last_run, error, etc}
+        self._projectors: dict[str, dict[str, Any]] = {}
         self._queue: list[dict[str, Any]] = []
         self._worker_task: asyncio.Task | None = None
         self._worker_running: bool = False
@@ -65,7 +64,7 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             self._audit_log = self._audit_log[-5000:]
 
     # ========================================================================
-    # EXISTING METHODS (from original)
+    # PROJECTION CRUD
     # ========================================================================
 
     async def save_projection(self, projection_name: str, data: dict[str, Any]) -> None:
@@ -95,16 +94,19 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
 
     async def delete_projection(self, projection_name: str) -> bool:
         from infrastructure.persistence_orm.projection_read_models import ProjectionReadModelTable
-        async with await self._get_session() as session:
-            stmt = delete(ProjectionReadModelTable).where(
+        async with await self._get_session() as session, session.begin():
+            stmt_lock = select(ProjectionReadModelTable).where(
                 ProjectionReadModelTable.projection_name == projection_name
-            )
-            result = await session.execute(stmt)
-            await session.commit()
-            if result.rowcount > 0:
-                await self._log_audit("DELETE_PROJECTION", {"projection_name": projection_name})
-                logger.info("Projection %s deleted", projection_name)
-            return result.rowcount > 0
+            ).with_for_update()
+            result = await session.execute(stmt_lock)
+            row = result.scalar_one_or_none()
+            if not row:
+                return False
+            await session.delete(row)
+            await session.flush()
+            await self._log_audit("DELETE_PROJECTION", {"projection_name": projection_name})
+            logger.info("Projection %s deleted", projection_name)
+            return True
 
     async def list_projections(self) -> list[str]:
         from infrastructure.persistence_orm.projection_read_models import ProjectionReadModelTable
@@ -112,6 +114,10 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             stmt = select(ProjectionReadModelTable.projection_name)
             result = await session.execute(stmt)
             return [row[0] for row in result.all()]
+
+    # ========================================================================
+    # CHECKPOINT
+    # ========================================================================
 
     async def save_checkpoint(self, projection_name: str, checkpoint: str) -> None:
         from infrastructure.persistence_orm.projection_read_models import ProjectionCheckpointTable
@@ -138,11 +144,10 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             return result.scalar_one_or_none()
 
     # ========================================================================
-    # NEW METHODS FOR PORT CONTRACT
+    # PROJECTOR MANAGEMENT
     # ========================================================================
 
     async def register_projector(self, name: str, handler: Any) -> None:
-        """Register a projector with a name and handler function."""
         async with self._lock:
             self._projectors[name] = {
                 "name": name,
@@ -156,11 +161,9 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             logger.info("Projector %s registered", name)
 
     async def unregister_projector(self, name: str) -> bool:
-        """Unregister a projector."""
         async with self._lock:
             if name not in self._projectors:
                 return False
-            # Stop if running
             if self._projectors[name]["status"] == ProjectorStatus.RUNNING:
                 self._projectors[name]["status"] = ProjectorStatus.STOPPED
             del self._projectors[name]
@@ -169,19 +172,16 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             return True
 
     async def get_projector_status(self, name: str) -> dict[str, Any]:
-        """Get status of a specific projector."""
         async with self._lock:
             if name not in self._projectors:
                 return {"status": "not_found"}
             return self._projectors[name].copy()
 
     async def get_all_status(self) -> dict[str, dict[str, Any]]:
-        """Get status of all registered projectors."""
         async with self._lock:
             return {name: info.copy() for name, info in self._projectors.items()}
 
     async def pause_projector(self, name: str) -> bool:
-        """Pause a running projector."""
         async with self._lock:
             if name not in self._projectors:
                 return False
@@ -193,7 +193,6 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             return False
 
     async def resume_projector(self, name: str) -> bool:
-        """Resume a paused projector."""
         async with self._lock:
             if name not in self._projectors:
                 return False
@@ -205,14 +204,11 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             return False
 
     async def rebuild_projector(self, name: str) -> bool:
-        """Rebuild a projector (clear and reprocess all events)."""
         async with self._lock:
             if name not in self._projectors:
                 return False
-            # Reset checkpoint and projection
             await self.save_checkpoint(name, "")
             await self.delete_projection(name)
-            # Update status
             self._projectors[name]["status"] = ProjectorStatus.IDLE
             self._projectors[name]["events_processed"] = 0
             await self._log_audit("REBUILD_PROJECTOR", {"name": name})
@@ -220,7 +216,6 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             return True
 
     async def rebuild_all(self) -> int:
-        """Rebuild all registered projectors."""
         count = 0
         for name in list(self._projectors.keys()):
             if await self.rebuild_projector(name):
@@ -229,8 +224,11 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
         logger.info("Rebuilt %d projectors", count)
         return count
 
+    # ========================================================================
+    # EVENT SUBMISSION
+    # ========================================================================
+
     async def submit_event(self, event: dict[str, Any]) -> None:
-        """Submit a single event to the processing queue."""
         async with self._lock:
             event_id = str(uuid4())
             self._queue.append({
@@ -243,7 +241,6 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             logger.debug("Event %s submitted", event_id)
 
     async def submit_batch(self, events: list[dict[str, Any]]) -> int:
-        """Submit a batch of events to the processing queue."""
         count = 0
         for event in events:
             await self.submit_event(event)
@@ -253,16 +250,11 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
         return count
 
     async def catch_up(self, projection_name: str) -> int:
-        """Process all pending events for a specific projector."""
-        # Simulate catching up by processing events in queue
         processed = 0
         async with self._lock:
             if projection_name not in self._projectors:
                 return 0
-            # In a real implementation, this would replay events from event store
-            # For now, we just mark that we've caught up
             self._projectors[projection_name]["status"] = ProjectorStatus.RUNNING
-            # Process pending events (simulate)
             while self._queue:
                 item = self._queue.pop(0)
                 processed += 1
@@ -274,12 +266,14 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
         return processed
 
     async def get_queue_size(self) -> int:
-        """Get the current queue size."""
         async with self._lock:
             return len(self._queue)
 
+    # ========================================================================
+    # WORKER
+    # ========================================================================
+
     async def start_worker(self) -> None:
-        """Start the background worker to process events."""
         if self._worker_running:
             logger.warning("Worker already running")
             return
@@ -289,7 +283,6 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
         logger.info("Worker started")
 
     async def stop_worker(self) -> None:
-        """Stop the background worker."""
         if not self._worker_running:
             logger.warning("Worker not running")
             return
@@ -305,14 +298,11 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
         logger.info("Worker stopped")
 
     async def _worker_loop(self) -> None:
-        """Background worker loop."""
         while self._worker_running:
             try:
-                # Process one event at a time
                 async with self._lock:
                     if self._queue:
                         item = self._queue.pop(0)
-                        # Process event (simulate)
                         await self._process_event(item)
                         self._metrics["total_events_processed"] += 1
                     else:
@@ -325,9 +315,6 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
                 await asyncio.sleep(1)
 
     async def _process_event(self, item: dict[str, Any]) -> None:
-        """Process a single event (stub implementation)."""
-        # In a real implementation, this would call the appropriate projector handler
-        # For now, we just log and update metrics
         logger.debug("Processing event %s", item.get("id"))
 
     # ========================================================================
@@ -335,23 +322,20 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
     # ========================================================================
 
     async def get_metrics(self) -> dict[str, Any]:
-        """Get metrics about projection processing."""
         async with self._lock:
             return self._metrics.copy()
 
     async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-        """Get audit log of projection operations."""
         logs = self._audit_log.copy()
         logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         return logs[offset:offset + limit]
 
     async def health_check(self) -> dict[str, Any]:
-        """Check health of the projection system."""
         try:
-            # Check database connection
             async with await self._get_session() as session:
                 await session.execute(select(1))
             status = "healthy"
+            error = None
         except Exception as e:
             status = "unhealthy"
             error = str(e)
@@ -362,5 +346,8 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             "registered_projectors": len(self._projectors),
             "total_events_processed": self._metrics.get("total_events_processed", 0),
             "errors": self._metrics.get("errors", 0),
-            "error": error if status == "unhealthy" else None,
+            "error": error,
         }
+
+
+__all__ = ["SQLAlchemyReadModelProjection"]

@@ -20,6 +20,10 @@ Dependencies:
 - config.loader_yaml -> DIINJEKSI DARI LUAR (tidak diimpor langsung)
 Audit: Laporan OJK dihasilkan untuk kepatuhan regulasi.
        Setiap laporan yang dihasilkan dicatat.
+
+Perbaikan presisi:
+    - Semua nilai moneter dikonversi ke string (bukan float) untuk serialisasi.
+    - Menghilangkan float() pada nilai moneter untuk memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -276,19 +280,19 @@ class OJKFormatBuilder:
         assets = []
         for line in OJK_BALANCE_SHEET_LINES["assets"]:
             value = data.get(line["source_field"], Decimal(0))
-            assets.append({"code": line["code"], "label": line["label"], "value": float(value)})
+            assets.append({"code": line["code"], "label": line["label"], "value": str(value)})
 
         liabilities = []
         for line in OJK_BALANCE_SHEET_LINES["liabilities"]:
             value = data.get(line["source_field"], Decimal(0))
             liabilities.append(
-                {"code": line["code"], "label": line["label"], "value": float(value)}
+                {"code": line["code"], "label": line["label"], "value": str(value)}
             )
 
         equity = []
         for line in OJK_BALANCE_SHEET_LINES["equity"]:
             value = data.get(line["source_field"], Decimal(0))
-            equity.append({"code": line["code"], "label": line["label"], "value": float(value)})
+            equity.append({"code": line["code"], "label": line["label"], "value": str(value)})
 
         return {
             "legal_entity_id": str(legal_entity_id),
@@ -298,9 +302,11 @@ class OJKFormatBuilder:
             "assets": assets,
             "liabilities": liabilities,
             "equity": equity,
-            "total_assets": assets[-1]["value"] if assets else 0,
-            "total_liabilities_equity": (liabilities[-1]["value"] if liabilities else 0)
-            + (equity[-1]["value"] if equity else 0),
+            "total_assets": assets[-1]["value"] if assets else "0",
+            "total_liabilities_equity": str(
+                (Decimal(liabilities[-1]["value"]) if liabilities else Decimal(0))
+                + (Decimal(equity[-1]["value"]) if equity else Decimal(0))
+            ),
             "currency": self.config.get("currency", "IDR"),
         }
 
@@ -323,7 +329,7 @@ class OJKFormatBuilder:
         lines = []
         for line in OJK_INCOME_STATEMENT_LINES:
             value = data.get(line["source_field"], Decimal(0))
-            lines.append({"code": line["code"], "label": line["label"], "value": float(value)})
+            lines.append({"code": line["code"], "label": line["label"], "value": str(value)})
 
         return {
             "legal_entity_id": str(legal_entity_id),
@@ -331,7 +337,7 @@ class OJKFormatBuilder:
             "period_start": start_date.isoformat(),
             "period_end": end_date.isoformat(),
             "lines": lines,
-            "net_income": lines[-1]["value"] if lines else 0,
+            "net_income": lines[-1]["value"] if lines else "0",
             "currency": self.config.get("currency", "IDR"),
         }
 
@@ -365,12 +371,12 @@ class OJKFormatBuilder:
             "period_id": str(period_id),
             "period_start": start_date.isoformat(),
             "period_end": end_date.isoformat(),
-            "operating_activities": float(cash_flow["operating"]),
-            "investing_activities": float(cash_flow["investing"]),
-            "financing_activities": float(cash_flow["financing"]),
-            "net_increase_decrease": float(cash_flow["net_cash_flow"]),
-            "beginning_cash": float(cash_flow["beginning_cash"]),
-            "ending_cash": float(cash_flow["ending_cash"]),
+            "operating_activities": str(cash_flow["operating"]),
+            "investing_activities": str(cash_flow["investing"]),
+            "financing_activities": str(cash_flow["financing"]),
+            "net_increase_decrease": str(cash_flow["net_cash_flow"]),
+            "beginning_cash": str(cash_flow["beginning_cash"]),
+            "ending_cash": str(cash_flow["ending_cash"]),
             "currency": self.config.get("currency", "IDR"),
         }
 

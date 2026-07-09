@@ -92,9 +92,22 @@ class DomainEventType(Enum):
 
 # === 2. BASE DOMAIN EVENT ===
 
-@dataclass
+@dataclass(frozen=True)
 class DomainEvent:
-    """Base class untuk semua domain events Purchase & Sales."""
+    """
+    Base class untuk semua domain events Purchase & Sales.
+
+    Attributes:
+        event_id: UUID unik event.
+        event_type: Jenis event (DomainEventType).
+        aggregate_id: UUID agregat yang terkait.
+        aggregate_version: Versi agregat saat event terjadi.
+        occurred_at: Waktu kejadian.
+        event_data: Data payload event.
+        user_id: ID pengguna yang memicu event (opsional).
+        correlation_id: ID korelasi untuk tracing (opsional).
+        causation_id: ID penyebab event (opsional).
+    """
 
     event_id: UUID
     event_type: DomainEventType
@@ -104,6 +117,7 @@ class DomainEvent:
     event_data: dict[str, Any]
     user_id: str | None = None
     correlation_id: str | None = None
+    causation_id: str | None = None
 
     def to_json(self) -> str:
         return json.dumps(
@@ -115,6 +129,7 @@ class DomainEvent:
                 "occurred_at": self.occurred_at.isoformat(),
                 "user_id": self.user_id,
                 "correlation_id": self.correlation_id,
+                "causation_id": self.causation_id,
                 "event_data": self.event_data,
             },
             default=str,
@@ -132,6 +147,7 @@ class DomainEvent:
             event_data=data["event_data"],
             user_id=data.get("user_id"),
             correlation_id=data.get("correlation_id"),
+            causation_id=data.get("causation_id"),
         )
 
 
@@ -139,8 +155,20 @@ class DomainEvent:
 
 # --- 3a. Purchase Order Events ---
 
-@dataclass
+@dataclass(frozen=True)
 class PurchaseOrderCreatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Purchase Order baru dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat PO.
+        aggregate_version: Versi agregat.
+        purchase_order: Entity PurchaseOrder.
+        created_by: User ID pembuat.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -149,6 +177,7 @@ class PurchaseOrderCreatedEvent(DomainEvent):
         created_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "po_id": str(purchase_order.po_id),
@@ -168,11 +197,24 @@ class PurchaseOrderCreatedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PurchaseOrderApprovedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Purchase Order disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat PO.
+        aggregate_version: Versi agregat.
+        purchase_order: Entity PurchaseOrder.
+        approved_by: User ID yang menyetujui.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -181,6 +223,7 @@ class PurchaseOrderApprovedEvent(DomainEvent):
         approved_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "po_id": str(purchase_order.po_id),
@@ -196,13 +239,26 @@ class PurchaseOrderApprovedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
 # --- 3b. Sales Order Events ---
 
-@dataclass
+@dataclass(frozen=True)
 class SalesOrderCreatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Sales Order baru dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat SO.
+        aggregate_version: Versi agregat.
+        sales_order: Entity SalesOrder.
+        created_by: User ID pembuat.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -211,6 +267,7 @@ class SalesOrderCreatedEvent(DomainEvent):
         created_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "so_id": str(sales_order.so_id),
@@ -230,11 +287,24 @@ class SalesOrderCreatedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class SalesOrderApprovedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Sales Order disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat SO.
+        aggregate_version: Versi agregat.
+        sales_order: Entity SalesOrder.
+        approved_by: User ID yang menyetujui.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -243,6 +313,7 @@ class SalesOrderApprovedEvent(DomainEvent):
         approved_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "so_id": str(sales_order.so_id),
@@ -258,13 +329,26 @@ class SalesOrderApprovedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
 # --- 3c. Goods Receipt ---
 
-@dataclass
+@dataclass(frozen=True)
 class GoodsReceiptCreatedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Goods Receipt Note baru dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat GRN.
+        aggregate_version: Versi agregat.
+        grn: Entity GoodsReceiptNote.
+        created_by: User ID pembuat.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -273,6 +357,7 @@ class GoodsReceiptCreatedEvent(DomainEvent):
         created_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "grn_id": str(grn.grn_id),
@@ -294,13 +379,26 @@ class GoodsReceiptCreatedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
 # --- 3d. Delivery Note ---
 
-@dataclass
+@dataclass(frozen=True)
 class DeliveryNoteShippedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Delivery Note dikirim.
+
+    Attributes:
+        aggregate_id: ID agregat delivery note.
+        aggregate_version: Versi agregat.
+        delivery: Entity SalesDeliveryNote.
+        shipped_by: User ID pengirim.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -309,6 +407,7 @@ class DeliveryNoteShippedEvent(DomainEvent):
         shipped_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "delivery_id": str(delivery.delivery_id),
@@ -329,13 +428,26 @@ class DeliveryNoteShippedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
 # --- 3e. Sales Invoice Events ---
 
-@dataclass
+@dataclass(frozen=True)
 class SalesInvoiceIssuedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Sales Invoice diterbitkan.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity SalesInvoice.
+        issued_by: User ID penerbit.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -344,6 +456,7 @@ class SalesInvoiceIssuedEvent(DomainEvent):
         issued_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice.invoice_id),
@@ -365,11 +478,25 @@ class SalesInvoiceIssuedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class SalesInvoicePaidEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Sales Invoice dibayar.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity SalesInvoice.
+        payment_amount: Jumlah pembayaran.
+        paid_by: User ID pembayar.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -379,6 +506,7 @@ class SalesInvoicePaidEvent(DomainEvent):
         paid_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice.invoice_id),
@@ -396,13 +524,26 @@ class SalesInvoicePaidEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
 # --- 3f. Purchase Invoice Events ---
 
-@dataclass
+@dataclass(frozen=True)
 class PurchaseInvoiceReceivedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Purchase Invoice diterima.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity PurchaseInvoice.
+        received_by: User ID penerima.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -411,6 +552,7 @@ class PurchaseInvoiceReceivedEvent(DomainEvent):
         received_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice.invoice_id),
@@ -432,11 +574,24 @@ class PurchaseInvoiceReceivedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PurchaseInvoiceApprovedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Purchase Invoice disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity PurchaseInvoice.
+        approved_by: User ID yang menyetujui.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -445,6 +600,7 @@ class PurchaseInvoiceApprovedEvent(DomainEvent):
         approved_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice.invoice_id),
@@ -463,11 +619,25 @@ class PurchaseInvoiceApprovedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class PurchaseInvoicePaidEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Purchase Invoice dibayar.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice: Entity PurchaseInvoice.
+        payment_amount: Jumlah pembayaran.
+        paid_by: User ID pembayar.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -477,6 +647,7 @@ class PurchaseInvoicePaidEvent(DomainEvent):
         paid_by: str,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice.invoice_id),
@@ -495,13 +666,29 @@ class PurchaseInvoicePaidEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
 # --- 3g. Generic Invoice Events (digunakan oleh service_purchase_sales) ---
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceCreatedEvent(DomainEvent):
+    """
+    Event generic ketika invoice dibuat.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        invoice_number: Nomor invoice.
+        invoice_type: Tipe invoice (purchase/sales).
+        total_amount: Total amount.
+        created_by: User ID pembuat.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -513,6 +700,7 @@ class InvoiceCreatedEvent(DomainEvent):
         created_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice_id),
@@ -530,11 +718,27 @@ class InvoiceCreatedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or created_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceIssuedEvent(DomainEvent):
+    """
+    Event generic ketika invoice diterbitkan.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        invoice_number: Nomor invoice.
+        invoice_type: Tipe invoice.
+        total_amount: Total amount.
+        issued_by: User ID penerbit.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -546,6 +750,7 @@ class InvoiceIssuedEvent(DomainEvent):
         issued_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice_id),
@@ -563,11 +768,26 @@ class InvoiceIssuedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or issued_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceApprovedEvent(DomainEvent):
+    """
+    Event generic ketika invoice disetujui.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        invoice_number: Nomor invoice.
+        invoice_type: Tipe invoice.
+        approved_by: User ID yang menyetujui.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -578,6 +798,7 @@ class InvoiceApprovedEvent(DomainEvent):
         approved_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice_id),
@@ -594,11 +815,27 @@ class InvoiceApprovedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or approved_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceCancelledEvent(DomainEvent):
+    """
+    Event generic ketika invoice dibatalkan.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        invoice_number: Nomor invoice.
+        invoice_type: Tipe invoice.
+        reason: Alasan pembatalan.
+        cancelled_by: User ID pembatalan.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -610,6 +847,7 @@ class InvoiceCancelledEvent(DomainEvent):
         cancelled_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice_id),
@@ -627,11 +865,27 @@ class InvoiceCancelledEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or cancelled_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoicePaidEvent(DomainEvent):
+    """
+    Event generic ketika invoice dibayar.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        invoice_number: Nomor invoice.
+        invoice_type: Tipe invoice.
+        payment_amount: Jumlah pembayaran.
+        paid_by: User ID pembayar.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -643,6 +897,7 @@ class InvoicePaidEvent(DomainEvent):
         paid_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice_id),
@@ -660,11 +915,28 @@ class InvoicePaidEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or paid_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoicePartiallyPaidEvent(DomainEvent):
+    """
+    Event generic ketika invoice dibayar sebagian.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        invoice_number: Nomor invoice.
+        invoice_type: Tipe invoice.
+        paid_amount: Jumlah yang sudah dibayar.
+        total_amount: Total amount invoice.
+        paid_by: User ID pembayar.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -677,6 +949,7 @@ class InvoicePartiallyPaidEvent(DomainEvent):
         paid_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice_id),
@@ -695,11 +968,27 @@ class InvoicePartiallyPaidEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or paid_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceDisputedEvent(DomainEvent):
+    """
+    Event generic ketika invoice diperselisihkan.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        invoice_number: Nomor invoice.
+        invoice_type: Tipe invoice.
+        reason: Alasan perselisihan.
+        disputed_by: User ID yang memperselisihkan.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -711,6 +1000,7 @@ class InvoiceDisputedEvent(DomainEvent):
         disputed_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice_id),
@@ -728,11 +1018,26 @@ class InvoiceDisputedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or disputed_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceVerifiedEvent(DomainEvent):
+    """
+    Event generic ketika invoice diverifikasi.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        invoice_number: Nomor invoice.
+        invoice_type: Tipe invoice.
+        verified_by: User ID verifikator.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -743,6 +1048,7 @@ class InvoiceVerifiedEvent(DomainEvent):
         verified_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice_id),
@@ -759,11 +1065,26 @@ class InvoiceVerifiedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or verified_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceReceivedEvent(DomainEvent):
+    """
+    Event generic ketika invoice diterima.
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        invoice_number: Nomor invoice.
+        invoice_type: Tipe invoice.
+        received_by: User ID penerima.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -774,6 +1095,7 @@ class InvoiceReceivedEvent(DomainEvent):
         received_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice_id),
@@ -790,11 +1112,27 @@ class InvoiceReceivedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or received_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoiceWrittenOffEvent(DomainEvent):
+    """
+    Event generic ketika invoice dihapusbukukan (write-off).
+
+    Attributes:
+        aggregate_id: ID agregat invoice.
+        aggregate_version: Versi agregat.
+        invoice_id: ID invoice.
+        invoice_number: Nomor invoice.
+        invoice_type: Tipe invoice.
+        reason: Alasan write-off.
+        written_off_by: User ID yang melakukan write-off.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -806,6 +1144,7 @@ class InvoiceWrittenOffEvent(DomainEvent):
         written_off_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "invoice_id": str(invoice_id),
@@ -823,13 +1162,31 @@ class InvoiceWrittenOffEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or written_off_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
 # --- 3h. Credit Note Events ---
 
-@dataclass
+@dataclass(frozen=True)
 class CreditNoteIssuedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Credit Note diterbitkan.
+
+    Attributes:
+        aggregate_id: ID agregat credit note.
+        aggregate_version: Versi agregat.
+        credit_note_id: ID credit note.
+        credit_note_number: Nomor credit note.
+        invoice_id: ID invoice terkait.
+        invoice_type: Tipe invoice.
+        amount: Jumlah credit note.
+        reason: Alasan.
+        issued_by: User ID penerbit.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -843,6 +1200,7 @@ class CreditNoteIssuedEvent(DomainEvent):
         issued_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "credit_note_id": str(credit_note_id),
@@ -862,11 +1220,28 @@ class CreditNoteIssuedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or issued_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CreditNoteReceivedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Credit Note diterima.
+
+    Attributes:
+        aggregate_id: ID agregat credit note.
+        aggregate_version: Versi agregat.
+        credit_note_id: ID credit note.
+        credit_note_number: Nomor credit note.
+        invoice_id: ID invoice terkait.
+        invoice_type: Tipe invoice.
+        amount: Jumlah credit note.
+        received_by: User ID penerima.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -879,6 +1254,7 @@ class CreditNoteReceivedEvent(DomainEvent):
         received_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "credit_note_id": str(credit_note_id),
@@ -897,11 +1273,28 @@ class CreditNoteReceivedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or received_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class CreditNoteAppliedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Credit Note diterapkan ke invoice.
+
+    Attributes:
+        aggregate_id: ID agregat credit note.
+        aggregate_version: Versi agregat.
+        credit_note_id: ID credit note.
+        credit_note_number: Nomor credit note.
+        invoice_id: ID invoice terkait.
+        invoice_type: Tipe invoice.
+        amount: Jumlah yang diterapkan.
+        applied_by: User ID yang menerapkan.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -914,6 +1307,7 @@ class CreditNoteAppliedEvent(DomainEvent):
         applied_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "credit_note_id": str(credit_note_id),
@@ -932,13 +1326,31 @@ class CreditNoteAppliedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or applied_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
 # --- 3i. Debit Note Events ---
 
-@dataclass
+@dataclass(frozen=True)
 class DebitNoteIssuedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Debit Note diterbitkan.
+
+    Attributes:
+        aggregate_id: ID agregat debit note.
+        aggregate_version: Versi agregat.
+        debit_note_id: ID debit note.
+        debit_note_number: Nomor debit note.
+        invoice_id: ID invoice terkait.
+        invoice_type: Tipe invoice.
+        amount: Jumlah debit note.
+        reason: Alasan.
+        issued_by: User ID penerbit.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -952,6 +1364,7 @@ class DebitNoteIssuedEvent(DomainEvent):
         issued_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "debit_note_id": str(debit_note_id),
@@ -971,11 +1384,28 @@ class DebitNoteIssuedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or issued_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class DebitNoteAppliedEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Debit Note diterapkan ke invoice.
+
+    Attributes:
+        aggregate_id: ID agregat debit note.
+        aggregate_version: Versi agregat.
+        debit_note_id: ID debit note.
+        debit_note_number: Nomor debit note.
+        invoice_id: ID invoice terkait.
+        invoice_type: Tipe invoice.
+        amount: Jumlah yang diterapkan.
+        applied_by: User ID yang menerapkan.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -988,6 +1418,7 @@ class DebitNoteAppliedEvent(DomainEvent):
         applied_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "debit_note_id": str(debit_note_id),
@@ -1006,11 +1437,30 @@ class DebitNoteAppliedEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or applied_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class DebitNoteIssuedServiceEvent(DomainEvent):
+    """
+    Event yang diterbitkan ketika Debit Note untuk jasa diterbitkan.
+
+    Attributes:
+        aggregate_id: ID agregat debit note.
+        aggregate_version: Versi agregat.
+        debit_note_id: ID debit note.
+        debit_note_number: Nomor debit note.
+        invoice_id: ID invoice terkait.
+        invoice_type: Tipe invoice.
+        amount: Jumlah debit note.
+        reason: Alasan.
+        service_type: Tipe jasa.
+        issued_by: User ID penerbit.
+        user_id: (opsional) ID pengguna.
+        correlation_id: (opsional) ID korelasi.
+        causation_id: (opsional) ID penyebab.
+    """
     def __init__(
         self,
         aggregate_id: UUID,
@@ -1025,6 +1475,7 @@ class DebitNoteIssuedServiceEvent(DomainEvent):
         issued_by: str | None = None,
         user_id: str | None = None,
         correlation_id: str | None = None,
+        causation_id: str | None = None,
     ):
         event_data = {
             "debit_note_id": str(debit_note_id),
@@ -1045,6 +1496,7 @@ class DebitNoteIssuedServiceEvent(DomainEvent):
             event_data=event_data,
             user_id=user_id or issued_by,
             correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
 
