@@ -19,7 +19,6 @@ from uuid import UUID, uuid4
 
 from domain.journal.journal_entity import JournalEntity
 
-
 # ============================================================================
 # CUSTOM EXCEPTIONS FOR EVENT PUBLISHING
 # ============================================================================
@@ -605,7 +604,7 @@ class DomainEventPublisher:
             try:
                 await self.publish(event)
                 return
-            except (ConnectionError, TimeoutError, OSError, asyncio.TimeoutError) as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
                 # Retry-able network/timeout errors
                 last_error = e
                 wait_time = 0.1 * (2**attempt)  # Exponential backoff: 0.1, 0.2, 0.4...
@@ -617,7 +616,7 @@ class DomainEventPublisher:
                     wait_time,
                 )
                 await asyncio.sleep(wait_time)
-            except EventPublishError as e:
+            except EventPublishError:
                 # Custom publish errors: re-raise immediately, do not retry
                 # (retry logic should be handled by the caller if desired)
                 raise

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, UTC
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
@@ -33,7 +33,6 @@ from domain.inventory.domain_events import (
     ItemCreated,
     ItemDeactivated,
     ItemUpdated,
-    StockAdjusted,
     StockLevelAlert,
     StockMovementCreated,
     StockOpnameApproved,

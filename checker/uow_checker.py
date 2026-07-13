@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 uow_checker.py – Unit of Work Pattern Validator
 ================================================
@@ -18,18 +17,16 @@ from __future__ import annotations
 
 import argparse
 import ast
-import concurrent.futures
 import csv
 import json
 import logging
-import os
 import pathlib
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
+from datetime import UTC, datetime
 
 # ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
 _RCA_ENGINE = None
@@ -40,7 +37,7 @@ def _init_rca() -> bool:
     if _RCA_AVAILABLE:
         return True
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -50,7 +47,7 @@ def _init_rca() -> bool:
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -60,7 +57,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -95,7 +92,7 @@ if not logger.handlers:
     logger.addHandler(_log_handler)
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
     "WHITE": "", "BOLD": "", "DIM": "", "RESET": "",
 }
@@ -170,9 +167,9 @@ class Finding:
     category: str  # port, implementation, usage, bypass, read_write
     message: str
     detail: str = ""
-    rca: Optional[Dict] = None
+    rca: dict | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "severity": self.severity,
             "file": self.file,
@@ -195,12 +192,12 @@ class UseCaseSummary:
     has_service_write: bool
     has_command_bus: bool
     is_write: bool
-    violations: List[Finding] = field(default_factory=list)
+    violations: list[Finding] = field(default_factory=list)
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
-    use_case_summaries: List[UseCaseSummary] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
+    use_case_summaries: list[UseCaseSummary] = field(default_factory=list)
     score: float = 100.0
     scan_time: float = 0.0
     total_files_scanned: int = 0
@@ -227,10 +224,10 @@ class Report:
         return self.error_count == 0
 
 # ─── AST UTILITIES ──────────────────────────────────────────────────────────
-_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_AST_CACHE: dict[str, tuple[ast.AST | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
 
-def _read_source(py_file: pathlib.Path) -> Optional[str]:
+def _read_source(py_file: pathlib.Path) -> str | None:
     encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
     for enc in encodings:
         try:
@@ -242,7 +239,7 @@ def _read_source(py_file: pathlib.Path) -> Optional[str]:
     except OSError:
         return None
 
-def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     key = str(py_file.resolve())
     with _CACHE_LOCK:
         if key in _AST_CACHE:
@@ -264,7 +261,7 @@ def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
         _AST_CACHE[key] = (None, err)
         return None, err
 
-def _get_methods(node: ast.ClassDef) -> Set[str]:
+def _get_methods(node: ast.ClassDef) -> set[str]:
     return {item.name for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
 def _has_method(node: ast.ClassDef, name: str) -> bool:
@@ -288,14 +285,14 @@ def _is_factory_class(node: ast.ClassDef) -> bool:
         return True
     return False
 
-def _find_exit_method(node: ast.ClassDef) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
+def _find_exit_method(node: ast.ClassDef) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
     for item in node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if item.name in ("__exit__", "__aexit__"):
                 return item
     return None
 
-def _analyze_exit_method(node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> Tuple[bool, bool, bool]:
+def _analyze_exit_method(node: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[bool, bool, bool]:
     has_commit = False
     has_rollback = False
     has_rollback_on_error = False
@@ -307,11 +304,7 @@ def _analyze_exit_method(node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> 
         def visit_If(self, node):
             test = node.test
             is_error_check = False
-            if isinstance(test, ast.Name) and test.id in ("exc_type", "exc_val", "exc_tb"):
-                is_error_check = True
-            elif isinstance(test, ast.Call) and isinstance(test.func, ast.Name) and test.func.id == "isinstance":
-                is_error_check = True
-            elif isinstance(test, ast.Compare):
+            if (isinstance(test, ast.Name) and test.id in ("exc_type", "exc_val", "exc_tb")) or (isinstance(test, ast.Call) and isinstance(test.func, ast.Name) and test.func.id == "isinstance") or isinstance(test, ast.Compare):
                 is_error_check = True
 
             if is_error_check:
@@ -457,7 +450,7 @@ def _has_uow_usage(node: ast.AST) -> bool:
                                 return True
     return False
 
-def _has_transactional_decorator(node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> bool:
+def _has_transactional_decorator(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     for dec in node.decorator_list:
         if isinstance(dec, ast.Name) and dec.id == "transactional":
             return True
@@ -492,7 +485,7 @@ class UoWChecker:
         root: pathlib.Path,
         enable_rca: bool = True,
         strict: bool = False,
-        extra_excludes: Optional[Set[str]] = None,
+        extra_excludes: set[str] | None = None,
         max_workers: int = 4,
     ):
         self.root = root
@@ -513,7 +506,7 @@ class UoWChecker:
             return True
         return False
 
-    def _generate_rca(self, msg: str, severity: str, context: Optional[Dict] = None) -> Optional[Dict]:
+    def _generate_rca(self, msg: str, severity: str, context: dict | None = None) -> dict | None:
         if not self.enable_rca:
             return None
         try:
@@ -527,7 +520,7 @@ class UoWChecker:
             return {"root_cause": msg, "suggested_fix": "Periksa implementasi UoW."}
 
     # ─── PORT CHECK ────────────────────────────────────────────────────────────
-    def check_port(self) -> List[Finding]:
+    def check_port(self) -> list[Finding]:
         findings = []
         port_file = self.root / "ports" / "primary" / UOW_PORT_FILENAME
         if not port_file.exists():
@@ -610,7 +603,7 @@ class UoWChecker:
         return findings
 
     # ─── IMPLEMENTATION CHECK ──────────────────────────────────────────────
-    def check_implementation(self) -> List[Finding]:
+    def check_implementation(self) -> list[Finding]:
         findings = []
         impl_dir = self.root / "adapters" / "secondary_impl"
         if not impl_dir.exists():
@@ -740,7 +733,7 @@ class UoWChecker:
         return findings
 
     # ─── USE CASE ANALYSIS (enhanced) ──────────────────────────────────────
-    def analyze_use_cases(self) -> Tuple[List[Finding], List[UseCaseSummary]]:
+    def analyze_use_cases(self) -> tuple[list[Finding], list[UseCaseSummary]]:
         findings = []
         summaries = []
         use_cases_dir = self.root / "application" / "use_cases"
@@ -865,7 +858,7 @@ class UoWChecker:
 
         return findings, summaries
 
-    def scan(self, progress_callback: Optional[Callable] = None) -> Report:
+    def scan(self, progress_callback: Callable | None = None) -> Report:
         t0 = time.monotonic()
         report = Report()
 
@@ -915,7 +908,7 @@ def print_report(report: Report, checker: UoWChecker, verbose: bool = False, sho
     _safe_print("    ✅ CommandBus dispatch considered UoW-aware")
     _safe_print("    ✅ Read/Write awareness: read-only use cases don't need UoW")
 
-    _safe_print(f"\n  📊 Summary:")
+    _safe_print("\n  📊 Summary:")
     _safe_print(f"    Files scanned    : {report.total_files_scanned}")
     _safe_print(f"    Use Cases scanned: {report.total_use_cases_scanned}")
     _safe_print(f"      ✅ With UoW    : {report.use_cases_with_uow}")
@@ -988,7 +981,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
     try:
         data = {
             "version": __version__,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "score": report.score,
             "passed": report.passed,
             "scan_time": report.scan_time,
@@ -1068,7 +1061,7 @@ h1{{color:#0d6efd}}
 """
         for f in report.findings:
             cls = "error" if f.severity == "ERROR" else "warning" if f.severity == "WARNING" else "info"
-            html += f'<div class="finding {cls}"><strong>{f.severity}</strong> [{f.category}] {f.message}<br><small>{f.file}:{f.line}</small>{f.detail and f" <small>{f.detail}</small>" or ""}</div>'
+            html += f'<div class="finding {cls}"><strong>{f.severity}</strong> [{f.category}] {f.message}<br><small>{f.file}:{f.line}</small>{(f.detail and f" <small>{f.detail}</small>") or ""}</div>'
         html += "</body></html>"
         with open(path, "w", encoding="utf-8") as f:
             f.write(html)

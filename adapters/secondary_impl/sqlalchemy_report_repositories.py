@@ -430,6 +430,6 @@ __all__ = [
     "SQLAlchemyBalanceSheetRepository",
     "SQLAlchemyCashFlowRepository",
     "SQLAlchemyIncomeStatementRepository",
-    "SQLAlchemyTrialBalanceRepository",
     "SQLAlchemyReportRepository",
+    "SQLAlchemyTrialBalanceRepository",
 ]

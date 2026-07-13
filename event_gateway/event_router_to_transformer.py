@@ -286,7 +286,6 @@ class EventRouter:
         self._queue: list[QueuedEvent] = []
         self._queue_lock = asyncio.Lock()
         self._processing = True
-        self._worker_task: asyncio.Task | None = None
         self._max_queue_size = max_queue_size
         self._retry_config = DEFAULT_RETRY_DELAY_SECONDS
         self._batch_size = QUEUE_PROCESS_BATCH_SIZE
@@ -299,7 +298,17 @@ class EventRouter:
             "retried_total": 0,
             "last_processed_at": None,
         }
+        # ===== SEMUA TASK DISIMPAN DI SINI =====
+        self._pending_tasks: list[asyncio.Task] = []
+        self._worker_task: asyncio.Task | None = None
         self._take_snapshot()
+
+    def _add_pending_task(self, task: asyncio.Task) -> None:
+        """Tambahkan task ke daftar pending dan daftarkan callback untuk menghapusnya."""
+        self._pending_tasks.append(task)
+        task.add_done_callback(
+            lambda t: self._pending_tasks.remove(t) if t in self._pending_tasks else None
+        )
 
     def _take_snapshot(self):
         self._snapshots.append(
@@ -324,23 +333,38 @@ class EventRouter:
             }
         )
 
+    # ========================================================================
+    # LIFECYCLE
+    # ========================================================================
+
     async def start(self) -> None:
         if self._worker_task is None or self._worker_task.done():
             self._processing = True
             self._worker_task = asyncio.create_task(self._process_queue())
+            self._add_pending_task(self._worker_task)  # worker juga dikelola
             self._record_audit("START", "system", {})
             logger.info("Event router started")
 
     async def stop(self) -> None:
         self._processing = False
-        if self._worker_task:
+        # Batalkan semua task pending (termasuk worker)
+        if self._pending_tasks:
+            for task in self._pending_tasks:
+                if not task.done():
+                    task.cancel()
+            # Tunggu hingga semua task selesai
             try:
-                await asyncio.wait_for(self._worker_task, timeout=30.0)
-            except TimeoutError:
-                self._worker_task.cancel()
-                logger.warning("Router worker cancelled due to timeout")
+                await asyncio.gather(*self._pending_tasks, return_exceptions=True)
+            except asyncio.CancelledError:
+                pass
+            self._pending_tasks.clear()
+        self._worker_task = None
         self._record_audit("STOP", "system", {})
         logger.info("Event router stopped")
+
+    # ========================================================================
+    # ROUTING
+    # ========================================================================
 
     async def route(self, envelope: EventEnvelope, priority: int = 10) -> None:
         if not self._registry.has_transformer(envelope.event_type):
@@ -365,6 +389,10 @@ class EventRouter:
         transformers = self._registry.get_transformers(event_type)
         return [t.__name__ for t in transformers]
 
+    # ========================================================================
+    # QUEUE PROCESSING
+    # ========================================================================
+
     async def _process_queue(self) -> None:
         logger.info("Router worker started")
         while self._processing:
@@ -373,13 +401,15 @@ class EventRouter:
                 if not batch:
                     await asyncio.sleep(0.1)
                     continue
-                # Process each event with timeout
-                tasks = [
-                    asyncio.create_task(self._process_event_with_timeout(queued))
-                    for queued in batch
-                ]
-                await asyncio.gather(*tasks, return_exceptions=True)
+                tasks = []
+                for queued in batch:
+                    task = asyncio.create_task(self._process_event_with_timeout(queued))
+                    self._add_pending_task(task)
+                    tasks.append(task)
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
             except asyncio.CancelledError:
+                logger.debug("Router worker loop cancelled")
                 break
             except Exception as e:
                 logger.exception(f"Error in router worker: {e}")
@@ -394,6 +424,10 @@ class EventRouter:
                     break
                 batch.append(heapq.heappop(self._queue))
             return batch
+
+    # ========================================================================
+    # EVENT PROCESSING
+    # ========================================================================
 
     async def _process_event_with_timeout(self, queued: QueuedEvent) -> None:
         try:
@@ -430,6 +464,10 @@ class EventRouter:
         self._metrics["last_processed_at"] = datetime.now(UTC).isoformat()
         logger.debug(f"Event {envelope.id} routed successfully in {latency:.3f}s")
 
+    # ========================================================================
+    # FAILURE HANDLING
+    # ========================================================================
+
     async def _handle_failure(self, queued: QueuedEvent, error: Exception) -> None:
         envelope = queued.envelope
         if queued.retry_count < DEFAULT_MAX_RETRIES:
@@ -439,18 +477,22 @@ class EventRouter:
             logger.info(
                 f"Retrying event {envelope.id} in {delay}s (attempt {queued.retry_count}/{DEFAULT_MAX_RETRIES})"
             )
-            asyncio.create_task(self._requeue_with_delay(queued, delay))
+            task = asyncio.create_task(self._requeue_with_delay(queued, delay))
+            self._add_pending_task(task)
             self._metrics["retried_total"] += 1
         else:
             logger.error(f"Event {envelope.id} failed after {DEFAULT_MAX_RETRIES} retries: {error}")
             self._metrics["failed_total"] += 1
-            # Optionally send to DLQ? But DLQ is handled at EventGate level.
 
     async def _requeue_with_delay(self, queued: QueuedEvent, delay: float) -> None:
         await asyncio.sleep(delay)
         async with self._queue_lock:
             heapq.heappush(self._queue, queued)
             logger.debug(f"Event {queued.envelope.id} requeued after delay")
+
+    # ========================================================================
+    # TRANSFORMER REGISTRATION
+    # ========================================================================
 
     def register_transformer(
         self,
@@ -468,6 +510,10 @@ class EventRouter:
     def has_transformers(self, event_type: str) -> bool:
         return self._registry.has_transformer(event_type)
 
+    # ========================================================================
+    # STATUS & METRICS
+    # ========================================================================
+
     async def get_queue_stats(self) -> dict[str, Any]:
         async with self._queue_lock:
             size = len(self._queue)
@@ -482,7 +528,6 @@ class EventRouter:
             }
 
     async def get_metrics(self) -> dict[str, Any]:
-        """Return processing metrics."""
         return {
             **self._metrics,
             "queue_size": len(self._queue),

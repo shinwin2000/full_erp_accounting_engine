@@ -317,6 +317,7 @@ class GLBalanceMetricsCollector:
             try:
                 await self.collect_all_legal_entities()
             except asyncio.CancelledError:
+                logger.debug("Periodic GL balance collection loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in periodic GL balance collection: {e}")
@@ -333,7 +334,8 @@ class GLBalanceMetricsCollector:
             try:
                 await self._collection_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("GL balance collection task cancelled during stop")
+                # Expected cancellation; continue
             self._collection_task = None
         logger.info("Stopped periodic GL balance metrics collection")
 

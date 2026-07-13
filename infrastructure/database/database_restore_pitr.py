@@ -19,10 +19,13 @@ Audit: Setiap operasi PITR dicatat. Restore yang berhasil atau gagal memicu aler
 from __future__ import annotations
 
 import asyncio
+import shutil
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import aiofiles  # <-- Tambahan untuk async file I/O
 
 # Internal dependencies
 from config.loader_yaml import load_yaml_config
@@ -119,11 +122,38 @@ class DatabaseRestorePITR:
             "password": db_config.get("password"),
         }
 
+    # ========================================================================
+    # Helper untuk operasi blocking (shutil) di thread pool
+    # ========================================================================
+
+    async def _move_dir(self, src: Path, dst: Path) -> None:
+        """Move directory secara async di thread pool."""
+        def _move_sync():
+            if dst.exists():
+                shutil.rmtree(dst)
+            shutil.move(str(src), str(dst))
+        await asyncio.to_thread(_move_sync)
+
+    async def _rmtree(self, path: Path) -> None:
+        """Remove directory tree secara async di thread pool."""
+        def _rm_sync():
+            if path.exists():
+                shutil.rmtree(path)
+        await asyncio.to_thread(_rm_sync)
+
+    async def _mkdir(self, path: Path) -> None:
+        """Create directory secara async di thread pool."""
+        def _mkdir_sync():
+            path.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(_mkdir_sync)
+
+    # ========================================================================
+    # PostgreSQL control (sudah async menggunakan subprocess)
+    # ========================================================================
+
     async def _stop_postgres(self) -> None:
         """Stop PostgreSQL service."""
         try:
-            # Using pg_ctl or systemctl depending on environment
-            # For simplicity, assume using pg_ctl with data directory
             cmd = ["pg_ctl", "stop", "-D", str(self._data_dir), "-m", "fast"]
             process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -144,13 +174,19 @@ class DatabaseRestorePITR:
         if process.returncode != 0:
             raise PITRRestoreError("Failed to start PostgreSQL")
 
+    # ========================================================================
+    # Restore base backup (already async)
+    # ========================================================================
+
     async def _restore_base_backup(self, backup_name: str) -> None:
-        """
-        Restore base backup using pg_restore or by copying files.
-        """
+        """Restore base backup using pg_restore or by copying files."""
         backup_manager = await get_backup_manager()
         await backup_manager.restore_backup(backup_name)
         logger.info(f"Base backup {backup_name} restored")
+
+    # ========================================================================
+    # PERBAIKAN: _create_recovery_conf menggunakan aiofiles
+    # ========================================================================
 
     async def _create_recovery_conf(self, target_time: datetime) -> None:
         """
@@ -164,26 +200,41 @@ recovery_target_time = '{target_time.isoformat()}'
 recovery_target_action = 'promote'
 recovery_target_timeline = 'latest'
 """
-        with open(recovery_conf_path, "w") as f:
-            f.write(content)
+        # Tulis file secara async
+        async with aiofiles.open(recovery_conf_path, "w") as f:
+            await f.write(content)
         logger.info(f"Recovery.conf created for target time {target_time.isoformat()}")
+
+    # ========================================================================
+    # Verify WAL archive (menggunakan async untuk stat jika perlu)
+    # ========================================================================
 
     async def _verify_wal_archive(self, target_time: datetime) -> bool:
         """
         Verify that WAL archive contains all segments needed for recovery.
         """
-        # Check if WAL archive directory exists and has files
-        if not self._wal_archive_dir.exists():
+        # Cek keberadaan direktori (small I/O, bisa pakai asyncio.to_thread)
+        def _dir_exists():
+            return self._wal_archive_dir.exists()
+        if not await asyncio.to_thread(_dir_exists):
             logger.error(f"WAL archive directory {self._wal_archive_dir} does not exist")
             return False
 
-        wal_files = list(self._wal_archive_dir.glob("*.wal"))
+        # Dapatkan daftar file WAL (blocking, jalankan di thread)
+        def _list_wal_files():
+            return list(self._wal_archive_dir.glob("*.wal"))
+        wal_files = await asyncio.to_thread(_list_wal_files)
+
         if not wal_files:
             logger.warning("No WAL files found in archive")
             return False
 
         logger.info(f"Found {len(wal_files)} WAL files in archive")
         return True
+
+    # ========================================================================
+    # Perform PITR
+    # ========================================================================
 
     async def perform_pitr(
         self, target_time: datetime, backup_name: str, dry_run: bool = False
@@ -229,28 +280,23 @@ recovery_target_timeline = 'latest'
             # Stop PostgreSQL
             await self._stop_postgres()
 
-            # Clear data directory (backup first)
+            # Backup data directory (using async thread)
             backup_data_dir = self._data_dir.with_suffix(".bak")
-            if backup_data_dir.exists():
-                import shutil
+            await self._rmtree(backup_data_dir)
+            await self._move_dir(self._data_dir, backup_data_dir)
+            await self._mkdir(self._data_dir)
 
-                shutil.rmtree(backup_data_dir)
-            import shutil
-
-            shutil.move(str(self._data_dir), str(backup_data_dir))
-            self._data_dir.mkdir()
-
-            # Restore base backup
+            # Restore base backup (already async)
             await self._restore_base_backup(backup_name)
 
-            # Create recovery.conf
+            # Create recovery.conf (async file write)
             await self._create_recovery_conf(target_time)
 
             # Start PostgreSQL in recovery mode
             await self._start_postgres()
 
-            # Wait for recovery to complete
-            await asyncio.sleep(10)  # Wait for PostgreSQL to promote
+            # Wait for recovery to complete (approx)
+            await asyncio.sleep(10)
 
             # Verify database is accessible
             db_info = await self._get_db_connection_info()
@@ -290,10 +336,7 @@ recovery_target_timeline = 'latest'
                 raise PITRRestoreError("Database not accessible after recovery")
 
             # Clean up backup data directory
-            if backup_data_dir.exists():
-                import shutil
-
-                shutil.rmtree(backup_data_dir)
+            await self._rmtree(backup_data_dir)
 
             return result
 
@@ -308,21 +351,38 @@ recovery_target_timeline = 'latest'
             )
             raise PITRRestoreError(result["message"]) from e
 
+    # ========================================================================
+    # Get available WAL segments (gunakan async untuk stat)
+    # ========================================================================
+
     async def get_available_wal_segments(self) -> list[dict[str, Any]]:
         """
         Get list of available WAL segments in archive.
         """
         segments = []
         if self._wal_archive_dir.exists():
-            for wal_file in sorted(self._wal_archive_dir.glob("*.wal")):
+            # Dapatkan daftar file
+            def _list_wal():
+                return sorted(self._wal_archive_dir.glob("*.wal"))
+            wal_files = await asyncio.to_thread(_list_wal)
+
+            for wal_file in wal_files:
+                # Stat blocking, jalankan di thread
+                def _get_stat(p: Path):
+                    return p.stat().st_size, p.stat().st_mtime
+                size, mtime = await asyncio.to_thread(_get_stat, wal_file)
                 segments.append(
                     {
                         "filename": wal_file.name,
-                        "size_bytes": wal_file.stat().st_size,
-                        "modified_at": datetime.fromtimestamp(wal_file.stat().st_mtime).isoformat(),
+                        "size_bytes": size,
+                        "modified_at": datetime.fromtimestamp(mtime).isoformat(),
                     }
                 )
         return segments
+
+    # ========================================================================
+    # Validate readiness
+    # ========================================================================
 
     async def validate_pitr_readiness(self) -> dict[str, Any]:
         """
@@ -333,12 +393,15 @@ recovery_target_timeline = 'latest'
         backups = await backup_manager.list_backups()
         latest_backup = backups[0] if backups else None
 
+        # Hitung jumlah WAL files
+        def _count_wal():
+            return len(list(self._wal_archive_dir.glob("*.wal"))) if self._wal_archive_dir.exists() else 0
+        wal_count = await asyncio.to_thread(_count_wal)
+
         return {
             "ready": wal_ok and latest_backup is not None,
             "wal_archive_available": wal_ok,
-            "wal_segments_count": len(list(self._wal_archive_dir.glob("*.wal")))
-            if self._wal_archive_dir.exists()
-            else 0,
+            "wal_segments_count": wal_count,
             "latest_backup": latest_backup,
             "wal_archive_dir": str(self._wal_archive_dir),
             "data_dir": str(self._data_dir),

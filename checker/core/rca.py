@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 rca.py — Root Cause Analysis Engine for ERP Accounting System
 ================================================================
@@ -21,6 +20,7 @@ import ast
 import concurrent.futures
 import copy
 import difflib
+import functools
 import json
 import logging
 import os
@@ -29,15 +29,13 @@ import sys
 import threading
 import time
 import traceback
-import functools
+from abc import ABC, abstractmethod
 from collections import Counter, OrderedDict, deque
 from dataclasses import dataclass, field
 from enum import Enum
-from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import (
-    Any, Dict, FrozenSet, List, Optional, Set, Tuple, Union,
-    Callable, Type, Iterable, Iterator
+    Any,
 )
 
 # ── Soft dependencies ─────────────────────────────────────────────────────────
@@ -69,10 +67,17 @@ except ImportError:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 __all__ = [
-    "RCAEngine", "RCAResult", "EvidenceItem",
-    "Severity", "Category", "ErrorCode",
+    "Category",
+    "ErrorCode",
+    "EvidenceItem",
+    "RCAEngine",
+    "RCAResult",
     "RCARule",
-    "analyze", "analyze_exception", "get_engine", "reset_engine",
+    "Severity",
+    "analyze",
+    "analyze_exception",
+    "get_engine",
+    "reset_engine",
 ]
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -94,7 +99,7 @@ TIMEOUT_SECONDS      = 3.0
 REPR_TIMEOUT_SECONDS = 0.5
 FILE_READ_LIMIT      = 10 * 1024 * 1024  # 10 MB
 
-_SENSITIVE_KEYS: FrozenSet[str] = frozenset({
+_SENSITIVE_KEYS: frozenset[str] = frozenset({
     "password", "passwd", "secret", "token", "api_key", "apikey",
     "credential", "credentials", "auth", "authorization", "private_key",
     "access_key", "secret_key", "db_password", "database_password",
@@ -158,7 +163,7 @@ class Severity(Enum):
         obj._order  = order
         return obj
 
-    def __lt__(self, other: "Severity") -> bool:
+    def __lt__(self, other: Severity) -> bool:
         if not isinstance(other, Severity):
             return NotImplemented
         return self._order < other._order
@@ -178,7 +183,7 @@ class Severity(Enum):
 # ── Tambahkan ini ──
 _SEVERITY_ORDER = {s: s.order for s in Severity}
 
-    
+
 # ── Category ──────────────────────────────────────────────────────────────────
 class Category(Enum):
     IMPORT         = "Import"
@@ -206,7 +211,7 @@ class EvidenceItem:
         prefix = "[REDACTED] " if self.redacted else ""
         return f"{prefix}{self.text}"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "text"        : self.text,
             "source_rule" : self.source_rule,
@@ -221,20 +226,20 @@ class RCAResult:
     category     : Category           = field(default=Category.UNKNOWN)
     error_code   : ErrorCode          = field(default=ErrorCode.UNKNOWN)
     root_cause   : str                = field(default="")
-    evidence     : List[str]          = field(default_factory=list)
-    impact       : List[str]          = field(default_factory=list)
+    evidence     : list[str]          = field(default_factory=list)
+    impact       : list[str]          = field(default_factory=list)
     suggested_fix: str                = field(default="")
     raw_error    : str                = field(default="")
     confidence   : float              = field(default=0.0)
-    parent       : Optional["RCAResult"] = field(default=None)
-    children     : List["RCAResult"]  = field(default_factory=list)
-    metadata     : Dict[str, Any]     = field(default_factory=dict)
-    typed_evidence: List[EvidenceItem] = field(default_factory=list)
+    parent       : RCAResult | None = field(default=None)
+    children     : list[RCAResult]  = field(default_factory=list)
+    metadata     : dict[str, Any]     = field(default_factory=dict)
+    typed_evidence: list[EvidenceItem] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.confidence = max(0.0, min(1.0, float(self.confidence)))
 
-    def to_dict(self, _visited: Optional[Set[int]] = None, _depth: int = 0) -> Dict[str, Any]:
+    def to_dict(self, _visited: set[int] | None = None, _depth: int = 0) -> dict[str, Any]:
         if _visited is None:
             _visited = set()
         obj_id = id(self)
@@ -249,7 +254,7 @@ class RCAResult:
                 return v.value
             return repr(v)
 
-        def clean_list(lst: Any, max_items: int) -> List[str]:
+        def clean_list(lst: Any, max_items: int) -> list[str]:
             return [
                 safe_str(e)[:MAX_EVIDENCE_LENGTH]
                 for e in (lst or [])[:max_items]
@@ -306,7 +311,7 @@ class _ThreadSafeLRUCache:
         self._hits  = 0
         self._misses= 0
 
-    def get(self, key: Any) -> Optional[Any]:
+    def get(self, key: Any) -> Any | None:
         with self._lock:
             if key not in self._cache:
                 self._misses += 1
@@ -338,7 +343,7 @@ class _ThreadSafeLRUCache:
             for k in keys_to_delete:
                 del self._cache[k]
 
-    def stats(self) -> Dict[str, int]:
+    def stats(self) -> dict[str, int]:
         with self._lock:
             return {
                 "size"  : len(self._cache),
@@ -353,7 +358,7 @@ _context_cache = _ThreadSafeLRUCache(CACHE_SIZE)
 
 # ── reprlib wrapper ──────────────────────────────────────────────────────────
 _reprlib_lock = threading.Lock()
-_reprlib_fn: Optional[Any] = None
+_reprlib_fn: Any | None = None
 
 def _get_reprlib() -> Any:
     global _reprlib_fn
@@ -389,14 +394,14 @@ def _is_sensitive_key(key: str) -> bool:
     return any(sk in key_lower for sk in _SENSITIVE_KEYS)
 
 # ── File utilities ────────────────────────────────────────────────────────────
-def _get_file_info(path: str) -> Optional[Tuple[float, int]]:
+def _get_file_info(path: str) -> tuple[float, int] | None:
     try:
         stat = os.stat(path)
         return stat.st_mtime, stat.st_size
     except OSError:
         return None
 
-def _get_file_content(filename: str) -> Optional[str]:
+def _get_file_content(filename: str) -> str | None:
     info = _get_file_info(filename)
     if info is None:
         return None
@@ -410,7 +415,7 @@ def _get_file_content(filename: str) -> Optional[str]:
         return cached
     for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252", "iso-8859-1"):
         try:
-            with open(filename, "r", encoding=enc, errors="replace") as f:
+            with open(filename, encoding=enc, errors="replace") as f:
                 content = f.read()
             _file_cache.set(key, content)
             return content
@@ -418,7 +423,7 @@ def _get_file_content(filename: str) -> Optional[str]:
             continue
     return None
 
-def get_ast(filename: str) -> Optional[ast.AST]:
+def get_ast(filename: str) -> ast.AST | None:
     info = _get_file_info(filename)
     if info is None:
         return None
@@ -443,7 +448,7 @@ def get_code_context(
     filename: str,
     lineno: int,
     context_lines: int = MAX_CONTEXT_LINES,
-) -> List[str]:
+) -> list[str]:
     if lineno <= 0:
         return []
     info = _get_file_info(filename)
@@ -467,10 +472,10 @@ def get_code_context(
     return result
 
 def _get_error_line(
-    code: List[str],
+    code: list[str],
     frame_lineno: int,
     context_lines: int = MAX_CONTEXT_LINES,
-) -> Optional[str]:
+) -> str | None:
     if not code or frame_lineno <= 0:
         return None
     start      = max(0, frame_lineno - context_lines - 1)
@@ -478,10 +483,10 @@ def _get_error_line(
     target_idx = max(0, min(target_idx, len(code) - 1))
     return code[target_idx]
 
-def get_frame_locals(frame: Any, max_items: int = 10) -> Dict[str, str]:
+def get_frame_locals(frame: Any, max_items: int = 10) -> dict[str, str]:
     if not hasattr(frame, "f_locals"):
         return {}
-    filtered: Dict[str, str] = {}
+    filtered: dict[str, str] = {}
     for k, v in list(frame.f_locals.items())[:max_items]:
         if k.startswith("__") and k.endswith("__"):
             continue
@@ -491,7 +496,7 @@ def get_frame_locals(frame: Any, max_items: int = 10) -> Dict[str, str]:
             filtered[k] = safe_repr(v)
     return filtered
 
-def get_traceback_frames(exc: BaseException) -> List[traceback.FrameSummary]:
+def get_traceback_frames(exc: BaseException) -> list[traceback.FrameSummary]:
     tb = exc.__traceback__
     if tb is None:
         return []
@@ -500,11 +505,11 @@ def get_traceback_frames(exc: BaseException) -> List[traceback.FrameSummary]:
 
 def flatten_exception(
     exc: BaseException,
-    _seen: Optional[Set[int]] = None,
-) -> List[BaseException]:
+    _seen: set[int] | None = None,
+) -> list[BaseException]:
     if _seen is None:
         _seen = set()
-    result: List[BaseException] = []
+    result: list[BaseException] = []
     if id(exc) in _seen:
         return result
     _seen.add(id(exc))
@@ -515,9 +520,9 @@ def flatten_exception(
         result.append(exc)
     return result
 
-def get_all_causes(exc: BaseException) -> List[BaseException]:
-    result: List[BaseException] = []
-    seen  : Set[int]            = set()
+def get_all_causes(exc: BaseException) -> list[BaseException]:
+    result: list[BaseException] = []
+    seen  : set[int]            = set()
     queue : deque               = deque([exc])
 
     while queue:
@@ -556,7 +561,7 @@ class RCARule(ABC):
         self,
         priority : int             = 0,
         enabled  : bool            = True,
-        name     : Optional[str]   = None,
+        name     : str | None   = None,
         category : Category        = Category.UNKNOWN,
         version  : str             = "1.0",
         author   : str             = "system",
@@ -568,7 +573,7 @@ class RCARule(ABC):
         self.version     = version
         self.author      = author
         self._stats_lock = threading.RLock()
-        self._stats: Dict[str, Any] = {
+        self._stats: dict[str, Any] = {
             "matches": 0, "hits": 0, "misses": 0, "errors": 0, "time_ms": 0.0,
         }
 
@@ -576,8 +581,8 @@ class RCARule(ABC):
     def match(
         self,
         exc     : BaseException,
-        frames  : List[traceback.FrameSummary],
-        context : Dict[str, Any],
+        frames  : list[traceback.FrameSummary],
+        context : dict[str, Any],
     ) -> bool:
         pass
 
@@ -585,12 +590,12 @@ class RCARule(ABC):
     def analyze(
         self,
         exc     : BaseException,
-        frames  : List[traceback.FrameSummary],
-        context : Dict[str, Any],
-    ) -> Optional[RCAResult]:
+        frames  : list[traceback.FrameSummary],
+        context : dict[str, Any],
+    ) -> RCAResult | None:
         pass
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         with self._stats_lock:
             s = dict(self._stats)
         s["name"]     = self.name
@@ -612,10 +617,10 @@ class ImportErrorRule(RCARule):
     def match(self, exc, frames, context) -> bool:
         return isinstance(exc, (ImportError, ModuleNotFoundError))
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg        = str(exc)
-        evidence   : List[str] = []
-        impact     : List[str] = []
+        evidence   : list[str] = []
+        impact     : list[str] = []
         severity   = Severity.HIGH
         confidence = DEFAULT_CONFIDENCE
         error_code = ErrorCode.IMPORT_MODULE_NOT_FOUND
@@ -652,7 +657,7 @@ class ImportErrorRule(RCARule):
                     f"pip install {module_name.split('.')[0]}"
                 )
             else:
-                missing_init: List[str] = []
+                missing_init: list[str] = []
                 for i in range(1, len(parts)):
                     for p in sys_path:
                         init_path = os.path.join(p, *parts[:i], "__init__.py")
@@ -707,7 +712,7 @@ class CircularImportRule(RCARule):
         filenames = [f.filename for f in frames if f.filename.endswith(".py")]
         return len(filenames) != len(set(filenames))
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         if self._CIRCULAR_HINTS.search(str(exc)) and not HAS_NETWORKX:
             return RCAResult(
                 severity=Severity.CRITICAL, category=Category.IMPORT,
@@ -793,10 +798,10 @@ class AttributeErrorRule(RCARule):
     def match(self, exc, frames, context) -> bool:
         return isinstance(exc, AttributeError)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg        = str(exc)
-        evidence   : List[str] = []
-        impact     : List[str] = []
+        evidence   : list[str] = []
+        impact     : list[str] = []
         severity   = Severity.MEDIUM
         confidence = DEFAULT_CONFIDENCE
         error_code = ErrorCode.ATTR_MISSING
@@ -844,7 +849,7 @@ class AttributeErrorRule(RCARule):
                 if tree:
                     for node in ast.walk(tree):
                         if isinstance(node, ast.ClassDef) and node.name == obj_type:
-                            attrs: Set[str] = set()
+                            attrs: set[str] = set()
                             for child in ast.walk(node):
                                 if isinstance(child, ast.AnnAssign) and isinstance(child.target, ast.Name):
                                     attrs.add(child.target.id)
@@ -944,7 +949,7 @@ class TypeErrorRule(RCARule):
                 ErrorCode.TYPE_NOT_ITERABLE,
                 lambda m: (
                     f"Objek tipe '{m.group(1)}' tidak mendukung subscript (indexing).",
-                    f"Pastikan Anda mengakses index pada tipe yang mendukung (list, dict, str).",
+                    "Pastikan Anda mengakses index pada tipe yang mendukung (list, dict, str).",
                     0.75,
                 ),
             ),
@@ -953,10 +958,10 @@ class TypeErrorRule(RCARule):
     def match(self, exc, frames, context) -> bool:
         return isinstance(exc, TypeError)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg        = str(exc)
-        evidence   : List[str] = []
-        impact     : List[str] = []
+        evidence   : list[str] = []
+        impact     : list[str] = []
         severity   = Severity.MEDIUM
         confidence = DEFAULT_CONFIDENCE
         error_code = ErrorCode.TYPE_ARG_COUNT
@@ -983,7 +988,7 @@ class TypeErrorRule(RCARule):
 
 # ─── NameErrorRule ──────────────────────────────────────────────────────────
 class NameErrorRule(RCARule):
-    _BUILTIN_TYPOS: Dict[str, str] = {
+    _BUILTIN_TYPOS: dict[str, str] = {
         "true"   : "True",
         "false"  : "False",
         "none"   : "None",
@@ -1004,10 +1009,10 @@ class NameErrorRule(RCARule):
     def match(self, exc, frames, context) -> bool:
         return isinstance(exc, NameError)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg        = str(exc)
-        evidence   : List[str] = []
-        impact     : List[str] = []
+        evidence   : list[str] = []
+        impact     : list[str] = []
         root_cause = suggested_fix = ""
         confidence = 0.8
 
@@ -1027,7 +1032,7 @@ class NameErrorRule(RCARule):
                     frame = frames[-1]
                     tree  = get_ast(frame.filename)
                     if tree:
-                        defined_names: Set[str] = set()
+                        defined_names: set[str] = set()
                         for node in ast.walk(tree):
                             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                                 defined_names.add(node.name)
@@ -1086,7 +1091,7 @@ class NameErrorRule(RCARule):
 
 # ─── KeyErrorRule ────────────────────────────────────────────────────────────
 class KeyErrorRule(RCARule):
-    _ERP_CONTEXTS: Dict[str, Tuple[str, str]] = {
+    _ERP_CONTEXTS: dict[str, tuple[str, str]] = {
         "account"  : ("Kode akun tidak terdaftar di chart of accounts.",
                       "Pastikan kode akun sudah didefinisikan di master akun ERP."),
         "period"   : ("Periode akuntansi tidak terdaftar atau sudah ditutup.",
@@ -1115,16 +1120,16 @@ class KeyErrorRule(RCARule):
     def match(self, exc, frames, context) -> bool:
         return isinstance(exc, KeyError)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         raw   = str(exc)
         key   = exc.args[0] if exc.args else None
         key_s = repr(key) if key is not None else raw
 
-        evidence   : List[str] = []
-        impact     : List[str] = []
+        evidence   : list[str] = []
+        impact     : list[str] = []
         root_cause = suggested_fix = ""
         confidence = 0.8
-        matched_ctx: Optional[str] = None
+        matched_ctx: str | None = None
 
         evidence.append(f"Key yang tidak ditemukan: {key_s}")
 
@@ -1177,10 +1182,10 @@ class IndexErrorRule(RCARule):
     def match(self, exc, frames, context) -> bool:
         return isinstance(exc, (IndexError, StopIteration))
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg        = str(exc)
-        evidence   : List[str] = []
-        impact     : List[str] = []
+        evidence   : list[str] = []
+        impact     : list[str] = []
         root_cause = suggested_fix = ""
         confidence = 0.75
 
@@ -1228,7 +1233,7 @@ class IndexErrorRule(RCARule):
 
 # ─── ValueErrorRule ─────────────────────────────────────────────────────────
 class ValueErrorRule(RCARule):
-    _ERP_PATTERNS: List[Tuple[str, ErrorCode, "Severity", str, str, float]] = [
+    _ERP_PATTERNS: list[tuple[str, ErrorCode, Severity, str, str, float]] = [
         (r"account.*(invalid|not.found|not.exist|not.active)",
          ErrorCode.ERP_ACCOUNT_INVALID, Severity.CRITICAL,
          "Kode akun tidak valid atau tidak aktif.",
@@ -1272,7 +1277,7 @@ class ValueErrorRule(RCARule):
          0.8),
     ]
 
-    _COMPILED: Optional[List[Tuple[re.Pattern, ErrorCode, "Severity", str, str, float]]] = None
+    _COMPILED: list[tuple[re.Pattern, ErrorCode, Severity, str, str, float]] | None = None
 
     def __init__(self) -> None:
         super().__init__(priority=83, category=Category.DDD, name="ValueErrorRule")
@@ -1285,7 +1290,7 @@ class ValueErrorRule(RCARule):
     def match(self, exc, frames, context) -> bool:
         return isinstance(exc, ValueError)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         raw = str(exc)
 
         # DETEKSI PERIOD CLOSED — LANGSUNG RETURN
@@ -1300,8 +1305,8 @@ class ValueErrorRule(RCARule):
                 raw_error=raw, confidence=0.95,
             )
 
-        evidence   : List[str] = []
-        impact     : List[str] = []
+        evidence   : list[str] = []
+        impact     : list[str] = []
         root_cause = suggested_fix = ""
         confidence = DEFAULT_CONFIDENCE
         error_code = ErrorCode.VALUE_INVALID
@@ -1392,10 +1397,10 @@ class InfrastructureConnectionRule(RCARule):
             or self._HTTP_PATTERN.search(msg)
         )
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg        = str(exc)
         evidence   = [f"Exception: {type(exc).__name__}: {msg[:200]}"]
-        impact     : List[str] = []
+        impact     : list[str] = []
         error_code = ErrorCode.DB_CONNECTION_FAIL
         root_cause = suggested_fix = ""
         confidence = 0.8
@@ -1495,10 +1500,10 @@ class CQRSHandlerRule(RCARule):
                 return True
         return False
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg        = str(exc)
-        evidence   : List[str] = []
-        impact     : List[str] = []
+        evidence   : list[str] = []
+        impact     : list[str] = []
         error_code = ErrorCode.COMMAND_HANDLER_MISSING
         root_cause = suggested_fix = ""
         confidence = 0.8
@@ -1572,9 +1577,9 @@ class DomainRepositoryMismatchRule(RCARule):
                 return True
         return False
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
-        evidence   : List[str] = []
-        impact     : List[str] = []
+    def analyze(self, exc, frames, context) -> RCAResult | None:
+        evidence   : list[str] = []
+        impact     : list[str] = []
         severity   = Severity.CRITICAL
         confidence = DEFAULT_CONFIDENCE
         root_cause = suggested_fix = ""
@@ -1634,9 +1639,9 @@ class EventPublishRule(RCARule):
                 return True
         return False
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
-        evidence   : List[str] = []
-        impact     : List[str] = []
+    def analyze(self, exc, frames, context) -> RCAResult | None:
+        evidence   : list[str] = []
+        impact     : list[str] = []
         severity   = Severity.CRITICAL
         confidence = DEFAULT_CONFIDENCE
         root_cause = suggested_fix = ""
@@ -1688,9 +1693,9 @@ class ContainerErrorRule(RCARule):
                 return True
         return False
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
-        evidence   : List[str] = []
-        impact     : List[str] = []
+    def analyze(self, exc, frames, context) -> RCAResult | None:
+        evidence   : list[str] = []
+        impact     : list[str] = []
         severity   = Severity.CRITICAL
         confidence = DEFAULT_CONFIDENCE
         root_cause = suggested_fix = ""
@@ -1741,9 +1746,9 @@ class AggregateErrorRule(RCARule):
                 return True
         return False
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
-        evidence   : List[str] = []
-        impact     : List[str] = []
+    def analyze(self, exc, frames, context) -> RCAResult | None:
+        evidence   : list[str] = []
+        impact     : list[str] = []
         severity   = Severity.CRITICAL
         confidence = DEFAULT_CONFIDENCE
         root_cause = suggested_fix = ""
@@ -1794,9 +1799,9 @@ class UnitOfWorkErrorRule(RCARule):
                 return True
         return False
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
-        evidence   : List[str] = []
-        impact     : List[str] = []
+    def analyze(self, exc, frames, context) -> RCAResult | None:
+        evidence   : list[str] = []
+        impact     : list[str] = []
         severity   = Severity.CRITICAL
         confidence = DEFAULT_CONFIDENCE
         root_cause = suggested_fix = ""
@@ -1848,7 +1853,7 @@ class TransactionIntegrityRule(RCARule):
         )
 
     def match(self, exc, frames, context) -> bool:
-        db_types: Tuple[type, ...] = (ValueError, RuntimeError)
+        db_types: tuple[type, ...] = (ValueError, RuntimeError)
         if HAS_SQLALCHEMY and _SQLAlchemyError is not None:
             db_types = db_types + (_SQLAlchemyError,)
         if not isinstance(exc, db_types):
@@ -1859,7 +1864,7 @@ class TransactionIntegrityRule(RCARule):
                 return True
         return False
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         exc_type = type(exc).__name__
         evidence = [
             f"Tipe exception: {exc_type}",
@@ -1892,10 +1897,10 @@ class RecursionMemoryRule(RCARule):
     def match(self, exc, frames, context) -> bool:
         return isinstance(exc, (RecursionError, MemoryError))
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg      = str(exc)
-        evidence : List[str] = []
-        impact   : List[str] = []
+        evidence : list[str] = []
+        impact   : list[str] = []
 
         if isinstance(exc, RecursionError):
             if frames:
@@ -1978,11 +1983,11 @@ class PermissionFileRule(RCARule):
     def match(self, exc, frames, context) -> bool:
         return isinstance(exc, (PermissionError, FileNotFoundError, IsADirectoryError, NotADirectoryError))
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg        = str(exc)
         raw        = msg
-        evidence   : List[str] = []
-        impact     : List[str] = []
+        evidence   : list[str] = []
+        impact     : list[str] = []
         error_code = (
             ErrorCode.PERMISSION_DENIED if isinstance(exc, PermissionError)
             else ErrorCode.FILE_NOT_FOUND
@@ -2040,7 +2045,7 @@ class PermissionFileRule(RCARule):
 # ─── PROJECT‑SPECIFIC RULES (semua digabung di sini, tidak ada duplikasi) ──
 
 class AxiomViolationRule(RCARule):
-    _AXIOM_PATTERNS: List[Tuple[re.Pattern, str, str, "Severity"]] = [
+    _AXIOM_PATTERNS: list[tuple[re.Pattern, str, str, Severity]] = [
         (
             re.compile(
                 r"(double.?entry|debit.*credit.*unbalanced|credit.*debit.*unbalanced|"
@@ -2111,7 +2116,7 @@ class AxiomViolationRule(RCARule):
         msg = str(exc).lower()
         return any(p.search(msg) for p, *_ in self._AXIOM_PATTERNS)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         for pattern, root_cause, fix, sev in self._AXIOM_PATTERNS:
             if pattern.search(msg):
@@ -2157,7 +2162,7 @@ class ConstitutionViolationRule(RCARule):
         return bool(self._CONST_PATTERN.search(str(exc))) or \
                any("constitution" in f.filename.lower() for f in frames)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg    = str(exc)
         cframes= [f for f in frames if "constitution" in f.filename.lower()]
         evidence = [f"Constitutional violation: {type(exc).__name__}: {msg[:300]}"]
@@ -2188,7 +2193,7 @@ class ConstitutionViolationRule(RCARule):
 
 # ─── KernelGuardViolationRule ─────────────────────────────────────────────
 class KernelGuardViolationRule(RCARule):
-    _GUARD_PATTERNS: List[Tuple[re.Pattern, str, str, str, "Severity"]] = [
+    _GUARD_PATTERNS: list[tuple[re.Pattern, str, str, str, Severity]] = [
         (
             re.compile(r"(PeriodLock|period.*locked|period.*closed|tutup.buku|"
                        r"fiscal.*period.*lock|posting.*closed.*period)", re.I),
@@ -2331,7 +2336,7 @@ class KernelGuardViolationRule(RCARule):
         msg = str(exc)
         return any(p.search(msg) for p, *_ in self._GUARD_PATTERNS)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         for pattern, exc_type, root_cause, fix, sev in self._GUARD_PATTERNS:
             if pattern.search(msg) or exc_type.lower().replace(" ", "") in type(exc).__name__.lower():
@@ -2372,8 +2377,8 @@ class KernelGuardViolationRule(RCARule):
         return None
 
     @staticmethod
-    def _impact_for(exc_type: str) -> List[str]:
-        _impacts: Dict[str, List[str]] = {
+    def _impact_for(exc_type: str) -> list[str]:
+        _impacts: dict[str, list[str]] = {
             "SodViolation": [
                 "Pelanggaran SOD adalah temuan audit KRITIKAL (SOX control failure).",
                 "Jika lolos, menciptakan risiko fraud dan salah saji material.",
@@ -2415,7 +2420,7 @@ class InfrastructureDatabaseRule(RCARule):
         re.I,
     )
 
-    _TABLE_TO_DOMAIN: Dict[str, str] = {
+    _TABLE_TO_DOMAIN: dict[str, str] = {
         "journal": "domain/journal — Periksa JournalEntry aggregate",
         "account": "domain/coa — Periksa CoA aggregate",
         "ap_invoice": "domain/subledger_ap — Periksa AP Invoice aggregate",
@@ -2449,10 +2454,10 @@ class InfrastructureDatabaseRule(RCARule):
             "OperationalError", "IntegrityError",
         ))
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg      = str(exc)
-        evidence : List[str] = [f"DB Exception: {type(exc).__name__}: {msg[:300]}"]
-        impact   : List[str] = []
+        evidence : list[str] = [f"DB Exception: {type(exc).__name__}: {msg[:300]}"]
+        impact   : list[str] = []
         root_cause= suggested_fix = ""
         confidence= 0.85
         severity  = Severity.FATAL
@@ -2567,7 +2572,7 @@ class MessageBrokerRule(RCARule):
             for f in frames
         )
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg     = str(exc)
         evidence= [f"Broker/Event error: {type(exc).__name__}: {msg[:300]}"]
 
@@ -2658,7 +2663,7 @@ class CachingRule(RCARule):
         return self._CACHE_PATTERN.search(str(exc)) is not None or \
                any(k in type(exc).__name__ for k in ("Cache", "Redis", "Lock"))
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         if re.search(r"DistributedLock|lock.*acquisition", msg, re.I):
             return RCAResult(
@@ -2701,7 +2706,7 @@ class SagaOrchestrationRule(RCARule):
         re.I,
     )
 
-    _SAGA_TYPES: Dict[str, str] = {
+    _SAGA_TYPES: dict[str, str] = {
         "procurement": "Procurement Saga (PO → GR → AP Invoice → Payment)",
         "sales"      : "Sales Saga (SO → Delivery → AR Invoice → Collection)",
         "payroll"    : "Payroll Saga (Payroll Run → Journal → Bank Transfer)",
@@ -2719,7 +2724,7 @@ class SagaOrchestrationRule(RCARule):
             return True
         return any("sagas" in f.filename.replace("\\", "/").lower() for f in frames)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg         = str(exc)
         saga_frames = [f for f in frames if "sagas" in f.filename.replace("\\","/").lower()]
         evidence    = [f"Saga error: {type(exc).__name__}: {msg[:300]}"]
@@ -2797,7 +2802,7 @@ class BootstrapDIRule(RCARule):
             for f in frames
         )
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         evidence = [f"DI/Bootstrap error: {type(exc).__name__}: {msg[:300]}"]
         di_frames = [
@@ -2841,7 +2846,7 @@ class BootstrapDIRule(RCARule):
 
 # ─── PolicyEngineRule ──────────────────────────────────────────────────────
 class PolicyEngineRule(RCARule):
-    _POLICY_PATTERNS: List[Tuple[re.Pattern, str, str]] = [
+    _POLICY_PATTERNS: list[tuple[re.Pattern, str, str]] = [
         (
             re.compile(r"(IFRS9|IFRS 9|ifrs.*9|financial.*instrument.*classif|"
                        r"ECL.*calculation|expected.credit.loss)", re.I),
@@ -2914,7 +2919,7 @@ class PolicyEngineRule(RCARule):
             "policy_engine" in f.filename.replace("\\","/").lower() for f in frames
         )
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         for pattern, root_cause, fix in self._POLICY_PATTERNS:
             if pattern.search(msg):
@@ -2971,7 +2976,7 @@ class ComplianceRule(RCARule):
                    "Compliance", "SOX", "AML", "GDPR", "Sanction", "Ethics", "Legal"
                ))
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         if re.search(r"GDPRViolation|data.*privacy|privacy.*violat", msg, re.I):
             return RCAResult(
@@ -3053,7 +3058,7 @@ class AuditIntegrityRule(RCARule):
             return True
         return any("audit/" in f.filename.replace("\\","/").lower() for f in frames)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         is_tamper = bool(re.search(r"tamper|TamperDetected", msg, re.I))
         is_hash   = bool(re.search(r"hash.*chain|HashChain.*corrupt", msg, re.I))
@@ -3110,7 +3115,7 @@ class CoretaxDJPRule(RCARule):
             return True
         return any("coretax_djp" in f.filename.replace("\\","/").lower() for f in frames)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
 
         if re.search(r"NSFP.*habis|NSFPExhausted|nomor.seri.faktur.*habis", msg, re.I):
@@ -3201,7 +3206,7 @@ class SecurityHardeningRule(RCARule):
             for f in frames
         )
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         if re.search(r"CertificateExpired|TLS.*handshake|certificate.*expired", msg, re.I):
             return RCAResult(
@@ -3274,8 +3279,8 @@ class RCAEngine:
         rule_timeout    : float = TIMEOUT_SECONDS,
     ) -> None:
         self._lock          = threading.RLock()
-        self._rules         : List[RCARule]      = []
-        self._rule_map      : Dict[str, RCARule] = {}
+        self._rules         : list[RCARule]      = []
+        self._rule_map      : dict[str, RCARule] = {}
         self._rule_timeout  = rule_timeout
         self._stats = {
             "total_analyses": 0,
@@ -3356,7 +3361,7 @@ class RCAEngine:
     def analyze(
         self,
         exception: BaseException,
-        context  : Optional[Dict[str, Any]] = None,
+        context  : dict[str, Any] | None = None,
     ) -> RCAResult:
         if not isinstance(exception, BaseException):
             raise TypeError(
@@ -3377,7 +3382,7 @@ class RCAEngine:
         frames = get_traceback_frames(exception)
 
         all_exceptions   = get_all_causes(exception)
-        combined_results : List[RCAResult] = []
+        combined_results : list[RCAResult] = []
 
         with self._lock:
             rules_snapshot = list(self._rules)
@@ -3434,8 +3439,8 @@ class RCAEngine:
         )
 
         # Agregasi evidence dan impact (deduplikasi)
-        seen_evidence: Set[str] = set()
-        all_evidence  : List[str] = []
+        seen_evidence: set[str] = set()
+        all_evidence  : list[str] = []
         for r in combined_results:
             for ev in r.evidence:
                 ev_normalized = ev.strip()
@@ -3443,8 +3448,8 @@ class RCAEngine:
                     seen_evidence.add(ev_normalized)
                     all_evidence.append(ev)
 
-        seen_impact: Set[str] = set()
-        all_impact  : List[str] = []
+        seen_impact: set[str] = set()
+        all_impact  : list[str] = []
         for r in combined_results:
             for imp in r.impact:
                 imp_normalized = imp.strip()
@@ -3485,10 +3490,10 @@ class RCAEngine:
     def _fallback_analysis(
         self,
         exception : BaseException,
-        frames    : List[traceback.FrameSummary],
-        context   : Dict[str, Any],
+        frames    : list[traceback.FrameSummary],
+        context   : dict[str, Any],
     ) -> RCAResult:
-        _severity_map: Dict[type, Severity] = {
+        _severity_map: dict[type, Severity] = {
             KeyboardInterrupt : Severity.INFO,
             SystemExit        : Severity.INFO,
             StopIteration     : Severity.INFO,
@@ -3518,7 +3523,7 @@ class RCAEngine:
             confidence    = 0.3,
         )
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         with self._lock:
             eng = dict(self._stats)
             eng["version"]    = self.VERSION
@@ -3546,7 +3551,7 @@ class RCAEngine:
         _context_cache.clear()
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
-_DEFAULT_ENGINE : Optional[RCAEngine] = None
+_DEFAULT_ENGINE : RCAEngine | None = None
 _ENGINE_LOCK    = threading.Lock()
 
 def get_engine() -> RCAEngine:
@@ -3564,7 +3569,7 @@ def reset_engine() -> None:
 
 def analyze_exception(
     exception: BaseException,
-    context  : Optional[Dict[str, Any]] = None,
+    context  : dict[str, Any] | None = None,
 ) -> RCAResult:
     return get_engine().analyze(exception, context)
 
@@ -3640,7 +3645,7 @@ def self_test(verbose: bool = True) -> bool:
 
     # ── KeyError ──────────────────────────────────────────────────────────────
     try:
-        d: Dict[str, str] = {}
+        d: dict[str, str] = {}
         _ = d["account_code"]
     except Exception as e:
         r = engine.analyze(e)
@@ -3649,7 +3654,7 @@ def self_test(verbose: bool = True) -> bool:
 
     # ── IndexError ────────────────────────────────────────────────────────────
     try:
-        lst: List[int] = []
+        lst: list[int] = []
         _ = lst[0]
     except Exception as e:
         r = engine.analyze(e)
@@ -3952,7 +3957,7 @@ def self_test(verbose: bool = True) -> bool:
     # Total rules
     stats = engine.stats()
     rule_cnt = stats["engine"]["rule_count"]
-    check(f"Total rules terdaftar ≥ 30", rule_cnt >= 30, str(rule_cnt))
+    check("Total rules terdaftar ≥ 30", rule_cnt >= 30, str(rule_cnt))
 
     if verbose:
         print()
@@ -3963,7 +3968,7 @@ def self_test(verbose: bool = True) -> bool:
     return failed == 0
 
 # ── Benchmark ──────────────────────────────────────────────────────────────────
-def benchmark(iterations: int = 500) -> Dict[str, float]:
+def benchmark(iterations: int = 500) -> dict[str, float]:
     import statistics
     engine = RCAEngine()
     try:
@@ -3972,7 +3977,7 @@ def benchmark(iterations: int = 500) -> Dict[str, float]:
         except ValueError as e:
             raise RuntimeError("Wrapper") from e
     except Exception as exc:
-        times: List[float] = []
+        times: list[float] = []
         for _ in range(iterations):
             t0 = time.perf_counter()
             engine.analyze(exc)

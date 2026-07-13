@@ -362,9 +362,25 @@ class DeadlockDetector:
         self._lock = asyncio.Lock()
 
     async def acquire_lock(self, tx_id: UUID, lock_id: str, timeout: float) -> bool:
+        # FIX (KRITIS): sebelumnya `while True:` ada DI DALAM `async with
+        # self._lock:`. Kalau lock sedang dipegang transaksi lain dan bukan
+        # deadlock, loop itu tidak punya `break` atau `await` apa pun -- ia
+        # busy-loop TANPA HENTI sambil TETAP MENAHAN `self._lock`. Akibatnya:
+        #   1. Seluruh event loop asyncio MACET TOTAL (busy-loop murni CPU
+        #      tanpa `await` mencegah loop mengeksekusi task lain sama sekali
+        #      -- dibuktikan: bahkan `asyncio.wait_for()` pemanggilnya sendiri
+        #      tidak pernah sempat memicu timeout-nya).
+        #   2. `release_lock()` transaksi LAIN pun ikut macet, karena itu
+        #      juga butuh `self._lock` yang sedang ditahan busy-loop ini.
+        # Kode `await asyncio.sleep(0.01)` + retry setelah `async with` di
+        # versi lama TIDAK PERNAH TERCAPAI justru karena bug ini.
+        # Perbaikan: `while True` dipindah ke LUAR `async with`, sehingga
+        # `self._lock` dilepas setiap iterasi sebelum sleep+retry. Retry
+        # juga diubah dari rekursi (berisiko RecursionError untuk timeout
+        # panjang) menjadi loop biasa.
         start = time.time()
-        async with self._lock:
-            while True:
+        while True:
+            async with self._lock:
                 current_holder = self._locks.get(lock_id)
                 if current_holder is None:
                     self._locks[lock_id] = tx_id
@@ -380,11 +396,12 @@ class DeadlockDetector:
                     self._waiting[tx_id] = []
                 if lock_id not in self._waiting[tx_id]:
                     self._waiting[tx_id].append(lock_id)
-        # Wait and retry
-        await asyncio.sleep(0.01)
-        if time.time() - start > timeout:
-            return False
-        return await self.acquire_lock(tx_id, lock_id, timeout - (time.time() - start))
+            # `self._lock` sudah dilepas di sini (keluar dari `async with`)
+            # sebelum sleep -- transaksi lain bisa acquire/release selama
+            # kita menunggu.
+            if time.time() - start > timeout:
+                return False
+            await asyncio.sleep(0.01)
 
     async def release_lock(self, tx_id: UUID, lock_id: str) -> None:
         async with self._lock:
@@ -519,37 +536,44 @@ def get_uow() -> UnitOfWorkPort:
 async def create_uow_with_provider(provider: RepositoryProvider) -> UnitOfWorkPort:
     """Create UoW and register all repositories from provider."""
     uow = UnitOfWorkPort()
-    if provider.journals():
+    # FIX: sebelumnya pengecekan pakai `if provider.journals():` (truthy
+    # check). Kalau implementasi repository punya `__len__`/`__bool__`
+    # (umum untuk objek mirip koleksi) dan repository itu VALID tapi
+    # sedang KOSONG, `if repo:` akan `False` dan repository itu diam-diam
+    # TIDAK terdaftar ke UoW -- padahal repository-nya sah, cuma kosong.
+    # Diganti jadi `is not None` supaya hanya repository yang benar-benar
+    # tidak disediakan (None) yang dilewati.
+    if provider.journals() is not None:
         uow.register_repository("journals", provider.journals())
-    if provider.ledger_entries():
+    if provider.ledger_entries() is not None:
         uow.register_repository("ledger_entries", provider.ledger_entries())
-    if provider.accounts():
+    if provider.accounts() is not None:
         uow.register_repository("accounts", provider.accounts())
-    if provider.ar_invoices():
+    if provider.ar_invoices() is not None:
         uow.register_repository("ar_invoices", provider.ar_invoices())
-    if provider.ap_invoices():
+    if provider.ap_invoices() is not None:
         uow.register_repository("ap_invoices", provider.ap_invoices())
-    if provider.inventory():
+    if provider.inventory() is not None:
         uow.register_repository("inventory", provider.inventory())
-    if provider.fixed_assets():
+    if provider.fixed_assets() is not None:
         uow.register_repository("fixed_assets", provider.fixed_assets())
-    if provider.bank_accounts():
+    if provider.bank_accounts() is not None:
         uow.register_repository("bank_accounts", provider.bank_accounts())
-    if provider.cash_books():
+    if provider.cash_books() is not None:
         uow.register_repository("cash_books", provider.cash_books())
-    if provider.legal_entities():
+    if provider.legal_entities() is not None:
         uow.register_repository("legal_entities", provider.legal_entities())
-    if provider.employees():
+    if provider.employees() is not None:
         uow.register_repository("employees", provider.employees())
-    if provider.customers():
+    if provider.customers() is not None:
         uow.register_repository("customers", provider.customers())
-    if provider.suppliers():
+    if provider.suppliers() is not None:
         uow.register_repository("suppliers", provider.suppliers())
-    if provider.iam_users():
+    if provider.iam_users() is not None:
         uow.register_repository("iam_users", provider.iam_users())
-    if provider.system_settings():
+    if provider.system_settings() is not None:
         uow.register_repository("system_settings", provider.system_settings())
-    if provider.tax_transactions():
+    if provider.tax_transactions() is not None:
         uow.register_repository("tax_transactions", provider.tax_transactions())
     return uow
 

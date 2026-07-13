@@ -398,15 +398,17 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             await self.session.rollback()
             raise APRepositoryError(f"Failed to dispute invoice: {e}") from e
 
-    # --- DELETE (Corrected to match port signature) ---
+    # ============================================================================
+    # PERBAIKAN: DELETE dengan pessimistic lock (SELECT FOR UPDATE)
+    # ============================================================================
     async def delete(self, invoice_id: UUID, user_id: UUID, permanent: bool = False) -> bool:
         """
         Delete invoice: soft delete by default, permanent if permanent=True.
         Returns True if deleted, False if invoice not found.
         """
         try:
-            # Check existence
-            stmt = select(APInvoiceTable).where(APInvoiceTable.id == invoice_id)
+            # Lock the row with SELECT FOR UPDATE to prevent race conditions
+            stmt = select(APInvoiceTable).where(APInvoiceTable.id == invoice_id).with_for_update()
             result = await self.session.execute(stmt)
             header = result.scalar_one_or_none()
             if header is None:
@@ -497,84 +499,90 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             raise APRepositoryError(f"Failed to add credit note: {e}") from e
 
     # === QUERIES ===
+    # HELPER: Fetch invoices with all relations in batch
+    async def _fetch_invoices(self, where_conditions, order_by=None, limit=None, offset=None) -> list[APInvoiceAggregate]:
+        """Helper to fetch invoices with lines, payments, credit notes in batch."""
+        stmt = select(APInvoiceTable).where(and_(*where_conditions))
+        if order_by:
+            stmt = stmt.order_by(order_by)
+        if limit:
+            stmt = stmt.limit(limit)
+        if offset:
+            stmt = stmt.offset(offset)
+        result = await self.session.execute(stmt)
+        headers = result.scalars().all()
+        if not headers:
+            return []
+        invoice_ids = [h.id for h in headers]
+
+        # Fetch all related data in batch
+        lines_stmt = select(APInvoiceLineTable).where(APInvoiceLineTable.invoice_id.in_(invoice_ids)).order_by(APInvoiceLineTable.line_number)
+        payments_stmt = select(APPaymentTable).where(APPaymentTable.invoice_id.in_(invoice_ids)).order_by(APPaymentTable.payment_date)
+        credit_stmt = select(APCreditNoteTable).where(APCreditNoteTable.invoice_id.in_(invoice_ids))
+
+        lines_result = await self.session.execute(lines_stmt)
+        payments_result = await self.session.execute(payments_stmt)
+        credit_result = await self.session.execute(credit_stmt)
+
+        lines_by_invoice = {}
+        payments_by_invoice = {}
+        credits_by_invoice = {}
+        for line in lines_result.scalars().all():
+            lines_by_invoice.setdefault(line.invoice_id, []).append(line)
+        for payment in payments_result.scalars().all():
+            payments_by_invoice.setdefault(payment.invoice_id, []).append(payment)
+        for credit in credit_result.scalars().all():
+            credits_by_invoice.setdefault(credit.invoice_id, []).append(credit)
+
+        invoices = []
+        for header in headers:
+            lines = lines_by_invoice.get(header.id, [])
+            payments = payments_by_invoice.get(header.id, [])
+            credits = credits_by_invoice.get(header.id, [])
+            invoices.append(self._to_domain(header, lines, payments, credits))
+        return invoices
+
     async def find_by_vendor(self, vendor_id: UUID, limit: int = 100, offset: int = 0) -> list[APInvoiceAggregate]:
-        try:
-            stmt = select(APInvoiceTable).where(APInvoiceTable.vendor_id == vendor_id, APInvoiceTable.deleted_at.is_(None)).order_by(APInvoiceTable.invoice_date.desc()).limit(limit).offset(offset)
-            result = await self.session.execute(stmt)
-            headers = result.scalars().all()
-            invoices = []
-            for header in headers:
-                invoice = await self.get_by_id(header.id)
-                if invoice:
-                    invoices.append(invoice)
-            return invoices
-        except Exception as e:
-            logger.error("Failed to find invoices by vendor %s: %s", vendor_id, e)
-            raise APRepositoryError(f"Failed to find invoices: {e}") from e
+        conditions = [
+            APInvoiceTable.vendor_id == vendor_id,
+            APInvoiceTable.deleted_at.is_(None)
+        ]
+        return await self._fetch_invoices(
+            conditions,
+            order_by=APInvoiceTable.invoice_date.desc(),
+            limit=limit,
+            offset=offset
+        )
 
     async def find_invoices_by_vendor(self, vendor_id: UUID, limit: int = 100, offset: int = 0) -> list[APInvoiceAggregate]:
         return await self.find_by_vendor(vendor_id, limit, offset)
 
     async def find_by_status(self, status: str, legal_entity_id: UUID) -> list[APInvoiceAggregate]:
-        try:
-            stmt = select(APInvoiceTable).where(
-                APInvoiceTable.status == status,
-                APInvoiceTable.legal_entity_id == legal_entity_id,
-                APInvoiceTable.deleted_at.is_(None),
-            ).order_by(APInvoiceTable.invoice_date.desc())
-            result = await self.session.execute(stmt)
-            headers = result.scalars().all()
-            invoices = []
-            for header in headers:
-                invoice = await self.get_by_id(header.id)
-                if invoice:
-                    invoices.append(invoice)
-            return invoices
-        except Exception as e:
-            logger.error("Failed to find invoices by status %s: %s", status, e)
-            raise APRepositoryError(f"Failed to find invoices by status: {e}") from e
+        conditions = [
+            APInvoiceTable.status == status,
+            APInvoiceTable.legal_entity_id == legal_entity_id,
+            APInvoiceTable.deleted_at.is_(None)
+        ]
+        return await self._fetch_invoices(conditions, order_by=APInvoiceTable.invoice_date.desc())
 
     async def find_due_for_payment(self, as_of_date: date, legal_entity_id: UUID) -> list[APInvoiceAggregate]:
-        try:
-            stmt = select(APInvoiceTable).where(
-                APInvoiceTable.due_date <= as_of_date,
-                APInvoiceTable.status == "approved",
-                APInvoiceTable.paid_amount < APInvoiceTable.total_amount,
-                APInvoiceTable.legal_entity_id == legal_entity_id,
-                APInvoiceTable.deleted_at.is_(None),
-            ).order_by(APInvoiceTable.due_date)
-            result = await self.session.execute(stmt)
-            headers = result.scalars().all()
-            invoices = []
-            for header in headers:
-                invoice = await self.get_by_id(header.id)
-                if invoice:
-                    invoices.append(invoice)
-            return invoices
-        except Exception as e:
-            logger.error("Failed to find invoices due for payment: %s", e)
-            raise APRepositoryError(f"Failed to find due invoices: {e}") from e
+        conditions = [
+            APInvoiceTable.due_date <= as_of_date,
+            APInvoiceTable.status == "approved",
+            APInvoiceTable.paid_amount < APInvoiceTable.total_amount,
+            APInvoiceTable.legal_entity_id == legal_entity_id,
+            APInvoiceTable.deleted_at.is_(None)
+        ]
+        return await self._fetch_invoices(conditions, order_by=APInvoiceTable.due_date)
 
     async def find_by_date_range(self, start_date: date, end_date: date, legal_entity_id: UUID) -> list[APInvoiceAggregate]:
-        """Find invoices by date range (start_date, end_date)."""
-        try:
-            stmt = select(APInvoiceTable).where(
-                APInvoiceTable.invoice_date >= start_date,
-                APInvoiceTable.invoice_date <= end_date,
-                APInvoiceTable.legal_entity_id == legal_entity_id,
-                APInvoiceTable.deleted_at.is_(None),
-            ).order_by(APInvoiceTable.invoice_date)
-            result = await self.session.execute(stmt)
-            headers = result.scalars().all()
-            invoices = []
-            for header in headers:
-                invoice = await self.get_by_id(header.id)
-                if invoice:
-                    invoices.append(invoice)
-            return invoices
-        except Exception as e:
-            logger.error("Failed to find invoices by date range: %s", e)
-            raise APRepositoryError(f"Failed to find invoices by date range: {e}") from e
+        conditions = [
+            APInvoiceTable.invoice_date >= start_date,
+            APInvoiceTable.invoice_date <= end_date,
+            APInvoiceTable.legal_entity_id == legal_entity_id,
+            APInvoiceTable.deleted_at.is_(None)
+        ]
+        return await self._fetch_invoices(conditions, order_by=APInvoiceTable.invoice_date)
 
     async def get_outstanding_balance(self, vendor_id: UUID, as_of_date: date) -> Decimal:
         try:
@@ -615,19 +623,11 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             raise APRepositoryError(f"Failed to get vendor balance history: {e}") from e
 
     async def find_by_payment_run(self, payment_run_id: UUID) -> list[APInvoiceAggregate]:
-        try:
-            stmt = select(APInvoiceTable).where(APInvoiceTable.payment_run_id == payment_run_id, APInvoiceTable.deleted_at.is_(None)).order_by(APInvoiceTable.due_date)
-            result = await self.session.execute(stmt)
-            headers = result.scalars().all()
-            invoices = []
-            for header in headers:
-                invoice = await self.get_by_id(header.id)
-                if invoice:
-                    invoices.append(invoice)
-            return invoices
-        except Exception as e:
-            logger.error("Failed to find invoices by payment run %s: %s", payment_run_id, e)
-            raise APRepositoryError(f"Failed to find invoices: {e}") from e
+        conditions = [
+            APInvoiceTable.payment_run_id == payment_run_id,
+            APInvoiceTable.deleted_at.is_(None)
+        ]
+        return await self._fetch_invoices(conditions, order_by=APInvoiceTable.due_date)
 
     async def mark_as_paid(self, invoice_id: UUID, payment_id: UUID, paid_amount: Decimal, paid_date: date, user_id: UUID) -> bool:
         try:
@@ -747,38 +747,49 @@ class SQLAlchemyAPRepository(APRepositoryPort):
             logger.error("Failed to perform 3-way match for invoice %s: %s", invoice_id, e)
             raise APRepositoryError(f"Failed to perform 3-way match: {e}") from e
 
+    # ========================================================================
+    # AGING BUCKETS — DIPERBAIKI (satu query agregasi, tanpa loop)
+    # ========================================================================
+
     async def get_aging_buckets(self, legal_entity_id: UUID, as_of_date: date) -> dict[str, Decimal]:
         """Return aging buckets as dict: bucket_name -> Decimal amount."""
         try:
-            buckets = [
-                ("0-30 days", as_of_date - timedelta(days=30), as_of_date),
-                ("31-60 days", as_of_date - timedelta(days=60), as_of_date - timedelta(days=31)),
-                ("61-90 days", as_of_date - timedelta(days=90), as_of_date - timedelta(days=61)),
-                ("91-120 days", as_of_date - timedelta(days=120), as_of_date - timedelta(days=91)),
-                ("120+ days", None, as_of_date - timedelta(days=121)),
-            ]
-            result = {}
-            for bucket_name, start, end in buckets:
-                conditions = [
-                    APInvoiceTable.status.in_(["approved", "partially_paid"]),
-                    APInvoiceTable.legal_entity_id == legal_entity_id,
-                    APInvoiceTable.deleted_at.is_(None),
-                ]
-                if bucket_name == "120+ days":
-                    conditions.append(APInvoiceTable.due_date <= as_of_date - timedelta(days=120))
-                else:
-                    if start:
-                        conditions.append(APInvoiceTable.due_date <= start)
-                    if end:
-                        conditions.append(APInvoiceTable.due_date >= end)
-                stmt = select(func.coalesce(func.sum(APInvoiceTable.total_amount - APInvoiceTable.paid_amount), 0)).where(and_(*conditions))
-                result_exec = await self.session.execute(stmt)
-                total = result_exec.scalar() or 0
-                result[bucket_name] = Decimal(str(total))
-            return result
+            session = self.session
+            # Definisikan bucket dengan CASE WHEN berdasarkan selisih hari
+            bucket_expr = func.case(
+                (APInvoiceTable.due_date <= as_of_date - timedelta(days=120), "'120+ days'"),
+                (APInvoiceTable.due_date <= as_of_date - timedelta(days=90), "'91-120 days'"),
+                (APInvoiceTable.due_date <= as_of_date - timedelta(days=60), "'61-90 days'"),
+                (APInvoiceTable.due_date <= as_of_date - timedelta(days=30), "'31-60 days'"),
+                else_="'0-30 days'"
+            )
+            stmt = select(
+                bucket_expr.label("bucket"),
+                func.coalesce(func.sum(APInvoiceTable.total_amount - APInvoiceTable.paid_amount), 0).label("total")
+            ).where(
+                APInvoiceTable.status.in_(["approved", "partially_paid"]),
+                APInvoiceTable.legal_entity_id == legal_entity_id,
+                APInvoiceTable.deleted_at.is_(None),
+            ).group_by(bucket_expr)
+            result = await session.execute(stmt)
+            rows = result.all()
+
+            # Inisialisasi semua bucket dengan 0
+            buckets = {
+                "0-30 days": Decimal(0),
+                "31-60 days": Decimal(0),
+                "61-90 days": Decimal(0),
+                "91-120 days": Decimal(0),
+                "120+ days": Decimal(0),
+            }
+            for row in rows:
+                buckets[row.bucket] = Decimal(str(row.total))
+            return buckets
         except Exception as e:
             logger.error("Failed to get AP aging buckets: %s", e)
             raise APRepositoryError(f"Failed to get aging buckets: {e}") from e
+
+    # ========================================================================
 
     async def get_next_invoice_number(self, prefix: str = "PO", year: int = None) -> str:
         if year is None:

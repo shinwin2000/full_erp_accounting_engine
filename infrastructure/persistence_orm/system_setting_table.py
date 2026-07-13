@@ -175,9 +175,7 @@ class SystemSettingTable(Base, TimestampMixin, SoftDeleteMixin, VersionMixin, Le
         try:
             if self.data_type == "integer":
                 int(val)
-            elif self.data_type == "float":
-                Decimal(str(val))
-            elif self.data_type == "decimal":
+            elif self.data_type == "float" or self.data_type == "decimal":
                 Decimal(str(val))
             elif self.data_type == "boolean":
                 if isinstance(val, str):

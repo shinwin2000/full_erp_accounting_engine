@@ -16,13 +16,11 @@ Responsibility:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
-
-from ports.primary.event_publisher_port import EventPublisherPort
 
 # Import domain events
 from application.events import (
@@ -43,6 +41,7 @@ from application.events import (
     RetainedEarningsTransferEvent,
     RetainedEarningsUpdatedEvent,
 )
+from ports.primary.event_publisher_port import EventPublisherPort
 
 logger = logging.getLogger(__name__)
 

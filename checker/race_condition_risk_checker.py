@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/race_condition_risk_checker.py – Race Condition Risk Detector
 =======================================================================
@@ -21,14 +20,13 @@ import concurrent.futures
 import csv
 import json
 import logging
-import os
 import pathlib
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
+from datetime import UTC, datetime
 
 # ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
 _RCA_ENGINE = None
@@ -39,7 +37,7 @@ def _init_rca() -> bool:
     if _RCA_AVAILABLE:
         return True
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -49,7 +47,7 @@ def _init_rca() -> bool:
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -59,7 +57,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -94,7 +92,7 @@ if not logger.handlers:
     logger.addHandler(_log_handler)
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
     "WHITE": "", "BOLD": "", "DIM": "", "RESET": "",
 }
@@ -152,9 +150,9 @@ class Finding:
     function: str
     message: str
     detail: str = ""
-    rca: Optional[Dict] = None
+    rca: dict | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "severity": self.severity,
             "file": self.file,
@@ -167,7 +165,7 @@ class Finding:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: float = 100.0
     scan_time: float = 0.0
     total_files_scanned: int = 0
@@ -191,10 +189,10 @@ class Report:
         return self.error_count == 0
 
 # ─── AST UTILITIES ──────────────────────────────────────────────────────────
-_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_AST_CACHE: dict[str, tuple[ast.AST | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
 
-def _read_source(py_file: pathlib.Path) -> Optional[str]:
+def _read_source(py_file: pathlib.Path) -> str | None:
     encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
     for enc in encodings:
         try:
@@ -206,7 +204,7 @@ def _read_source(py_file: pathlib.Path) -> Optional[str]:
     except OSError:
         return None
 
-def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     key = str(py_file.resolve())
     with _CACHE_LOCK:
         if key in _AST_CACHE:
@@ -228,7 +226,7 @@ def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
         _AST_CACHE[key] = (None, err)
         return None, err
 
-def _has_method_call(node: ast.AST, call_names: Set[str]) -> bool:
+def _has_method_call(node: ast.AST, call_names: set[str]) -> bool:
     for sub in ast.walk(node):
         if isinstance(sub, ast.Call):
             if isinstance(sub.func, ast.Name) and sub.func.id in call_names:
@@ -237,21 +235,21 @@ def _has_method_call(node: ast.AST, call_names: Set[str]) -> bool:
                 return True
     return False
 
-def _has_string_contains(text: str, keywords: Set[str]) -> bool:
+def _has_string_contains(text: str, keywords: set[str]) -> bool:
     text_lower = text.lower()
     for kw in keywords:
         if kw.lower() in text_lower:
             return True
     return False
 
-def _get_source_snippet(lines: List[str], line: int, context: int = 2) -> str:
+def _get_source_snippet(lines: list[str], line: int, context: int = 2) -> str:
     if line <= 0 or line > len(lines):
         return ""
     start = max(0, line - context - 1)
     end = min(len(lines), line + context)
     return "\n".join(lines[start:end]).strip()
 
-def _generate_rca(msg: str, severity: str, context: Optional[Dict] = None) -> Optional[Dict]:
+def _generate_rca(msg: str, severity: str, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -287,7 +285,7 @@ class RaceConditionDetector:
         self,
         file_path: pathlib.Path,
         root: pathlib.Path,
-        lines: List[str],
+        lines: list[str],
         enable_rca: bool = True,
         strict: bool = False,
     ):
@@ -296,7 +294,7 @@ class RaceConditionDetector:
         self.lines = lines
         self.enable_rca = enable_rca
         self.strict = strict
-        self.findings: List[Finding] = []
+        self.findings: list[Finding] = []
         self.rel_path = str(file_path.relative_to(root)).replace("\\", "/")
 
     def _add_finding(self, severity: str, line: int, func_name: str, message: str, detail: str):
@@ -319,7 +317,7 @@ class RaceConditionDetector:
         lower = func_name.lower()
         return any(kw in lower for kw in READONLY_FUNC_NAMES)
 
-    def _has_direct_db_write(self, node: ast.AST, func_node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> bool:
+    def _has_direct_db_write(self, node: ast.AST, func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         """
         Deteksi operasi tulis langsung ke database.
         Mendukung:
@@ -407,7 +405,7 @@ class RaceConditionDetector:
         lock_names = {"lock", "acquire", "redlock", "zookeeper_lock", "distributed_lock", "redis_lock"}
         return _has_method_call(node, lock_names)
 
-    def _has_transactional_decorator(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> bool:
+    def _has_transactional_decorator(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         for dec in node.decorator_list:
             if isinstance(dec, ast.Name) and dec.id in TRANSACTIONAL_DECORATORS:
                 return True
@@ -418,7 +416,7 @@ class RaceConditionDetector:
                     return True
         return False
 
-    def _has_serializable_isolation(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> bool:
+    def _has_serializable_isolation(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         for dec in node.decorator_list:
             if isinstance(dec, ast.Call):
                 for kw in dec.keywords:
@@ -438,7 +436,7 @@ class RaceConditionDetector:
                 return True
         return False
 
-    def analyze_function(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> Optional[Finding]:
+    def analyze_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> Finding | None:
         func_name = node.name
 
         # Step 1: Skip non-update/delete functions
@@ -487,7 +485,7 @@ class RaceConditionDetector:
             rca=rca,
         )
 
-    def scan(self, tree: ast.AST) -> List[Finding]:
+    def scan(self, tree: ast.AST) -> list[Finding]:
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 finding = self.analyze_function(node)
@@ -502,7 +500,7 @@ class RaceConditionChecker:
         root: pathlib.Path,
         enable_rca: bool = True,
         strict: bool = False,
-        extra_excludes: Optional[Set[str]] = None,
+        extra_excludes: set[str] | None = None,
         max_workers: int = 4,
         min_severity: str = "LOW",
     ):
@@ -527,7 +525,7 @@ class RaceConditionChecker:
             return True
         return False
 
-    def _get_python_files(self) -> List[pathlib.Path]:
+    def _get_python_files(self) -> list[pathlib.Path]:
         py_files = []
         scan_dirs = ["domain", "application", "infrastructure", "adapters", "bootstrap", "kernel"]
         for dir_name in scan_dirs:
@@ -544,17 +542,17 @@ class RaceConditionChecker:
         min_order = order.get(self.min_severity, 0)
         return order.get(finding.severity, 0) >= min_order
 
-    def scan(self, progress_callback: Optional[Callable] = None) -> Report:
+    def scan(self, progress_callback: Callable | None = None) -> Report:
         t0 = time.monotonic()
         report = Report()
         py_files = self._get_python_files()
         report.total_files_scanned = len(py_files)
 
-        all_findings: List[Finding] = []
+        all_findings: list[Finding] = []
         total = len(py_files)
         functions_checked = 0
 
-        def _scan_one(idx: int, py_file: pathlib.Path) -> Tuple[List[Finding], int]:
+        def _scan_one(idx: int, py_file: pathlib.Path) -> tuple[list[Finding], int]:
             if progress_callback:
                 progress_callback(idx + 1, total)
             tree, err = _get_ast(py_file)
@@ -612,7 +610,7 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
     _safe_print("    ✅ Transaction with proper isolation level")
     _safe_print("    ✅ Lock parameter passed to update/delete methods")
 
-    _safe_print(f"\n  📊 Summary:")
+    _safe_print("\n  📊 Summary:")
     _safe_print(f"    Files scanned      : {report.total_files_scanned}")
     _safe_print(f"    Functions checked  : {report.total_functions_checked}")
     _safe_print(f"    Files with issues  : {report.files_with_issues}")
@@ -675,7 +673,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
     try:
         data = {
             "version": __version__,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "score": report.score,
             "passed": report.passed,
             "scan_time": report.scan_time,

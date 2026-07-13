@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Sovereign ERP System — Repository Contract Checker
 ====================================================
@@ -31,8 +30,8 @@ Changelog v7.0.0 (dari v6.9.0):
 
 from __future__ import annotations
 
-import ast
 import argparse
+import ast
 import datetime
 import json
 import logging
@@ -43,8 +42,9 @@ import re
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Tuple, Union
+from typing import Any
 
 # ─── RCA INTEGRATION ─────────────────────────────────────────────────────────
 _RCA_ENGINE  = None
@@ -76,7 +76,7 @@ def _init_rca() -> bool:
 _init_rca()
 
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE or _RCA_ENGINE is None:
         return {
             "severity"     : "WARNING",
@@ -146,14 +146,14 @@ _DEFAULT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 #  CONFIGURATION
 # ═════════════════════════════════════════════════════════════════════════════
 
-EXCLUDED_DIRS: FrozenSet[str] = frozenset({
+EXCLUDED_DIRS: frozenset[str] = frozenset({
     "checker", "tests", "migrations", "__pycache__", ".git",
     "docs", "scripts", "deployment", "monitoring", "reports",
     ".venv", "venv", "node_modules", ".mypy_cache", ".ruff_cache",
     ".pytest_cache", ".tox", "build", "dist",
 })
 
-_INFRA_PURE_TECH_PREFIXES: FrozenSet[str] = frozenset({
+_INFRA_PURE_TECH_PREFIXES: frozenset[str] = frozenset({
     "redis", "kafka", "s3", "glacier", "minio",
     "smtp", "slack", "whatsapp", "pagerduty",
     "hsm", "hashicorp", "memcached", "elasticsearch",
@@ -162,18 +162,18 @@ _INFRA_PURE_TECH_PREFIXES: FrozenSet[str] = frozenset({
     "bank",
 })
 
-_INFRA_ANYWHERE_KW: FrozenSet[str] = frozenset({
+_INFRA_ANYWHERE_KW: frozenset[str] = frozenset({
     "kafka", "glacier", "minio", "slack", "pagerduty",
     "hashicorp", "hsm", "elasticsearch", "rabbitmq", "mt940",
 })
 
-_INFRA_STRUCTURAL_SIGNALS: FrozenSet[str] = frozenset({
+_INFRA_STRUCTURAL_SIGNALS: frozenset[str] = frozenset({
     "appendonly", "snapshotstore", "eventstore", "appendonlystore",
     "deadletter", "coldstore", "coldstorage",
 })
 
 # FIX-49: tambah statement, bankstatement, import
-_DOMAIN_MIN4: FrozenSet[str] = frozenset({
+_DOMAIN_MIN4: frozenset[str] = frozenset({
     "customer", "supplier", "vendor", "taxtransaction", "taxation",
     "account", "journal", "ledger", "invoice", "payment", "receipt",
     "employee", "payroll", "salary", "inventory", "warehouse", "stock",
@@ -186,20 +186,18 @@ _DOMAIN_MIN4: FrozenSet[str] = frozenset({
     "cashbook", "bankstatement", "umkm", "outbox", "systemsetting",
     "fiscalperiod", "approval", "auditevent", "notification", "coretax",
     "unitofwork", "timestampnotary", "hashchain", "saga", "sales",
-    "subledger", "faktur", "goodwill", "intangible", "fixedasset",
-    "aml", "iam", "spt",
-    "file", "storage", "event", "publisher", "notification",
-    "report", "aging", "bucket", "snapshot", "projection",
+    "subledger", "faktur", "intangible", "aml", "iam", "spt",
+    "file", "storage", "event", "publisher", "aging", "bucket", "snapshot", "projection",
     "query", "handler", "uow",
-    "inventory", "valuation",
+    "valuation",
     "sagastore", "sagastate",
     "statement", "import",  # FIX-49
 })
 
-INFRASTRUCTURE_KEYWORDS: FrozenSet[str] = _INFRA_ANYWHERE_KW | _INFRA_PURE_TECH_PREFIXES
-DOMAIN_OVERRIDE_KEYWORDS: FrozenSet[str] = _DOMAIN_MIN4
+INFRASTRUCTURE_KEYWORDS: frozenset[str] = _INFRA_ANYWHERE_KW | _INFRA_PURE_TECH_PREFIXES
+DOMAIN_OVERRIDE_KEYWORDS: frozenset[str] = _DOMAIN_MIN4
 
-IFACE_SUFFIXES: Tuple[str, ...] = (
+IFACE_SUFFIXES: tuple[str, ...] = (
     "RepositoryPortProtocol",
     "PortProtocol",
     "RepositoryPort",
@@ -212,7 +210,7 @@ IFACE_SUFFIXES: Tuple[str, ...] = (
     "Abstract",
 )
 
-IMPL_TECH_PREFIXES: Tuple[str, ...] = (
+IMPL_TECH_PREFIXES: tuple[str, ...] = (
     "SQLAlchemy",
     "Postgres", "AsyncPG", "PG",
     "InMemory", "Memory",
@@ -231,7 +229,7 @@ IMPL_TECH_PREFIXES: Tuple[str, ...] = (
     # bukan tech prefix. BankStatementImportAdapter harus normalize ke "bankstatementimport"
 )
 
-IMPL_SUFFIXES: Tuple[str, ...] = (
+IMPL_SUFFIXES: tuple[str, ...] = (
     "PortImpl", "Adapter", "Impl", "Repository", "Store", "Cache",
     # NOTE: "Port" dihapus dari IMPL_SUFFIXES — jika Port ada di sini,
     # normalize_impl("AccountRepositoryPort") → "account" yang sama dengan
@@ -239,7 +237,7 @@ IMPL_SUFFIXES: Tuple[str, ...] = (
     "Channel", "Handler", "Projection", "Service", "Gateway", "Manager",
 )
 
-COSMETIC_PARAM_PAIRS: FrozenSet[FrozenSet[str]] = frozenset({
+COSMETIC_PARAM_PAIRS: frozenset[frozenset[str]] = frozenset({
     frozenset({"keyword", "name_fragment"}),
     frozenset({"keyword", "search_term"}),
     frozenset({"keyword", "query"}),
@@ -269,7 +267,7 @@ COSMETIC_PARAM_PAIRS: FrozenSet[FrozenSet[str]] = frozenset({
     frozenset({"transaction_number", "doc_number"}),  # Generic doc
 })
 
-SEMANTIC_MISMATCH_PAIRS: FrozenSet[FrozenSet[str]] = frozenset({
+SEMANTIC_MISMATCH_PAIRS: frozenset[frozenset[str]] = frozenset({
     frozenset({"user_id", "submitted_by"}),
     frozenset({"user_id", "created_by"}),
     frozenset({"user_id", "approved_by"}),
@@ -294,9 +292,9 @@ SEMANTIC_MISMATCH_PAIRS: FrozenSet[FrozenSet[str]] = frozenset({
     frozenset({"user_id", "reason"}),
 })
 
-_BARE_GENERIC_TYPES: FrozenSet[str] = frozenset({"list", "dict", "set", "tuple", "sequence"})
+_BARE_GENERIC_TYPES: frozenset[str] = frozenset({"list", "dict", "set", "tuple", "sequence"})
 
-COMPATIBLE_TYPE_SUFFIXES: Tuple[str, ...] = (
+COMPATIBLE_TYPE_SUFFIXES: tuple[str, ...] = (
     "Aggregate", "AggregateRoot", "Entity", "Model", "Table",
     "ORM", "Row", "DTO", "Dto", "Record", "Document", "Schema",
 )
@@ -311,7 +309,7 @@ GRADE_THRESHOLDS = [
     (0,  "F",   "RED"),
 ]
 
-ALLOWED_DUPLICATE_NAMES: FrozenSet[str] = frozenset({
+ALLOWED_DUPLICATE_NAMES: frozenset[str] = frozenset({
     "ExchangeRateCreateSchema", "ExchangeRateUpdateSchema", "ExchangeRateResponseSchema",
     "CurrencyConversionRequestSchema", "CurrencyConversionResponseSchema",
     "BatchConversionRequestSchema", "BatchConversionResponseSchema",
@@ -338,10 +336,10 @@ class MethodInfo:
     is_property:        bool
     is_static:          bool
     lineno:             int
-    param_names:        List[str]       = field(default_factory=list)
-    param_defaults:     Dict[str, str]  = field(default_factory=dict)
+    param_names:        list[str]       = field(default_factory=list)
+    param_defaults:     dict[str, str]  = field(default_factory=dict)
     return_annotation:  str             = ""
-    raises_annotations: List[str]       = field(default_factory=list)
+    raises_annotations: list[str]       = field(default_factory=list)
     docstring:          str             = ""
 
 
@@ -350,7 +348,7 @@ class InterfaceInfo:
     name:             str
     file_path:        str
     module:           str
-    methods:          Dict[str, MethodInfo]
+    methods:          dict[str, MethodInfo]
     base_name:        str
     has_abc:          bool = False
     is_protocol_dup:  bool = False
@@ -362,11 +360,11 @@ class ImplementationInfo:
     name:              str
     file_path:         str
     module:            str
-    methods:           Dict[str, MethodInfo]
+    methods:           dict[str, MethodInfo]
     is_infrastructure: bool       = False
     base_name:         str        = ""
-    extra_methods:     List[str]  = field(default_factory=list)
-    declared_bases:    List[str]  = field(default_factory=list)
+    extra_methods:     list[str]  = field(default_factory=list)
+    declared_bases:    list[str]  = field(default_factory=list)
 
 
 @dataclass
@@ -378,14 +376,14 @@ class Violation:
     detail:         str         = ""
     rule_id:        str         = ""
     fix_snippet:    str         = ""
-    rca:            Optional[Dict] = None
+    rca:            dict | None = None
 
 
 @dataclass
 class DuplicateEntry:
     name:             str
     kind:             str
-    definition_files: List[str]
+    definition_files: list[str]
     recommendation:   str = ""
 
 
@@ -408,33 +406,33 @@ class ScoreBreakdown:
 
 @dataclass
 class CheckerResult:
-    interfaces:            List[InterfaceInfo]
-    implementations:       List[ImplementationInfo]
-    infrastructure_impls:  List[str]
-    matched:               List[Tuple[str, str]]
-    unmatched_interfaces:  List[str]
-    unmatched_impls:       List[str]
-    violations:            List[Violation]
+    interfaces:            list[InterfaceInfo]
+    implementations:       list[ImplementationInfo]
+    infrastructure_impls:  list[str]
+    matched:               list[tuple[str, str]]
+    unmatched_interfaces:  list[str]
+    unmatched_impls:       list[str]
+    violations:            list[Violation]
     total_errors:          int
     total_warnings:        int
     total_infos:           int
     score_breakdown:       ScoreBreakdown
-    duplicates:            List[DuplicateEntry]
+    duplicates:            list[DuplicateEntry]
     audit_timestamp:       str
     elapsed_seconds:       float
     strict_types:          bool
-    rca_results:           List[Dict[str, Any]] = field(default_factory=list)
+    rca_results:           list[dict[str, Any]] = field(default_factory=list)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  AST UTILITIES
 # ═════════════════════════════════════════════════════════════════════════════
 
-_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_AST_CACHE: dict[str, tuple[ast.AST | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
 
 
-def _read_source(py_file: pathlib.Path) -> Optional[str]:
+def _read_source(py_file: pathlib.Path) -> str | None:
     for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
         try:
             raw = py_file.read_bytes()
@@ -449,7 +447,7 @@ def _read_source(py_file: pathlib.Path) -> Optional[str]:
         return None
 
 
-def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     key = str(py_file.resolve())
     with _CACHE_LOCK:
         if key in _AST_CACHE:
@@ -470,7 +468,7 @@ def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
     return result
 
 
-def _ann(node: Optional[ast.expr]) -> str:
+def _ann(node: ast.expr | None) -> str:
     if node is None:
         return ""
     if hasattr(ast, "unparse"):
@@ -493,7 +491,7 @@ def _ann(node: Optional[ast.expr]) -> str:
     return type(node).__name__
 
 
-def _default_str(node: Optional[ast.expr]) -> str:
+def _default_str(node: ast.expr | None) -> str:
     if node is None:
         return "None"
     if hasattr(ast, "unparse"):
@@ -577,7 +575,7 @@ def _types_compatible(iface_type: str, impl_type: str) -> bool:
 
 
 def _type_mismatch_is_real(iface_type: str, impl_type: str) -> bool:
-    SEMANTICALLY_COMPATIBLE: FrozenSet[FrozenSet[str]] = frozenset({
+    SEMANTICALLY_COMPATIBLE: frozenset[frozenset[str]] = frozenset({
         frozenset({"BinaryIO", "bytes"}),
         frozenset({"IO[bytes]", "bytes"}),
         frozenset({"None", "bool"}),
@@ -602,8 +600,8 @@ def _type_mismatch_is_real(iface_type: str, impl_type: str) -> bool:
     return not _types_compatible(iface_type, impl_type)
 
 
-def _get_decorators(func_node: Any) -> Set[str]:
-    names: Set[str] = set()
+def _get_decorators(func_node: Any) -> set[str]:
+    names: set[str] = set()
     for dec in func_node.decorator_list:
         if isinstance(dec, ast.Name):
             names.add(dec.id)
@@ -612,7 +610,7 @@ def _get_decorators(func_node: Any) -> Set[str]:
     return names
 
 
-def _get_class_bases(node: ast.ClassDef) -> List[str]:
+def _get_class_bases(node: ast.ClassDef) -> list[str]:
     result = []
     for base in node.bases:
         if isinstance(base, ast.Name):
@@ -630,8 +628,8 @@ def _get_class_bases(node: ast.ClassDef) -> List[str]:
 def extract_methods_from_class(
     tree: ast.AST,
     class_name: str,
-) -> Dict[str, MethodInfo]:
-    methods: Dict[str, MethodInfo] = {}
+) -> dict[str, MethodInfo]:
+    methods: dict[str, MethodInfo] = {}
     for node in ast.walk(tree):
         if not (isinstance(node, ast.ClassDef) and node.name == class_name):
             continue
@@ -659,7 +657,7 @@ def extract_methods_from_class(
 
             param_names = [a.arg for a in pos_args]
             defs_aligned = [None] * (n_pos - n_defs) + list(args.defaults)
-            param_defaults: Dict[str, str] = {
+            param_defaults: dict[str, str] = {
                 a.arg: _default_str(defs_aligned[i])
                 for i, a in enumerate(pos_args)
                 if defs_aligned[i] is not None
@@ -695,7 +693,7 @@ def extract_methods_from_class(
     return methods
 
 
-def _extract_raises_from_docstring(docstring: str) -> List[str]:
+def _extract_raises_from_docstring(docstring: str) -> list[str]:
     raises = []
     for line in docstring.splitlines():
         m = re.match(r'(?:Raises?|:raises?)\s*[:\s]\s*(\w+)', line.strip(), re.I)
@@ -713,7 +711,7 @@ def _class_has_abc_base(node: ast.ClassDef) -> bool:
     return False
 
 
-def _should_exclude_path(path: pathlib.Path, root: pathlib.Path, extra: Set[str]) -> bool:
+def _should_exclude_path(path: pathlib.Path, root: pathlib.Path, extra: set[str]) -> bool:
     try:
         rel = path.relative_to(root)
     except ValueError:
@@ -725,11 +723,11 @@ def _should_exclude_path(path: pathlib.Path, root: pathlib.Path, extra: Set[str]
 
 
 def _token_similarity(a: str, b: str) -> float:
-    def tokenize(s: str) -> Set[str]:
+    def tokenize(s: str) -> set[str]:
         s2 = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s)
         s2 = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1_\2', s2)
         parts = re.split(r'[_\s]+', s2.lower())
-        tokens: Set[str] = set()
+        tokens: set[str] = set()
         for p in parts:
             if len(p) > 1:
                 tokens.add(p)
@@ -824,16 +822,16 @@ def _is_infrastructure(name: str, file_path: str) -> bool:
 def scan_interfaces(
     ports_dir: pathlib.Path,
     root: pathlib.Path,
-    extra_excludes: Set[str],
-    progress: Optional[Callable] = None,
-) -> List[InterfaceInfo]:
-    INTERFACE_REPO_KEYWORDS: Set[str] = {
+    extra_excludes: set[str],
+    progress: Callable | None = None,
+) -> list[InterfaceInfo]:
+    INTERFACE_REPO_KEYWORDS: set[str] = {
         "repository", "store", "cache", "repo", "port", "protocol",
         "publisher", "consumer", "notary", "hashchain", "saga",
         "handler", "projection", "query",
     }
-    results: List[InterfaceInfo] = []
-    seen_names: Set[str] = set()
+    results: list[InterfaceInfo] = []
+    seen_names: set[str] = set()
 
     if not ports_dir.exists():
         logger.warning("Interface directory not found: %s", ports_dir)
@@ -892,7 +890,7 @@ def scan_interfaces(
             ))
             seen_names.add(cname)
 
-    port_variant_bases: Set[str] = {
+    port_variant_bases: set[str] = {
         i.base_name for i in results
         if i.name.endswith("Port") and not i.name.endswith("PortProtocol")
     }
@@ -930,13 +928,13 @@ def _is_likely_implementation_class(class_name: str) -> bool:
 
 
 def scan_implementations(
-    impl_dirs: List[pathlib.Path],
+    impl_dirs: list[pathlib.Path],
     root: pathlib.Path,
-    extra_excludes: Set[str],
-    progress: Optional[Callable] = None,
-) -> List[ImplementationInfo]:
-    results: List[ImplementationInfo] = []
-    seen_names: Set[str] = set()
+    extra_excludes: set[str],
+    progress: Callable | None = None,
+) -> list[ImplementationInfo]:
+    results: list[ImplementationInfo] = []
+    seen_names: set[str] = set()
 
     for impls_dir in impl_dirs:
         if not impls_dir.exists():
@@ -1016,9 +1014,9 @@ def scan_implementations(
 
 
 def scan_self_implemented_ports(
-    interfaces: List[InterfaceInfo],
-) -> List[ImplementationInfo]:
-    impls: List[ImplementationInfo] = []
+    interfaces: list[InterfaceInfo],
+) -> list[ImplementationInfo]:
+    impls: list[ImplementationInfo] = []
     for iface in interfaces:
         if iface.is_self_implemented and not iface.is_protocol_dup:
             impl = ImplementationInfo(
@@ -1039,7 +1037,7 @@ def scan_self_implemented_ports(
 #  DUPLICATE CHECKER
 # ═════════════════════════════════════════════════════════════════════════════
 
-_DUPLICATE_PATTERNS: Dict[str, List[str]] = {
+_DUPLICATE_PATTERNS: dict[str, list[str]] = {
     "interface":      ["Port", "Protocol", "PortProtocol"],
     "implementation": ["Repository", "Adapter", "Impl", "Store"],
     "dto":            ["DTO", "Dto", "Request", "Response", "Schema"],
@@ -1070,12 +1068,12 @@ def _is_substantive_class_body(node: ast.ClassDef) -> bool:
 
 def scan_duplicates(
     root: pathlib.Path,
-    extra_excludes: Set[str],
-    scope_dirs: Optional[List[pathlib.Path]] = None,
-) -> List[DuplicateEntry]:
-    seen: Dict[str, List[str]] = {}
+    extra_excludes: set[str],
+    scope_dirs: list[pathlib.Path] | None = None,
+) -> list[DuplicateEntry]:
+    seen: dict[str, list[str]] = {}
     search_dirs = scope_dirs if scope_dirs else [root]
-    visited: Set[pathlib.Path] = set()
+    visited: set[pathlib.Path] = set()
 
     for base_dir in search_dirs:
         if not base_dir.exists():
@@ -1118,7 +1116,7 @@ def scan_duplicates(
                 key = f"{kind}::{cname}"
                 seen.setdefault(key, []).append(str(py_file))
 
-    duplicates: List[DuplicateEntry] = []
+    duplicates: list[DuplicateEntry] = []
     for key, locations in seen.items():
         unique_files = sorted(set(locations))
         if len(unique_files) < 2:
@@ -1131,7 +1129,7 @@ def scan_duplicates(
     return sorted(duplicates, key=lambda d: (-len(d.definition_files), d.name))
 
 
-def _duplicate_recommendation(name: str, kind: str, files: List[str]) -> str:
+def _duplicate_recommendation(name: str, kind: str, files: list[str]) -> str:
     has_domain   = any("/domain/" in f or "\\domain\\" in f for f in files)
     has_adapter  = any("/adapters/" in f or "\\adapters\\" in f for f in files)
     has_port     = any("/ports/" in f or "\\ports\\" in f for f in files)
@@ -1169,11 +1167,11 @@ def _duplicate_recommendation(name: str, kind: str, files: List[str]) -> str:
 
 def match_interface_to_impl(
     interface: InterfaceInfo,
-    repo_impls: List[ImplementationInfo],
-) -> Optional[ImplementationInfo]:
+    repo_impls: list[ImplementationInfo],
+) -> ImplementationInfo | None:
     base_iface    = interface.base_name
     iface_name_lc = interface.name.lower()
-    candidates: List[Tuple[float, ImplementationInfo]] = []
+    candidates: list[tuple[float, ImplementationInfo]] = []
 
     for impl in repo_impls:
         if impl.is_infrastructure:
@@ -1181,9 +1179,7 @@ def match_interface_to_impl(
 
         score = 0.0
 
-        if impl.name == interface.name:
-            score = 1.0
-        elif base_iface and impl.base_name and base_iface == impl.base_name:
+        if impl.name == interface.name or (base_iface and impl.base_name and base_iface == impl.base_name):
             score = 1.0
         elif base_iface and impl.base_name:
             sim = _token_similarity(base_iface, impl.base_name)
@@ -1226,7 +1222,7 @@ def match_interface_to_impl(
 #  COMPARE METHODS
 # ═════════════════════════════════════════════════════════════════════════════
 
-def _classify_param_mismatch(iface_name: str, impl_name: str) -> Tuple[str, str]:
+def _classify_param_mismatch(iface_name: str, impl_name: str) -> tuple[str, str]:
     pair = frozenset({iface_name, impl_name})
     if pair in COSMETIC_PARAM_PAIRS:
         return "INFO", "CHK-005b"
@@ -1236,7 +1232,7 @@ def _classify_param_mismatch(iface_name: str, impl_name: str) -> Tuple[str, str]
 
 
 def _fix_snippet_for_param_mismatch(
-    iface: "InterfaceInfo",
+    iface: InterfaceInfo,
     method_name: str,
     mdef: MethodInfo,
     im: MethodInfo,
@@ -1253,8 +1249,8 @@ def compare_methods(
     interface: InterfaceInfo,
     impl: ImplementationInfo,
     strict_types: bool = False,
-) -> List[Violation]:
-    violations: List[Violation] = []
+) -> list[Violation]:
+    violations: list[Violation] = []
     impl_set  = set(impl.methods.keys())
 
     for mname, mdef in interface.methods.items():
@@ -1393,8 +1389,8 @@ def compare_methods(
                         fix_snippet=_fix_snippet_for_param_mismatch(interface, mname, mdef, im),
                     ))
                 else:
-                    warn_pairs: List[Tuple[int, str, str]] = []
-                    info_pairs: List[Tuple[int, str, str]] = []
+                    warn_pairs: list[tuple[int, str, str]] = []
+                    info_pairs: list[tuple[int, str, str]] = []
                     for i, a, b in mismatched:
                         sev, _ = _classify_param_mismatch(a, b)
                         (info_pairs if sev == "INFO" else warn_pairs).append((i, a, b))
@@ -1490,9 +1486,9 @@ def _is_excluded_impl(name: str) -> bool:
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _compute_score(
-    interfaces: List[InterfaceInfo],
-    matched_pairs: List[Tuple[str, str]],
-    violations: List[Violation],
+    interfaces: list[InterfaceInfo],
+    matched_pairs: list[tuple[str, str]],
+    violations: list[Violation],
 ) -> ScoreBreakdown:
     countable = [i for i in interfaces if not i.is_protocol_dup]
     total_ifaces    = len(interfaces)
@@ -1516,8 +1512,8 @@ def _compute_score(
     else:
         matched_names = {i for i, _ in matched_pairs}
         relevant = [v for v in violations if v.interface in matched_names]
-        err_by: Dict[str, int]  = {}
-        warn_by: Dict[str, int] = {}
+        err_by: dict[str, int]  = {}
+        warn_by: dict[str, int] = {}
         for v in relevant:
             if v.severity == "ERROR":
                 err_by[v.interface]  = err_by.get(v.interface, 0) + 1
@@ -1582,16 +1578,16 @@ def _compute_score(
 
 def scan_repositories(
     root: pathlib.Path,
-    ports_dir: Optional[pathlib.Path]  = None,
-    ports_secondary_dir: Optional[pathlib.Path] = None,
-    impls_dir: Optional[pathlib.Path]  = None,
+    ports_dir: pathlib.Path | None  = None,
+    ports_secondary_dir: pathlib.Path | None = None,
+    impls_dir: pathlib.Path | None  = None,
     run_rca: bool        = True,
     run_dup: bool        = True,
     dup_full_scan: bool  = True,
     strict_types: bool   = False,
     max_workers: int     = 4,
-    extra_excludes: Optional[Set[str]] = None,
-    progress_callback: Optional[Callable] = None,
+    extra_excludes: set[str] | None = None,
+    progress_callback: Callable | None = None,
 ) -> CheckerResult:
     t_start        = time.monotonic()
     extra_excludes = extra_excludes or set()
@@ -1624,9 +1620,9 @@ def scan_repositories(
     repo_impls   = [i for i in repo_impls if not _is_excluded_impl(i.name)]
     infra_names  = [i.name for i in all_impls if i.is_infrastructure]
 
-    matched_pairs:       List[Tuple[str, str]] = []
-    matched_iface_names: Set[str]              = set()
-    all_violations:      List[Violation]       = []
+    matched_pairs:       list[tuple[str, str]] = []
+    matched_iface_names: set[str]              = set()
+    all_violations:      list[Violation]       = []
 
     for iface in interfaces:
         if iface.name in matched_iface_names:
@@ -1677,7 +1673,7 @@ def scan_repositories(
 
     sb = _compute_score(interfaces, matched_pairs, all_violations)
 
-    duplicates: List[DuplicateEntry] = []
+    duplicates: list[DuplicateEntry] = []
     if run_dup:
         scope = [root] if dup_full_scan else [
             d for d in [eff_ports, eff_impl_dirs[0], root / "domain", root / "application"]
@@ -1685,7 +1681,7 @@ def scan_repositories(
         ]
         duplicates = scan_duplicates(root, extra_excludes, scope_dirs=scope)
 
-    rca_results: List[Dict[str, Any]] = []
+    rca_results: list[dict[str, Any]] = []
     if run_rca:
         for v in [x for x in all_violations if x.severity == "ERROR"][:30]:
             if v.rca:
@@ -1761,7 +1757,7 @@ def print_report(
     _safe_print(f"  Contract Infos (cosmetic)   : {_c('DIM')}{data.total_infos:>5}{_c('RESET')}")
 
     _safe_print(f"\n{_c('CYAN')}{TSEP}{_c('RESET')}")
-    _safe_print(f"  SCORE — TWO SEPARATE DIMENSIONS (not combined)")
+    _safe_print("  SCORE — TWO SEPARATE DIMENSIONS (not combined)")
     _safe_print(f"{_c('CYAN')}{TSEP}{_c('RESET')}")
     _safe_print(f"  {_c('BOLD')}(1) COVERAGE SCORE{_c('RESET')} — completeness of interface implementation")
     _safe_print(
@@ -1835,7 +1831,7 @@ def print_report(
                 if verbose and v.rca.get("suggested_fix"):
                     _safe_print(f"       Fix       : {v.rca['suggested_fix'][:120]}")
             if show_fix_snippets and v.fix_snippet:
-                _safe_print(f"       Snippet   :")
+                _safe_print("       Snippet   :")
                 for ln in v.fix_snippet.splitlines():
                     _safe_print(f"         {_c('DIM')}{ln}{_c('RESET')}")
         if len(errors) > limit:
@@ -1857,7 +1853,7 @@ def print_report(
             if verbose and v.rca:
                 _safe_print(f"       RCA       : {v.rca.get('root_cause', '')[:120]}")
             if show_fix_snippets and v.fix_snippet:
-                _safe_print(f"       Snippet   :")
+                _safe_print("       Snippet   :")
                 for ln in v.fix_snippet.splitlines():
                     _safe_print(f"         {_c('DIM')}{ln}{_c('RESET')}")
         if len(warnings) > show_limit:
@@ -1894,7 +1890,7 @@ def print_report(
 
 def save_json(data: CheckerResult, filepath: str) -> bool:
     sb = data.score_breakdown
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "checker_version" : __version__,
         "audit_timestamp" : data.audit_timestamp,
         "elapsed_seconds" : data.elapsed_seconds,
@@ -1984,7 +1980,7 @@ def save_json(data: CheckerResult, filepath: str) -> bool:
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _run_self_test() -> bool:
-    failures: List[str] = []
+    failures: list[str] = []
 
     def check(name: str, got: Any, expected: Any) -> None:
         if got != expected:
@@ -2157,7 +2153,7 @@ def main() -> None:
         _safe_print(f"{_c('RED')}[ERROR] Root not found: {root}{_c('RESET')}")
         sys.exit(2)
 
-    extra_excludes: Set[str] = set(args.exclude.split(",")) if args.exclude else set()
+    extra_excludes: set[str] = set(args.exclude.split(",")) if args.exclude else set()
 
     _pb_lock = threading.Lock()
     _pb_current = [0]

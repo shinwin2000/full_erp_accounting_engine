@@ -137,7 +137,7 @@ class VendorCard:
             description=f"Invoice {invoice.invoice_number}",
             created_at=datetime.now(UTC),
         )
-        return cls(
+        card = cls(
             vendor_id=invoice.vendor_id,
             vendor_name=invoice.vendor_name,
             legal_entity_id=invoice.legal_entity_id
@@ -148,6 +148,18 @@ class VendorCard:
             mutations=[mutation],
             payment_terms_days=30,
         )
+        # ── AUDIT TRAIL ──
+        card._record_audit(
+            "CREATE_FROM_INVOICE",
+            getattr(invoice, "created_by", "system"),
+            {
+                "invoice_id": str(invoice.invoice_id),
+                "invoice_number": invoice.invoice_number,
+                "amount": str(invoice.amount),
+                "vendor_id": str(invoice.vendor_id),
+            }
+        )
+        return card
 
     def add_invoice(self, invoice: APInvoiceEntity) -> VendorCard:
         new_balance = self.outstanding_balance + invoice.amount

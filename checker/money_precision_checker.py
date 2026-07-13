@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 money_precision_checker.py — Monetary Precision & Forensic Checker v6.9.0
 ========================================================================
@@ -26,7 +25,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # ─── Integrasi RCA ──────────────────────────────────────────────────────────
 RCA_AVAILABLE = False
@@ -85,7 +84,7 @@ NON_MONETARY_TOKENS = {
     'rto', 'rpo', 'avg', 'p95', 'p99', 'percentile', 'throughput',
     'qps', 'tps', 'latency_avg', 'latency_p95', 'recovery_time',
     'response_time', 'processing_time', 'execution_time',
-    'quantity', 'qty', 'percent', 'ratio', 'metric', 'metrics',
+    'quantity', 'qty', 'percent', 'metric', 'metrics',
 }
 
 SERIALIZATION_FUNC_TOKENS = {
@@ -123,11 +122,11 @@ class Finding:
     snippet: str = ""
     recommendation: str = ""
     is_monetary: bool = True
-    rca: Optional[Dict[str, Any]] = None
+    rca: dict[str, Any] | None = None
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: int = 100
     rca_enabled: bool = False
     elapsed_seconds: float = 0.0
@@ -154,16 +153,16 @@ class TypeTracker(ast.NodeVisitor):
         self.file_path = file_path
         self.strict = strict
         self.enable_rca = enable_rca and RCA_AVAILABLE
-        self.findings: List[Finding] = []
+        self.findings: list[Finding] = []
 
-        self.scope_stack: List[Dict[str, TypeKind]] = [{}]
-        self.decimal_aliases: Set[str] = set(DECIMAL_ALIASES)
+        self.scope_stack: list[dict[str, TypeKind]] = [{}]
+        self.decimal_aliases: set[str] = set(DECIMAL_ALIASES)
         self.has_decimal_import = False
-        self.current_function: Optional[str] = None
-        self.current_class: Optional[str] = None
-        self.current_class_type: Optional[str] = None
+        self.current_function: str | None = None
+        self.current_class: str | None = None
+        self.current_class_type: str | None = None
 
-    def _generate_rca(self, rule_id: str, message: str, severity: str, context: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+    def _generate_rca(self, rule_id: str, message: str, severity: str, context: dict[str, Any] = None) -> dict[str, Any] | None:
         if not self.enable_rca or _analyze_exception is None:
             return None
         try:
@@ -199,7 +198,7 @@ class TypeTracker(ast.NodeVisitor):
             return "SERIALIZATION"
         return "UNKNOWN"
 
-    def _current_scope(self) -> Dict[str, TypeKind]:
+    def _current_scope(self) -> dict[str, TypeKind]:
         return self.scope_stack[-1]
 
     def _enter_scope(self) -> None:
@@ -296,7 +295,7 @@ class TypeTracker(ast.NodeVisitor):
             return True
         return False
 
-    def _classify_finding(self, var_name: str, node: ast.AST, rule_id: str, category: str, message: str) -> Tuple[str, str, bool]:
+    def _classify_finding(self, var_name: str, node: ast.AST, rule_id: str, category: str, message: str) -> tuple[str, str, bool]:
         """
         Menentukan severity, rekomendasi, dan flag is_monetary berdasarkan konteks.
         """
@@ -680,7 +679,7 @@ class TypeTracker(ast.NodeVisitor):
         self.generic_visit(node)
 
 # ─── Scanner ────────────────────────────────────────────────────────────────
-def scan_file(file_path: pathlib.Path, strict: bool = False, enable_rca: bool = True) -> List[Finding]:
+def scan_file(file_path: pathlib.Path, strict: bool = False, enable_rca: bool = True) -> list[Finding]:
     try:
         src = file_path.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(src, filename=str(file_path))
@@ -691,7 +690,7 @@ def scan_file(file_path: pathlib.Path, strict: bool = False, enable_rca: bool = 
     tracker.visit(tree)
     return tracker.findings
 
-def scan_money_precision(strict: bool = False, enable_rca: bool = True, exclude_dirs: List[str] = None) -> Report:
+def scan_money_precision(strict: bool = False, enable_rca: bool = True, exclude_dirs: list[str] = None) -> Report:
     report = Report()
     report.rca_enabled = enable_rca and RCA_AVAILABLE
     start_time = time.monotonic()
@@ -721,7 +720,7 @@ def scan_money_precision(strict: bool = False, enable_rca: bool = True, exclude_
     return report
 
 # ─── Grouping ──────────────────────────────────────────────────────────────
-def group_findings_by_file(findings: List[Finding]) -> Dict[str, List[Finding]]:
+def group_findings_by_file(findings: list[Finding]) -> dict[str, list[Finding]]:
     groups = defaultdict(list)
     for f in findings:
         groups[f.file].append(f)
@@ -731,7 +730,7 @@ def group_findings_by_file(findings: List[Finding]) -> Dict[str, List[Finding]]:
 def print_report(report: Report, verbose: bool = False, group_by_file: bool = True):
     c = COLOR
     print(f"\n{c['CYAN']}{'='*80}{c['RESET']}")
-    print(f"{c['CYAN']}MONEY PRECISION & FORENSIC CHECKER v6.9 — {report.rca_enabled and 'RCA ENABLED' or 'RCA DISABLED'}{c['RESET']}")
+    print(f"{c['CYAN']}MONEY PRECISION & FORENSIC CHECKER v6.9 — {(report.rca_enabled and 'RCA ENABLED') or 'RCA DISABLED'}{c['RESET']}")
     print(f"{c['CYAN']}{'='*80}{c['RESET']}")
 
     severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}

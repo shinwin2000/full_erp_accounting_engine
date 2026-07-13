@@ -595,7 +595,7 @@ __all__ = [
     "HPPCalculationMethod",
     "HPPCalculationResult",
     "HPPCalculator",
-    "HppCalculator",         
     "HPPComponent",
     "HPPPerProductCalculator",
+    "HppCalculator",
 ]

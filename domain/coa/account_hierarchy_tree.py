@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from collections import deque
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, ClassVar
@@ -138,15 +138,14 @@ class HierarchyNode:
     ) -> HierarchyNode:
         """Reconstruct node from dictionary."""
         account_id = UUID(data["account_id"])
-        account = accounts_map.get(account_id)
-        if not account:
+        if account_id not in accounts_map:
             raise ValueError(f"Account {account_id} not found in accounts_map")
-        node = cls(
-            account=account,
-            level=data.get("level", 0),
-            path=data.get("path", [account.account_code]),
-        )
-        for child_data in data.get("children", []):
+        account = accounts_map[account_id]
+        level = data["level"] if "level" in data else 0
+        path = data["path"] if "path" in data else [account.account_code]
+        node = cls(account=account, level=level, path=path)
+        children_data = data["children"] if "children" in data else []
+        for child_data in children_data:
             child_node = cls.from_dict(child_data, accounts_map)
             node.children.append(child_node)
         return node
@@ -185,10 +184,10 @@ class HierarchyNode:
 
     def compute_hash(self) -> str:
         """Compute a hash of the node and its subtree for integrity checking."""
-        data = f"{self.account.account_id}:{self.account.version}:{self.level}"
+        data_str = f"{self.account.account_id}:{self.account.version}:{self.level}"
         for child in self.children:
-            data += child.compute_hash()
-        return hashlib.sha3_256(data.encode()).hexdigest()
+            data_str += child.compute_hash()
+        return hashlib.sha3_256(data_str.encode()).hexdigest()
 
     # ==================== QUERY METHODS ====================
 
@@ -337,7 +336,9 @@ class AccountHierarchyTree:
                 continue  # root candidate
             if parent_id in nodes:
                 # Valid parent
-                children_map.setdefault(parent_id, []).append(acc_id)
+                if parent_id not in children_map:
+                    children_map[parent_id] = []
+                children_map[parent_id].append(acc_id)
                 potential_roots.discard(acc_id)  # not a root
             else:
                 # Parent not in this collection -> orphan
@@ -355,7 +356,8 @@ class AccountHierarchyTree:
             node.level = level
             node.path = path + [node.account.account_code]
             node.children = []
-            for child_id in children_map.get(acc_id, []):
+            child_list = children_map[acc_id] if acc_id in children_map else []
+            for child_id in child_list:
                 child_node = build_node(child_id, level + 1, node.path)
                 node.children.append(child_node)
             return node
@@ -409,7 +411,8 @@ class AccountHierarchyTree:
         def has_cycle(node_id: UUID) -> bool:
             visited.add(node_id)
             rec_stack.add(node_id)
-            for child_id in children_map.get(node_id, []):
+            child_list = children_map[node_id] if node_id in children_map else []
+            for child_id in child_list:
                 if child_id not in visited:
                     if has_cycle(child_id):
                         return True
@@ -487,13 +490,16 @@ class AccountHierarchyTree:
 
     def get_node(self, account_id: UUID) -> HierarchyNode | None:
         """Get node by account ID."""
-        return self._nodes.get(account_id)
+        if account_id in self._nodes:
+            return self._nodes[account_id]
+        return None
 
     def get_node_by_code(self, account_code: str) -> HierarchyNode | None:
         """Get node by account code."""
-        acc_id = self._node_by_code.get(account_code)
-        if acc_id:
-            return self._nodes.get(acc_id)
+        if account_code in self._node_by_code:
+            acc_id = self._node_by_code[account_code]
+            if acc_id in self._nodes:
+                return self._nodes[acc_id]
         return None
 
     def account_exists(self, account_id: UUID) -> bool:
@@ -510,24 +516,27 @@ class AccountHierarchyTree:
 
     def get_parent(self, account_id: UUID) -> HierarchyNode | None:
         """Return the parent node of the given account, or None if root/orphan."""
-        node = self._nodes.get(account_id)
-        if not node or node.account.parent_account_id is None:
+        if account_id not in self._nodes:
             return None
-        return self._nodes.get(node.account.parent_account_id)
+        node = self._nodes[account_id]
+        if node.account.parent_account_id is None:
+            return None
+        parent_id = node.account.parent_account_id
+        if parent_id in self._nodes:
+            return self._nodes[parent_id]
+        return None
 
     def get_children(self, account_id: UUID) -> list[HierarchyNode]:
         """Return direct children of the given account."""
-        node = self._nodes.get(account_id)
-        if not node:
-            return []
-        return node.children
+        if account_id in self._nodes:
+            return self._nodes[account_id].children
+        return []
 
     def get_descendants(self, account_id: UUID) -> list[HierarchyNode]:
         """Return all descendants (children, grandchildren, etc.) of the given account."""
-        node = self._nodes.get(account_id)
-        if not node:
-            return []
-        return node.get_all_descendants()
+        if account_id in self._nodes:
+            return self._nodes[account_id].get_all_descendants()
+        return []
 
     def get_ancestors(self, account_id: UUID) -> list[HierarchyNode]:
         """Return all ancestors (parent, grandparent, etc.) up to root."""
@@ -542,23 +551,21 @@ class AccountHierarchyTree:
         """Return the path from root to the given account (including itself)."""
         ancestors = self.get_ancestors(account_id)
         ancestors.reverse()
-        node = self._nodes.get(account_id)
-        if node:
-            ancestors.append(node)
+        if account_id in self._nodes:
+            ancestors.append(self._nodes[account_id])
         return ancestors
 
     def get_level(self, account_id: UUID) -> int:
         """Return depth level of account (0 for root, 1 for child, etc.)."""
-        node = self._nodes.get(account_id)
-        if node:
-            return node.level
+        if account_id in self._nodes:
+            return self._nodes[account_id].level
         return -1
 
     def get_subtree(self, account_id: UUID) -> AccountHierarchyTree | None:
         """Return a new tree containing the subtree rooted at the given account."""
-        node = self._nodes.get(account_id)
-        if not node:
+        if account_id not in self._nodes:
             return None
+        node = self._nodes[account_id]
         # Build new tree with this node as root
         new_nodes: dict[UUID, HierarchyNode] = {}
         new_roots: list[UUID] = []
@@ -590,9 +597,8 @@ class AccountHierarchyTree:
         result = []
         roots = [root_id] if root_id else self._roots
         for rid in roots:
-            node = self._nodes.get(rid)
-            if node:
-                self._dfs_preorder(node, result)
+            if rid in self._nodes:
+                self._dfs_preorder(self._nodes[rid], result)
         return result
 
     def _dfs_preorder(self, node: HierarchyNode, result: list[HierarchyNode]) -> None:
@@ -605,9 +611,8 @@ class AccountHierarchyTree:
         result = []
         roots = [root_id] if root_id else self._roots
         for rid in roots:
-            node = self._nodes.get(rid)
-            if node:
-                self._dfs_postorder(node, result)
+            if rid in self._nodes:
+                self._dfs_postorder(self._nodes[rid], result)
         return result
 
     def _dfs_postorder(self, node: HierarchyNode, result: list[HierarchyNode]) -> None:
@@ -620,9 +625,8 @@ class AccountHierarchyTree:
         result = []
         roots = [root_id] if root_id else self._roots
         for rid in roots:
-            node = self._nodes.get(rid)
-            if node:
-                queue = deque([node])
+            if rid in self._nodes:
+                queue = deque([self._nodes[rid]])
                 while queue:
                     current = queue.popleft()
                     result.append(current)
@@ -827,7 +831,6 @@ class AccountHierarchyTree:
 
         temp_tree = self.remove_account(account_id, cascade=False)
         original_account = self._nodes[account_id].account
-        # Create updated account with new parent (simplified)
         # In real implementation, we'd need to create a new account entity with updated parent
         # For now, we'll just add back with the same account but modified parent
         # This requires the account to be mutable or we create a new instance
@@ -845,9 +848,9 @@ class AccountHierarchyTree:
         total_roots = self.root_count
         total_orphans = self.orphan_count
         max_depth = max((node.level for node in self._nodes.values()), default=0)
-        nodes_per_level: dict[int, int] = {}
+        nodes_per_level: dict[int, int] = defaultdict(int)
         for node in self._nodes.values():
-            nodes_per_level[node.level] = nodes_per_level.get(node.level, 0) + 1
+            nodes_per_level[node.level] += 1
         leaf_count = len(self.get_leaf_nodes())
         avg_children = (
             sum(len(node.children) for node in self._nodes.values()) / total_nodes
@@ -860,7 +863,7 @@ class AccountHierarchyTree:
             "orphan_accounts": total_orphans,
             "leaf_accounts": leaf_count,
             "max_depth": max_depth,
-            "nodes_per_level": nodes_per_level,
+            "nodes_per_level": dict(nodes_per_level),
             "average_children_per_node": round(avg_children, 2),
             "is_valid": self.is_valid(),
         }
@@ -891,11 +894,13 @@ class AccountHierarchyTree:
         roots = []
         nodes = {}
         orphans = []
-        for root_data in data.get("roots", []):
+        roots_data = data["roots"] if "roots" in data else []
+        for root_data in roots_data:
             root_node = HierarchyNode.from_dict(root_data, accounts_map)
             nodes[root_node.account.account_id] = root_node
             roots.append(root_node.account.account_id)
-        for orphan_code in data.get("orphan_accounts", []):
+        orphan_codes = data["orphan_accounts"] if "orphan_accounts" in data else []
+        for orphan_code in orphan_codes:
             # Find account by code
             for acc_id, acc in accounts_map.items():
                 if acc.account_code == orphan_code:
@@ -927,10 +932,10 @@ class AccountHierarchyTree:
 
     def compute_hash(self) -> str:
         """Compute a hash of the entire tree for integrity checking."""
-        data = ""
+        data_str = ""
         for root_id in self._roots:
-            data += self._nodes[root_id].compute_hash()
-        return hashlib.sha3_256(data.encode()).hexdigest()
+            data_str += self._nodes[root_id].compute_hash()
+        return hashlib.sha3_256(data_str.encode()).hexdigest()
 
     def audit_trail(self) -> list[dict[str, Any]]:
         """Get audit trail for the tree."""
@@ -941,9 +946,8 @@ class AccountHierarchyTree:
         lines = []
         roots = [root_id] if root_id else self._roots
         for rid in roots:
-            node = self._nodes.get(rid)
-            if node:
-                self._pretty_print_node(node, 0, lines, indent)
+            if rid in self._nodes:
+                self._pretty_print_node(self._nodes[rid], 0, lines, indent)
         return "\n".join(lines)
 
     def _pretty_print_node(

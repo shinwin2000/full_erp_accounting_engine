@@ -23,10 +23,6 @@ from policy_engine.psak.psak_14_inventories import (
     InventoryValuationMethod,
     PSAK14Validator,
 )
-from policy_engine.psak.psak_16_property_plant_equipment import (
-    DepreciationMethodPSAK,
-    PSAK16Validator,
-)
 from policy_engine.psak.psak_71_financial_instruments_ifrs9 import (
     PSAK71Validator,
 )

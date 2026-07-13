@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 guards_checker.py — Guard Layer Compliance Checker v1.2
 ========================================================
@@ -30,9 +29,9 @@ import logging
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # ---- Project root ----
 _THIS_FILE = Path(__file__).resolve()
@@ -42,10 +41,10 @@ sys.path.insert(0, str(ROOT))
 # ---- RCA Engine (dari checker.core.rca) ----
 try:
     from checker.core.rca import (
-        RCAResult,
-        Severity,
         Category,
         ErrorCode,
+        RCAResult,
+        Severity,
         analyze_exception,
         get_engine,
     )
@@ -99,8 +98,8 @@ class MethodInfo:
 @dataclass
 class ClassInfo:
     name: str
-    base_names: List[str]
-    methods: Dict[str, MethodInfo]
+    base_names: list[str]
+    methods: dict[str, MethodInfo]
     file_path: str
     is_async_guard: bool = False
     is_abstract: bool = False
@@ -119,8 +118,8 @@ class GuardContract:
     has_version: bool
     has_audit_trail: bool
     has_touch: bool
-    violations: List[str] = field(default_factory=list)
-    rca_results: List[Dict[str, Any]] = field(default_factory=list)
+    violations: list[str] = field(default_factory=list)
+    rca_results: list[dict[str, Any]] = field(default_factory=list)
 
 @dataclass
 class GuardViolation:
@@ -129,12 +128,12 @@ class GuardViolation:
     severity: str
     message: str
     suggestion: str
-    rca_result: Optional[Dict[str, Any]] = None
+    rca_result: dict[str, Any] | None = None
 
 # ---- AST Analyzer for guards ----
 class GuardASTAnalyzer:
     @staticmethod
-    def analyze(file_path: Path, content: str) -> List[ClassInfo]:
+    def analyze(file_path: Path, content: str) -> list[ClassInfo]:
         try:
             tree = ast.parse(content)
         except SyntaxError:
@@ -198,10 +197,10 @@ class GuardASTAnalyzer:
 class GuardsChecker:
     def __init__(self, root_dir: Path):
         self.root_dir = root_dir
-        self._results: List[GuardContract] = []
+        self._results: list[GuardContract] = []
         self._rca_enabled = RCA_AVAILABLE
 
-    def _get_guard_files(self) -> List[Path]:
+    def _get_guard_files(self) -> list[Path]:
         guard_dirs = [
             self.root_dir / "kernel" / "guards",
             self.root_dir / "kernel" / "guards" / "async_guards",
@@ -221,7 +220,7 @@ class GuardsChecker:
     def _is_async_guard_file(self, file_path: Path) -> bool:
         return "async_guards" in str(file_path)
 
-    def scan_file(self, file_path: Path, discover: bool = False) -> Optional[GuardContract]:
+    def scan_file(self, file_path: Path, discover: bool = False) -> GuardContract | None:
         try:
             content = file_path.read_text(encoding="utf-8")
         except Exception:
@@ -298,7 +297,7 @@ class GuardsChecker:
                     print(f"        - {v}")
         return contract
 
-    def scan(self, discover: bool = False) -> List[GuardContract]:
+    def scan(self, discover: bool = False) -> list[GuardContract]:
         files = self._get_guard_files()
         self._results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
@@ -309,7 +308,7 @@ class GuardsChecker:
                     self._results.append(result)
         return self._results
 
-    def analyze_with_rca(self, contract: GuardContract) -> List[GuardViolation]:
+    def analyze_with_rca(self, contract: GuardContract) -> list[GuardViolation]:
         violations = []
         if not self._rca_enabled or not analyze_exception:
             # Fallback sederhana jika RCA tidak tersedia
@@ -383,7 +382,7 @@ class GuardsChecker:
         return "Perbaiki sesuai kontrak guard."
 
 # ---- Reporting ----
-def print_report(contracts: List[GuardContract], verbose: bool = False, show_rca: bool = True):
+def print_report(contracts: list[GuardContract], verbose: bool = False, show_rca: bool = True):
     c = COLOR
     total = len(contracts)
     if total == 0:
@@ -431,9 +430,9 @@ def print_report(contracts: List[GuardContract], verbose: bool = False, show_rca
     else:
         print(f"\n{c['GREEN']}✅ Semua guard compliant!{c['RESET']}")
 
-def save_json(contracts: List[GuardContract], path: str):
+def save_json(contracts: list[GuardContract], path: str):
     data = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "version": "1.2",
         "total_guards": len(contracts),
         "compliant": [c.file_path for c in contracts if not c.violations],

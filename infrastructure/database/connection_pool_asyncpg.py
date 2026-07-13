@@ -174,9 +174,8 @@ class AsyncpgConnectionPool:
     @asynccontextmanager
     async def transaction(self):
         """Context manager for database transaction."""
-        async with self.connection() as conn:
-            async with conn.transaction():
-                yield conn
+        async with self.connection() as conn, conn.transaction():
+            yield conn
 
     async def execute(self, query: str, *args) -> str:
         """Execute query (INSERT, UPDATE, DELETE) using parameter binding."""
@@ -200,10 +199,9 @@ class AsyncpgConnectionPool:
 
     async def executemany(self, query: str, args_list: list[tuple]) -> None:
         """Execute query multiple times."""
-        async with self.connection() as conn:
-            async with conn.transaction():
-                for args in args_list:
-                    await conn.execute(query, *args)
+        async with self.connection() as conn, conn.transaction():
+            for args in args_list:
+                await conn.execute(query, *args)
 
     async def vacuum_analyze(self, table_name: str | None = None) -> None:
         """

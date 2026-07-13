@@ -36,7 +36,7 @@ from infrastructure.telemetry.structured_json_logging import get_logger
 
 # Metrics untuk deteksi AST (OUT-033)
 try:
-    from prometheus_client import Counter, Histogram, Gauge
+    from prometheus_client import Counter, Gauge, Histogram
     _METRICS_AVAILABLE = True
 except ImportError:
     _METRICS_AVAILABLE = False
@@ -452,7 +452,7 @@ class TransactionalOutboxPoller:
                 )
             self._circuit_breaker.record_success()
             return success
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             logger.warning(f"Timeout publishing event {event.id}")
             self._circuit_breaker.record_failure()
             raise TemporaryError(f"Publish timeout: {e}") from e
@@ -528,11 +528,10 @@ class TransactionalOutboxPoller:
                 await self._mark_as_processing(session, event_ids)
                 await session.commit()
 
-            async with get_async_session() as session2:
-                async with session2.begin():
-                    with self._processing_duration.time():
-                        await self._process_batch(session2, events)
-                    await session2.commit()
+            async with get_async_session() as session2, session2.begin():
+                with self._processing_duration.time():
+                    await self._process_batch(session2, events)
+                await session2.commit()
 
             return len(events)
 
@@ -557,6 +556,7 @@ class TransactionalOutboxPoller:
                 await asyncio.sleep(self._config["poll_interval_seconds"])
 
             except asyncio.CancelledError:
+                logger.debug("Outbox poller loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in outbox poller: {e}")
@@ -581,7 +581,7 @@ class TransactionalOutboxPoller:
             try:
                 await self._poll_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Outbox poller task cancelled during stop")
             self._poll_task = None
         logger.info("Outbox poller stopped")
 

@@ -16,6 +16,7 @@ Audit: Validasi seed data dicatat. Data yang tidak valid akan ditolak dan
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import Callable
@@ -23,6 +24,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import aiofiles  # <-- Tambahan untuk async file I/O
 import yaml
 
 # Internal dependencies
@@ -541,6 +543,10 @@ class SeedDataValidator:
             "errors": errors,
         }
 
+    # ========================================================================
+    # PERBAIKAN: validate_file menggunakan aiofiles + asyncio.to_thread
+    # ========================================================================
+
     async def validate_file(self, file_path: Path, table_name: str | None = None) -> dict[str, Any]:
         """
         Validate seed data file.
@@ -552,15 +558,26 @@ class SeedDataValidator:
         Returns:
             Validation result dictionary
         """
-        # Load data
-        if file_path.suffix in [".yaml", ".yml"]:
-            with open(file_path) as f:
-                data = yaml.safe_load(f)
-        elif file_path.suffix == ".json":
-            with open(file_path) as f:
-                data = json.load(f)
+        # Baca file secara async
+        async with aiofiles.open(file_path, encoding="utf-8") as f:
+            content = await f.read()
+
+        # Parse berdasarkan ekstensi (blocking, jalankan di thread pool)
+        suffix = file_path.suffix.lower()
+        if suffix in [".yaml", ".yml"]:
+
+            def _parse_yaml():
+                return yaml.safe_load(content)
+
+            data = await asyncio.to_thread(_parse_yaml)
+        elif suffix == ".json":
+
+            def _parse_json():
+                return json.loads(content)
+
+            data = await asyncio.to_thread(_parse_json)
         else:
-            raise SeedValidationError(f"Unsupported file type: {file_path.suffix}")
+            raise SeedValidationError(f"Unsupported file type: {suffix}")
 
         # Extract records
         if isinstance(data, list):
@@ -576,6 +593,10 @@ class SeedDataValidator:
 
         return await self.validate_dataset(table_name, records)
 
+    # ========================================================================
+    # PERBAIKAN: validate_all_seed_files dengan default dir yang aman
+    # ========================================================================
+
     async def validate_all_seed_files(self, seed_dir: Path | None = None) -> dict[str, Any]:
         """
         Validate all seed files in directory.
@@ -583,21 +604,35 @@ class SeedDataValidator:
         Returns:
             Combined validation results
         """
-        # Jika seed_dir tidak diberikan, tentukan fallback-nya di sini
+        # Jika seed_dir tidak diberikan, gunakan default yang aman
         if seed_dir is None:
-            try:
-                # Coba gunakan konstanta global SEED_DATA_DIR jika ada
-                seed_dir = SEED_DATA_DIR
-            except NameError:
-                # Jika tidak ada, default ke folder 'seeds' di direktori yang sama dengan file ini
-                seed_dir = Path(__file__).parent / "seeds"
+            # Coba beberapa kemungkinan lokasi
+            possible_dirs = [
+                Path("seeds"),
+                Path(__file__).parent / "seeds",
+                Path("seed_data"),
+                Path("data/seeds"),
+                Path("/var/lib/erp/seeds"),
+            ]
+            for p in possible_dirs:
+                if p.exists() and p.is_dir():
+                    seed_dir = p
+                    break
+            else:
+                # Default ke current directory
+                seed_dir = Path("seeds")
+                if not seed_dir.exists():
+                    logger.warning(f"Seed directory {seed_dir} does not exist, creating empty dict")
+                    return {}
 
         results = {}
+        # Process YAML files
         for file_path in seed_dir.glob("*.yaml"):
             table_name = file_path.stem
             if table_name in self._schemas:
                 results[table_name] = await self.validate_file(file_path, table_name)
 
+        # Process JSON files
         for file_path in seed_dir.glob("*.json"):
             table_name = file_path.stem
             if table_name in self._schemas:

@@ -17,6 +17,7 @@ Audit: Setiap laporan yang dihasilkan dicatat. Laporan keuangan ditandatangani d
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -24,6 +25,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+
+import aiofiles  # <-- Tambahan untuk async file I/O
 
 # PDF generation (reportlab)
 try:
@@ -186,29 +189,35 @@ class ReportGenerator:
                 logger.warning(f"Digital signer not available: {e}")
         return self._signer
 
+    # ========================================================================
+    # PERBAIKAN: _sign_pdf menggunakan aiofiles + asyncio.to_thread
+    # ========================================================================
     async def _sign_pdf(self, pdf_path: Path, report_id: str, metadata: dict) -> str | None:
         """Menandatangani PDF dengan digital signature."""
         signer = await self._get_signer()
         if not signer:
             return None
 
-        # Baca file PDF
-        with open(pdf_path, "rb") as f:
-            pdf_content = f.read()
+        # Baca file PDF secara async
+        async with aiofiles.open(pdf_path, "rb") as f:
+            pdf_content = await f.read()
 
-        # Sign the content (simplified - actual PDF signing is more complex)
-        signature = signer.sign(pdf_content)
+        # Sign the content (blocking cryptography, jalankan di thread pool)
+        def _sign_sync(content):
+            return signer.sign(content)
+
+        signature = await asyncio.to_thread(_sign_sync, pdf_content)
 
         # Simpan signature sebagai file terpisah
         sig_path = pdf_path.with_suffix(".sig")
-        with open(sig_path, "w") as f:
-            f.write(signature)
+        async with aiofiles.open(sig_path, "w") as f:
+            await f.write(signature)
 
         logger.info(f"PDF signed for report {report_id}")
         return signature
 
     # ========================================================================
-    # PDF GENERATION
+    # PDF GENERATION - DIPERBAIKI dengan asyncio.to_thread
     # ========================================================================
 
     async def generate_pdf(
@@ -240,82 +249,83 @@ class ReportGenerator:
 
         output_path = self._output_dir / f"{report_id}.pdf"
 
-        doc = SimpleDocTemplate(
-            str(output_path),
-            pagesize=A4,
-            title=title,
-            author=self.config.get("company_name", "ERP Accounting Engine"),
-            subject="Financial Report",
-        )
+        def _build_pdf_sync():
+            doc = SimpleDocTemplate(
+                str(output_path),
+                pagesize=A4,
+                title=title,
+                author=self.config.get("company_name", "ERP Accounting Engine"),
+                subject="Financial Report",
+            )
 
-        styles = getSampleStyleSheet()
-        title_style = styles["Title"]
-        heading1_style = styles["Heading1"]
-        normal_style = styles["Normal"]
+            styles = getSampleStyleSheet()
+            title_style = styles["Title"]
+            heading1_style = styles["Heading1"]
+            normal_style = styles["Normal"]
 
-        story = []
+            story = []
 
-        # Logo (if provided)
-        if logo_path and logo_path.exists():
-            try:
-                img = Image(str(logo_path), width=2 * inch, height=1 * inch)
-                story.append(img)
-                story.append(Spacer(1, 0.2 * inch))
-            except Exception:
-                pass
-
-        # Title
-        story.append(Paragraph(title, title_style))
-        story.append(Spacer(1, 0.3 * inch))
-
-        # Date
-        story.append(
-            Paragraph(f"Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}", normal_style)
-        )
-        story.append(Spacer(1, 0.3 * inch))
-
-        # Sections
-        for section in sections:
-            story.append(Paragraph(section.get("title", ""), heading1_style))
-            story.append(Spacer(1, 0.1 * inch))
-
-            content = section.get("content", [])
-            for item in content:
-                if isinstance(item, str):
-                    story.append(Paragraph(item, normal_style))
-                elif isinstance(item, dict) and item.get("type") == "table":
-                    # Table format: {"type": "table", "headers": [...], "rows": [...], "col_widths": [...]}
-                    headers = item.get("headers", [])
-                    rows = item.get("rows", [])
-                    col_widths = item.get("col_widths", None)
-                    table_data = [headers, *rows]
-                    t = Table(table_data, colWidths=col_widths)
-                    t.setStyle(
-                        TableStyle(
-                            [
-                                ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
-                                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-                                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                                ("GRID", (0, 0), (-1, -1), 1, colors.black),
-                            ]
-                        )
-                    )
-                    story.append(t)
-                elif isinstance(item, dict) and item.get("type") == "image":
-                    # Placeholder for image
+            # Logo (if provided)
+            if logo_path and logo_path.exists():
+                try:
+                    img = Image(str(logo_path), width=2 * inch, height=1 * inch)
+                    story.append(img)
+                    story.append(Spacer(1, 0.2 * inch))
+                except Exception:
                     pass
 
-            story.append(Spacer(1, 0.2 * inch))
+            # Title
+            story.append(Paragraph(title, title_style))
+            story.append(Spacer(1, 0.3 * inch))
 
-        # Watermark (if requested) - simplified placeholder
-        if watermark:
-            # Actual implementation would require custom canvas handling
-            pass
+            # Date
+            story.append(
+                Paragraph(f"Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S')}", normal_style)
+            )
+            story.append(Spacer(1, 0.3 * inch))
 
-        doc.build(story)
+            # Sections
+            for section in sections:
+                story.append(Paragraph(section.get("title", ""), heading1_style))
+                story.append(Spacer(1, 0.1 * inch))
 
-        # Digital signature
+                content = section.get("content", [])
+                for item in content:
+                    if isinstance(item, str):
+                        story.append(Paragraph(item, normal_style))
+                    elif isinstance(item, dict) and item.get("type") == "table":
+                        headers = item.get("headers", [])
+                        rows = item.get("rows", [])
+                        col_widths = item.get("col_widths", None)
+                        table_data = [headers, *rows]
+                        t = Table(table_data, colWidths=col_widths)
+                        t.setStyle(
+                            TableStyle(
+                                [
+                                    ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                                    ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                                ]
+                            )
+                        )
+                        story.append(t)
+                    elif isinstance(item, dict) and item.get("type") == "image":
+                        pass
+
+                story.append(Spacer(1, 0.2 * inch))
+
+            # Watermark (if requested) - simplified placeholder
+            if watermark:
+                pass
+
+            doc.build(story)
+
+        # Jalankan pembuatan PDF di thread pool (blocking)
+        await asyncio.to_thread(_build_pdf_sync)
+
+        # Digital signature (async)
         if self.config.get("digital_signature_enabled", True):
             await self._sign_pdf(output_path, report_id, {"title": title})
 
@@ -323,7 +333,7 @@ class ReportGenerator:
         return output_path
 
     # ========================================================================
-    # EXCEL GENERATION
+    # EXCEL GENERATION - DIPERBAIKI dengan asyncio.to_thread
     # ========================================================================
 
     async def generate_excel(self, sheets: list[dict], report_id: str) -> Path:
@@ -345,78 +355,81 @@ class ReportGenerator:
 
         output_path = self._output_dir / f"{report_id}.xlsx"
 
-        wb = Workbook()
-        # Remove default sheet
-        wb.remove(wb.active)
+        def _build_excel_sync():
+            wb = Workbook()
+            # Remove default sheet
+            wb.remove(wb.active)
 
-        for sheet_config in sheets:
-            ws = wb.create_sheet(
-                title=sheet_config.get("name", "Sheet")[:31]  # Excel sheet name max 31 chars
-            )
+            for sheet_config in sheets:
+                ws = wb.create_sheet(
+                    title=sheet_config.get("name", "Sheet")[:31]  # Excel sheet name max 31 chars
+                )
 
-            headers = sheet_config.get("headers", [])
-            rows = sheet_config.get("rows", [])
+                headers = sheet_config.get("headers", [])
+                rows = sheet_config.get("rows", [])
 
-            # Write headers
-            for col, header in enumerate(headers, 1):
-                cell = ws.cell(row=1, column=col, value=header)
-                cell.font = Font(bold=True)
-                cell.alignment = Alignment(horizontal="center")
+                # Write headers
+                for col, header in enumerate(headers, 1):
+                    cell = ws.cell(row=1, column=col, value=header)
+                    cell.font = Font(bold=True)
+                    cell.alignment = Alignment(horizontal="center")
 
-            # Write rows
-            for row_idx, row in enumerate(rows, 2):
-                for col_idx, value in enumerate(row, 1):
-                    cell = ws.cell(row=row_idx, column=col_idx)
-                    # Store Decimal directly; openpyxl supports it
-                    if isinstance(value, Decimal) or isinstance(value, (int, float)):
-                        cell.value = value
+                # Write rows
+                for row_idx, row in enumerate(rows, 2):
+                    for col_idx, value in enumerate(row, 1):
+                        cell = ws.cell(row=row_idx, column=col_idx)
+                        if isinstance(value, (Decimal, int, float)):
+                            cell.value = value
+                        else:
+                            cell.value = str(value) if value is not None else ""
+
+                        if isinstance(value, (int, float, Decimal)):
+                            cell.number_format = "#,##0.00"
+
+                # Auto-adjust column widths
+                for col in range(1, len(headers) + 1):
+                    max_length = 0
+                    column_letter = get_column_letter(col)
+                    for row in range(1, len(rows) + 2):
+                        cell_value = ws.cell(row=row, column=col).value
+                        if cell_value is not None:
+                            max_length = max(max_length, len(str(cell_value)))
+                    adjusted_width = min(max_length + 2, 50)
+                    ws.column_dimensions[column_letter].width = adjusted_width
+
+                # Add chart if requested
+                if sheet_config.get("chart"):
+                    chart_config = sheet_config["chart"]
+                    chart_type = chart_config.get("type", "bar")
+
+                    if chart_type == "bar":
+                        chart = BarChart()
+                    elif chart_type == "line":
+                        chart = LineChart()
                     else:
-                        cell.value = str(value) if value is not None else ""
+                        chart = BarChart()
 
-                    # Format numbers
-                    if isinstance(value, (int, float, Decimal)):
-                        cell.number_format = "#,##0.00"
+                    chart.title = chart_config.get("title", "")
+                    chart.x_axis.title = chart_config.get("x_title", "")
+                    chart.y_axis.title = chart_config.get("y_title", "")
 
-            # Auto-adjust column widths
-            for col in range(1, len(headers) + 1):
-                max_length = 0
-                column_letter = get_column_letter(col)
-                for row in range(1, len(rows) + 2):
-                    cell_value = ws.cell(row=row, column=col).value
-                    if cell_value is not None:
-                        max_length = max(max_length, len(str(cell_value)))
-                adjusted_width = min(max_length + 2, 50)
-                ws.column_dimensions[column_letter].width = adjusted_width
+                    data = Reference(ws, min_col=2, min_row=1, max_row=len(rows) + 1, max_col=2)
+                    categories = Reference(ws, min_col=1, min_row=2, max_row=len(rows) + 1)
+                    chart.add_data(data, titles_from_data=True)
+                    chart.set_categories(categories)
 
-            # Add chart if requested
-            if sheet_config.get("chart"):
-                chart_config = sheet_config["chart"]
-                chart_type = chart_config.get("type", "bar")
+                    ws.add_chart(chart, chart_config.get("position", "E2"))
 
-                if chart_type == "bar":
-                    chart = BarChart()
-                elif chart_type == "line":
-                    chart = LineChart()
-                else:
-                    chart = BarChart()
+            wb.save(str(output_path))
 
-                chart.title = chart_config.get("title", "")
-                chart.x_axis.title = chart_config.get("x_title", "")
-                chart.y_axis.title = chart_config.get("y_title", "")
+        # Jalankan pembuatan Excel di thread pool (blocking)
+        await asyncio.to_thread(_build_excel_sync)
 
-                data = Reference(ws, min_col=2, min_row=1, max_row=len(rows) + 1, max_col=2)
-                categories = Reference(ws, min_col=1, min_row=2, max_row=len(rows) + 1)
-                chart.add_data(data, titles_from_data=True)
-                chart.set_categories(categories)
-
-                ws.add_chart(chart, chart_config.get("position", "E2"))
-
-        wb.save(str(output_path))
         logger.info(f"Excel report generated: {output_path}")
         return output_path
 
     # ========================================================================
-    # HTML GENERATION
+    # HTML GENERATION - DIPERBAIKI dengan aiofiles
     # ========================================================================
 
     async def generate_html(self, template_name: str, context: dict, report_id: str) -> Path:
@@ -438,16 +451,20 @@ class ReportGenerator:
         if not JINJA2_AVAILABLE or self._jinja_env is None:
             raise ReportGeneratorError("Jinja2 not available or templates not configured")
 
-        try:
+        # Render template (CPU-bound, jalankan di thread pool)
+        def _render_sync():
             template = self._jinja_env.get_template(template_name)
+            return template.render(**context)
+
+        try:
+            html_content = await asyncio.to_thread(_render_sync)
         except Exception as e:
             raise TemplateNotFoundError(f"Template '{template_name}' not found: {e}")
 
-        html_content = template.render(**context)
-
         output_path = self._output_dir / f"{report_id}.html"
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(html_content)
+        # Tulis HTML secara async
+        async with aiofiles.open(output_path, "w", encoding="utf-8") as f:
+            await f.write(html_content)
 
         logger.info(f"HTML report generated: {output_path}")
         return output_path
@@ -514,32 +531,32 @@ class ReportGenerator:
 
     def _data_to_sections(self, report_type: str, data: dict) -> list[dict]:
         """Convert report data to PDF sections format."""
-        # This would have specific logic per report type
-        # For simplicity, return a basic structure
         return [{"title": "Report Data", "content": [json.dumps(data, indent=2, default=str)]}]
 
     def _data_to_sheets(self, report_type: str, data: dict) -> list[dict]:
         """Convert report data to Excel sheets format."""
-        # This would have specific logic per report type
-        # For simplicity, return a basic sheet
         if not data:
             return [{"name": report_type[:31], "headers": [], "rows": []}]
         headers = list(data.keys())
-        # Convert values to strings, but preserve Decimal for later formatting
         rows = [[v for v in data.values()]]
         return [{"name": report_type[:31], "headers": headers, "rows": rows}]
 
+    # ========================================================================
+    # PERBAIKAN: upload_report menggunakan aiofiles
+    # ========================================================================
     async def upload_report(self, file_path: Path, bucket: str | None = None) -> str:
         """Upload generated report to cloud storage."""
         try:
             storage = await get_s3_storage_adapter()
-            with open(file_path, "rb") as f:
-                uri = await storage.upload(
-                    file_content=f,
-                    file_name=file_path.name,
-                    content_type=self._get_content_type(file_path.suffix),
-                    bucket=bucket,
-                )
+            # Baca file secara async
+            async with aiofiles.open(file_path, "rb") as f:
+                file_content = await f.read()
+            uri = await storage.upload(
+                file_content=file_content,
+                file_name=file_path.name,
+                content_type=self._get_content_type(file_path.suffix),
+                bucket=bucket,
+            )
             return uri
         except Exception as e:
             logger.error(f"Failed to upload report: {e}")

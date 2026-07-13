@@ -22,6 +22,8 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
+
 from infrastructure.event_store.append_only_store import AppendOnlyStore, get_event_store
 from infrastructure.event_store.hash_chain_builder import HashChainBuilder, get_hash_chain_builder
 from infrastructure.telemetry.alert_manager_router import trigger_alert
@@ -318,6 +320,7 @@ class AuditChainLengthMetrics:
             try:
                 await self.collect_all_streams()
             except asyncio.CancelledError:
+                logger.debug("Periodic audit chain collection loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in periodic audit chain collection: {e}")
@@ -334,7 +337,8 @@ class AuditChainLengthMetrics:
             try:
                 await self._collection_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Audit chain collection task cancelled during stop")
+                # Expected cancellation; continue
             self._collection_task = None
         logger.info("Stopped periodic audit chain metrics collection")
 

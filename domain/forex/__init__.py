@@ -17,6 +17,15 @@ from domain.forex.aggregate_root import (
     RevaluationResult,
     RevaluationStatus,
 )
+
+# Tambahkan import domain events
+from domain.forex.domain_events import (
+    ForexEventType,
+    ForexRateUpdatedEvent,
+    ForexRevaluationCompletedEvent,
+    ForexTransactionExecutedEvent,
+    ForexTransactionRecordedEvent,
+)
 from domain.forex.exchange_rate_vo import (
     ExchangeRate,
     ExchangeRateError,
@@ -31,15 +40,6 @@ from domain.forex.forex_transaction_entity import (
     ForexTransactionRepository,
     ForexTransactionStatus,
     ForexTransactionType,
-)
-
-# Tambahkan import domain events
-from domain.forex.domain_events import (
-    ForexEventType,
-    ForexRateUpdatedEvent,
-    ForexTransactionRecordedEvent,
-    ForexRevaluationCompletedEvent,
-    ForexTransactionExecutedEvent,
 )
 
 __all__ = [

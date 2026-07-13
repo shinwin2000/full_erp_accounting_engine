@@ -16,15 +16,14 @@ Responsibility:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
-from uuid import UUID, uuid4
-
-from ports.primary.event_publisher_port import EventPublisherPort
+from uuid import UUID
 
 # Import domain events
 from application.events import AccountMergedEvent, AccountSplitEvent
+from ports.primary.event_publisher_port import EventPublisherPort
 
 logger = logging.getLogger(__name__)
 

@@ -31,9 +31,9 @@ import importlib.util
 import json
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # =============================================================================
 # [RCA] Load RCA Engine dari checker/core/rca.py menggunakan importlib.util
@@ -114,11 +114,11 @@ COLOR = {
     "BLUE": "\033[94m",
     "CYAN": "\033[96m",
     "BOLD": "\033[1m",
-    "DIM": "\033[2m", 
+    "DIM": "\033[2m",
     "RESET": "\033[0m"
 }
 if not sys.stdout.isatty():
-    COLOR = {k: "" for k in COLOR}
+    COLOR = dict.fromkeys(COLOR, "")
 
 # =============================================================================
 # Data Classes
@@ -135,11 +135,11 @@ class RegistrationStatus:
     port: PortInfo
     registered: bool
     resolvable: bool
-    implementation: Optional[str] = None
+    implementation: str | None = None
     is_fallback: bool = False
     is_ignored: bool = False
-    error: Optional[str] = None
-    rca_result: Optional[Dict[str, Any]] = None
+    error: str | None = None
+    rca_result: dict[str, Any] | None = None
 
 @dataclass
 class CheckResult:
@@ -149,9 +149,9 @@ class CheckResult:
     resolvable_count: int
     fallback_count: int
     unregistered_count: int
-    details: List[RegistrationStatus]
+    details: list[RegistrationStatus]
     score: float
-    errors: List[str]
+    errors: list[str]
 
 # =============================================================================
 # Scanner
@@ -162,7 +162,7 @@ class PortScanner:
         self.exclude_names = {"BasePort", "BaseRepository", "BaseProtocol"}
         self.ignore_keywords = {"InMemory", "Fallback", "Stub", "Mock"}
 
-    def scan(self) -> List[PortInfo]:
+    def scan(self) -> list[PortInfo]:
         ports = []
         for base_dir, is_primary in [
             (self.root / "ports" / "primary", True),
@@ -202,12 +202,12 @@ class ContainerChecker:
     def __init__(self):
         self.container = None
         self.registry = None
-        self._registered_names: Optional[Set[str]] = None
+        self._registered_names: set[str] | None = None
 
     def setup(self) -> bool:
         try:
-            from bootstrap.dependency_container.ioc_container import get_container
             from bootstrap.dependency_container.adapter_registry import get_adapter_registry
+            from bootstrap.dependency_container.ioc_container import get_container
             self.container = get_container()
             self.registry = get_adapter_registry()
             return True
@@ -215,7 +215,7 @@ class ContainerChecker:
             print(f"{COLOR['YELLOW']}⚠️ Gagal setup container: {e}{COLOR['RESET']}")
             return False
 
-    def get_registered_types(self) -> Set[str]:
+    def get_registered_types(self) -> set[str]:
         if self._registered_names is not None:
             return self._registered_names
         if self.container is None:
@@ -239,10 +239,7 @@ class ContainerChecker:
         if hasattr(self.container, "get_registered_types"):
             try:
                 types = self.container.get_registered_types()
-                if isinstance(types, list):
-                    for t in types:
-                        names.add(t.__name__ if hasattr(t, "__name__") else str(t))
-                elif isinstance(types, set):
+                if isinstance(types, list) or isinstance(types, set):
                     for t in types:
                         names.add(t.__name__ if hasattr(t, "__name__") else str(t))
             except Exception:
@@ -250,7 +247,7 @@ class ContainerChecker:
         self._registered_names = names
         return names
 
-    async def resolve_interface(self, port_name: str, port_module: str, rca_engine=None) -> Tuple[bool, Optional[str], Optional[str], Optional[Dict]]:
+    async def resolve_interface(self, port_name: str, port_module: str, rca_engine=None) -> tuple[bool, str | None, str | None, dict | None]:
         if self.container is None:
             return False, None, "Container not initialized", None
 
@@ -319,7 +316,7 @@ class PortRegistrationChecker:
     def __init__(self, enable_rca: bool = True):
         self.scanner = PortScanner(ROOT)
         self.container_checker = ContainerChecker()
-        self.result: Optional[CheckResult] = None
+        self.result: CheckResult | None = None
         self.enable_rca = enable_rca and _RCA_AVAILABLE and _RCAEngine is not None
         self.rca_engine = _RCAEngine() if self.enable_rca else None
 
@@ -331,7 +328,7 @@ class PortRegistrationChecker:
         total = len(ports)
         registered_names = self.container_checker.get_registered_types()
 
-        details: List[RegistrationStatus] = []
+        details: list[RegistrationStatus] = []
         ignored_count = 0
         registered_count = 0
         resolvable_count = 0
@@ -559,7 +556,7 @@ def main():
     start_time = time.monotonic()
 
     print(f"{COLOR['BOLD']}{COLOR['CYAN']}╔════════════════════════════════════════════════════════════════════╗")
-    print(f"║      SOVEREIGN PORT REGISTRATION CHECKER with RCA              ║")
+    print("║      SOVEREIGN PORT REGISTRATION CHECKER with RCA              ║")
     print(f"╚════════════════════════════════════════════════════════════════════╝{COLOR['RESET']}")
 
     try:

@@ -706,7 +706,7 @@ class IntangibleAssetEntity:
         if new_accumulated >= self.amortizable_amount - Decimal("0.01"):
             new_status = IntangibleAssetStatus.FULLY_AMORTIZED
 
-        return IntangibleAssetEntity(
+        new_asset = IntangibleAssetEntity(
             asset_id=self.asset_id,
             asset_code=self.asset_code,
             asset_name=self.asset_name,
@@ -732,6 +732,12 @@ class IntangibleAssetEntity:
             version=self.version + 1,
             metadata=self.metadata,
         )
+        new_asset._record_audit("RECORD_AMORTIZATION", posted_by, {
+            "period": period,
+            "amount": str(amount),
+            "new_nbv": str(new_nbv)
+        })
+        return new_asset
 
     def impair(self, impairment_loss: Decimal, impaired_by: str) -> IntangibleAssetEntity:
         if self.status == IntangibleAssetStatus.DISPOSED:
@@ -745,7 +751,6 @@ class IntangibleAssetEntity:
 
         new_nbv = self.nbv - impairment_loss
         new_cost = self.cost
-        # For impairment, we reduce cost directly (or add to accumulated impairment)
         new_impairment_history = self.impairment_history + [
             {
                 "date": datetime.now(UTC).isoformat(),
@@ -756,7 +761,7 @@ class IntangibleAssetEntity:
             }
         ]
 
-        return IntangibleAssetEntity(
+        new_asset = IntangibleAssetEntity(
             asset_id=self.asset_id,
             asset_code=self.asset_code,
             asset_name=self.asset_name,
@@ -783,6 +788,11 @@ class IntangibleAssetEntity:
             version=self.version + 1,
             metadata=self.metadata,
         )
+        new_asset._record_audit("IMPAIR", impaired_by, {
+            "impairment_loss": str(impairment_loss),
+            "new_nbv": str(new_nbv)
+        })
+        return new_asset
 
     def reverse_impairment(
         self, reversal_amount: Decimal, reversed_by: str
@@ -799,7 +809,7 @@ class IntangibleAssetEntity:
         new_nbv = self.nbv + reversal_amount
         new_cost = self.cost + reversal_amount
 
-        return IntangibleAssetEntity(
+        new_asset = IntangibleAssetEntity(
             asset_id=self.asset_id,
             asset_code=self.asset_code,
             asset_name=self.asset_name,
@@ -826,6 +836,12 @@ class IntangibleAssetEntity:
             version=self.version + 1,
             metadata=self.metadata,
         )
+        # ── TAMBAHKAN AUDIT TRAIL ──
+        new_asset._record_audit("REVERSE_IMPAIRMENT", reversed_by, {
+            "reversal_amount": str(reversal_amount),
+            "new_nbv": str(new_nbv)
+        })
+        return new_asset
 
     def dispose(
         self, disposal_date: datetime, proceeds: Decimal, disposed_by: str
@@ -838,7 +854,7 @@ class IntangibleAssetEntity:
 
         gain_loss = proceeds - self.nbv
 
-        return IntangibleAssetEntity(
+        new_asset = IntangibleAssetEntity(
             asset_id=self.asset_id,
             asset_code=self.asset_code,
             asset_name=self.asset_name,
@@ -864,6 +880,12 @@ class IntangibleAssetEntity:
             version=self.version + 1,
             metadata=self.metadata,
         )
+        new_asset._record_audit("DISPOSE", disposed_by, {
+            "disposal_date": disposal_date.isoformat(),
+            "proceeds": str(proceeds),
+            "gain_loss": str(gain_loss)
+        })
+        return new_asset
 
     def calculate_gain_loss_on_disposal(self, proceeds: Decimal) -> Decimal:
         return proceeds - self.nbv

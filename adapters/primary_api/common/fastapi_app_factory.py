@@ -10,13 +10,15 @@ Responsibility:
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import logging
 import os
+import urllib.parse
 from pathlib import Path
 from typing import Any
-import urllib.parse
 
+import aiofiles  # <-- Tambahan untuk async file I/O
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -44,7 +46,7 @@ def _make_stub(port_cls):
     def _not_implemented(self, *args, **kwargs):
         raise NotImplementedError(f"{port_cls.__name__} belum diimplementasikan.")
     abstract_methods = getattr(port_cls, "__abstractmethods__", frozenset())
-    namespace = {name: _not_implemented for name in abstract_methods}
+    namespace = dict.fromkeys(abstract_methods, _not_implemented)
     stub_cls = type(f"_Stub{port_cls.__name__}", (port_cls,), namespace)
     return stub_cls()
 
@@ -137,10 +139,11 @@ class ApplicationFactory:
         from adapters.coretax_djp.api_oauth2_client import CoretaxOAuth2Client
         from adapters.secondary_impl.kafka_consumer_wrapper import KafkaConsumerWrapper
         from adapters.secondary_impl.kafka_producer_wrapper import KafkaProducerWrapper
-        from adapters.secondary_impl.postgres_connection_pool_manager import AsyncPGConnectionPoolManager
+        from adapters.secondary_impl.postgres_connection_pool_manager import (
+            AsyncPGConnectionPoolManager,
+        )
         from adapters.secondary_impl.redis_cache_adapter_impl import RedisCacheAdapter
         from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SQLAlchemyUnitOfWork
-
         from application.commands_cqrs.command_bus_unified import UnifiedCommandBus
         from application.commands_cqrs.query_bus_unified import UnifiedQueryBus
         from application.events.handler_registry import register_default_logging_handler
@@ -238,22 +241,23 @@ class ApplicationFactory:
             logger.info("Redis not configured. Running without Redis.")
 
         # ========== 4. Security ==========
-        # Load JWT config dari file YAML
+        # Load JWT config dari file YAML secara async
         try:
             jwt_config_path = Path("config_files/security_tls_jwt_mfa.yaml")
             if jwt_config_path.exists():
-                with open(jwt_config_path, "r", encoding="utf-8") as f:
-                    raw_config = yaml.safe_load(f)
+                # ===== PERBAIKAN: Baca file secara async dengan aiofiles =====
+                async with aiofiles.open(jwt_config_path, encoding="utf-8") as f:
+                    content = await f.read()
+                # Parse YAML di thread pool (blocking)
+                raw_config = await asyncio.to_thread(yaml.safe_load, content)
                 # Coba dengan config_path
                 try:
                     self._jwt_issuer = JWTIssuer(config_path=str(jwt_config_path))
                     logger.info("JWTIssuer initialized with config_path")
                 except TypeError:
                     # Coba dengan dict
-                    # Ambil bagian 'jwt_config' atau 'jwt'
                     jwt_dict = raw_config.get("jwt_config") or raw_config.get("jwt")
                     if jwt_dict:
-                        # Asumsi JWTIssuer menerima parameter keyword
                         self._jwt_issuer = JWTIssuer(**jwt_dict)
                         logger.info("JWTIssuer initialized with config dict")
                     else:
@@ -617,6 +621,6 @@ async def create_app(config: dict[str, Any]) -> dict[str, Any]:
 async def shutdown_app(container: dict[str, Any]) -> None:
     if "db_pool" in container:
         await container["db_pool"].close()
-    if "kafka_producer" in container and container["kafka_producer"]:
+    if container.get("kafka_producer"):
         await container["kafka_producer"].stop()
     logger.info("Shutdown via container completed")

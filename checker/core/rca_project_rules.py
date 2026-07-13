@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 rca_project_rules.py — Project-Specific RCA Rules
 ====================================================
@@ -23,17 +22,20 @@ Standar: Real-world integration · Big 4 Forensic Audit
 
 from __future__ import annotations
 
+import logging
 import re
 import sys
-import traceback
-import logging
-from typing import Any, Dict, List, Optional, Tuple
 
 # ── Import base classes dari rca.py yang sudah diperbaiki ────────────────
 from checker.core.rca import (
-    RCARule, RCAResult, RCAEngine,
-    Severity, Category, ErrorCode,
-    get_traceback_frames, get_code_context, _get_error_line,
+    Category,
+    ErrorCode,
+    RCAEngine,
+    RCAResult,
+    RCARule,
+    Severity,
+    _get_error_line,
+    get_code_context,
 )
 
 __version__ = "1.0.0"
@@ -51,7 +53,7 @@ class AxiomViolationRule(RCARule):
     Deteksi pelanggaran Aksioma Akuntansi inti dari axioms/.
     Files nyata: axioms/axiom_violation.py, axioms/double_entry.py, ...
     """
-    _AXIOM_PATTERNS: List[Tuple[re.Pattern, str, str, "Severity"]] = [
+    _AXIOM_PATTERNS: list[tuple[re.Pattern, str, str, Severity]] = [
         (
             re.compile(
                 r"(double.?entry|debit.*credit.*unbalanced|credit.*debit.*unbalanced|"
@@ -122,7 +124,7 @@ class AxiomViolationRule(RCARule):
         msg = str(exc).lower()
         return any(p.search(msg) for p, *_ in self._AXIOM_PATTERNS)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         for pattern, root_cause, fix, sev in self._AXIOM_PATTERNS:
             if pattern.search(msg):
@@ -169,7 +171,7 @@ class ConstitutionViolationRule(RCARule):
         return bool(self._CONST_PATTERN.search(str(exc))) or \
                any("constitution" in f.filename.lower() for f in frames)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg    = str(exc)
         cframes= [f for f in frames if "constitution" in f.filename.lower()]
         evidence = [f"Constitutional violation: {type(exc).__name__}: {msg[:300]}"]
@@ -201,7 +203,7 @@ class ConstitutionViolationRule(RCARule):
 
 class KernelGuardViolationRule(RCARule):
     """Deteksi pelanggaran Kernel Guards dari kernel/guards/."""
-    _GUARD_PATTERNS: List[Tuple[re.Pattern, str, str, str, "Severity"]] = [
+    _GUARD_PATTERNS: list[tuple[re.Pattern, str, str, str, Severity]] = [
         (
             re.compile(r"(PeriodLock|period.*locked|period.*closed|tutup.buku|"
                        r"fiscal.*period.*lock|posting.*closed.*period)", re.I),
@@ -344,7 +346,7 @@ class KernelGuardViolationRule(RCARule):
         msg = str(exc)
         return any(p.search(msg) for p, *_ in self._GUARD_PATTERNS)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         for pattern, exc_type, root_cause, fix, sev in self._GUARD_PATTERNS:
             if pattern.search(msg) or exc_type.lower().replace(" ", "") in type(exc).__name__.lower():
@@ -385,8 +387,8 @@ class KernelGuardViolationRule(RCARule):
         return None
 
     @staticmethod
-    def _impact_for(exc_type: str) -> List[str]:
-        _impacts: Dict[str, List[str]] = {
+    def _impact_for(exc_type: str) -> list[str]:
+        _impacts: dict[str, list[str]] = {
             "SodViolation": [
                 "Pelanggaran SOD adalah temuan audit KRITIKAL (SOX control failure).",
                 "Jika lolos, menciptakan risiko fraud dan salah saji material.",
@@ -432,7 +434,7 @@ class InfrastructureDatabaseRule(RCARule):
         re.I,
     )
 
-    _TABLE_TO_DOMAIN: Dict[str, str] = {
+    _TABLE_TO_DOMAIN: dict[str, str] = {
         "journal": "domain/journal — Periksa JournalEntry aggregate",
         "account": "domain/coa — Periksa CoA aggregate",
         "ap_invoice": "domain/subledger_ap — Periksa AP Invoice aggregate",
@@ -465,10 +467,10 @@ class InfrastructureDatabaseRule(RCARule):
             "Migration", "SchemaVersion", "SQLAlchemy",
         ))
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg      = str(exc)
-        evidence : List[str] = [f"DB Exception: {type(exc).__name__}: {msg[:300]}"]
-        impact   : List[str] = []
+        evidence : list[str] = [f"DB Exception: {type(exc).__name__}: {msg[:300]}"]
+        impact   : list[str] = []
         root_cause= suggested_fix = ""
         confidence= 0.85
         severity  = Severity.FATAL
@@ -584,7 +586,7 @@ class MessageBrokerRule(RCARule):
             for f in frames
         )
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg     = str(exc)
         evidence= [f"Broker/Event error: {type(exc).__name__}: {msg[:300]}"]
 
@@ -676,7 +678,7 @@ class CachingRule(RCARule):
         return self._CACHE_PATTERN.search(str(exc)) is not None or \
                any(k in type(exc).__name__ for k in ("Cache", "Redis", "Lock"))
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         if re.search(r"DistributedLock|lock.*acquisition", msg, re.I):
             return RCAResult(
@@ -724,7 +726,7 @@ class SagaOrchestrationRule(RCARule):
         re.I,
     )
 
-    _SAGA_TYPES: Dict[str, str] = {
+    _SAGA_TYPES: dict[str, str] = {
         "procurement": "Procurement Saga (PO → GR → AP Invoice → Payment)",
         "sales"      : "Sales Saga (SO → Delivery → AR Invoice → Collection)",
         "payroll"    : "Payroll Saga (Payroll Run → Journal → Bank Transfer)",
@@ -742,7 +744,7 @@ class SagaOrchestrationRule(RCARule):
             return True
         return any("sagas" in f.filename.replace("\\", "/").lower() for f in frames)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg         = str(exc)
         saga_frames = [f for f in frames if "sagas" in f.filename.replace("\\","/").lower()]
         evidence    = [f"Saga error: {type(exc).__name__}: {msg[:300]}"]
@@ -821,7 +823,7 @@ class BootstrapDIRule(RCARule):
             for f in frames
         )
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         evidence = [f"DI/Bootstrap error: {type(exc).__name__}: {msg[:300]}"]
         di_frames = [
@@ -870,7 +872,7 @@ class BootstrapDIRule(RCARule):
 
 class PolicyEngineRule(RCARule):
     """Deteksi error dari policy_engine/ — IFRS, PSAK, Tax Indonesia."""
-    _POLICY_PATTERNS: List[Tuple[re.Pattern, str, str]] = [
+    _POLICY_PATTERNS: list[tuple[re.Pattern, str, str]] = [
         (
             re.compile(r"(IFRS9|IFRS 9|ifrs.*9|financial.*instrument.*classif|"
                        r"ECL.*calculation|expected.credit.loss)", re.I),
@@ -943,7 +945,7 @@ class PolicyEngineRule(RCARule):
             "policy_engine" in f.filename.replace("\\","/").lower() for f in frames
         )
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         for pattern, root_cause, fix in self._POLICY_PATTERNS:
             if pattern.search(msg):
@@ -1001,7 +1003,7 @@ class ComplianceRule(RCARule):
                    "Compliance", "SOX", "AML", "GDPR", "Sanction", "Ethics", "Legal"
                ))
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         if re.search(r"GDPRViolation|data.*privacy|privacy.*violat", msg, re.I):
             return RCAResult(
@@ -1084,7 +1086,7 @@ class AuditIntegrityRule(RCARule):
             return True
         return any("audit/" in f.filename.replace("\\","/").lower() for f in frames)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         is_tamper = bool(re.search(r"tamper|TamperDetected", msg, re.I))
         is_hash   = bool(re.search(r"hash.*chain|HashChain.*corrupt", msg, re.I))
@@ -1142,7 +1144,7 @@ class CoretaxDJPRule(RCARule):
             return True
         return any("coretax_djp" in f.filename.replace("\\","/").lower() for f in frames)
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
 
         if re.search(r"NSFP.*habis|NSFPExhausted|nomor.seri.faktur.*habis", msg, re.I):
@@ -1234,7 +1236,7 @@ class SecurityHardeningRule(RCARule):
             for f in frames
         )
 
-    def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+    def analyze(self, exc, frames, context) -> RCAResult | None:
         msg = str(exc)
         if re.search(r"CertificateExpired|TLS.*handshake|certificate.*expired", msg, re.I):
             return RCAResult(
@@ -1298,7 +1300,7 @@ class SecurityHardeningRule(RCARule):
 #  REGISTRATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_PROJECT_RULES: List[RCARule] = [
+_PROJECT_RULES: list[RCARule] = [
     AxiomViolationRule(),
     ConstitutionViolationRule(),
     AuditIntegrityRule(),
@@ -1339,7 +1341,7 @@ def register_all(engine: RCAEngine) -> int:
 def self_test_project(verbose: bool = True) -> bool:
     """Uji semua project-specific rules dengan exception nyata dari proyek ini."""
     # Gunakan import yang benar
-    from checker.core.rca import RCAEngine, get_engine, reset_engine, analyze_exception
+    from checker.core.rca import get_engine, reset_engine
 
     reset_engine()
     engine = get_engine()
@@ -1612,7 +1614,7 @@ def self_test_project(verbose: bool = True) -> bool:
     # ── Rule stats ────────────────────────────────────────────────────────────
     stats    = engine.stats()
     rule_cnt = stats["engine"]["rule_count"]
-    check(f"Total rules terdaftar ≥ 30 (generic + project)", rule_cnt >= 30, str(rule_cnt))
+    check("Total rules terdaftar ≥ 30 (generic + project)", rule_cnt >= 30, str(rule_cnt))
 
     if verbose:
         print()
@@ -1620,7 +1622,7 @@ def self_test_project(verbose: bool = True) -> bool:
               f"({'✅ ALL PASS' if failed == 0 else '❌ SOME FAILED'})")
         print()
         print(f"Total rules aktif di engine: {rule_cnt}")
-        print(f"  — Generic rules (rca.py) : ~18")
+        print("  — Generic rules (rca.py) : ~18")
         print(f"  — Project rules (ini)    : {len(_PROJECT_RULES)}")
 
     return failed == 0

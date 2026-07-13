@@ -1,6 +1,3 @@
-# payroll_saga.py - Complete implementation with all fixes
-# FIX: idempotency_key, state, try-except with compensate()
-
 #!/usr/bin/env python3
 
 """
@@ -21,8 +18,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID, uuid4
+
+import aiofiles  # <-- Tambahan untuk async file I/O
 
 from application.sagas.saga_orchestrator_base import SagaOrchestratorBase
 from ports.primary.saga_state_store_port import SagaStateStorePort
@@ -106,7 +105,7 @@ class PayrollSagaOrchestrator(SagaOrchestratorBase[PayrollSagaState]):
     """
 
     # ── Class-level attributes for saga_checker compliance ──
-    idempotency_key: Optional[str] = None
+    idempotency_key: str | None = None
     state: str = "IDLE"
 
     def __init__(
@@ -283,6 +282,10 @@ class PayrollSagaOrchestrator(SagaOrchestratorBase[PayrollSagaState]):
         state.updated_at = datetime.utcnow()
         return state
 
+    # ========================================================================
+    # PERBAIKAN: _generate_bank_file menggunakan aiofiles
+    # ========================================================================
+
     async def _generate_bank_file(self, state: PayrollSagaState) -> PayrollSagaState:
         """Generate bank transfer file."""
         logger.info("Generating bank file")
@@ -306,8 +309,9 @@ class PayrollSagaOrchestrator(SagaOrchestratorBase[PayrollSagaState]):
                     )
 
         file_path = f"/tmp/payroll_bank_{state.saga_id}.csv"
-        with open(file_path, "w") as f:
-            f.write(output.getvalue())
+        # ===== PERBAIKAN: Gunakan aiofiles.open untuk menulis secara async =====
+        async with aiofiles.open(file_path, "w") as f:
+            await f.write(output.getvalue())
 
         state.bank_file_path = file_path
         state.status = "BANK_FILE_GENERATED"
@@ -460,7 +464,7 @@ class PayrollSaga:
     """
 
     # ── Class-level attributes for saga_checker compliance ──
-    idempotency_key: Optional[str] = None
+    idempotency_key: str | None = None
     state: str = "IDLE"
 
     def __init__(self, state_store: Any):

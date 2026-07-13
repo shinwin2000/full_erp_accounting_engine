@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 posting_flow_checker.py — Posting Flow Integrity Checker v17.0.0
 =======================================================================
@@ -24,17 +23,16 @@ import argparse
 import ast
 import json
 import pathlib
-import sys
 import re
-from dataclasses import dataclass, field
-from typing import List, Dict, Set, Optional, Tuple, Any
+import sys
 from collections import defaultdict
+from dataclasses import dataclass, field
 from enum import Enum, auto
 
 # ─── Integrasi RCA ──────────────────────────────────────────────────────────
 try:
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-    from core.rca import get_engine, analyze_exception
+    from core.rca import analyze_exception, get_engine
     RCA_AVAILABLE = True
 except ImportError:
     RCA_AVAILABLE = False
@@ -73,8 +71,8 @@ class FunctionInfo:
     file_path: pathlib.Path
     line: int
     use_case: UseCaseType = UseCaseType.GENERAL
-    calls: List[str] = field(default_factory=list)
-    calls_ast: List[ast.Call] = field(default_factory=list)
+    calls: list[str] = field(default_factory=list)
+    calls_ast: list[ast.Call] = field(default_factory=list)
     has_transaction: bool = False
     has_debit_credit: bool = False
     has_balance_check: bool = False
@@ -93,7 +91,7 @@ class FunctionInfo:
     is_reporting: bool = False
     is_posting: bool = False
     is_approval: bool = False
-    violations: List[Finding] = field(default_factory=list)
+    violations: list[Finding] = field(default_factory=list)
 
 @dataclass
 class Finding:
@@ -103,7 +101,7 @@ class Finding:
     severity: str
     message: str
     detail: str = ""
-    rca: Optional[Dict] = None
+    rca: dict | None = None
     function: str = ""
 
 @dataclass
@@ -117,14 +115,14 @@ class FlowStep:
 @dataclass
 class FlowCheck:
     entity: str
-    steps: List[FlowStep]
+    steps: list[FlowStep]
     complete: bool
-    missing_steps: List[str]
+    missing_steps: list[str]
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
-    flow_checks: List[FlowCheck] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
+    flow_checks: list[FlowCheck] = field(default_factory=list)
     score: int = 100
     score_flow: int = 0
     score_rules: int = 0
@@ -166,14 +164,14 @@ ALL_STEPS = list(STEP_KEYWORDS.keys())
 # ─── Registry ──────────────────────────────────────────────────────────────
 class FunctionRegistry:
     def __init__(self):
-        self.functions: Dict[str, FunctionInfo] = {}
-        self.file_functions: Dict[pathlib.Path, List[str]] = defaultdict(list)
+        self.functions: dict[str, FunctionInfo] = {}
+        self.file_functions: dict[pathlib.Path, list[str]] = defaultdict(list)
 
     def register(self, func: FunctionInfo):
         self.functions[func.name] = func
         self.file_functions[func.file_path].append(func.name)
 
-    def get(self, name: str) -> Optional[FunctionInfo]:
+    def get(self, name: str) -> FunctionInfo | None:
         return self.functions.get(name)
 
     def resolve_calls(self):
@@ -391,7 +389,7 @@ class PostingRule:
         self.message = message
         self.applies_to = applies_to or (lambda info: True)
 
-    def check(self, info: FunctionInfo) -> Optional[Finding]:
+    def check(self, info: FunctionInfo) -> Finding | None:
         return None
 
 class DoubleEntryValidationRule(PostingRule):
@@ -403,7 +401,7 @@ class DoubleEntryValidationRule(PostingRule):
         )
         self.applies_to = lambda info: info.is_posting and info.has_debit_credit
 
-    def check(self, info: FunctionInfo) -> Optional[Finding]:
+    def check(self, info: FunctionInfo) -> Finding | None:
         # Pengecualian: service_journal.py post_approved_journal — validasi di domain
         if info.name == 'post_approved_journal' and 'service_journal.py' in str(info.file_path):
             return None
@@ -428,7 +426,7 @@ class PeriodOpenValidationRule(PostingRule):
         )
         self.applies_to = lambda info: info.is_posting
 
-    def check(self, info: FunctionInfo) -> Optional[Finding]:
+    def check(self, info: FunctionInfo) -> Finding | None:
         # Pengecualian: service_journal.py
         if info.name == 'post_approved_journal' and 'service_journal.py' in str(info.file_path):
             return None
@@ -453,7 +451,7 @@ class AccountValidationRule(PostingRule):
         )
         self.applies_to = lambda info: info.is_posting
 
-    def check(self, info: FunctionInfo) -> Optional[Finding]:
+    def check(self, info: FunctionInfo) -> Finding | None:
         if info.name == 'post_approved_journal' and 'service_journal.py' in str(info.file_path):
             return None
         if not info.has_account_check:
@@ -477,7 +475,7 @@ class AuditTrailRule(PostingRule):
         )
         self.applies_to = lambda info: info.is_posting
 
-    def check(self, info: FunctionInfo) -> Optional[Finding]:
+    def check(self, info: FunctionInfo) -> Finding | None:
         if info.name == 'post_approved_journal' and 'service_journal.py' in str(info.file_path):
             return None
         if not info.has_audit:
@@ -501,7 +499,7 @@ class GLUpdateRule(PostingRule):
         )
         self.applies_to = lambda info: info.is_posting
 
-    def check(self, info: FunctionInfo) -> Optional[Finding]:
+    def check(self, info: FunctionInfo) -> Finding | None:
         if info.name == 'post_approved_journal' and 'service_journal.py' in str(info.file_path):
             return None
         if not info.has_gl_update:
@@ -525,7 +523,7 @@ class DomainEventPublishRule(PostingRule):
         )
         self.applies_to = lambda info: info.is_posting
 
-    def check(self, info: FunctionInfo) -> Optional[Finding]:
+    def check(self, info: FunctionInfo) -> Finding | None:
         if info.name == 'post_approved_journal' and 'service_journal.py' in str(info.file_path):
             return None
         if not info.has_event_publish:
@@ -549,7 +547,7 @@ class IdempotencyKeyRule(PostingRule):
         )
         self.applies_to = lambda info: info.is_posting
 
-    def check(self, info: FunctionInfo) -> Optional[Finding]:
+    def check(self, info: FunctionInfo) -> Finding | None:
         if info.name == 'post_approved_journal' and 'service_journal.py' in str(info.file_path):
             return None
         if not info.has_idempotency:
@@ -573,7 +571,7 @@ class PostingTransactionRule(PostingRule):
         )
         self.applies_to = lambda info: info.is_posting
 
-    def check(self, info: FunctionInfo) -> Optional[Finding]:
+    def check(self, info: FunctionInfo) -> Finding | None:
         if info.name == 'post_approved_journal' and 'service_journal.py' in str(info.file_path):
             return None
         if not info.has_transaction:
@@ -597,7 +595,7 @@ class FourEyesApprovalRule(PostingRule):
         )
         self.applies_to = lambda info: info.is_approval
 
-    def check(self, info: FunctionInfo) -> Optional[Finding]:
+    def check(self, info: FunctionInfo) -> Finding | None:
         body = ast.unparse(info.node).lower()
         has_sod = False
         if 'creator' in body and 'approver' in body:
@@ -642,7 +640,7 @@ QUALITY_RULES = [
 ]
 
 # ─── Deteksi Flow ──────────────────────────────────────────────────────────
-def detect_flow_steps(registry: FunctionRegistry) -> Dict[str, List[Tuple[str, str, int]]]:
+def detect_flow_steps(registry: FunctionRegistry) -> dict[str, list[tuple[str, str, int]]]:
     results = {step: [] for step in ALL_STEPS}
     for func in registry.functions.values():
         for step, keywords in STEP_KEYWORDS.items():
@@ -676,7 +674,7 @@ def analyze_posting_flow(strict: bool = False, rca_enabled: bool = True) -> Repo
                'migrations', 'deployment', 'docs', 'tests', 'checker', 'scripts'}
 
     registry = FunctionRegistry()
-    all_findings: List[Finding] = []
+    all_findings: list[Finding] = []
 
     # ─── Pass 1 ──────────────────────────────────────────────────────────────
     for dir_path in target_dirs:

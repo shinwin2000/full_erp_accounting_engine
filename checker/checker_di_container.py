@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/checker_di_container.py
 ================================
@@ -20,9 +19,9 @@ import platform
 import sys
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # =============================================================================
 # [BUG-01 FIX] ROOT path: checker_di_container.py ada di checker/ → parent = root
@@ -62,7 +61,7 @@ def _supports_ansi() -> bool:
     return True
 
 _USE_COLOR = _supports_ansi()
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED":    "\033[91m" if _USE_COLOR else "",
     "GREEN":  "\033[92m" if _USE_COLOR else "",
     "YELLOW": "\033[93m" if _USE_COLOR else "",
@@ -84,14 +83,22 @@ try:
     if str(_checker_core) not in sys.path:
         sys.path.insert(0, str(_checker_core))
 
+    from rca import (
+        Category as RCACategory,
+    )
+    from rca import (
+        ErrorCode as RCAErrorCode,
+    )
     from rca import (  # type: ignore[import]
         RCAEngine,
         RCAResult,
-        Severity as RCASeverity,
-        Category as RCACategory,
-        ErrorCode as RCAErrorCode,
-        get_engine as rca_get_engine,
         analyze_exception,
+    )
+    from rca import (
+        Severity as RCASeverity,
+    )
+    from rca import (
+        get_engine as rca_get_engine,
     )
     _rca_engine = rca_get_engine()
     _RCA_AVAILABLE = True
@@ -102,11 +109,22 @@ except ImportError:
         _this_dir = _THIS_FILE.parent
         if str(_this_dir) not in sys.path:
             sys.path.insert(0, str(_this_dir))
+        from rca import (
+            Category as RCACategory,
+        )
+        from rca import (
+            ErrorCode as RCAErrorCode,
+        )
         from rca import (  # type: ignore[import]
-            RCAEngine, RCAResult, Severity as RCASeverity,
-            Category as RCACategory, ErrorCode as RCAErrorCode,
-            get_engine as rca_get_engine,
+            RCAEngine,
+            RCAResult,
             analyze_exception,
+        )
+        from rca import (
+            Severity as RCASeverity,
+        )
+        from rca import (
+            get_engine as rca_get_engine,
         )
         _rca_engine = rca_get_engine()
         _RCA_AVAILABLE = True
@@ -118,7 +136,7 @@ except ImportError:
 # =============================================================================
 # Konfigurasi Contract Checks
 # =============================================================================
-CONTRACT_CHECKS: Dict[str, Tuple[List[str], Optional[List[str]]]] = {
+CONTRACT_CHECKS: dict[str, tuple[list[str], list[str] | None]] = {
     "UnitOfWorkPort": (
         ["commit", "rollback", "begin"],
         None,
@@ -170,7 +188,7 @@ CONTRACT_CHECKS: Dict[str, Tuple[List[str], Optional[List[str]]]] = {
 }
 
 # Whitelist implementasi in-memory yang sengaja digunakan (e.g. dev/test env)
-ALLOWED_IN_MEMORY: Set[str] = {
+ALLOWED_IN_MEMORY: set[str] = {
     "InMemoryCoreTaxPort",
     "InMemoryTaxRepository",
     "InMemoryEventBus",
@@ -197,8 +215,12 @@ RESOLVE_TIMEOUT_SECONDS = 5.0
 class ResolutionError:
     """Satu entri error resolusi dependency."""
     __slots__ = (
-        "interface_name", "error_type", "message", "trace",
-        "rca_result", "severity",
+        "error_type",
+        "interface_name",
+        "message",
+        "rca_result",
+        "severity",
+        "trace",
     )
 
     def __init__(
@@ -207,7 +229,7 @@ class ResolutionError:
         error_type: str,
         message: str,
         trace: str = "",
-        rca_result: Optional[Any] = None,
+        rca_result: Any | None = None,
         severity: str = "HIGH",
     ):
         self.interface_name = interface_name
@@ -217,8 +239,8 @@ class ResolutionError:
         self.rca_result     = rca_result
         self.severity       = severity
 
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
             "interface"  : self.interface_name,
             "error_type" : self.error_type,
             "message"    : self.message,
@@ -239,22 +261,22 @@ class ResolutionError:
 
 class InMemoryFallback:
     """Satu entri in-memory fallback."""
-    __slots__ = ("interface_name", "implementation", "is_allowed", "rca_result")
+    __slots__ = ("implementation", "interface_name", "is_allowed", "rca_result")
 
     def __init__(
         self,
         interface_name: str,
         implementation: str,
         is_allowed: bool,
-        rca_result: Optional[Any] = None,
+        rca_result: Any | None = None,
     ):
         self.interface_name = interface_name
         self.implementation = implementation
         self.is_allowed     = is_allowed
         self.rca_result     = rca_result
 
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
             "interface"     : self.interface_name,
             "implementation": self.implementation,
             "is_allowed"    : self.is_allowed,
@@ -272,22 +294,22 @@ class InMemoryFallback:
 
 class ContractFailure:
     """Satu entri contract method failure."""
-    __slots__ = ("interface_name", "implementation", "missing_methods", "rca_result")
+    __slots__ = ("implementation", "interface_name", "missing_methods", "rca_result")
 
     def __init__(
         self,
         interface_name: str,
         implementation: str,
-        missing_methods: List[str],
-        rca_result: Optional[Any] = None,
+        missing_methods: list[str],
+        rca_result: Any | None = None,
     ):
         self.interface_name = interface_name
         self.implementation = implementation
         self.missing_methods = missing_methods
         self.rca_result      = rca_result
 
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
             "interface"      : self.interface_name,
             "implementation" : self.implementation,
             "missing_methods": self.missing_methods,
@@ -323,12 +345,12 @@ class DIContainerChecker:
         self._registry_called = False
 
         # Akumulator hasil
-        self.resolution_errors: List[ResolutionError]   = []
-        self.in_memory_fallbacks: List[InMemoryFallback] = []
-        self.contract_failures: List[ContractFailure]    = []
-        self.setup_errors: List[Dict[str, str]]          = []
-        self.suggestions: List[str]                      = []
-        self._seen_interfaces: Set[str]                  = set()
+        self.resolution_errors: list[ResolutionError]   = []
+        self.in_memory_fallbacks: list[InMemoryFallback] = []
+        self.contract_failures: list[ContractFailure]    = []
+        self.setup_errors: list[dict[str, str]]          = []
+        self.suggestions: list[str]                      = []
+        self._seen_interfaces: set[str]                  = set()
 
     # -------------------------------------------------------------------------
     # Setup
@@ -435,7 +457,7 @@ class DIContainerChecker:
                     "rca"    : rca_result.to_dict() if rca_result and _RCA_AVAILABLE else {},
                 })
 
-    def _get_registered_types(self) -> List[type]:
+    def _get_registered_types(self) -> list[type]:
         """
         Ambil semua interface yang terdaftar di container.
         [FIX] Filter untuk mengecualikan tipe dari module 'typing' (Protocol, Optional, dll).
@@ -470,9 +492,7 @@ class DIContainerChecker:
                 items = []
                 if isinstance(result, dict):
                     items = [k for k in result.keys() if isinstance(k, type)]
-                elif isinstance(result, (list, tuple)):
-                    items = [x for x in result if isinstance(x, type)]
-                elif hasattr(result, "__iter__"):
+                elif isinstance(result, (list, tuple)) or hasattr(result, "__iter__"):
                     items = [x for x in result if isinstance(x, type)]
 
                 # [FIX] Filter: tolak tipe dari modul typing atau nama "Protocol"
@@ -502,11 +522,11 @@ class DIContainerChecker:
     # -------------------------------------------------------------------------
     async def _resolve_with_timeout(
         self, interface: type
-    ) -> Tuple[Optional[object], Optional[Exception]]:
+    ) -> tuple[object | None, Exception | None]:
         """
         Resolve satu interface dengan timeout.
         """
-        async def _try_resolve() -> Optional[object]:
+        async def _try_resolve() -> object | None:
             if hasattr(self.container, "resolve_async"):
                 try:
                     return await self.container.resolve_async(interface)
@@ -543,7 +563,7 @@ class DIContainerChecker:
                 timeout=self.resolve_timeout,
             )
             return instance, None
-        except asyncio.TimeoutError as exc:
+        except TimeoutError:
             return None, TimeoutError(
                 f"Resolve timeout after {self.resolve_timeout}s untuk {_iface_name(interface)}"
             )
@@ -555,7 +575,7 @@ class DIContainerChecker:
     # -------------------------------------------------------------------------
     def _check_contract(
         self, interface_name: str, instance: object
-    ) -> Tuple[bool, List[str]]:
+    ) -> tuple[bool, list[str]]:
         """Periksa method contract."""
         if interface_name not in CONTRACT_CHECKS:
             return True, []
@@ -575,7 +595,7 @@ class DIContainerChecker:
     # -------------------------------------------------------------------------
     # RCA helpers
     # -------------------------------------------------------------------------
-    def _rca_analyze(self, exc: Exception) -> Optional[Any]:
+    def _rca_analyze(self, exc: Exception) -> Any | None:
         if not _RCA_AVAILABLE or _rca_engine is None:
             return None
         try:
@@ -583,7 +603,7 @@ class DIContainerChecker:
         except Exception:
             return None
 
-    def _rca_for_inmemory(self, interface_name: str, impl_name: str) -> Optional[Any]:
+    def _rca_for_inmemory(self, interface_name: str, impl_name: str) -> Any | None:
         if not _RCA_AVAILABLE:
             return None
         try:
@@ -596,8 +616,8 @@ class DIContainerChecker:
             return None
 
     def _rca_for_contract(
-        self, interface_name: str, impl_name: str, missing: List[str]
-    ) -> Optional[Any]:
+        self, interface_name: str, impl_name: str, missing: list[str]
+    ) -> Any | None:
         if not _RCA_AVAILABLE:
             return None
         try:
@@ -613,7 +633,7 @@ class DIContainerChecker:
     # -------------------------------------------------------------------------
     # Main Run
     # -------------------------------------------------------------------------
-    async def run_checks(self) -> Dict[str, Any]:
+    async def run_checks(self) -> dict[str, Any]:
         """Jalankan semua pemeriksaan."""
         run_start = time.monotonic()
 
@@ -801,11 +821,11 @@ class DIContainerChecker:
         resolved_ok: int = 0,
         warn_count: int = 0,
         score: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         elapsed = time.monotonic() - run_start
-        now_utc = datetime.now(timezone.utc).isoformat()
+        now_utc = datetime.now(UTC).isoformat()
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "success"          : success,
             "score"            : score,
             "timestamp_utc"    : now_utc,
@@ -880,7 +900,7 @@ def _exc_severity(exc: Exception) -> str:
 # Output
 # =============================================================================
 
-def print_report(result: Dict[str, Any], verbose: bool = False) -> None:
+def print_report(result: dict[str, Any], verbose: bool = False) -> None:
     c = COLOR
     W  = 74
 
@@ -1010,7 +1030,7 @@ def print_report(result: Dict[str, Any], verbose: bool = False) -> None:
 # JSON Export
 # =============================================================================
 
-def save_json(result: Dict[str, Any], filepath: str) -> None:
+def save_json(result: dict[str, Any], filepath: str) -> None:
     try:
         out_path = Path(filepath)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1051,10 +1071,10 @@ def save_json(result: Dict[str, Any], filepath: str) -> None:
 # SARIF Export
 # =============================================================================
 
-def save_sarif(result: Dict[str, Any], filepath: str) -> None:
-    rules: List[Dict[str, Any]] = []
-    rule_ids: Set[str] = set()
-    results_list: List[Dict[str, Any]] = []
+def save_sarif(result: dict[str, Any], filepath: str) -> None:
+    rules: list[dict[str, Any]] = []
+    rule_ids: set[str] = set()
+    results_list: list[dict[str, Any]] = []
 
     def _add_rule(rule_id: str, name: str, desc: str) -> None:
         if rule_id not in rule_ids:
@@ -1209,7 +1229,7 @@ def main() -> None:
 
     checker = DIContainerChecker(resolve_timeout=args.timeout)
     exit_code = 2
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
 
     try:
         try:

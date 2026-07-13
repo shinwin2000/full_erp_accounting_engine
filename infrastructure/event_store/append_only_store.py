@@ -51,11 +51,6 @@ class StoreNotInitializedError(AppendOnlyStoreError):
 
 class AppendOnlyStore:
     def __init__(self, session_factory: async_sessionmaker | None = None):
-        # CATATAN: get_async_session_factory() adalah fungsi async, jadi
-        # tidak bisa dipanggil (dan di-await) di __init__ yang sinkron.
-        # Kalau session_factory tidak diberikan, resolusinya ditunda
-        # sampai initialize() (lihat di bawah), supaya bisa di-await
-        # dengan benar.
         self._session_factory = session_factory
         self._hash_builder = HashChainBuilder()
         self._initialized = False
@@ -78,17 +73,11 @@ class AppendOnlyStore:
                         "event_version": 1,
                         "data": {"message": "Event Store Genesis"},
                         "event_metadata": {"created_by": "system"},
-                        "timestamp": datetime.now(UTC),  # objek datetime asli, bukan string (kolom TIMESTAMPTZ)
+                        "timestamp": datetime.now(UTC),
                         "sequence_number": 1,
                         "previous_hash": GENESIS_HASH,
                         "hash": GENESIS_HASH,
                     }
-                    # CATATAN: pakai EventStoreTable.__table__ (Core Table),
-                    # bukan EventStoreTable (ORM class) langsung. Insert ORM
-                    # mencoba meresolusi key dict ke atribut Python kelas,
-                    # dan key 'metadata' di sini bentrok dengan atribut
-                    # bawaan SQLAlchemy `Base.metadata` (objek MetaData),
-                    # menyebabkan AttributeError saat insert genesis event.
                     stmt = insert(EventStoreTable.__table__).values(**genesis_event)
                     await session.execute(stmt)
                     await session.commit()
@@ -96,6 +85,11 @@ class AppendOnlyStore:
                 self._initialized = True
                 logger.info("AppendOnlyStore initialized")
         except Exception as e:
+            # Rollback jika terjadi error (meskipun belum ada transaksi aktif)
+            try:
+                await session.rollback()
+            except Exception:
+                pass
             logger.error(f"Failed to initialize event store: {e}")
             raise AppendOnlyStoreError(f"Initialization failed: {e}") from e
 
@@ -119,7 +113,7 @@ class AppendOnlyStore:
             "event_version": 1,
             "data": event_data,
             "event_metadata": metadata,
-            "timestamp": timestamp,  # objek datetime asli, bukan string (kolom TIMESTAMPTZ)
+            "timestamp": timestamp,
             "sequence_number": await self._get_next_sequence(stream_name),
             "previous_hash": last_hash,
             "hash": self._compute_hash(event_data, metadata, timestamp, last_hash),
@@ -128,7 +122,7 @@ class AppendOnlyStore:
             async with self._session_factory() as session, session.begin():
                 stmt = insert(EventStoreTable.__table__).values(**event_record)
                 await session.execute(stmt)
-                await session.commit()
+                # commit otomatis oleh session.begin()
             if stream_name not in self._cache:
                 self._cache[stream_name] = []
             self._cache[stream_name].append(event_record)
@@ -138,9 +132,11 @@ class AppendOnlyStore:
             logger.debug(f"Event appended: {event_type} to {stream_name} (id={event_id})")
             return event_id
         except IntegrityError as e:
+            await session.rollback()
             logger.error(f"Integrity error while appending event: {e}")
             raise IntegrityViolationError(f"Duplicate sequence or constraint violation: {e}") from e
         except Exception as e:
+            await session.rollback()
             logger.error(f"Failed to append event: {e}")
             raise AppendOnlyStoreError(f"Failed to append event: {e}") from e
 
@@ -162,7 +158,7 @@ class AppendOnlyStore:
                         "event_version": 1,
                         "data": event_data,
                         "event_metadata": metadata,
-                        "timestamp": timestamp,  # objek datetime asli, bukan string (kolom TIMESTAMPTZ)
+                        "timestamp": timestamp,
                         "sequence_number": await self._get_next_sequence(stream_name, session),
                         "previous_hash": last_hash,
                         "hash": self._compute_hash(event_data, metadata, timestamp, last_hash),
@@ -174,13 +170,15 @@ class AppendOnlyStore:
                         self._cache[stream_name] = []
                     self._cache[stream_name].append(event_record)
                     self._last_hashes[stream_name] = event_record["hash"]
-                await session.commit()
+                # commit otomatis oleh session.begin()
             logger.info(f"Batch of {len(events)} events appended")
             return event_ids
         except IntegrityError as e:
+            await session.rollback()
             logger.error(f"Integrity error in batch append: {e}")
             raise IntegrityViolationError(f"Batch append failed: {e}") from e
         except Exception as e:
+            await session.rollback()
             logger.error(f"Failed to append batch: {e}")
             raise AppendOnlyStoreError(f"Batch append failed: {e}") from e
 
@@ -193,7 +191,7 @@ class AppendOnlyStore:
         if cached and from_sequence <= len(cached):
             return [e for e in cached if e.get("sequence_number", 0) >= from_sequence][:limit]
         try:
-            async with self._session_factory() as session:
+            async with self._session_factory() as session, session.begin():
                 stmt = (
                     select(EventStoreTable)
                     .where(
@@ -221,6 +219,7 @@ class AppendOnlyStore:
                     for e in events
                 ]
         except Exception as e:
+            await session.rollback()
             logger.error(f"Failed to read stream {stream_name}: {e}")
             raise AppendOnlyStoreError(f"Failed to read stream: {e}") from e
 
@@ -231,7 +230,7 @@ class AppendOnlyStore:
         if cached:
             return cached[-1]
         try:
-            async with self._session_factory() as session:
+            async with self._session_factory() as session, session.begin():
                 stmt = (
                     select(EventStoreTable)
                     .where(EventStoreTable.stream_name == stream_name)
@@ -255,6 +254,7 @@ class AppendOnlyStore:
                     "hash": event.hash,
                 }
         except Exception as e:
+            await session.rollback()
             logger.error(f"Failed to get last event for {stream_name}: {e}")
             raise AppendOnlyStoreError(f"Failed to get last event: {e}") from e
 
@@ -266,7 +266,7 @@ class AppendOnlyStore:
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
         try:
-            async with self._session_factory() as session:
+            async with self._session_factory() as session, session.begin():
                 if stream_name:
                     stmt = (
                         select(EventStoreTable)
@@ -322,6 +322,7 @@ class AppendOnlyStore:
                         "overall_valid": total_invalid == 0,
                     }
         except Exception as e:
+            await session.rollback()
             logger.error(f"Failed to verify integrity: {e}")
             raise AppendOnlyStoreError(f"Integrity verification failed: {e}") from e
 
@@ -347,6 +348,10 @@ class AppendOnlyStore:
                 self._last_hashes[stream_name] = last_hash
                 return last_hash
             return GENESIS_HASH
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Error getting last hash for stream {stream_name}: {e}")
+            raise AppendOnlyStoreError(f"Failed to get last hash: {e}") from e
         finally:
             if close_session:
                 await session.close()
@@ -365,6 +370,10 @@ class AppendOnlyStore:
             result = await session.execute(stmt)
             max_seq = result.scalar()
             return (max_seq or 0) + 1
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Error getting next sequence for stream {stream_name}: {e}")
+            raise AppendOnlyStoreError(f"Failed to get next sequence: {e}") from e
         finally:
             if close_session:
                 await session.close()
@@ -385,7 +394,7 @@ class AppendOnlyStore:
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
         try:
-            async with self._session_factory() as session:
+            async with self._session_factory() as session, session.begin():
                 count_stmt = (
                     select(func.count())
                     .select_from(EventStoreTable)
@@ -419,6 +428,7 @@ class AppendOnlyStore:
                     "last_hash": self._last_hashes.get(stream_name, GENESIS_HASH),
                 }
         except Exception as e:
+            await session.rollback()
             logger.error(f"Failed to get stream info for {stream_name}: {e}")
             raise AppendOnlyStoreError(f"Failed to get stream info: {e}") from e
 
@@ -432,7 +442,7 @@ class AppendOnlyStore:
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
         try:
-            async with self._session_factory() as session:
+            async with self._session_factory() as session, session.begin():
                 conditions = []
                 if event_type:
                     conditions.append(EventStoreTable.event_type == event_type)
@@ -461,6 +471,7 @@ class AppendOnlyStore:
                     for e in events
                 ]
         except Exception as e:
+            await session.rollback()
             logger.error(f"Failed to search events: {e}")
             raise AppendOnlyStoreError(f"Failed to search events: {e}") from e
 

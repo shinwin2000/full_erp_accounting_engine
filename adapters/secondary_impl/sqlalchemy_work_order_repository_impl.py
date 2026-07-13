@@ -19,9 +19,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    delete,
     select,
-    update,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession

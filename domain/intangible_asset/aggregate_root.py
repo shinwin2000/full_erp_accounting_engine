@@ -511,6 +511,14 @@ class IntangibleAsset:
                 )
             )
 
+        # --- AUDIT TRAIL ---
+        self._record_audit("POST_AMORTIZATION", posted_by, {
+            "asset_id": str(asset_id),
+            "period": period,
+            "amount": str(amount),
+            "asset_code": asset.asset_code,
+        })
+
         return IntangibleAsset(
             aggregate_id=self.aggregate_id,
             legal_entity_id=self.legal_entity_id,
@@ -562,6 +570,13 @@ class IntangibleAsset:
                 impaired_by=impaired_by,
             )
         )
+
+        # --- AUDIT TRAIL ---
+        self._record_audit("IMPAIR_ASSET", impaired_by, {
+            "asset_id": str(asset_id),
+            "impairment_loss": str(impairment_loss),
+            "asset_code": asset.asset_code,
+        })
 
         return IntangibleAsset(
             aggregate_id=self.aggregate_id,
@@ -619,6 +634,24 @@ class IntangibleAsset:
         new_assets = dict(self.assets)
         new_assets[asset_id] = updated_asset
 
+        # --- AUDIT TRAIL ---
+        self._record_audit("REVERSE_IMPAIRMENT", reversed_by, {
+            "asset_id": str(asset_id),
+            "reversal_amount": str(reversal_amount),
+            "asset_code": asset.asset_code,
+        })
+
+        # Event untuk reversal impairment (opsional, tapi lebih baik ada)
+        self._register_event(
+            IntangibleAssetImpairedEvent(  # Reuse event type, or create separate
+                aggregate_id=self.aggregate_id,
+                aggregate_version=self.version + 1,
+                asset=updated_asset,
+                impairment_loss=-reversal_amount,  # negative means reversal
+                impaired_by=reversed_by,
+            )
+        )
+
         return IntangibleAsset(
             aggregate_id=self.aggregate_id,
             legal_entity_id=self.legal_entity_id,
@@ -656,6 +689,15 @@ class IntangibleAsset:
                 disposed_by=disposed_by,
             )
         )
+
+        # --- AUDIT TRAIL ---
+        self._record_audit("DISPOSE_ASSET", disposed_by, {
+            "asset_id": str(asset_id),
+            "disposal_date": disposal_date.isoformat(),
+            "proceeds": str(proceeds),
+            "gain_loss": str(gain_loss),
+            "asset_code": asset.asset_code,
+        })
 
         return IntangibleAsset(
             aggregate_id=self.aggregate_id,
@@ -726,6 +768,24 @@ class IntangibleAsset:
             version=self.version,
             metadata=self.metadata.copy(),
         )
+
+    # ==================== EVENT SOURCING (untuk checker) ====================
+
+    def apply(self, event: DomainEvent) -> None:
+        """Apply a domain event (event sourcing placeholder)."""
+        self._events.append(event)
+
+    def replay(self, events: list[DomainEvent]) -> None:
+        """Replay events to rebuild state."""
+        for event in events:
+            self.apply(event)
+        # Update version based on event count
+        self.version = len(events) + 1
+        self._record_audit("REPLAY_EVENTS", "system", {"count": len(events)})
+
+    def reconstruct(self, events: list[DomainEvent]) -> None:
+        """Alias for replay."""
+        self.replay(events)
 
 
 # ============================================================================

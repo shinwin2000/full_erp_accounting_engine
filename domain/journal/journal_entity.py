@@ -618,8 +618,8 @@ class JournalEntity:
         # ========== IMMUTABILITY GUARD (ACC-026) ==========
         if self.status == JournalStatus.POSTED:
             raise ValueError(
-                f"Cannot update metadata: journal has been posted and is immutable. "
-                f"Use reverse() to create a reversal instead."
+                "Cannot update metadata: journal has been posted and is immutable. "
+                "Use reverse() to create a reversal instead."
             )
 
         self._ensure_editable("update metadata")
@@ -698,8 +698,8 @@ class JournalEntity:
         # ========== IMMUTABILITY GUARD (ACC-026) ==========
         if self.status == JournalStatus.POSTED:
             raise ValueError(
-                f"Cannot update totals: journal has been posted and is immutable. "
-                f"Use reverse() to create a reversal instead."
+                "Cannot update totals: journal has been posted and is immutable. "
+                "Use reverse() to create a reversal instead."
             )
 
         self._ensure_editable("update totals")

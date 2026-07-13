@@ -898,6 +898,7 @@ class EquityAggregate:
         new_agg.capital_contributions = new_contributions
         new_agg.updated_at = datetime.now(UTC)
         new_agg.version = self.version + 1
+        new_agg._record_audit("APPROVE_CONTRIBUTION", approved_by, {"id": str(contribution_id)})
         return new_agg
 
     def approve_capital_withdrawal(self, withdrawal_id: UUID, approved_by: str) -> EquityAggregate:
@@ -923,9 +924,11 @@ class EquityAggregate:
         new_agg.capital_withdrawals = new_withdrawals
         new_agg.updated_at = datetime.now(UTC)
         new_agg.version = self.version + 1
+        new_agg._record_audit("APPROVE_WITHDRAWAL", approved_by, {"id": str(withdrawal_id)})
         return new_agg
 
     def approve_dividend(self, dividend_id: UUID, approved_by: str) -> EquityAggregate:
+        """Approve a dividend declaration."""
         dividend = self.get_dividend_declaration(dividend_id)
         if dividend is None:
             raise TransactionNotFoundError(f"Dividend {dividend_id} not found")
@@ -947,6 +950,7 @@ class EquityAggregate:
         new_agg.dividend_declarations = new_dividends
         new_agg.updated_at = datetime.now(UTC)
         new_agg.version = self.version + 1
+        new_agg._record_audit("APPROVE_DIVIDEND", approved_by, {"dividend_id": str(dividend_id)})
         return new_agg
 
     # ==================== POST METHODS (with Unit of Work) ====================
@@ -1041,6 +1045,7 @@ class EquityAggregate:
         new_agg.capital_contributions = new_contributions
         new_agg.updated_at = datetime.now(UTC)
         new_agg.version = self.version + 1
+        new_agg._record_audit("CANCEL_CONTRIBUTION", cancelled_by, {"id": str(contribution_id), "reason": reason})
         return new_agg
 
     def cancel_capital_withdrawal(
@@ -1069,9 +1074,11 @@ class EquityAggregate:
         new_agg.capital_withdrawals = new_withdrawals
         new_agg.updated_at = datetime.now(UTC)
         new_agg.version = self.version + 1
+        new_agg._record_audit("CANCEL_WITHDRAWAL", cancelled_by, {"id": str(withdrawal_id), "reason": reason})
         return new_agg
 
     def cancel_dividend(self, dividend_id: UUID, cancelled_by: str, reason: str) -> EquityAggregate:
+        """Cancel a dividend declaration."""
         dividend = self.get_dividend_declaration(dividend_id)
         if dividend is None:
             raise TransactionNotFoundError(f"Dividend {dividend_id} not found")
@@ -1094,6 +1101,7 @@ class EquityAggregate:
         new_agg.dividend_declarations = new_dividends
         new_agg.updated_at = datetime.now(UTC)
         new_agg.version = self.version + 1
+        new_agg._record_audit("CANCEL_DIVIDEND", cancelled_by, {"dividend_id": str(dividend_id), "reason": reason})
         return new_agg
 
     def pay_dividend(
@@ -1157,6 +1165,7 @@ class EquityAggregate:
         new_agg.dividend_declarations = new_dividends
         new_agg.updated_at = datetime.now(UTC)
         new_agg.version = self.version + 1
+        new_agg._record_audit("PAY_DIVIDEND", paid_by, {"dividend_id": str(dividend_id), "amount": str(amount)})
         return new_agg
 
     def add_net_income(
@@ -1180,6 +1189,7 @@ class EquityAggregate:
         new_agg.retained_earnings = new_retained
         new_agg.updated_at = datetime.now(UTC)
         new_agg.version = self.version + 1
+        new_agg._record_audit("ADD_NET_INCOME", updated_by, {"period": period, "amount": str(net_income)})
         return new_agg
 
     def add_prior_period_adjustment(
@@ -1204,6 +1214,7 @@ class EquityAggregate:
         new_agg.retained_earnings = new_retained
         new_agg.updated_at = datetime.now(UTC)
         new_agg.version = self.version + 1
+        new_agg._record_audit("ADD_PRIOR_PERIOD_ADJUSTMENT", updated_by, {"period": period, "amount": str(adjustment)})
         return new_agg
 
     # ==================== STATISTICS ====================

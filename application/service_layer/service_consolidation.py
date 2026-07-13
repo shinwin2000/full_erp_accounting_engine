@@ -26,6 +26,19 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
+# Import domain events
+from domain.consolidation.domain_events import (
+    ConsolidationArchivedEvent,
+    ConsolidationCancelledEvent,
+    ConsolidationCompletedEvent,
+    ConsolidationStartedEvent,
+    EliminationEntryCreatedEvent,
+    IntercompanyTransactionDetectedEvent,
+    LegalEntityCreatedEvent,
+    LegalEntityDeactivatedEvent,
+    LegalEntityUpdatedEvent,
+    NCICalculatedEvent,
+)
 from domain.consolidation.elimination_entry import EliminationEntry
 from domain.consolidation.foreign_currency_translator import ForeignCurrencyTranslator
 from domain.consolidation.intercompany_transaction import IntercompanyTransaction, TransactionType
@@ -35,21 +48,6 @@ from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.ledger_repository_port import LedgerRepositoryPort
 from ports.primary.legal_entity_repository_port import LegalEntityRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
-
-# Import domain events
-from domain.consolidation.domain_events import (
-    ConsolidationArchivedEvent,
-    ConsolidationCancelledEvent,
-    ConsolidationCompletedEvent,
-    ConsolidationCreatedEvent,
-    ConsolidationStartedEvent,
-    EliminationEntryCreatedEvent,
-    IntercompanyTransactionDetectedEvent,
-    NCICalculatedEvent,
-    LegalEntityCreatedEvent,
-    LegalEntityDeactivatedEvent,
-    LegalEntityUpdatedEvent,
-)
 
 logger = logging.getLogger(__name__)
 

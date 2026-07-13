@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Module: adapter_registry.py
 Layer: Bootstrap (Dependency Container)
@@ -7,14 +6,9 @@ Layer: Bootstrap (Dependency Container)
 Responsibility: Mendaftarkan semua adapter (implementasi port) ke IoC container
 secara dinamis dengan auto-discovery dan penanganan kasus khusus.
 
-FIX:
-- _discover_implementations() sekarang menolak kelas yang berakhiran Port/Protocol/Base.
-- _match_by_base_name() memiliki guard untuk menolak Port/Protocol.
-- _build_factory() memiliki guard runtime untuk mendeteksi jika impl adalah interface.
-- AgingReportRepositoryPort secara eksplisit di-map ke SQLAlchemyReportRepository.
-- AccountRepositoryPort sekarang diarahkan ke _ConcreteAccountRepository (implementasi konkret di adapters).
-  Karena alias "ConcreteAccountRepository" tidak terdeteksi sebagai class (nama asli _ConcreteAccountRepository).
-- Dihapus special case pembuatan kelas anonim untuk AccountRepositoryPort karena sudah ada implementasi konkret.
+FIX v2:
+- _discover_ports() sekarang hanya mengambil kelas abstrak (inspect.isabstract(obj))
+- Filter ignore_keywords dicek terhadap obj.__name__ (nama asli kelas), bukan alias.
 """
 
 from __future__ import annotations
@@ -23,8 +17,8 @@ import importlib
 import inspect
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Type, Set, Dict
 
 from bootstrap.dependency_container.ioc_container import IoCContainer
 
@@ -34,16 +28,16 @@ logger = logging.getLogger(__name__)
 class AdapterRegistry:
     """Mendaftarkan semua adapter secara otomatis berdasarkan konvensi penamaan."""
 
-    def __init__(self, container: Optional[IoCContainer] = None):
+    def __init__(self, container: IoCContainer | None = None):
         self._container = container
         self._is_registered = False
         self._logger = logging.getLogger(f"{__name__}.AdapterRegistry")
-        self._registered_ports: Set[Type] = set()
+        self._registered_ports: set[type] = set()
 
         # =====================================================================
         # MANUAL MAPPING — untuk semua implementasi yang tidak match otomatis
         # =====================================================================
-        self._manual_mapping: Dict[str, str] = {
+        self._manual_mapping: dict[str, str] = {
             # --- Ports yang sudah ada sebelumnya ---
             "CoreTaxPort": "TaxAuthorityCoretaxAdapter",
             "EventPublisherPort": "KafkaEventPublisher",
@@ -194,10 +188,13 @@ class AdapterRegistry:
     # Discovery Helpers
     # -------------------------------------------------------------------------
 
-    def _discover_ports(self) -> List[Type]:
-        """Scan semua file di ports/primary dan ports/secondary untuk mencari port."""
+    def _discover_ports(self) -> list[type]:
+        """
+        Scan semua file di ports/primary dan ports/secondary untuk mencari port.
+        FIX: Hanya ambil kelas abstrak (inspect.isabstract), dan ignore_keywords dicek terhadap obj.__name__.
+        """
         root = Path(__file__).resolve().parent.parent.parent
-        ports: List[Type] = []
+        ports: list[type] = []
         exclude_names = {"BasePort", "BaseRepository", "BaseProtocol"}
         ignore_keywords = {"InMemory", "Fallback", "Stub", "Mock"}
 
@@ -213,22 +210,27 @@ class AdapterRegistry:
                     for name, obj in inspect.getmembers(module, inspect.isclass):
                         if name in exclude_names:
                             continue
-                        if any(kw in name for kw in ignore_keywords):
+                        # FIX: ignore_keywords dicek terhadap nama asli kelas (obj.__name__)
+                        if any(kw in obj.__name__ for kw in ignore_keywords):
                             continue
+                        # Hanya ambil jika berakhiran Port/Protocol/Repository DAN bersifat abstrak
                         if name.endswith(("Port", "Protocol", "Repository")):
-                            ports.append(obj)
+                            # FIX: Hanya gunakan inspect.isabstract(obj) (tanpa hasattr)
+                            if inspect.isabstract(obj):
+                                ports.append(obj)
+                            else:
+                                self._logger.debug(f"Skipping non-abstract class {name} (concrete implementation)")
                 except Exception as e:
                     self._logger.debug(f"Could not scan {py_file}: {e}")
         return ports
 
-    def _discover_implementations(self) -> List[Type]:
+    def _discover_implementations(self) -> list[type]:
         """
         Scan semua file di adapters/secondary_impl untuk mencari implementasi.
-        FIX: Sekarang secara eksplisit menolak kelas yang berakhiran Port, Protocol, atau Base.
         """
         root = Path(__file__).resolve().parent.parent.parent
         impl_dir = root / "adapters" / "secondary_impl"
-        implementations: List[Type] = []
+        implementations: list[type] = []
         ignore_keywords = {"Stub", "Fallback", "Mock", "InMemory", "Base"}
 
         if not impl_dir.exists():
@@ -257,7 +259,7 @@ class AdapterRegistry:
                 self._logger.debug(f"Could not scan {py_file}: {e}")
         return implementations
 
-    def _find_implementation_by_name(self, implementations: List[Type], name: str) -> Optional[Type]:
+    def _find_implementation_by_name(self, implementations: list[type], name: str) -> type | None:
         """Cari implementasi dengan nama yang tepat."""
         for impl in implementations:
             if impl.__name__ == name:
@@ -268,7 +270,7 @@ class AdapterRegistry:
     # Matching & Factory
     # -------------------------------------------------------------------------
 
-    def _match_port_to_implementation(self, port: Type, implementations: List[Type]) -> Optional[Type]:
+    def _match_port_to_implementation(self, port: type, implementations: list[type]) -> type | None:
         """
         Cari implementasi yang paling cocok untuk port berdasarkan konvensi.
         Khusus untuk port berakhiran "Protocol", kita coba tanpa akhiran "Protocol".
@@ -286,7 +288,7 @@ class AdapterRegistry:
         # Matching standar
         return self._match_by_base_name(base_name, implementations)
 
-    def _match_by_base_name(self, base_name: str, implementations: List[Type]) -> Optional[Type]:
+    def _match_by_base_name(self, base_name: str, implementations: list[type]) -> type | None:
         """
         Cari implementasi berdasarkan base_name.
         Hapus akhiran "Port", "Protocol", "RepositoryPort", "Repository".
@@ -327,7 +329,7 @@ class AdapterRegistry:
 
         return None
 
-    def _build_factory(self, port: Type, impl: Type) -> Callable:
+    def _build_factory(self, port: type, impl: type) -> Callable:
         """
         Buat factory yang dapat menginstansiasi implementasi.
         Otomatis mendeteksi parameter __init__ dan memberikan nilai default jika mungkin.
@@ -403,7 +405,7 @@ class AdapterRegistry:
         factory.__name__ = f"factory_{impl_name}"
         return factory
 
-    def _build_stub_factory(self, port: Type) -> Callable:
+    def _build_stub_factory(self, port: type) -> Callable:
         """
         Buat factory untuk port yang tidak memiliki implementasi, dengan membuat
         kelas turunan konkret yang mengimplementasikan semua metode abstrak
@@ -449,7 +451,7 @@ class AdapterRegistry:
     # Public utility
     # -------------------------------------------------------------------------
 
-    def get_registered_ports(self) -> List[Type]:
+    def get_registered_ports(self) -> list[type]:
         """Kembalikan daftar port yang berhasil didaftarkan."""
         return list(self._registered_ports)
 
@@ -462,7 +464,7 @@ class AdapterRegistry:
 # Singleton instance
 # -----------------------------------------------------------------------------
 
-_adapter_registry: Optional[AdapterRegistry] = None
+_adapter_registry: AdapterRegistry | None = None
 
 
 def get_adapter_registry() -> AdapterRegistry:

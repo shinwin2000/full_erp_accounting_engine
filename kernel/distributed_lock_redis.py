@@ -67,8 +67,8 @@ class _FallbackRedisClient:
             return 0
 
     async def eval(self, script: str, numkeys: int, *args) -> Any:
-        # Simplified Lua script execution
-        if "redis.call('get', KEYS[1]) == ARGV[1]" in script:
+        # Simplified Lua script execution - handle both single and double quotes
+        if 'redis.call("get", KEYS[1]) == ARGV[1]' in script or "redis.call('get', KEYS[1]) == ARGV[1]" in script:
             key = args[0]
             expected = args[1]
             with self._lock:
@@ -77,7 +77,7 @@ class _FallbackRedisClient:
                     del self._store[key]
                     return 1
                 return 0
-        elif "redis.call('expire', KEYS[1], ARGV[2])" in script:
+        elif 'redis.call("expire", KEYS[1], ARGV[2])' in script or "redis.call('expire', KEYS[1], ARGV[2])" in script:
             key = args[0]
             ttl = args[2] if len(args) > 2 else 30
             with self._lock:

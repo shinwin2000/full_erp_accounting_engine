@@ -17,6 +17,7 @@ Audit: Setiap rollback migrasi dicatat. Backup sebelum rollback dibuat
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -90,6 +91,34 @@ class MigrationRollbackExecutor:
             self._migration_manager = await get_migration_manager()
         return self._migration_manager
 
+    # ========================================================================
+    # PERBAIKAN: helper async untuk subprocess dan file operations
+    # ========================================================================
+
+    async def _run_subprocess(self, cmd: list[str], env: dict | None = None) -> tuple[int, str, str]:
+        """Run subprocess secara async menggunakan asyncio.create_subprocess_exec."""
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+        return process.returncode, stdout.decode(), stderr.decode()
+
+    async def _delete_file(self, file_path: Path, ignore_missing: bool = True) -> None:
+        """Delete file secara async di thread pool."""
+        def _delete_sync():
+            if ignore_missing:
+                file_path.unlink(missing_ok=True)
+            else:
+                file_path.unlink()
+        await asyncio.to_thread(_delete_sync)
+
+    # ========================================================================
+    # PERBAIKAN: _create_backup menggunakan async subprocess dan aiofiles
+    # ========================================================================
+
     async def _create_backup(self, description: str) -> Path:
         """
         Create a backup of the current database state before rollback.
@@ -105,9 +134,6 @@ class MigrationRollbackExecutor:
         backup_path = self._backup_dir / backup_filename
 
         try:
-            # Use pg_dump to create backup
-            import subprocess
-
             # Get database connection info
             from config.loader_yaml import load_yaml_config
 
@@ -142,9 +168,9 @@ class MigrationRollbackExecutor:
             if password:
                 env = {"PGPASSWORD": password}
 
-            result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise BackupCreationError(f"pg_dump failed: {result.stderr}")
+            returncode, stdout, stderr = await self._run_subprocess(cmd, env)
+            if returncode != 0:
+                raise BackupCreationError(f"pg_dump failed: {stderr}")
 
             logger.info(
                 f"Database backup created: {backup_path} ({backup_path.stat().st_size} bytes)"
@@ -155,6 +181,10 @@ class MigrationRollbackExecutor:
             logger.error(f"Failed to create backup: {e}")
             raise BackupCreationError(f"Backup creation failed: {e}") from e
 
+    # ========================================================================
+    # PERBAIKAN: _restore_backup menggunakan async subprocess
+    # ========================================================================
+
     async def _restore_backup(self, backup_path: Path) -> bool:
         """
         Restore database from backup.
@@ -163,8 +193,6 @@ class MigrationRollbackExecutor:
             True if restore successful
         """
         try:
-            import subprocess
-
             from config.loader_yaml import load_yaml_config
 
             config = load_yaml_config("config_files/database_config.yaml")
@@ -197,9 +225,9 @@ class MigrationRollbackExecutor:
             if password:
                 env = {"PGPASSWORD": password}
 
-            result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.error(f"Restore failed: {result.stderr}")
+            returncode, stdout, stderr = await self._run_subprocess(cmd, env)
+            if returncode != 0:
+                logger.error(f"Restore failed: {stderr}")
                 return False
 
             logger.info(f"Database restored from backup: {backup_path}")
@@ -208,6 +236,10 @@ class MigrationRollbackExecutor:
         except Exception as e:
             logger.error(f"Restore error: {e}")
             return False
+
+    # ========================================================================
+    # _verify_integrity (sudah async, tidak ada blocking)
+    # ========================================================================
 
     async def _verify_integrity(self) -> bool:
         """
@@ -219,13 +251,11 @@ class MigrationRollbackExecutor:
         try:
             factory = await get_session_factory()
             async with factory.get_session() as session:
-                # Check for essential tables
                 from sqlalchemy import inspect, text
 
                 inspector = inspect(session.bind)
                 tables = await inspector.get_table_names()
 
-                # At least some core tables should exist
                 core_tables = ["legal_entity", "account", "journal_header", "journal_line"]
                 missing = [t for t in core_tables if t not in tables]
 
@@ -233,7 +263,6 @@ class MigrationRollbackExecutor:
                     logger.error(f"Core tables missing after rollback: {missing}")
                     return False
 
-                # Check for any obvious corruption (e.g., try to count journals)
                 try:
                     result = await session.execute(text("SELECT COUNT(*) FROM journal_header"))
                     count = result.scalar()
@@ -247,6 +276,10 @@ class MigrationRollbackExecutor:
         except Exception as e:
             logger.error(f"Integrity verification failed: {e}")
             return False
+
+    # ========================================================================
+    # rollback methods
+    # ========================================================================
 
     async def rollback(
         self, revision: str, dry_run: bool = False, create_backup: bool = True
@@ -272,7 +305,6 @@ class MigrationRollbackExecutor:
 
         manager = await self._get_manager()
 
-        # Get current revision before rollback
         current_revision = await manager.get_current_revision()
         result["current_revision"] = current_revision
 
@@ -281,16 +313,11 @@ class MigrationRollbackExecutor:
             logger.error("Cannot rollback: no current revision")
             return result
 
-        # Check if revision is valid
         heads = await manager.get_heads()
         if revision not in heads and revision not in ["base", "head-1"]:
-            # Try to resolve revision
             if revision == "head-1":
-                # Need to get previous revision
-                # For simplicity, we'll attempt to rollback one step
                 pass
             else:
-                # Validate that revision exists
                 history = await manager.show_history(limit=100)
                 rev_ids = [h["revision"] for h in history]
                 if revision not in rev_ids and revision != "base":
@@ -298,7 +325,6 @@ class MigrationRollbackExecutor:
                     logger.error(result["error"])
                     return result
 
-        # Create backup if requested
         backup_path = None
         if create_backup and not dry_run:
             try:
@@ -321,13 +347,11 @@ class MigrationRollbackExecutor:
             result["dry_run"] = True
             return result
 
-        # Execute rollback
         try:
             await manager.downgrade(revision)
             result["success"] = True
             result["new_revision"] = await manager.get_current_revision()
 
-            # Verify integrity
             verified = await self._verify_integrity()
             result["integrity_verified"] = verified
 
@@ -340,7 +364,6 @@ class MigrationRollbackExecutor:
                     source="MigrationRollbackExecutor",
                 )
 
-            # Record history
             self._rollback_history.append(
                 {
                     "timestamp": datetime.now(UTC).isoformat(),
@@ -358,7 +381,6 @@ class MigrationRollbackExecutor:
             result["error"] = str(e)
             logger.error(f"Rollback failed: {e}")
 
-            # Attempt to restore from backup if available
             if backup_path and backup_path.exists():
                 logger.info("Attempting to restore from backup due to rollback failure")
                 restore_ok = await self._restore_backup(backup_path)
@@ -384,57 +406,59 @@ class MigrationRollbackExecutor:
         return result
 
     async def rollback_last_migration(self, dry_run: bool = False) -> dict[str, Any]:
-        """
-        Rollback the most recent migration (go back one step).
-        """
+        """Rollback the most recent migration (go back one step)."""
         manager = await self._get_manager()
         current = await manager.get_current_revision()
         if not current:
             return {"success": False, "error": "No current revision"}
 
-        # Get history to find previous revision
         history = await manager.show_history(limit=2)
         if len(history) < 2:
             return {"success": False, "error": "No previous migration found"}
 
-        previous_revision = history[1]["revision"]  # second newest
+        previous_revision = history[1]["revision"]
         return await self.rollback(previous_revision, dry_run)
 
     async def rollback_to_base(self, dry_run: bool = False) -> dict[str, Any]:
-        """
-        Rollback all migrations (to base state).
-        """
+        """Rollback all migrations (to base state)."""
         return await self.rollback("base", dry_run)
 
     async def get_rollback_history(self, limit: int = 20) -> list[dict]:
-        """
-        Get history of rollback operations.
-        """
+        """Get history of rollback operations."""
         return self._rollback_history[-limit:]
 
+    # ========================================================================
+    # PERBAIKAN: list_backups menggunakan aiofiles untuk stat
+    # ========================================================================
+
     async def list_backups(self) -> list[dict]:
-        """
-        List all rollback backups.
-        """
+        """List all rollback backups."""
         backups = []
         for backup_file in self._backup_dir.glob("pre_rollback_*.sql"):
+            # stat blocking -> jalankan di thread
+            def _get_stats(p: Path):
+                return p.stat().st_size, p.stat().st_ctime
+
+            size, ctime = await asyncio.to_thread(_get_stats, backup_file)
             backups.append(
                 {
                     "filename": backup_file.name,
                     "path": str(backup_file),
-                    "size_bytes": backup_file.stat().st_size,
-                    "created_at": datetime.fromtimestamp(backup_file.stat().st_ctime).isoformat(),
+                    "size_bytes": size,
+                    "created_at": datetime.fromtimestamp(ctime).isoformat(),
                 }
             )
         return sorted(backups, key=lambda x: x["created_at"], reverse=True)
 
+    # ========================================================================
+    # PERBAIKAN: delete_backup menggunakan async delete
+    # ========================================================================
+
     async def delete_backup(self, backup_filename: str) -> bool:
-        """
-        Delete a backup file.
-        """
+        """Delete a backup file."""
         backup_path = self._backup_dir / backup_filename
         if backup_path.exists():
-            backup_path.unlink()
+            await self._delete_file(backup_path, ignore_missing=True)
             logger.info(f"Deleted backup: {backup_filename}")
             return True
         return False
@@ -505,6 +529,14 @@ def cli():
             success = await executor.delete_backup(args.backup_name)
             print(f"Deleted: {success}")
 
+    # Eksekusi CLI dengan event loop
+    try:
+        asyncio.get_running_loop()
+        # Loop berjalan, buat task baru
+        asyncio.create_task(run())
+    except RuntimeError:
+        asyncio.run(run())
+
 
 # ============================================================================
 # EXPORTS
@@ -524,11 +556,4 @@ __all__ = [
 # ============================================================================
 
 if __name__ == "__main__":
-    # OPSI A: Jika fungsi `cli()` Anda di atas bertugas memparsing argument
-    # dan di dalamnya SUDAH memanggil asyncio.run(run()), cukup panggil `cli()` saja:
     cli()
-
-    # OPSI B: Jika fungsi `cli()` HANYA memparsing argument ke variabel global `args`
-    # tanpa mengeksekusi loop, gunakan urutan berikut:
-    # cli()
-    # asyncio.run(run())

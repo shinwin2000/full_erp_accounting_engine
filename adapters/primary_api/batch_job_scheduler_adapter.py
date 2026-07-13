@@ -97,6 +97,15 @@ class BatchJobScheduler:
         self.redis = None
         self._jobs_registry: dict[str, BatchJob] = {}
         self._running = False
+        # ===== PERBAIKAN: Simpan referensi task =====
+        self._pending_tasks: list[asyncio.Task] = []
+
+    def _add_pending_task(self, task: asyncio.Task) -> None:
+        """Tambahkan task ke daftar pending dan daftarkan callback untuk menghapusnya."""
+        self._pending_tasks.append(task)
+        task.add_done_callback(
+            lambda t: self._pending_tasks.remove(t) if t in self._pending_tasks else None
+        )
 
     async def initialize(self):
         """Initialize scheduler with Redis job store and async executor."""
@@ -130,6 +139,17 @@ class BatchJobScheduler:
 
     async def shutdown(self):
         """Shutdown scheduler gracefully."""
+        # Batalkan semua task pending
+        if self._pending_tasks:
+            for task in self._pending_tasks:
+                if not task.done():
+                    task.cancel()
+            try:
+                await asyncio.gather(*self._pending_tasks, return_exceptions=True)
+            except asyncio.CancelledError:
+                pass
+            self._pending_tasks.clear()
+
         if self.scheduler:
             self.scheduler.shutdown(wait=True)
             self._running = False
@@ -197,6 +217,7 @@ class BatchJobScheduler:
             logger.exception(f"Job {job.job_id} failed: {e}")
             job.last_status = JobStatus.FAILED
             job.last_output = str(e)
+            start_time = job.last_run or datetime.now(UTC)
             await self._save_job_history(
                 job, start_time, datetime.now(UTC), False, {"error": str(e)}
             )
@@ -272,12 +293,18 @@ class BatchJobScheduler:
         if job_id in self._jobs_registry:
             self._jobs_registry[job_id].is_active = True
 
+    # ========================================================================
+    # PERBAIKAN: run_job_now menyimpan task ke pending list
+    # ========================================================================
     async def run_job_now(self, job_id: str):
         """Run a job immediately (one-time)."""
         job = self._jobs_registry.get(job_id)
         if not job:
             raise ValueError(f"Job {job_id} not found")
-        asyncio.create_task(self._execute_job(job))
+        task = asyncio.create_task(self._execute_job(job))
+        self._add_pending_task(task)
+        # Optional: await task if we want to wait, but it's fire-and-forget
+        # We keep it as pending, so it's managed.
 
     async def list_jobs(self) -> list[dict[str, Any]]:
         """List all registered jobs."""
@@ -392,6 +419,7 @@ async def run_scheduler_standalone():
         while True:
             await asyncio.sleep(1)
     except KeyboardInterrupt:
+        logger.info("Received KeyboardInterrupt, shutting down scheduler...")
         await scheduler.shutdown()
 
 

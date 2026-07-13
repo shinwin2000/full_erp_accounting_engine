@@ -18,8 +18,11 @@ import asyncio
 import hashlib
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
+
+import aiofiles  # <-- Tambahan untuk async file I/O
 
 from infrastructure.event_store.append_only_store import AppendOnlyStore, get_event_store
 from infrastructure.event_store.hash_chain_builder import HashChainBuilder
@@ -183,6 +186,7 @@ class IntegrityVerifier:
             "total_events": total_events,
             "all_valid": invalid_streams == 0,
             "errors": all_errors[:100],  # batasi 100 error
+            "stream_details": results,  # tambahkan detail per stream
         }
 
         # Trigger alert jika ada yang tidak valid
@@ -254,6 +258,10 @@ class IntegrityVerifier:
             "last_sequence": last_seq,
         }
 
+    # ========================================================================
+    # PERBAIKAN: generate_integrity_report menggunakan aiofiles
+    # ========================================================================
+
     async def generate_integrity_report(self, output_path: str | None = None) -> str:
         """
         Generate laporan integritas lengkap dalam format JSON.
@@ -283,13 +291,17 @@ class IntegrityVerifier:
             }
         report["streams"] = streams_detail
 
-        import json
+        # Serialisasi JSON (CPU-bound, jalankan di thread pool jika diperlukan)
+        # Karena json.dumps dapat memakan waktu untuk data besar, kita gunakan asyncio.to_thread
+        def _dump_json() -> str:
+            return json.dumps(report, indent=2, default=str)
 
-        report_json = json.dumps(report, indent=2, default=str)
+        report_json = await asyncio.to_thread(_dump_json)
 
         if output_path:
-            with open(output_path, "w") as f:
-                f.write(report_json)
+            # Tulis file secara async dengan aiofiles
+            async with aiofiles.open(output_path, "w") as f:
+                await f.write(report_json)
             logger.info(f"Integrity report saved to {output_path}")
 
         return report_json

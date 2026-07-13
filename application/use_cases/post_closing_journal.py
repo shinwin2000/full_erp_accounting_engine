@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Module: post_closing_journal.py
@@ -16,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import UTC, date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from functools import wraps
 from typing import Any
@@ -63,7 +62,7 @@ class IdempotencyManager:
         if entry is None:
             return None
         result_json, timestamp = entry
-        if (datetime.now(timezone.utc) - timestamp).total_seconds() > self._ttl_seconds:
+        if (datetime.now(UTC) - timestamp).total_seconds() > self._ttl_seconds:
             del self._storage[storage_key]
             return None
         try:
@@ -77,7 +76,7 @@ class IdempotencyManager:
             result_json = json.dumps(result, default=str)
         except TypeError:
             result_json = json.dumps({"result": str(result)}, default=str)
-        self._storage[storage_key] = (result_json, datetime.now(timezone.utc))
+        self._storage[storage_key] = (result_json, datetime.now(UTC))
 
 
 _idempotency_manager = IdempotencyManager()

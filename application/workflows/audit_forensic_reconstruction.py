@@ -27,6 +27,7 @@ Audit:
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import json
 import logging
@@ -34,6 +35,8 @@ import os
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from uuid import UUID
+
+import aiofiles  # <-- Tambahan untuk async file I/O
 
 from application.commands_cqrs.command_bus_unified import Command, CommandResult
 from application.service_layer.service_audit import AuditService
@@ -383,6 +386,9 @@ class AuditForensicReconstructionWorkflow:
                 error_code="FORENSIC_RECONSTRUCTION_ERROR",
             )
 
+    # ========================================================================
+    # PERBAIKAN: _generate_report menggunakan aiofiles dan asyncio.to_thread
+    # ========================================================================
     async def _generate_report(
         self,
         aggregate_id: UUID | None,
@@ -419,15 +425,28 @@ class AuditForensicReconstructionWorkflow:
                 "gaps": gaps,
             }
             file_path = f"/tmp/{base_filename}.json"
-            with open(file_path, "w") as f:
-                json.dump(report_data, f, indent=2, default=str)
+
+            # Serialisasi JSON di thread pool (CPU-bound)
+            def _dump_json():
+                return json.dumps(report_data, indent=2, default=str)
+
+            json_content = await asyncio.to_thread(_dump_json)
+
+            # Tulis secara async
+            async with aiofiles.open(file_path, "w") as f:
+                await f.write(json_content)
+
             logger.info(f"Forensic JSON report generated: {file_path}")
             return file_path
 
         elif export_format == "csv":
             file_path = f"/tmp/{base_filename}.csv"
-            with open(file_path, "w", newline="") as f:
-                writer = csv.writer(f)
+
+            # Buat konten CSV di memory (dalam thread pool)
+            def _generate_csv():
+                import io
+                output = io.StringIO()
+                writer = csv.writer(output)
                 writer.writerow(
                     ["Event ID", "Event Type", "Occurred At", "Sequence", "Previous Hash", "Hash"]
                 )
@@ -448,6 +467,14 @@ class AuditForensicReconstructionWorkflow:
                     writer.writerow(["From Sequence", "To Sequence", "Gap Size"])
                     for g in gaps:
                         writer.writerow([g["from_sequence"], g["to_sequence"], g["gap_size"]])
+                return output.getvalue()
+
+            csv_content = await asyncio.to_thread(_generate_csv)
+
+            # Tulis secara async
+            async with aiofiles.open(file_path, "w", newline="") as f:
+                await f.write(csv_content)
+
             logger.info(f"Forensic CSV report generated: {file_path}")
             return file_path
         else:

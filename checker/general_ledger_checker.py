@@ -18,9 +18,8 @@ import pathlib
 import re
 import sys
 import time
-from dataclasses import dataclass, field
 from collections import defaultdict
-from typing import List, Set, Dict, Optional, Tuple
+from dataclasses import dataclass, field
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 CORE_PATH = PROJECT_ROOT / "checker" / "core"
@@ -64,10 +63,10 @@ class Finding:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     gl_functions_found: int = 0
     gl_functions_checked: int = 0
-    gl_functions_list: List[Tuple[str, str]] = field(default_factory=list)
+    gl_functions_list: list[tuple[str, str]] = field(default_factory=list)
     files_scanned: int = 0
     score: int = 100
     scan_time: float = 0.0
@@ -273,7 +272,7 @@ def has_period_validation(node: ast.AST) -> bool:
                     return True
     return False
 
-def has_validation_call(node: ast.AST, keywords: List[str]) -> bool:
+def has_validation_call(node: ast.AST, keywords: list[str]) -> bool:
     for child in ast.walk(node):
         if isinstance(child, ast.Call):
             if isinstance(child.func, ast.Name):
@@ -304,7 +303,7 @@ GL_EXEMPT_FUNCTIONS = {
     'post_capital_withdrawal',
 }
 
-def check_balance_validation(file_path: pathlib.Path, tree: ast.AST, gl_functions: List[ast.FunctionDef], ignore_functions: Set[str]) -> List[Finding]:
+def check_balance_validation(file_path: pathlib.Path, tree: ast.AST, gl_functions: list[ast.FunctionDef], ignore_functions: set[str]) -> list[Finding]:
     findings = []
     for node in gl_functions:
         if node.name in ignore_functions or node.name in GL_EXEMPT_FUNCTIONS:
@@ -323,7 +322,7 @@ def check_balance_validation(file_path: pathlib.Path, tree: ast.AST, gl_function
         ))
     return findings
 
-def check_account_validation(file_path: pathlib.Path, tree: ast.AST, gl_functions: List[ast.FunctionDef], ignore_functions: Set[str]) -> List[Finding]:
+def check_account_validation(file_path: pathlib.Path, tree: ast.AST, gl_functions: list[ast.FunctionDef], ignore_functions: set[str]) -> list[Finding]:
     findings = []
     for node in gl_functions:
         if node.name in ignore_functions or node.name in GL_EXEMPT_FUNCTIONS:
@@ -340,7 +339,7 @@ def check_account_validation(file_path: pathlib.Path, tree: ast.AST, gl_function
         ))
     return findings
 
-def check_period_validation(file_path: pathlib.Path, tree: ast.AST, gl_functions: List[ast.FunctionDef], ignore_functions: Set[str]) -> List[Finding]:
+def check_period_validation(file_path: pathlib.Path, tree: ast.AST, gl_functions: list[ast.FunctionDef], ignore_functions: set[str]) -> list[Finding]:
     findings = []
     for node in gl_functions:
         if node.name in ignore_functions or node.name in GL_EXEMPT_FUNCTIONS:
@@ -357,7 +356,7 @@ def check_period_validation(file_path: pathlib.Path, tree: ast.AST, gl_functions
         ))
     return findings
 
-def check_audit_trail(file_path: pathlib.Path, tree: ast.AST, gl_functions: List[ast.FunctionDef], ignore_functions: Set[str]) -> List[Finding]:
+def check_audit_trail(file_path: pathlib.Path, tree: ast.AST, gl_functions: list[ast.FunctionDef], ignore_functions: set[str]) -> list[Finding]:
     findings = []
     for node in gl_functions:
         if node.name in ignore_functions:
@@ -374,14 +373,15 @@ def check_audit_trail(file_path: pathlib.Path, tree: ast.AST, gl_functions: List
         ))
     return findings
 
-def check_transaction_atomicity(file_path: pathlib.Path, tree: ast.AST, gl_functions: List[ast.FunctionDef], ignore_functions: Set[str]) -> List[Finding]:
+def check_transaction_atomicity(file_path: pathlib.Path, tree: ast.AST, gl_functions: list[ast.FunctionDef], ignore_functions: set[str]) -> list[Finding]:
     findings = []
     for node in gl_functions:
         if node.name in ignore_functions:
             continue
         has_tx = False
         for stmt in ast.walk(node):
-            if isinstance(stmt, ast.With):
+            # Tangani 'with' dan 'async with' (async def sering pakai async with untuk UoW)
+            if isinstance(stmt, (ast.With, ast.AsyncWith)):
                 for item in stmt.items:
                     if isinstance(item.context_expr, ast.Call):
                         if isinstance(item.context_expr.func, ast.Name):
@@ -392,13 +392,20 @@ def check_transaction_atomicity(file_path: pathlib.Path, tree: ast.AST, gl_funct
                             if 'transaction' in item.context_expr.func.attr.lower() or 'unit_of_work' in item.context_expr.func.attr.lower():
                                 has_tx = True
                                 break
-            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-                if isinstance(stmt.value.func, ast.Name):
-                    if 'begin_transaction' in stmt.value.func.id.lower():
+                if has_tx:
+                    break
+            # Cari pemanggilan begin_transaction() sebagai ast.Call di mana pun
+            # posisinya. ast.walk() sudah membongkar node bertingkat (mis.
+            # Expr -> Await -> Call pada statement 'await self._begin_transaction()'
+            # di fungsi async), jadi tidak perlu bergantung pada tipe statement
+            # pembungkusnya (Expr biasa vs Await).
+            if isinstance(stmt, ast.Call):
+                if isinstance(stmt.func, ast.Name):
+                    if 'begin_transaction' in stmt.func.id.lower():
                         has_tx = True
                         break
-                elif isinstance(stmt.value.func, ast.Attribute):
-                    if 'begin_transaction' in stmt.value.func.attr.lower():
+                elif isinstance(stmt.func, ast.Attribute):
+                    if 'begin_transaction' in stmt.func.attr.lower():
                         has_tx = True
                         break
         if not has_tx:
@@ -412,7 +419,7 @@ def check_transaction_atomicity(file_path: pathlib.Path, tree: ast.AST, gl_funct
             ))
     return findings
 
-def check_reconciliation(file_path: pathlib.Path, tree: ast.AST) -> List[Finding]:
+def check_reconciliation(file_path: pathlib.Path, tree: ast.AST) -> list[Finding]:
     findings = []
     reconcile_keywords = {'reconcile', 'reconciliation', 'match', 'compare'}
     for node in ast.walk(tree):
@@ -424,7 +431,15 @@ def check_reconciliation(file_path: pathlib.Path, tree: ast.AST) -> List[Finding
             for stmt in ast.walk(node):
                 if isinstance(stmt, ast.Compare):
                     comp_str = ast.unparse(stmt)
+                    # Pola klasik: rekonsiliasi GL control account vs sub-ledger detail
                     if ('gl' in comp_str.lower() or 'general_ledger' in comp_str.lower()) and ('subledger' in comp_str.lower() or 'sub_ledger' in comp_str.lower()):
+                        has_comparison = True
+                        break
+                    # Pola matching saldo counterparty/intercompany: perbandingan == / != pada
+                    # field saldo (amount/balance) antar dua variabel berbeda. Ini rekonsiliasi
+                    # yang sah walau bukan spesifik GL-vs-subledger (mis. intercompany matching,
+                    # bank statement matching antar dua sumber saldo).
+                    if isinstance(stmt.ops[0], (ast.Eq, ast.NotEq)) and re.search(r'\.(amount|balance)\b', comp_str):
                         has_comparison = True
                         break
                 if isinstance(stmt, ast.Assign):
@@ -433,6 +448,14 @@ def check_reconciliation(file_path: pathlib.Path, tree: ast.AST) -> List[Finding
                         if ('gl' in val_str.lower() or 'general_ledger' in val_str.lower()) and ('subledger' in val_str.lower() or 'sub_ledger' in val_str.lower()):
                             has_comparison = True
                             break
+                    # Penandaan hasil matching (mis. bal.is_matched = True) adalah sinyal kuat
+                    # bahwa fungsi benar-benar melakukan proses rekonsiliasi/matching saldo.
+                    for target in stmt.targets:
+                        if isinstance(target, ast.Attribute) and target.attr.lower() in ('is_matched', 'matched', 'reconciled'):
+                            has_comparison = True
+                            break
+                    if has_comparison:
+                        break
             if not has_comparison:
                 findings.append(Finding(
                     file=str(file_path),
@@ -448,7 +471,7 @@ def check_reconciliation(file_path: pathlib.Path, tree: ast.AST) -> List[Finding
 # PEMERIKSAAN UMUM
 # ============================================================================
 
-def check_broad_except(file_path: pathlib.Path, tree: ast.AST) -> List[Finding]:
+def check_broad_except(file_path: pathlib.Path, tree: ast.AST) -> list[Finding]:
     findings = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Try):
@@ -465,7 +488,7 @@ def check_broad_except(file_path: pathlib.Path, tree: ast.AST) -> List[Finding]:
                         ))
     return findings
 
-def check_open_without_context(file_path: pathlib.Path, tree: ast.AST) -> List[Finding]:
+def check_open_without_context(file_path: pathlib.Path, tree: ast.AST) -> list[Finding]:
     findings = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
@@ -482,7 +505,7 @@ def check_open_without_context(file_path: pathlib.Path, tree: ast.AST) -> List[F
                     ))
     return findings
 
-def check_datetime_naive(file_path: pathlib.Path, tree: ast.AST) -> List[Finding]:
+def check_datetime_naive(file_path: pathlib.Path, tree: ast.AST) -> list[Finding]:
     findings = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
@@ -515,7 +538,7 @@ def check_datetime_naive(file_path: pathlib.Path, tree: ast.AST) -> List[Finding
 # RCA
 # ============================================================================
 
-def check_with_rca(file_path: pathlib.Path) -> List[Finding]:
+def check_with_rca(file_path: pathlib.Path) -> list[Finding]:
     findings = []
     if not RCA_AVAILABLE:
         return findings
@@ -542,7 +565,7 @@ def check_with_rca(file_path: pathlib.Path) -> List[Finding]:
 # SCANNER UTAMA
 # ============================================================================
 
-def scan_code(use_rca: bool = False, full: bool = False, ignore_files: Set[str] = None, ignore_functions: Set[str] = None) -> Report:
+def scan_code(use_rca: bool = False, full: bool = False, ignore_files: set[str] = None, ignore_functions: set[str] = None) -> Report:
     start_time = time.perf_counter()
     report = Report()
     gl_count = 0

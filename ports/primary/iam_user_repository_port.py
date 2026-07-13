@@ -8,9 +8,8 @@ Responsibility: Port interface untuk IAM User Repository.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 
@@ -94,23 +93,23 @@ class IAMUserRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    async def find_by_id(self, user_id: UUID) -> Optional[User]:
+    async def find_by_id(self, user_id: UUID) -> User | None:
         pass
 
     @abstractmethod
-    async def get_by_id(self, user_id: UUID) -> Optional[User]:
+    async def get_by_id(self, user_id: UUID) -> User | None:
         pass
 
     @abstractmethod
-    async def find_by_username(self, username: str, legal_entity_id: UUID) -> Optional[User]:
+    async def find_by_username(self, username: str, legal_entity_id: UUID) -> User | None:
         pass
 
     @abstractmethod
-    async def get_by_username(self, username: str, legal_entity_id: UUID) -> Optional[User]:
+    async def get_by_username(self, username: str, legal_entity_id: UUID) -> User | None:
         pass
 
     @abstractmethod
-    async def get_by_email(self, email: str) -> Optional[User]:
+    async def get_by_email(self, email: str) -> User | None:
         pass
 
     @abstractmethod
@@ -118,11 +117,11 @@ class IAMUserRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    async def authenticate(self, username: str, password: str, ip_address: str, legal_entity_id: UUID) -> Optional[User]:
+    async def authenticate(self, username: str, password: str, ip_address: str, legal_entity_id: UUID) -> User | None:
         pass
 
     @abstractmethod
-    async def record_login_attempt(self, username: str, success: bool, ip_address: str, failure_reason: Optional[str] = None) -> None:
+    async def record_login_attempt(self, username: str, success: bool, ip_address: str, failure_reason: str | None = None) -> None:
         pass
 
     @abstractmethod
@@ -146,7 +145,7 @@ class IAMUserRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    async def validate_session(self, token: str) -> Optional[User]:
+    async def validate_session(self, token: str) -> User | None:
         pass
 
     @abstractmethod
@@ -170,7 +169,7 @@ class IAMUserRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    async def get_login_attempts(self, username: Optional[str] = None, limit: int = 50) -> list[LoginAttempt]:
+    async def get_login_attempts(self, username: str | None = None, limit: int = 50) -> list[LoginAttempt]:
         pass
 
     @abstractmethod
@@ -178,7 +177,7 @@ class IAMUserRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    async def enable_mfa(self, user_id: UUID, mfa_type: MFAType, secret: Optional[str] = None, actor_id: Optional[UUID] = None) -> str:
+    async def enable_mfa(self, user_id: UUID, mfa_type: MFAType, secret: str | None = None, actor_id: UUID | None = None) -> str:
         pass
 
     @abstractmethod
@@ -206,19 +205,19 @@ class IAMUserRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    async def get_admin_credentials(self) -> Optional[str]:
+    async def get_admin_credentials(self) -> str | None:
         pass
 
     @abstractmethod
-    async def create_role(self, role_code: str, role_name: str, permissions: list[Permission], created_by: UUID, description: Optional[str] = None) -> Role:
+    async def create_role(self, role_code: str, role_name: str, permissions: list[Permission], created_by: UUID, description: str | None = None) -> Role:
         pass
 
     @abstractmethod
-    async def get_role_by_code(self, role_code: str) -> Optional[Role]:
+    async def get_role_by_code(self, role_code: str) -> Role | None:
         pass
 
     @abstractmethod
-    async def get_role_by_id(self, role_id: UUID) -> Optional[Role]:
+    async def get_role_by_id(self, role_id: UUID) -> Role | None:
         pass
 
     @abstractmethod
@@ -236,11 +235,11 @@ class IAMUserRepositoryPort(ABC):
 
 __all__ = [
     "IAMUserRepositoryPort",
-    "UserStatus",
+    "LoginAttempt",
     "MFAType",
     "Permission",
     "Role",
     "User",
     "UserSession",
-    "LoginAttempt",
+    "UserStatus",
 ]

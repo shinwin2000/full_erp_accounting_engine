@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/use_cases_checker.py
 =============================
@@ -24,14 +23,13 @@ import concurrent.futures
 import csv
 import json
 import logging
-import os
 import pathlib
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
+from datetime import UTC, datetime
 
 # ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
 _RCA_ENGINE = None
@@ -42,7 +40,7 @@ def _init_rca() -> bool:
     if _RCA_AVAILABLE:
         return True
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -52,7 +50,7 @@ def _init_rca() -> bool:
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -62,7 +60,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -97,7 +95,7 @@ if not logger.handlers:
     logger.addHandler(_log_handler)
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
     "WHITE": "", "BOLD": "", "DIM": "", "RESET": "",
 }
@@ -171,9 +169,9 @@ class UseCaseViolation:
     line: int
     message: str
     suggestion: str
-    rca: Optional[Dict] = None
+    rca: dict | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "severity": self.severity,
             "file": self.file,
@@ -198,12 +196,12 @@ class UseCaseInfo:
     is_async: bool
     has_return_annotation: bool
     is_read_only: bool  # true if only SELECT queries, no writes
-    violations: List[UseCaseViolation] = field(default_factory=list)
+    violations: list[UseCaseViolation] = field(default_factory=list)
 
 @dataclass
 class Report:
-    use_cases: List[UseCaseInfo] = field(default_factory=list)
-    violations: List[UseCaseViolation] = field(default_factory=list)
+    use_cases: list[UseCaseInfo] = field(default_factory=list)
+    violations: list[UseCaseViolation] = field(default_factory=list)
     total_files_scanned: int = 0
     total_use_cases: int = 0
     score: float = 100.0
@@ -238,10 +236,10 @@ class Report:
         return self.error_count == 0
 
 # ─── AST UTILITIES ──────────────────────────────────────────────────────────
-_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_AST_CACHE: dict[str, tuple[ast.AST | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
 
-def _read_source(py_file: pathlib.Path) -> Optional[str]:
+def _read_source(py_file: pathlib.Path) -> str | None:
     encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
     for enc in encodings:
         try:
@@ -253,7 +251,7 @@ def _read_source(py_file: pathlib.Path) -> Optional[str]:
     except OSError:
         return None
 
-def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     key = str(py_file.resolve())
     with _CACHE_LOCK:
         if key in _AST_CACHE:
@@ -275,17 +273,17 @@ def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
         _AST_CACHE[key] = (None, err)
         return None, err
 
-def _get_method_names(node: ast.ClassDef) -> Set[str]:
+def _get_method_names(node: ast.ClassDef) -> set[str]:
     return {item.name for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
-def _find_method_by_name(node: ast.ClassDef, names: Set[str]) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
+def _find_method_by_name(node: ast.ClassDef, names: set[str]) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
     for item in node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if item.name in names:
                 return item
     return None
 
-def _extract_type_name(ann: Optional[ast.expr]) -> str:
+def _extract_type_name(ann: ast.expr | None) -> str:
     if ann is None:
         return ""
     if isinstance(ann, ast.Name):
@@ -296,7 +294,7 @@ def _extract_type_name(ann: Optional[ast.expr]) -> str:
         return _extract_type_name(ann.value)
     return "Any"
 
-def _has_decorator(func_node: ast.FunctionDef, decorator_names: Set[str]) -> bool:
+def _has_decorator(func_node: ast.FunctionDef, decorator_names: set[str]) -> bool:
     for dec in func_node.decorator_list:
         if isinstance(dec, ast.Name) and dec.id in decorator_names:
             return True
@@ -307,7 +305,7 @@ def _has_decorator(func_node: ast.FunctionDef, decorator_names: Set[str]) -> boo
                 return True
     return False
 
-def _get_rca_for_violation(violation_type: str, class_name: str) -> Dict:
+def _get_rca_for_violation(violation_type: str, class_name: str) -> dict:
     """Return specific RCA for each violation type."""
     rca_map = {
         "no_di": {
@@ -354,7 +352,7 @@ class UseCaseChecker:
         root: pathlib.Path,
         enable_rca: bool = True,
         strict: bool = False,
-        extra_excludes: Optional[Set[str]] = None,
+        extra_excludes: set[str] | None = None,
         max_workers: int = 4,
     ):
         self.root = root
@@ -387,7 +385,7 @@ class UseCaseChecker:
                 return True
         return False
 
-    def _get_python_files(self) -> List[pathlib.Path]:
+    def _get_python_files(self) -> list[pathlib.Path]:
         """Only scan application/use_cases/ and optionally application/* if contains use cases."""
         py_files = []
         use_cases_dir = self.root / "application" / "use_cases"
@@ -574,10 +572,10 @@ class UseCaseChecker:
                     return False
         return True
 
-    def _get_execute_method(self, node: ast.ClassDef) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
+    def _get_execute_method(self, node: ast.ClassDef) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
         return _find_method_by_name(node, EXECUTE_METHODS)
 
-    def _generate_rca(self, violation_type: str, class_name: str) -> Optional[Dict]:
+    def _generate_rca(self, violation_type: str, class_name: str) -> dict | None:
         if not self.enable_rca:
             return None
         rca_info = _get_rca_for_violation(violation_type, class_name)
@@ -587,7 +585,7 @@ class UseCaseChecker:
             "confidence": rca_info["confidence"],
         }
 
-    def _analyze_class(self, node: ast.ClassDef, rel_path: str, file_path: pathlib.Path) -> Optional[UseCaseInfo]:
+    def _analyze_class(self, node: ast.ClassDef, rel_path: str, file_path: pathlib.Path) -> UseCaseInfo | None:
         if not self._is_use_case_class(node, file_path):
             return None
 
@@ -601,7 +599,7 @@ class UseCaseChecker:
         has_return = self._has_return_annotation(node)
         read_only = self._is_read_only(node)
 
-        violations: List[UseCaseViolation] = []
+        violations: list[UseCaseViolation] = []
         exec_method = self._get_execute_method(node)
         line = exec_method.lineno if exec_method else node.lineno
 
@@ -719,16 +717,16 @@ class UseCaseChecker:
             violations=violations,
         )
 
-    def scan(self, progress_callback: Optional[Callable] = None) -> Report:
+    def scan(self, progress_callback: Callable | None = None) -> Report:
         t0 = time.monotonic()
         report = Report()
         py_files = self._get_python_files()
         report.total_files_scanned = len(py_files)
 
-        results: List[UseCaseInfo] = []
+        results: list[UseCaseInfo] = []
         total = len(py_files)
 
-        def _scan_one(idx: int, py_file: pathlib.Path) -> List[UseCaseInfo]:
+        def _scan_one(idx: int, py_file: pathlib.Path) -> list[UseCaseInfo]:
             if progress_callback:
                 progress_callback(idx + 1, total)
             tree, err = _get_ast(py_file)
@@ -794,7 +792,7 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
     _safe_print("    ✅ transaction management            — data consistency (MEDIUM jika write)")
     _safe_print("    ✅ input validation                  — security (LOW jika write)")
 
-    _safe_print(f"\n  📊 Summary:")
+    _safe_print("\n  📊 Summary:")
     _safe_print(f"    Files scanned    : {report.total_files_scanned}")
     _safe_print(f"    Use Cases found  : {report.total_use_cases}")
     _safe_print(f"    CRITICAL         : {c['RED']}{report.critical_count}{c['RESET']}")
@@ -849,7 +847,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
     try:
         data = {
             "version": __version__,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "score": report.score,
             "passed": report.passed,
             "scan_time": report.scan_time,

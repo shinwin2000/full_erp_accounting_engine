@@ -26,8 +26,6 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from ports.primary.event_publisher_port import EventPublisherPort
-
 # Import domain events
 from application.events import (
     SettingAddedEvent,
@@ -38,6 +36,7 @@ from application.events import (
     SettingsLockedEvent,
     SettingsUnlockedEvent,
 )
+from ports.primary.event_publisher_port import EventPublisherPort
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +270,7 @@ class SystemSettingsService:
     Mempublikasikan event untuk setiap perubahan.
     """
 
-    __slots__ = ("_settings", "_stats", "_event_publisher", "_locked", "_audit_trail")
+    __slots__ = ("_audit_trail", "_event_publisher", "_locked", "_settings", "_stats")
 
     def __init__(
         self,
@@ -831,6 +830,7 @@ class SystemSettingsService:
                 try:
                     settings_data = json.loads(data) if data else []
                 except json.JSONDecodeError as e:
+                    logger.warning(f"Invalid JSON during import: {e}")
                     return ImportResult(success=False, errors=[f"Invalid JSON: {e}"])
                 if isinstance(settings_data, dict):
                     settings_data = [{"key": k, "value": v} for k, v in settings_data.items()]
@@ -842,6 +842,7 @@ class SystemSettingsService:
                     reader = csv.DictReader(io.StringIO(data or ""))
                     settings_data = list(reader)
                 except csv.Error as e:
+                    logger.warning(f"Invalid CSV during import: {e}")
                     return ImportResult(success=False, errors=[f"Invalid CSV: {e}"])
 
             for item in settings_data:
@@ -866,7 +867,7 @@ class SystemSettingsService:
                     errors.append(f"Missing required field: {e}")
 
         except Exception as e:
-            return ImportResult(success=False, errors=[f"Unexpected error: {str(e)}"])
+            return ImportResult(success=False, errors=[f"Unexpected error: {e!s}"])
 
         self._record_audit("import_settings", {
             "imported_count": imported_count,
@@ -904,11 +905,11 @@ __all__ = [
     "ImportResult",
     "Setting",
     "SettingDataType",
+    "SettingLockedError",
     "SettingNotFoundError",
     "SettingReadonlyError",
     "SettingScope",
     "SettingValidationError",
-    "SettingLockedError",
     "SystemSettingsError",
     "SystemSettingsService",
     "create_system_settings_service",

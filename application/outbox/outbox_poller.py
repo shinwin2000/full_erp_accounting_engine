@@ -40,7 +40,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import or_, select, update
@@ -53,7 +53,7 @@ from application.outbox.outbox_exceptions import OutboxPollerStoppedError
 
 # Metrics - untuk deteksi AST (OUT-033)
 try:
-    from prometheus_client import Counter, Histogram, Gauge
+    from prometheus_client import Counter, Gauge, Histogram
     _METRICS_AVAILABLE = True
 except ImportError:
     _METRICS_AVAILABLE = False
@@ -110,8 +110,8 @@ class OutboxEventPayload(BaseModel):
     aggregate_id: str
     aggregate_type: str
     data: dict[str, Any]
-    metadata: Optional[dict[str, Any]] = None
-    idempotency_key: Optional[str] = None  # OUT-022
+    metadata: dict[str, Any] | None = None
+    idempotency_key: str | None = None  # OUT-022
 
 
 # ============================================================================
@@ -126,7 +126,7 @@ class CircuitBreaker:
         self.timeout_seconds = timeout_seconds
         self.failure_count = 0
         self.state = "closed"
-        self.last_failure_time: Optional[datetime] = None
+        self.last_failure_time: datetime | None = None
 
     def record_success(self):
         self.failure_count = 0
@@ -276,8 +276,8 @@ class OutboxPoller:
     def __init__(
         self,
         relay_service: OutboxRelayService,
-        db_lock: Optional[DatabaseLockPort] = None,
-        config: Optional[OutboxPollerConfig] = None,
+        db_lock: DatabaseLockPort | None = None,
+        config: OutboxPollerConfig | None = None,
         enable_rca: bool = False,
     ):
         self._relay = relay_service
@@ -289,7 +289,7 @@ class OutboxPoller:
         self._lock_acquired = False
 
         # Fitur hardening
-        self._producer: Optional[object] = None  # akan diisi dengan KafkaProducerWrapper
+        self._producer: object | None = None  # akan diisi dengan KafkaProducerWrapper
         self._circuit_breaker = CircuitBreaker(
             failure_threshold=self._config.circuit_breaker_failure_threshold,
             timeout_seconds=self._config.circuit_breaker_timeout_seconds,
@@ -585,7 +585,7 @@ class OutboxPoller:
                 )
             self._circuit_breaker.record_success()
             return success
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             logger.warning(f"Timeout publishing event {event.id}")
             self._circuit_breaker.record_failure()
             raise TemporaryError(f"Publish timeout: {e}") from e
@@ -668,11 +668,10 @@ class OutboxPoller:
                 await session.commit()
 
             # Process outside transaction to avoid long locks
-            async with get_async_session() as session2:
-                async with session2.begin():
-                    with self._processing_duration.time():
-                        await self._process_batch(session2, events)
-                    await session2.commit()
+            async with get_async_session() as session2, session2.begin():
+                with self._processing_duration.time():
+                    await self._process_batch(session2, events)
+                await session2.commit()
 
             return len(events)
 
@@ -727,6 +726,8 @@ class OutboxPoller:
                         consecutive_errors = 0
 
             except asyncio.CancelledError:
+                # Log cancellation to avoid silent swallow
+                logger.debug("Outbox poller loop cancelled")
                 break
             except Exception as e:
                 logger.exception(f"Unexpected error in poller loop: {e}")
@@ -831,7 +832,7 @@ class OutboxPoller:
 async def run_outbox_poller_simple(
     relay_service: OutboxRelayService,
     poll_interval: float = 1.0,
-    stop_event: Optional[asyncio.Event] = None,
+    stop_event: asyncio.Event | None = None,
     batch_size: int = 100,
 ) -> None:
     """Simple poller function tanpa lock."""

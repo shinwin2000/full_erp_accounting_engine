@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker_dashboard_port_status.py – Port vs Adapter Implementation Dashboard
 ============================================================================
@@ -25,17 +24,13 @@ from __future__ import annotations
 
 import argparse
 import ast
-import concurrent.futures
 import csv
 import json
 import logging
-import os
 import sys
 import threading
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 # ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
 _RCA_ENGINE = None
@@ -46,7 +41,7 @@ def _init_rca() -> bool:
     if _RCA_AVAILABLE:
         return True
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -56,7 +51,7 @@ def _init_rca() -> bool:
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -66,7 +61,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -101,7 +96,7 @@ if not logger.handlers:
     logger.addHandler(_log_handler)
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
     "WHITE": "", "BOLD": "", "RESET": "",
 }
@@ -147,17 +142,17 @@ class PortInfo:
     name: str
     module: str
     file: Path
-    methods: Set[str]
-    abstract_methods: Set[str]
+    methods: set[str]
+    abstract_methods: set[str]
     is_abstract: bool = False
     is_protocol: bool = False
     status: str = "MISSING"  # REAL, PARTIAL, MISSING
-    adapter_class: Optional[str] = None
-    adapter_module: Optional[str] = None
-    adapter_file: Optional[Path] = None
-    missing_methods: Set[str] = field(default_factory=set)
-    file_to_edit: Optional[Path] = None
-    rca: Optional[Dict] = None
+    adapter_class: str | None = None
+    adapter_module: str | None = None
+    adapter_file: Path | None = None
+    missing_methods: set[str] = field(default_factory=set)
+    file_to_edit: Path | None = None
+    rca: dict | None = None
     score: int = 0
 
 @dataclass
@@ -165,14 +160,14 @@ class AdapterInfo:
     name: str
     module: str
     file: Path
-    methods: Set[str]
-    bases: List[str]
+    methods: set[str]
+    bases: list[str]
 
 # ─── AST PARSER ──────────────────────────────────────────────────────────────
-_AST_CACHE: Dict[Path, Optional[ast.AST]] = {}
+_AST_CACHE: dict[Path, ast.AST | None] = {}
 _CACHE_LOCK = threading.Lock()
 
-def get_ast(path: Path) -> Optional[ast.AST]:
+def get_ast(path: Path) -> ast.AST | None:
     with _CACHE_LOCK:
         if path in _AST_CACHE:
             return _AST_CACHE[path]
@@ -185,7 +180,7 @@ def get_ast(path: Path) -> Optional[ast.AST]:
         _AST_CACHE[path] = None
         return None
 
-def _get_class_methods(node: ast.ClassDef) -> Tuple[Set[str], Set[str]]:
+def _get_class_methods(node: ast.ClassDef) -> tuple[set[str], set[str]]:
     methods = set()
     abstract_methods = set()
     for item in node.body:
@@ -214,8 +209,8 @@ def _is_protocol_class(node: ast.ClassDef) -> bool:
     return False
 
 # ─── SCAN PORTS ──────────────────────────────────────────────────────────────
-def scan_ports() -> Dict[str, PortInfo]:
-    ports: Dict[str, PortInfo] = {}
+def scan_ports() -> dict[str, PortInfo]:
+    ports: dict[str, PortInfo] = {}
     ports_dir = ROOT / "ports"
     if not ports_dir.exists():
         logger.warning(f"Ports directory not found: {ports_dir}")
@@ -254,8 +249,8 @@ def scan_ports() -> Dict[str, PortInfo]:
     return ports
 
 # ─── SCAN ADAPTERS ────────────────────────────────────────────────────────────
-def scan_adapters() -> Dict[str, AdapterInfo]:
-    adapters: Dict[str, AdapterInfo] = {}
+def scan_adapters() -> dict[str, AdapterInfo]:
+    adapters: dict[str, AdapterInfo] = {}
     target_dirs = [ROOT / "adapters", ROOT / "infrastructure"]
 
     for target in target_dirs:
@@ -296,7 +291,7 @@ def scan_adapters() -> Dict[str, AdapterInfo]:
     return adapters
 
 # ─── KEYWORD BOOST ───────────────────────────────────────────────────────────
-KEYWORD_BOOST: Dict[str, List[str]] = {
+KEYWORD_BOOST: dict[str, list[str]] = {
     "BankAccountRepositoryPort": ["bank", "cash", "account"],
     "CashBookRepositoryPort": ["cash", "book", "bank"],
     "BankStatementImportPort": ["bank", "statement", "import"],
@@ -350,9 +345,9 @@ KEYWORD_BOOST: Dict[str, List[str]] = {
 # ─── MATCHING ENGINE ──────────────────────────────────────────────────────────
 def match_port_to_adapter(
     port: PortInfo,
-    adapters: Dict[str, AdapterInfo],
+    adapters: dict[str, AdapterInfo],
     debug: bool = False,
-) -> Tuple[Optional[str], Optional[str], Set[str], Optional[Path], int]:
+) -> tuple[str | None, str | None, set[str], Path | None, int]:
     """Return (adapter_name, adapter_module, missing_methods, adapter_file, score)."""
     port_stem = port.name
     for suffix in PORT_SUFFIXES:
@@ -420,7 +415,7 @@ def match_port_to_adapter(
     return None, None, set(), None, 0
 
 # ─── GENERATE DASHBOARD ──────────────────────────────────────────────────────
-def generate_dashboard(debug: bool = False) -> Tuple[List[PortInfo], Dict[str, int]]:
+def generate_dashboard(debug: bool = False) -> tuple[list[PortInfo], dict[str, int]]:
     ports = scan_ports()
     adapters = scan_adapters()
     status_counts = {"REAL": 0, "PARTIAL": 0, "MISSING": 0}
@@ -475,7 +470,7 @@ def generate_dashboard(debug: bool = False) -> Tuple[List[PortInfo], Dict[str, i
     return list(ports.values()), status_counts
 
 # ─── REPORTING ──────────────────────────────────────────────────────────────
-def print_dashboard(ports: List[PortInfo], status_counts: Dict[str, int], verbose: bool = False):
+def print_dashboard(ports: list[PortInfo], status_counts: dict[str, int], verbose: bool = False):
     c = COLOR
     total = len(ports)
 
@@ -536,7 +531,7 @@ def print_dashboard(ports: List[PortInfo], status_counts: Dict[str, int], verbos
 
         print("-" * 85)
 
-def export_json(ports: List[PortInfo], filename: str) -> bool:
+def export_json(ports: list[PortInfo], filename: str) -> bool:
     try:
         data = []
         for p in ports:
@@ -562,7 +557,7 @@ def export_json(ports: List[PortInfo], filename: str) -> bool:
         print(f"{COLOR['RED']}❌ Failed to export JSON: {e}{COLOR['RESET']}")
         return False
 
-def export_csv(ports: List[PortInfo], filename: str) -> bool:
+def export_csv(ports: list[PortInfo], filename: str) -> bool:
     try:
         Path(filename).parent.mkdir(parents=True, exist_ok=True)
         with open(filename, "w", newline="", encoding="utf-8") as f:
@@ -658,7 +653,7 @@ class MyPort:
     return failed == 0
 
 # ─── MAIN ──────────────────────────────────────────────────────────────────────
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=f"Port-Adapter Dashboard v{__version__}")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed RCA per port")
     parser.add_argument("--debug", action="store_true", help="Show matching scores")

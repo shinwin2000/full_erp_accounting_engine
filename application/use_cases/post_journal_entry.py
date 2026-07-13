@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Module: post_journal_entry.py
@@ -418,7 +417,7 @@ def create_post_journal_entry_use_case(
 __all__ = [
     "PostJournalEntryCommand",
     "PostJournalEntryUseCase",
-    "PostJournalTestHelper",      
+    "PostJournalTestHelper",
     "create_post_journal_entry_use_case",
     "post_journal_entry_handler",
 ]

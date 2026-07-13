@@ -18,7 +18,6 @@ Metode:
 from __future__ import annotations
 
 import logging
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -146,7 +145,7 @@ class ConfigManager:
     def _load_single_file(self, file_path: Path) -> tuple[str, dict | None]:
         """Muat satu file YAML dan kembalikan (nama_file, data)."""
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 data = yaml.load(f, Loader=SafeLoader)
                 if data is None:
                     data = {}

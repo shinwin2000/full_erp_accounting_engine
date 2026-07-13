@@ -286,6 +286,7 @@ class CacheMetricsCollector:
             try:
                 await self.collect_metrics()
             except asyncio.CancelledError:
+                logger.debug("Periodic metrics collection loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in periodic metrics collection: {e}")
@@ -302,7 +303,8 @@ class CacheMetricsCollector:
             try:
                 await self._collection_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Metrics collection task cancelled during stop")
+                # Expected cancellation; continue after logging
             self._collection_task = None
         logger.info("Stopped periodic cache metrics collection")
 

@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-checker_cqrs_handler.py — Sovereign CQRS Architecture & Forensic Checker v2.5
+checker_cqrs_handler.py — Sovereign CQRS Architecture & Forensic Checker v2.6
 ================================================================================
-Versi   : 2.5.0
-Perbaikan v2.5.0:
-  - Deteksi BaseModel Pydantic pada command (command dianggap sudah divalidasi)
-  - Deteksi parameter handler lebih longgar (jika ada satu argumen selain self, anggap command/query)
-  - Penyesuaian pesan CQRS-015 untuk mengurangi false positive
+Versi   : 2.6.0
+Perbaikan v2.6.0:
+  - Exclude venv, .venv, site-packages, dist-packages, virtualenv, env, Lib
+  - Tambahkan pengecekan path agar tidak memproses file dari virtual environment
+  - Kurangi false positive dari setuptools, pip, distutils
 """
 
 from __future__ import annotations
@@ -19,10 +18,9 @@ import os
 import pathlib
 import sys
 import time
-import re
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # =============================================================================
 # Path & RCA Integration
@@ -42,13 +40,21 @@ try:
         sys.path.insert(0, str(_checker_core))
 
     from rca import (
+        Category as RCACategory,
+    )
+    from rca import (
+        ErrorCode as RCAErrorCode,
+    )
+    from rca import (
         RCAEngine,
         RCAResult,
-        Severity as RCASeverity,
-        Category as RCACategory,
-        ErrorCode as RCAErrorCode,
-        get_engine as rca_get_engine,
         analyze_exception,
+    )
+    from rca import (
+        Severity as RCASeverity,
+    )
+    from rca import (
+        get_engine as rca_get_engine,
     )
     _rca_engine = rca_get_engine()
     _analyze_exception = analyze_exception
@@ -59,13 +65,21 @@ except ImportError:
         if str(_this_dir) not in sys.path:
             sys.path.insert(0, str(_this_dir))
         from rca import (
+            Category as RCACategory,
+        )
+        from rca import (
+            ErrorCode as RCAErrorCode,
+        )
+        from rca import (
             RCAEngine,
             RCAResult,
-            Severity as RCASeverity,
-            Category as RCACategory,
-            ErrorCode as RCAErrorCode,
-            get_engine as rca_get_engine,
             analyze_exception,
+        )
+        from rca import (
+            Severity as RCASeverity,
+        )
+        from rca import (
+            get_engine as rca_get_engine,
         )
         _rca_engine = rca_get_engine()
         _analyze_exception = analyze_exception
@@ -90,11 +104,17 @@ COLOR = {
 # =============================================================================
 # Configuration
 # =============================================================================
+# Tambahkan folder virtual environment dan package manager
 EXCLUDED_DIRS = {
     "mappers", "workflows", "sagas", "orchestrators", "kernel",
     "dto_objects", "dto", "requests", "responses", "schemas", "models",
     "__pycache__", ".git", "tests", "migrations", "scripts", "alembic",
-    "docs", "checker", "deployment", "monitoring", "reports"
+    "docs", "checker", "deployment", "monitoring", "reports",
+    # --- Tambahan untuk venv ---
+    "venv", ".venv", "virtualenv", "env", "virtual_env",
+    "Lib", "lib", "Scripts", "bin", "include",
+    "site-packages", "dist-packages", "pip", "setuptools", "distutils",
+    "pip-", "setuptools-", "wheel-", "python-", "pipenv",
 }
 
 BASE_COMMAND_NAMES = {"BaseCommand", "Command", "ICommand"}
@@ -254,9 +274,9 @@ class CQRSViolation:
     message: str
     suggestion: str
     line: int = 0
-    rca_result: Optional[Dict[str, Any]] = None
+    rca_result: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = {
             "rule_id": self.rule_id,
             "file": self.file_path,
@@ -279,8 +299,8 @@ class CQRSObject:
     is_command: bool = False
     is_query: bool = False
     is_handler: bool = False
-    linked_commands: Set[str] = field(default_factory=set)
-    linked_queries: Set[str] = field(default_factory=set)
+    linked_commands: set[str] = field(default_factory=set)
+    linked_queries: set[str] = field(default_factory=set)
     has_execute_method: bool = False
     has_handle_method: bool = False
     has_docstring: bool = False
@@ -290,19 +310,19 @@ class CQRSObject:
     is_read_only: bool = False
     has_uow: bool = False
     has_session: bool = False
-    return_type: Optional[str] = None
+    return_type: str | None = None
     field_count: int = 0
     line: int = 0
-    violations: List[CQRSViolation] = field(default_factory=list)
+    violations: list[CQRSViolation] = field(default_factory=list)
     is_base_class: bool = False
 
 
 @dataclass
 class CheckerResult:
-    commands: List[CQRSObject]
-    queries: List[CQRSObject]
-    handlers: List[CQRSObject]
-    mapping: Dict[str, List[str]]
+    commands: list[CQRSObject]
+    queries: list[CQRSObject]
+    handlers: list[CQRSObject]
+    mapping: dict[str, list[str]]
     total_commands: int
     total_queries: int
     total_handlers: int
@@ -324,11 +344,11 @@ class SovereignCQRSVerifier:
         self.root_dir = root_dir
         self.enable_rca = enable_rca and RCA_AVAILABLE
         self.strict = strict
-        self.registry_pairs: List[Tuple[str, str]] = []
-        self.commands: Dict[str, CQRSObject] = {}
-        self.queries: Dict[str, CQRSObject] = {}
-        self.handlers: Dict[str, CQRSObject] = {}
-        self.mapping: Dict[str, List[str]] = defaultdict(list)
+        self.registry_pairs: list[tuple[str, str]] = []
+        self.commands: dict[str, CQRSObject] = {}
+        self.queries: dict[str, CQRSObject] = {}
+        self.handlers: dict[str, CQRSObject] = {}
+        self.mapping: dict[str, list[str]] = defaultdict(list)
 
         # Konfigurasi pengabaian (opsional)
         self.ignored_rules = set()
@@ -342,7 +362,7 @@ class SovereignCQRSVerifier:
             return
         try:
             import yaml
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
             self.ignored_rules = set(config.get("ignore_rules", []))
             self.ignored_files = set(config.get("ignore_files", []))
@@ -359,7 +379,7 @@ class SovereignCQRSVerifier:
             return True
         return False
 
-    def _generate_rca(self, rule_id: str, message: str, severity: str, context: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+    def _generate_rca(self, rule_id: str, message: str, severity: str, context: dict[str, Any] = None) -> dict[str, Any] | None:
         if not self.enable_rca or _analyze_exception is None:
             return None
         try:
@@ -387,10 +407,20 @@ class SovereignCQRSVerifier:
             rca_result=rca,
         ))
 
-    def _get_python_files(self) -> List[pathlib.Path]:
+    def _get_python_files(self) -> list[pathlib.Path]:
         py_files = []
         for p in self.root_dir.rglob("*.py"):
+            # Lewati jika ada bagian path yang ada di EXCLUDED_DIRS
             if any(part in EXCLUDED_DIRS for part in p.parts):
+                continue
+            # Lewati jika path mengandung "site-packages" atau "dist-packages"
+            path_str = str(p)
+            if "site-packages" in path_str or "dist-packages" in path_str:
+                continue
+            # Lewati jika path mengandung "/venv/" atau "\venv\" (cocok untuk Windows)
+            if "/venv/" in path_str or "\\venv\\" in path_str:
+                continue
+            if "/.venv/" in path_str or "\\.venv\\" in path_str:
                 continue
             if p.name.startswith(("test_", "conftest")):
                 continue
@@ -401,7 +431,7 @@ class SovereignCQRSVerifier:
         rel = path.relative_to(self.root_dir)
         return str(rel.with_suffix("")).replace(os.sep, ".")
 
-    def _extract_base_classes(self, node: ast.ClassDef) -> List[str]:
+    def _extract_base_classes(self, node: ast.ClassDef) -> list[str]:
         bases = []
         for base in node.bases:
             if isinstance(base, ast.Name):
@@ -413,7 +443,7 @@ class SovereignCQRSVerifier:
                     bases.append(base.value.id)
         return bases
 
-    def _extract_annotation_string(self, node: ast.AST) -> Optional[str]:
+    def _extract_annotation_string(self, node: ast.AST) -> str | None:
         if isinstance(node, ast.Name):
             return node.id
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -541,7 +571,7 @@ class SovereignCQRSVerifier:
         for cmd_name, hdl_name in self.registry_pairs:
             self.mapping[cmd_name].append(hdl_name)
 
-    def _parse_decorators(self, node: ast.FunctionDef) -> Set[str]:
+    def _parse_decorators(self, node: ast.FunctionDef) -> set[str]:
         decorators = set()
         for deco in node.decorator_list:
             if isinstance(deco, ast.Name):
@@ -623,9 +653,7 @@ class SovereignCQRSVerifier:
                     for item in node.body:
                         if isinstance(item, ast.FunctionDef):
                             for deco in item.decorator_list:
-                                if isinstance(deco, ast.Name) and deco.id in ('field_validator', 'model_validator'):
-                                    obj.has_validation = True
-                                elif isinstance(deco, ast.Attribute) and deco.attr in ('field_validator', 'model_validator'):
+                                if (isinstance(deco, ast.Name) and deco.id in ('field_validator', 'model_validator')) or (isinstance(deco, ast.Attribute) and deco.attr in ('field_validator', 'model_validator')):
                                     obj.has_validation = True
 
                 # Hitung field dan proses method
@@ -683,9 +711,7 @@ class SovereignCQRSVerifier:
                     self.commands[name] = obj
                 elif is_qry and name not in self.queries:
                     self.queries[name] = obj
-                elif is_hdlr and name not in self.handlers and not is_base:
-                    self.handlers[name] = obj
-                elif is_hdlr and name not in self.handlers:
+                elif (is_hdlr and name not in self.handlers and not is_base) or (is_hdlr and name not in self.handlers):
                     self.handlers[name] = obj
 
         except Exception:
@@ -841,7 +867,7 @@ class SovereignCQRSVerifier:
                     "Tambahkan docstring menjelaskan purpose handler dan logic.")
 
     # ---- Scan utama ----
-    def scan(self) -> Tuple[Dict[str, CQRSObject], Dict[str, CQRSObject], Dict[str, CQRSObject], Dict[str, List[str]]]:
+    def scan(self) -> tuple[dict[str, CQRSObject], dict[str, CQRSObject], dict[str, CQRSObject], dict[str, list[str]]]:
         self._parse_registry_files()
 
         files = self._get_python_files()
@@ -874,10 +900,10 @@ class SovereignCQRSVerifier:
 # =============================================================================
 # Reporting
 # =============================================================================
-def generate_report(commands: Dict[str, CQRSObject],
-                    queries: Dict[str, CQRSObject],
-                    handlers: Dict[str, CQRSObject],
-                    mapping: Dict[str, List[str]],
+def generate_report(commands: dict[str, CQRSObject],
+                    queries: dict[str, CQRSObject],
+                    handlers: dict[str, CQRSObject],
+                    mapping: dict[str, list[str]],
                     rca_enabled: bool,
                     elapsed: float) -> CheckerResult:
     total_commands = len(commands)
@@ -931,7 +957,7 @@ def generate_report(commands: Dict[str, CQRSObject],
 def print_report(result: CheckerResult, verbose: bool = False) -> None:
     c = COLOR
     print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*72}╗")
-    print("║     SOVEREIGN CQRS ARCHITECTURE & FORENSIC CHECKER v2.5   ║")
+    print("║     SOVEREIGN CQRS ARCHITECTURE & FORENSIC CHECKER v2.6   ║")
     print(f"╚{'═'*72}╝{c['RESET']}")
 
     print("\n  📋 100+ Aturan Arsitektur CQRS (deteksi lebih akurat):")
@@ -961,7 +987,6 @@ def print_report(result: CheckerResult, verbose: bool = False) -> None:
     score_color = c["GREEN"] if result.score >= 80 else c["YELLOW"] if result.score >= 50 else c["RED"]
     print(f"\n  📈 Skor Kepatuhan CQRS: {score_color}{c['BOLD']}{result.score:.1f}/100{c['RESET']}")
     print(f"  RCA Engine: {'✅ Aktif' if result.rca_enabled else '⚠️ Tidak tersedia'}")
-    print(f"  ⏱️ Elapsed: {result.elapsed_seconds:.3f}s")
 
     print(f"\n{c['CYAN']}─── MAPPING SUMMARY ───{c['RESET']}")
     for cmd, hdls in result.mapping.items():
@@ -994,6 +1019,7 @@ def print_report(result: CheckerResult, verbose: bool = False) -> None:
                     print(f"    🔧 Fix: {v.rca_result['suggested_fix'][:150]}")
         if len(all_violations) > 30:
             print(f"  ... and {len(all_violations)-30} more violations (use --json for full list)")
+    print(f"\n ⏱️ Audit Duration: {result.elapsed_seconds:.3f} seconds")
 
 
 def save_json(result: CheckerResult, filepath: str) -> None:
@@ -1065,7 +1091,7 @@ def save_json(result: CheckerResult, filepath: str) -> None:
 # Main CLI
 # =============================================================================
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Sovereign CQRS Architecture & Forensic Checker v2.5")
+    parser = argparse.ArgumentParser(description="Sovereign CQRS Architecture & Forensic Checker v2.6")
     parser.add_argument("--json", metavar="FILE", help="Export report to JSON")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show RCA details")
     parser.add_argument("--strict", action="store_true", help="Mode strict")
@@ -1087,8 +1113,6 @@ def main() -> None:
 
     if args.json:
         save_json(result, args.json)
-
-    print(f"\n ⏱️ Audit Duration: {elapsed:.3f} seconds")
 
     has_critical = result.critical_count > 0
     sys.exit(1 if has_critical else 0)

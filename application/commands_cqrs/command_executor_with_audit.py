@@ -482,7 +482,7 @@ def require_authorization(required_role: str | None = None, required_permission:
             user_id = None
             for arg in args:
                 if hasattr(arg, "user_id"):
-                    user_id = getattr(arg, "user_id")
+                    user_id = arg.user_id
                     break
             if "context" in kwargs and hasattr(kwargs["context"], "user_id"):
                 user_id = kwargs["context"].user_id

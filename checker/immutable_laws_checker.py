@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 immutable_laws_checker.py — Immutable Laws Enforcer Compliance Checker v1.0
 ===========================================================================
@@ -25,9 +24,9 @@ import logging
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # ---- Project root ----
 _THIS_FILE = Path(__file__).resolve()
@@ -37,10 +36,10 @@ sys.path.insert(0, str(ROOT))
 # ---- RCA Engine (dari checker.core.rca) ----
 try:
     from checker.core.rca import (
-        RCAResult,
-        Severity,
         Category,
         ErrorCode,
+        RCAResult,
+        Severity,
         analyze_exception,
         get_engine,
     )
@@ -89,14 +88,14 @@ COLOR = {
 class MethodInfo:
     name: str
     is_async: bool = False
-    decorators: List[str] = field(default_factory=list)
+    decorators: list[str] = field(default_factory=list)
 
 
 @dataclass
 class ClassInfo:
     name: str
-    base_names: List[str]
-    methods: Dict[str, MethodInfo]
+    base_names: list[str]
+    methods: dict[str, MethodInfo]
     file_path: str
     is_enforcer: bool = False
 
@@ -115,8 +114,8 @@ class EnforcerContract:
     has_version: bool
     has_audit_trail: bool
     has_touch: bool
-    violations: List[str] = field(default_factory=list)
-    rca_results: List[Dict[str, Any]] = field(default_factory=list)
+    violations: list[str] = field(default_factory=list)
+    rca_results: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -126,13 +125,13 @@ class EnforcerViolation:
     severity: str
     message: str
     suggestion: str
-    rca_result: Optional[Dict[str, Any]] = None
+    rca_result: dict[str, Any] | None = None
 
 
 # ---- AST Analyzer ----
 class EnforcerASTAnalyzer:
     @staticmethod
-    def analyze(file_path: Path, content: str) -> List[ClassInfo]:
+    def analyze(file_path: Path, content: str) -> list[ClassInfo]:
         try:
             tree = ast.parse(content)
         except SyntaxError:
@@ -187,10 +186,10 @@ class EnforcerASTAnalyzer:
 class ImmutableLawsChecker:
     def __init__(self, root_dir: Path):
         self.root_dir = root_dir
-        self._results: List[EnforcerContract] = []
+        self._results: list[EnforcerContract] = []
         self._rca_enabled = RCA_AVAILABLE
 
-    def _get_enforcer_files(self) -> List[Path]:
+    def _get_enforcer_files(self) -> list[Path]:
         enforcer_dir = self.root_dir / "kernel" / "immutable_laws"
         if not enforcer_dir.exists():
             return []
@@ -203,7 +202,7 @@ class ImmutableLawsChecker:
             files.append(p)
         return files
 
-    def scan_file(self, file_path: Path, discover: bool = False) -> Optional[EnforcerContract]:
+    def scan_file(self, file_path: Path, discover: bool = False) -> EnforcerContract | None:
         try:
             content = file_path.read_text(encoding="utf-8")
         except Exception:
@@ -279,7 +278,7 @@ class ImmutableLawsChecker:
                     print(f"        - {v}")
         return contract
 
-    def scan(self, discover: bool = False) -> List[EnforcerContract]:
+    def scan(self, discover: bool = False) -> list[EnforcerContract]:
         files = self._get_enforcer_files()
         self._results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
@@ -290,7 +289,7 @@ class ImmutableLawsChecker:
                     self._results.append(result)
         return self._results
 
-    def analyze_with_rca(self, contract: EnforcerContract) -> List[EnforcerViolation]:
+    def analyze_with_rca(self, contract: EnforcerContract) -> list[EnforcerViolation]:
         violations = []
         if not self._rca_enabled or not analyze_exception:
             # Fallback sederhana (seharusnya tidak terjadi karena rca ada di checker/core/rca)
@@ -358,7 +357,7 @@ class ImmutableLawsChecker:
 
 
 # ---- Reporting ----
-def print_report(contracts: List[EnforcerContract], verbose: bool = False, show_rca: bool = True):
+def print_report(contracts: list[EnforcerContract], verbose: bool = False, show_rca: bool = True):
     c = COLOR
     total = len(contracts)
     if total == 0:
@@ -411,9 +410,9 @@ def print_report(contracts: List[EnforcerContract], verbose: bool = False, show_
         print(f"\n{c['GREEN']}✅ Semua enforcer compliant!{c['RESET']}")
 
 
-def save_json(contracts: List[EnforcerContract], path: str):
+def save_json(contracts: list[EnforcerContract], path: str):
     data = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "version": "1.0",
         "total_enforcers": len(contracts),
         "compliant": [c.file_path for c in contracts if not c.violations],

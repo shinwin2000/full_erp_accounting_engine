@@ -36,6 +36,8 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+import aiofiles  # <-- Tambahan untuk async file I/O
+
 from application.commands_cqrs.command_bus_unified import Command, CommandResult
 
 if TYPE_CHECKING:
@@ -441,6 +443,9 @@ class PayrollToGLFullWorkflow:
         )
         return journal_id
 
+    # ========================================================================
+    # PERBAIKAN: _generate_bank_file menggunakan aiofiles
+    # ========================================================================
     async def _generate_bank_file(
         self,
         employees: list[Any],
@@ -474,8 +479,9 @@ class PayrollToGLFullWorkflow:
         file_path = (
             f"/tmp/payroll_bank_{legal_entity_id}_{payment_date.year}{payment_date.month:02d}.csv"
         )
-        with open(file_path, "w") as f:
-            f.write(output.getvalue())
+        # Tulis dengan aiofiles
+        async with aiofiles.open(file_path, "w") as f:
+            await f.write(output.getvalue())
 
         return file_path
 

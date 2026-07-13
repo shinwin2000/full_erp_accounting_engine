@@ -25,22 +25,19 @@ dengan RCAEngine untuk memberikan root cause, evidence, dan saran perbaikan.
 from __future__ import annotations
 
 import ast
-import importlib
-import sys
 import fnmatch
-import os
+import importlib
+import json
 import re
-import traceback
+import sys
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
-from collections import defaultdict, Counter
-import json
-import time
+from typing import Any
 
 # ---- Integrasi RCA ----
 try:
-    from rca import analyze_exception, RCAResult, Severity
+    from rca import RCAResult, Severity, analyze_exception
     RCA_AVAILABLE = True
 except ImportError:
     RCA_AVAILABLE = False
@@ -84,18 +81,18 @@ class RouteDef:
     full_path: str            # setelah ditambah prefix
     line: int
     file_path: str
-    router_var: Optional[str] = None
-    prefix_from_router: Optional[str] = None
-    prefix_from_include: Optional[str] = None
+    router_var: str | None = None
+    prefix_from_router: str | None = None
+    prefix_from_include: str | None = None
     is_app_route: bool = False
-    function_name: Optional[str] = None
-    decorator_args: List[str] = field(default_factory=list)
-    dependencies: List[str] = field(default_factory=list)
-    tags: List[str] = field(default_factory=list)
-    response_model: Optional[str] = None
-    status_code: Optional[int] = None
-    operation_id: Optional[str] = None
-    summary: Optional[str] = None
+    function_name: str | None = None
+    decorator_args: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    response_model: str | None = None
+    status_code: int | None = None
+    operation_id: str | None = None
+    summary: str | None = None
     deprecated: bool = False
     include_in_schema: bool = True
 
@@ -104,25 +101,25 @@ class RouterInfo:
     var_name: str
     file_path: str
     line: int
-    prefix: Optional[str] = None          # dari APIRouter(prefix=...)
-    include_prefix: Optional[str] = None  # dari app.include_router(prefix=...)
-    routes: List[RouteDef] = field(default_factory=list)
+    prefix: str | None = None          # dari APIRouter(prefix=...)
+    include_prefix: str | None = None  # dari app.include_router(prefix=...)
+    routes: list[RouteDef] = field(default_factory=list)
     is_imported: bool = False
-    import_source: Optional[str] = None
+    import_source: str | None = None
 
 @dataclass
 class IncludeRecord:
     router_var: str
     file_path: str
     line: int
-    prefix: Optional[str] = None
-    dependencies: List[str] = field(default_factory=list)
-    tags: List[str] = field(default_factory=list)
+    prefix: str | None = None
+    dependencies: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
 @dataclass
 class ImportRecord:
     module: str
-    names: List[str]
+    names: list[str]
     file_path: str
     line: int
 
@@ -134,10 +131,10 @@ class ComprehensiveRouteAuditor:
         self,
         import_path: str = "app.main",
         app_variable: str = "app",
-        scan_dirs: Optional[List[str]] = None,
+        scan_dirs: list[str] | None = None,
         ignore_zombie: bool = False,
         use_rca: bool = True,
-        export_json: Optional[str] = None,
+        export_json: str | None = None,
     ):
         self.import_path = import_path
         self.app_variable = app_variable
@@ -151,22 +148,22 @@ class ComprehensiveRouteAuditor:
             sys.path.insert(0, str(self.project_root))
 
         # State
-        self.routers: Dict[str, RouterInfo] = {}
-        self.includes: List[IncludeRecord] = []
-        self.imports: List[ImportRecord] = []
-        self.static_routes: List[RouteDef] = []
-        self.runtime_routes: List[Dict[str, Any]] = []
-        self.errors: List[Dict[str, Any]] = []
-        self.warnings: List[Dict[str, Any]] = []
+        self.routers: dict[str, RouterInfo] = {}
+        self.includes: list[IncludeRecord] = []
+        self.imports: list[ImportRecord] = []
+        self.static_routes: list[RouteDef] = []
+        self.runtime_routes: list[dict[str, Any]] = []
+        self.errors: list[dict[str, Any]] = []
+        self.warnings: list[dict[str, Any]] = []
 
         # Hasil analisis
-        self.collisions: List[Tuple[Tuple[str, str], List[Dict[str, Any]]]] = []  # (path, method) -> list of route info
-        self.ambiguous_paths: List[Dict] = []
-        self.zombie_routers: List[RouterInfo] = []
-        self.unused_imports: List[ImportRecord] = []
-        self.duplicate_router_includes: List[IncludeRecord] = []
-        self.router_prefix_conflicts: List[Tuple[RouterInfo, RouterInfo]] = []
-        self.duplicate_operation_ids: List[Tuple[str, List[RouteDef]]] = []
+        self.collisions: list[tuple[tuple[str, str], list[dict[str, Any]]]] = []  # (path, method) -> list of route info
+        self.ambiguous_paths: list[dict] = []
+        self.zombie_routers: list[RouterInfo] = []
+        self.unused_imports: list[ImportRecord] = []
+        self.duplicate_router_includes: list[IncludeRecord] = []
+        self.router_prefix_conflicts: list[tuple[RouterInfo, RouterInfo]] = []
+        self.duplicate_operation_ids: list[tuple[str, list[RouteDef]]] = []
 
     # ---- Logging ----
     def log_info(self, msg: str):
@@ -193,7 +190,7 @@ class ComprehensiveRouteAuditor:
                 print(f"    {C_CYAN}↳{C_RESET} {ev[:100]}")
 
     # ---- Utilitas ----
-    def _capture_error(self, exc: Exception, context: Dict[str, Any]):
+    def _capture_error(self, exc: Exception, context: dict[str, Any]):
         rca = None
         if self.use_rca:
             try:
@@ -216,7 +213,7 @@ class ComprehensiveRouteAuditor:
             path = path[:-1]
         return path
 
-    def _extract_decorator_args(self, call: ast.Call) -> Dict[str, Any]:
+    def _extract_decorator_args(self, call: ast.Call) -> dict[str, Any]:
         args = {}
         if call.args:
             first = call.args[0]
@@ -244,14 +241,14 @@ class ComprehensiveRouteAuditor:
                     args[kw.arg] = "unknown"
         return args
 
-    def _extract_router_prefix(self, call_node: ast.Call) -> Optional[str]:
+    def _extract_router_prefix(self, call_node: ast.Call) -> str | None:
         for kw in call_node.keywords:
             if kw.arg == "prefix" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
                 return kw.value.value
         return None
 
     # ---- Static Scan ----
-    def _find_py_files(self) -> List[Path]:
+    def _find_py_files(self) -> list[Path]:
         files = []
         for p in self.project_root.glob("*.py"):
             if not p.name.startswith(("test_", "setup", "route_")):
@@ -264,7 +261,7 @@ class ComprehensiveRouteAuditor:
                         files.append(p)
         return list(set(files))
 
-    def _safe_parse_ast(self, path: Path) -> Optional[ast.AST]:
+    def _safe_parse_ast(self, path: Path) -> ast.AST | None:
         try:
             src = path.read_text(encoding="utf-8", errors="replace")
             return ast.parse(src, filename=str(path))
@@ -314,7 +311,7 @@ class ComprehensiveRouteAuditor:
                 continue
             rel_path = str(file_path.relative_to(self.project_root)).replace("\\", "/")
 
-            router_vars: Set[str] = set()
+            router_vars: set[str] = set()
             # Deteksi APIRouter assignments
             for node in ast.walk(tree):
                 if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
@@ -524,7 +521,7 @@ class ComprehensiveRouteAuditor:
                     continue
 
         if mod is None:
-            error_msg = f"Tidak dapat menemukan modul utama FastAPI. Coba tentukan --import-path yang benar."
+            error_msg = "Tidak dapat menemukan modul utama FastAPI. Coba tentukan --import-path yang benar."
             self.log_error(error_msg)
             self._capture_error(ImportError(error_msg), context={"phase": "runtime_discovery"})
             return
@@ -579,7 +576,7 @@ class ComprehensiveRouteAuditor:
         """Deteksi tabrakan path+method berdasarkan runtime routes (jika ada)."""
         if not self.runtime_routes:
             # fallback ke static
-            route_map: Dict[Tuple[str, str], List[RouteDef]] = defaultdict(list)
+            route_map: dict[tuple[str, str], list[RouteDef]] = defaultdict(list)
             for route in self.static_routes:
                 key = (route.full_path, route.method.upper())
                 route_map[key].append(route)
@@ -590,7 +587,7 @@ class ComprehensiveRouteAuditor:
             return
 
         # Gunakan runtime routes
-        seen: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+        seen: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
         for r in self.runtime_routes:
             for method in r["methods"]:
                 key = (r["path"], method.upper())
@@ -653,7 +650,7 @@ class ComprehensiveRouteAuditor:
 
     def _analyze_duplicate_operation_ids(self):
         """Deteksi operation_id duplikat dari static routes."""
-        op_map: Dict[str, List[RouteDef]] = defaultdict(list)
+        op_map: dict[str, list[RouteDef]] = defaultdict(list)
         for route in self.static_routes:
             if route.operation_id:
                 op_map[route.operation_id].append(route)

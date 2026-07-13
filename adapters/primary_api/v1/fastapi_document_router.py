@@ -26,6 +26,7 @@ Method Standards (ERP):
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -37,6 +38,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+import aiofiles  # <-- Tambahan untuk async file I/O
 from fastapi import (
     APIRouter,
     Depends,
@@ -536,7 +538,7 @@ async def bulk_upload_documents(
 
 
 # ----------------------------------------------------------------------------
-# DOCUMENT DOWNLOAD
+# DOCUMENT DOWNLOAD — DIPERBAIKI (aiofiles untuk file I/O)
 # ----------------------------------------------------------------------------
 
 
@@ -576,8 +578,9 @@ async def download_document(
         os.close(fd)
 
         try:
-            with open(temp_path, "wb") as f:
-                f.write(file_content)
+            # ===== PERBAIKAN: Gunakan aiofiles untuk menulis file =====
+            async with aiofiles.open(temp_path, "wb") as f:
+                await f.write(file_content)
 
             content_disposition = "inline" if inline else "attachment"
 
@@ -591,11 +594,16 @@ async def download_document(
                 },
             )
         finally:
-            # Schedule file deletion (cleanup after response)
-            # In production, use background task or atexit
-            import atexit
+            # Bersihkan file setelah response (asinkron)
+            # Gunakan background task untuk menghapus file setelah response dikirim
+            # FastAPI mendukung BackgroundTasks, tapi di sini kita gunakan asyncio.to_thread
+            # untuk menghapus file setelah 5 detik (memberi waktu client download)
+            async def _cleanup():
+                await asyncio.sleep(5)
+                if os.path.exists(temp_path):
+                    await asyncio.to_thread(os.unlink, temp_path)
 
-            atexit.register(lambda: os.unlink(temp_path) if os.path.exists(temp_path) else None)
+            asyncio.create_task(_cleanup())
 
     except HTTPException:
         raise

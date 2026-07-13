@@ -633,6 +633,11 @@ class RetryMiddleware(Middleware):
             try:
                 return await handler(command)
             except self._retryable_exceptions as e:
+                # Log the exception immediately to avoid silent swallow
+                logger.warning(
+                    f"Retryable exception in command {command.command_type} "
+                    f"(attempt {attempt + 1}/{self._max_retries + 1}): {e}"
+                )
                 last_exception = e
                 if attempt < self._max_retries:
                     delay = self._retry_delay * (attempt + 1)

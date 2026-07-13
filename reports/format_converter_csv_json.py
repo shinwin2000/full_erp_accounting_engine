@@ -16,6 +16,7 @@ Audit: Setiap konversi dicatat. Data yang diekspor dapat digunakan untuk audit t
 
 from __future__ import annotations
 
+import asyncio
 import builtins
 import contextlib
 import csv
@@ -24,6 +25,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
+
+import aiofiles  # <-- Tambahan untuk async file I/O
 
 # Internal dependencies
 from infrastructure.telemetry.structured_json_logging import get_logger
@@ -133,6 +136,9 @@ class FormatConverterCSVJSON:
     # CSV TO JSON
     # ========================================================================
 
+    # ========================================================================
+    # PERBAIKAN: csv_to_json menggunakan aiofiles dan asyncio.to_thread
+    # ========================================================================
     async def csv_to_json(
         self,
         csv_file: Path,
@@ -153,43 +159,53 @@ class FormatConverterCSVJSON:
             List of dictionaries
         """
         enc = encoding or self._csv_encoding
-        result = []
+        delimiter = self._csv_delimiter
+        quotechar = self._csv_quotechar
+
+        def _parse_csv_sync(content: str):
+            """Parse CSV content synchronously in thread pool."""
+            import io
+            reader = csv.reader(
+                io.StringIO(content),
+                delimiter=delimiter,
+                quotechar=quotechar
+            )
+            rows = list(reader)
+            if not rows:
+                return []
+
+            if has_header:
+                headers = rows[0]
+                data_rows = rows[1:]
+            else:
+                headers = [f"col_{i}" for i in range(len(rows[0]))]
+                data_rows = rows
+
+            result = []
+            for row_num, row in enumerate(data_rows, start=1):
+                if len(row) != len(headers):
+                    continue
+                obj = {}
+                for i, header in enumerate(headers):
+                    value = row[i] if i < len(row) else ""
+                    if type_mapping and header in type_mapping:
+                        converter = TYPE_CONVERTERS.get(type_mapping[header])
+                        if converter:
+                            try:
+                                value = converter(value)
+                            except Exception as e:
+                                logger.warning(f"Type conversion error for {header}: {e}")
+                    obj[header] = value
+                result.append(obj)
+            return result
 
         try:
-            with open(csv_file, encoding=enc) as f:
-                reader = csv.reader(f, delimiter=self._csv_delimiter, quotechar=self._csv_quotechar)
-                rows = list(reader)
+            # Baca file secara async
+            async with aiofiles.open(csv_file, encoding=enc) as f:
+                content = await f.read()
 
-                if not rows:
-                    return []
-
-                if has_header:
-                    headers = rows[0]
-                    data_rows = rows[1:]
-                else:
-                    headers = [f"col_{i}" for i in range(len(rows[0]))]
-                    data_rows = rows
-
-                for row_num, row in enumerate(data_rows, start=1):
-                    if len(row) != len(headers):
-                        logger.warning(
-                            f"Row {row_num} has {len(row)} columns, expected {len(headers)}"
-                        )
-                        continue
-
-                    obj = {}
-                    for i, header in enumerate(headers):
-                        value = row[i] if i < len(row) else ""
-                        # Apply type conversion
-                        if type_mapping and header in type_mapping:
-                            converter = TYPE_CONVERTERS.get(type_mapping[header])
-                            if converter:
-                                try:
-                                    value = converter(value)
-                                except Exception as e:
-                                    logger.warning(f"Type conversion error for {header}: {e}")
-                        obj[header] = value
-                    result.append(obj)
+            # Parse CSV di thread pool (CPU-bound)
+            result = await asyncio.to_thread(_parse_csv_sync, content)
 
             logger.info(f"Converted CSV to JSON: {len(result)} records from {csv_file}")
             return result
@@ -202,6 +218,9 @@ class FormatConverterCSVJSON:
     # JSON TO CSV
     # ========================================================================
 
+    # ========================================================================
+    # PERBAIKAN: json_to_csv menggunakan aiofiles dan asyncio.to_thread
+    # ========================================================================
     async def json_to_csv(
         self,
         json_data: list[dict],
@@ -226,38 +245,49 @@ class FormatConverterCSVJSON:
         if fields is None:
             fields = list(json_data[0].keys())
 
-        try:
-            with open(output_file, "w", newline="", encoding=enc) as f:
-                writer = csv.DictWriter(
-                    f,
-                    fieldnames=fields,
-                    delimiter=self._csv_delimiter,
-                    quotechar=self._csv_quotechar,
-                    quoting=csv.QUOTE_MINIMAL,
-                )
-                writer.writeheader()
-                for row in json_data:
-                    # Convert values to string for CSV
-                    csv_row = {}
-                    for field in fields:
-                        val = row.get(field)
-                        if val is None:
-                            csv_row[field] = ""
-                        elif isinstance(val, (datetime, date)):
-                            fmt = (
-                                self._datetime_format
-                                if isinstance(val, datetime)
-                                else self._date_format
-                            )
-                            csv_row[field] = val.strftime(fmt)
-                        elif isinstance(val, Decimal):
-                            if self._decimal_format == "str":
-                                csv_row[field] = str(val)
-                            else:
-                                csv_row[field] = float(val)
-                        else:
+        delimiter = self._csv_delimiter
+        quotechar = self._csv_quotechar
+        date_format = self._date_format
+        datetime_format = self._datetime_format
+        decimal_format = self._decimal_format
+
+        def _write_csv_sync():
+            """Write CSV synchronously in thread pool."""
+            import io
+            output = io.StringIO()
+            writer = csv.DictWriter(
+                output,
+                fieldnames=fields,
+                delimiter=delimiter,
+                quotechar=quotechar,
+                quoting=csv.QUOTE_MINIMAL,
+            )
+            writer.writeheader()
+            for row in json_data:
+                csv_row = {}
+                for field in fields:
+                    val = row.get(field)
+                    if val is None:
+                        csv_row[field] = ""
+                    elif isinstance(val, (datetime, date)):
+                        fmt = datetime_format if isinstance(val, datetime) else date_format
+                        csv_row[field] = val.strftime(fmt)
+                    elif isinstance(val, Decimal):
+                        if decimal_format == "str":
                             csv_row[field] = str(val)
-                    writer.writerow(csv_row)
+                        else:
+                            csv_row[field] = float(val)
+                    else:
+                        csv_row[field] = str(val)
+                writer.writerow(csv_row)
+            return output.getvalue()
+
+        try:
+            csv_content = await asyncio.to_thread(_write_csv_sync)
+
+            # Tulis ke file secara async
+            async with aiofiles.open(output_file, "w", newline="", encoding=enc) as f:
+                await f.write(csv_content)
 
             logger.info(f"Converted JSON to CSV: {len(json_data)} records to {output_file}")
 
@@ -269,6 +299,9 @@ class FormatConverterCSVJSON:
     # STREAMING (for large files)
     # ========================================================================
 
+    # ========================================================================
+    # PERBAIKAN: stream_csv_to_json menggunakan aiofiles dan asyncio.to_thread
+    # ========================================================================
     async def stream_csv_to_json(
         self,
         csv_file: Path,
@@ -291,44 +324,64 @@ class FormatConverterCSVJSON:
             Total records processed
         """
         enc = self._csv_encoding
-        total = 0
-        batch = []
+        delimiter = self._csv_delimiter
+        quotechar = self._csv_quotechar
+
+        def _parse_batch_sync(content: str, offset: int, limit: int):
+            """Parse a batch of CSV rows synchronously."""
+            import io
+            reader = csv.reader(
+                io.StringIO(content),
+                delimiter=delimiter,
+                quotechar=quotechar
+            )
+            rows = list(reader)
+            if not rows:
+                return [], 0
+
+            if has_header:
+                headers = rows[0]
+                data_rows = rows[1:]
+            else:
+                headers = [f"col_{i}" for i in range(len(rows[0]))]
+                data_rows = rows
+
+            # Apply offset and limit
+            start = offset
+            end = offset + limit if limit > 0 else len(data_rows)
+            batch_rows = data_rows[start:end]
+
+            result = []
+            for row in batch_rows:
+                if len(row) != len(headers):
+                    continue
+                obj = {}
+                for i, header in enumerate(headers):
+                    value = row[i] if i < len(row) else ""
+                    if type_mapping and header in type_mapping:
+                        conv = TYPE_CONVERTERS.get(type_mapping[header])
+                        if conv:
+                            with contextlib.suppress(builtins.BaseException):
+                                value = conv(value)
+                    obj[header] = value
+                result.append(obj)
+            return result, len(batch_rows)
 
         try:
-            with open(csv_file, encoding=enc) as f:
-                reader = csv.reader(f, delimiter=self._csv_delimiter, quotechar=self._csv_quotechar)
-                rows = list(reader)
-                if not rows:
-                    return 0
+            async with aiofiles.open(csv_file, encoding=enc) as f:
+                content = await f.read()
 
-                if has_header:
-                    headers = rows[0]
-                    data_rows = rows[1:]
-                else:
-                    headers = [f"col_{i}" for i in range(len(rows[0]))]
-                    data_rows = rows
-
-                for _row_num, row in enumerate(data_rows, start=1):
-                    if len(row) != len(headers):
-                        continue
-                    obj = {}
-                    for i, header in enumerate(headers):
-                        value = row[i] if i < len(row) else ""
-                        if type_mapping and header in type_mapping:
-                            conv = TYPE_CONVERTERS.get(type_mapping[header])
-                            if conv:
-                                with contextlib.suppress(builtins.BaseException):
-                                    value = conv(value)
-                        obj[header] = value
-                    batch.append(obj)
-                    total += 1
-
-                    if len(batch) >= batch_size:
-                        await callback(batch)
-                        batch = []
-
-                if batch:
-                    await callback(batch)
+            total = 0
+            offset = 0
+            while True:
+                batch, count = await asyncio.to_thread(_parse_batch_sync, content, offset, batch_size)
+                if not batch:
+                    break
+                await callback(batch)
+                total += count
+                offset += count
+                if count < batch_size:
+                    break
 
             logger.info(f"Streamed CSV to JSON: {total} records processed")
             return total
@@ -397,11 +450,23 @@ class FormatConverterCSVJSON:
         """Alias untuk json_to_csv dengan data langsung."""
         await self.json_to_csv(data, output_file)
 
+    # ========================================================================
+    # PERBAIKAN: export_to_json menggunakan aiofiles dan asyncio.to_thread
+    # ========================================================================
     async def export_to_json(self, data: list[dict], output_file: Path) -> None:
         """Mengekspor data ke file JSON."""
         try:
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=self._json_indent, default=self._json_serializer)
+            indent = self._json_indent
+            serializer = self._json_serializer
+
+            def _dump_json_sync():
+                return json.dumps(data, indent=indent, default=serializer)
+
+            json_content = await asyncio.to_thread(_dump_json_sync)
+
+            async with aiofiles.open(output_file, "w", encoding="utf-8") as f:
+                await f.write(json_content)
+
             logger.info(f"Exported {len(data)} records to {output_file}")
         except Exception as e:
             logger.error(f"Failed to export JSON: {e}")

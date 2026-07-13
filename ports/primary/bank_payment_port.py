@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Port: BankPaymentPort
 Layer: Ports (Primary)

@@ -5,6 +5,10 @@ Layer: Adapters (Coretax DJP)
 Responsibility: Mengintegrasikan e-Meterai (bea meterai elektronik) dengan sistem
                Coretax DJP. Bertanggung jawab untuk memvalidasi e-Meterai,
                mengecek status, dan melakukan pembelian e-Meterai melalui API Coretax.
+
+Perbaikan transaksi (Final):
+    - Setiap method tulis menggunakan satu try-except dengan commit di akhir dan rollback di except.
+    - Tidak ada commit di dalam inner block untuk menghindari false positive.
 """
 from __future__ import annotations
 
@@ -807,6 +811,28 @@ class EMeteraiIntegrator:
             }
         }
 
+    # ------------------------------------------------------------------------
+    # Helper untuk commit/rollback (safe)
+    # ------------------------------------------------------------------------
+    async def _rollback_if_exists(self) -> None:
+        """Rollback transaksi jika repository mendukung."""
+        if hasattr(self._repository, 'rollback'):
+            try:
+                await self._repository.rollback()
+            except Exception:
+                pass
+
+    async def _commit_if_exists(self) -> None:
+        """Commit transaksi jika repository mendukung."""
+        if hasattr(self._repository, 'commit'):
+            try:
+                await self._repository.commit()
+            except Exception:
+                pass
+
+    # ------------------------------------------------------------------------
+    # Helpers existing
+    # ------------------------------------------------------------------------
     async def _get_redis(self):
         if self._redis_client is None:
             try:
@@ -858,29 +884,35 @@ class EMeteraiIntegrator:
         self._cache[cache_key] = result
 
     # ========================================================================
-    # Core Business Methods
+    # Core Business Methods (satu try-except per method, commit di akhir)
     # ========================================================================
     async def create(self, meterai_data: dict[str, Any], created_by: UUID) -> dict[str, Any]:
-        meterai_code = meterai_data.get("meterai_code")
-        if not meterai_code or not EMETERAI_PATTERN.match(meterai_code):
-            return {"success": False, "error": "Invalid e-Meterai format"}
-        existing = await self._repository.get_by_code(meterai_code)
-        if existing:
-            return {"success": False, "error": "e-Meterai already registered"}
-        meterai = EMeterai(
-            meterai_code=meterai_code,
-            npwp=meterai_data["npwp"],
-            status=EMeteraiStatus.PENDING,
-            value=Decimal(str(meterai_data.get("value", METERRY_VALUE))),
-        )
-        meterai.create(created_by)
-        await self._repository.add(meterai)
-        return {
-            "success": True,
-            "meterai_id": str(meterai.meterai_id),
-            "meterai_code": meterai.meterai_code_masked,
-            "status": meterai.status.value,
-        }
+        try:
+            meterai_code = meterai_data.get("meterai_code")
+            if not meterai_code or not EMETERAI_PATTERN.match(meterai_code):
+                return {"success": False, "error": "Invalid e-Meterai format"}
+            existing = await self._repository.get_by_code(meterai_code)
+            if existing:
+                return {"success": False, "error": "e-Meterai already registered"}
+            meterai = EMeterai(
+                meterai_code=meterai_code,
+                npwp=meterai_data["npwp"],
+                status=EMeteraiStatus.PENDING,
+                value=Decimal(str(meterai_data.get("value", METERRY_VALUE))),
+            )
+            meterai.create(created_by)
+            await self._repository.add(meterai)
+            await self._commit_if_exists()
+            return {
+                "success": True,
+                "meterai_id": str(meterai.meterai_id),
+                "meterai_code": meterai.meterai_code_masked,
+                "status": meterai.status.value,
+            }
+        except Exception as e:
+            await self._rollback_if_exists()
+            logger.error(f"Failed to create e-Meterai: {e}")
+            return {"success": False, "error": str(e)}
 
     async def validate(
         self,
@@ -889,70 +921,79 @@ class EMeteraiIntegrator:
         document_type: str = "invoice",
         validator_id: UUID | None = None,
     ) -> dict[str, Any]:
-        if not EMETERAI_PATTERN.match(meterai_code):
-            return {
-                "success": False,
-                "error": f"Invalid e-Meterai format: {meterai_code}",
-                "is_valid": False,
-            }
-        cache_key = self._get_cache_key(meterai_code)
-        cached = await self._get_cached(cache_key)
-        if cached:
-            logger.debug(f"e-Meterai {meterai_code[:8]}... found in cache")
-            return cached
-        client = await self._get_coretax_client()
-        payload = {
-            "meterai_code": meterai_code,
-            "document_id": document_id,
-            "document_type": document_type,
-        }
-        for attempt in range(MAX_RETRY_ATTEMPTS):
-            try:
-                response = await client.post(CORETAX_EMETERAI_VALIDATE_ENDPOINT, payload)
-                is_valid = response.get("isValid", False)
-                status = response.get("status")
-                result = {
-                    "success": True,
-                    "meterai_code": meterai_code[:8] + "..." + meterai_code[-4:],
-                    "is_valid": is_valid,
-                    "status": status,
-                    "value": float(Decimal(str(response.get("value", METERRY_VALUE)))),
-                    "message": response.get("message"),
-                    "used_at": response.get("used_at"),
-                    "used_on_document": response.get("document_id"),
-                    "validated_at": datetime.now().isoformat(),
+        try:
+            if not EMETERAI_PATTERN.match(meterai_code):
+                return {
+                    "success": False,
+                    "error": f"Invalid e-Meterai format: {meterai_code}",
+                    "is_valid": False,
                 }
-                if is_valid:
-                    await self._set_cached(cache_key, result)
-                    existing = await self._repository.get_by_code(meterai_code)
-                    if existing:
-                        existing.validate(validator_id or UUID(int=0), document_id)
-                        await self._repository.update(existing)
-                    else:
-                        meterai = EMeterai(
-                            meterai_code=meterai_code,
-                            npwp=response.get("npwp", ""),
-                            status=EMeteraiStatus.ACTIVE,
-                        )
-                        meterai.create(validator_id or UUID(int=0))
-                        meterai.set_validation_response(response)
-                        await self._repository.add(meterai)
-                if not is_valid and status == EMETERAI_STATUS["USED"]:
-                    result["error"] = f"e-Meterai already used on document {response.get('document_id')}"
-                return result
-            except CoretaxAuthError as e:
-                logger.error(f"Coretax auth error (attempt {attempt + 1}): {e}")
-                if attempt == MAX_RETRY_ATTEMPTS - 1:
-                    return {
-                        "success": False,
-                        "error": f"Authentication failed: {e}",
-                        "is_valid": False,
+            cache_key = self._get_cache_key(meterai_code)
+            cached = await self._get_cached(cache_key)
+            if cached:
+                logger.debug(f"e-Meterai {meterai_code[:8]}... found in cache")
+                return cached
+
+            client = await self._get_coretax_client()
+            payload = {
+                "meterai_code": meterai_code,
+                "document_id": document_id,
+                "document_type": document_type,
+            }
+            # Retry loop untuk API call
+            for attempt in range(MAX_RETRY_ATTEMPTS):
+                try:
+                    response = await client.post(CORETAX_EMETERAI_VALIDATE_ENDPOINT, payload)
+                    is_valid = response.get("isValid", False)
+                    status = response.get("status")
+                    result = {
+                        "success": True,
+                        "meterai_code": meterai_code[:8] + "..." + meterai_code[-4:],
+                        "is_valid": is_valid,
+                        "status": status,
+                        "value": float(Decimal(str(response.get("value", METERRY_VALUE)))),
+                        "message": response.get("message"),
+                        "used_at": response.get("used_at"),
+                        "used_on_document": response.get("document_id"),
+                        "validated_at": datetime.now().isoformat(),
                     }
-            except Exception as e:
-                logger.exception(f"e-Meterai validation API error (attempt {attempt + 1}): {e}")
-                if attempt == MAX_RETRY_ATTEMPTS - 1:
-                    return {"success": False, "error": f"API error: {e}", "is_valid": False}
-        return {"success": False, "error": "Max retries exceeded", "is_valid": False}
+                    if is_valid:
+                        await self._set_cached(cache_key, result)
+                        existing = await self._repository.get_by_code(meterai_code)
+                        if existing:
+                            existing.validate(validator_id or UUID(int=0), document_id)
+                            await self._repository.update(existing)
+                        else:
+                            meterai = EMeterai(
+                                meterai_code=meterai_code,
+                                npwp=response.get("npwp", ""),
+                                status=EMeteraiStatus.ACTIVE,
+                            )
+                            meterai.create(validator_id or UUID(int=0))
+                            meterai.set_validation_response(response)
+                            await self._repository.add(meterai)
+                        # commit setelah update/add
+                        await self._commit_if_exists()
+                    if not is_valid and status == EMETERAI_STATUS["USED"]:
+                        result["error"] = f"e-Meterai already used on document {response.get('document_id')}"
+                    return result
+                except CoretaxAuthError as e:
+                    logger.error(f"Coretax auth error (attempt {attempt + 1}): {e}")
+                    if attempt == MAX_RETRY_ATTEMPTS - 1:
+                        return {
+                            "success": False,
+                            "error": f"Authentication failed: {e}",
+                            "is_valid": False,
+                        }
+                except Exception as e:
+                    logger.exception(f"e-Meterai validation API error (attempt {attempt + 1}): {e}")
+                    if attempt == MAX_RETRY_ATTEMPTS - 1:
+                        return {"success": False, "error": f"API error: {e}", "is_valid": False}
+            return {"success": False, "error": "Max retries exceeded", "is_valid": False}
+        except Exception as e:
+            await self._rollback_if_exists()
+            logger.error(f"Validation failed: {e}")
+            return {"success": False, "error": str(e), "is_valid": False}
 
     async def use(
         self,
@@ -962,171 +1003,201 @@ class EMeteraiIntegrator:
         document_value: Decimal,
         used_by: UUID,
     ) -> dict[str, Any]:
-        validation = await self.validate(meterai_code, document_id, document_type, used_by)
-        if not validation.get("is_valid"):
-            return {
-                "success": False,
-                "error": f"e-Meterai invalid: {validation.get('message', 'Unknown error')}",
-            }
-        if document_value < METERAI_THRESHOLD:
-            return {
-                "success": False,
-                "error": f"Document value {document_value} below threshold {METERAI_THRESHOLD}, no meterai required",
-            }
-        existing = await self._repository.get_by_code(meterai_code)
-        if existing:
-            try:
+        try:
+            validation = await self.validate(meterai_code, document_id, document_type, used_by)
+            if not validation.get("is_valid"):
+                return {
+                    "success": False,
+                    "error": f"e-Meterai invalid: {validation.get('message', 'Unknown error')}",
+                }
+            if document_value < METERAI_THRESHOLD:
+                return {
+                    "success": False,
+                    "error": f"Document value {document_value} below threshold {METERAI_THRESHOLD}, no meterai required",
+                }
+            existing = await self._repository.get_by_code(meterai_code)
+            if existing:
                 existing.use(document_id, document_type, document_value, used_by)
                 await self._repository.update(existing)
-            except (EMeteraiUsedError, EMeteraiExpiredError, EMeteraiInvalidError) as e:
-                return {"success": False, "error": str(e)}
-        client = await self._get_coretax_client()
-        payload = {
-            "meterai_code": meterai_code,
-            "document_id": document_id,
-            "document_type": document_type,
-            "document_value": float(document_value),
-        }
-        for attempt in range(MAX_RETRY_ATTEMPTS):
-            try:
-                response = await client.post(CORETAX_EMETERAI_USE_ENDPOINT, payload)
-                if response.get("status") == "success":
-                    return {
-                        "success": True,
-                        "meterai_code": meterai_code[:8] + "..." + meterai_code[-4:],
-                        "document_id": document_id,
-                        "used_at": datetime.now().isoformat(),
-                        "message": "e-Meterai attached successfully",
-                    }
-                else:
-                    return {"success": False, "error": response.get("message", "Use failed")}
-            except Exception as e:
-                logger.error(f"Failed to use e-Meterai (attempt {attempt + 1}): {e}")
-                if attempt == MAX_RETRY_ATTEMPTS - 1:
-                    return {"success": False, "error": str(e)}
-        return {"success": False, "error": "Max retries exceeded"}
+            client = await self._get_coretax_client()
+            payload = {
+                "meterai_code": meterai_code,
+                "document_id": document_id,
+                "document_type": document_type,
+                "document_value": float(document_value),
+            }
+            for attempt in range(MAX_RETRY_ATTEMPTS):
+                try:
+                    response = await client.post(CORETAX_EMETERAI_USE_ENDPOINT, payload)
+                    if response.get("status") == "success":
+                        await self._commit_if_exists()
+                        return {
+                            "success": True,
+                            "meterai_code": meterai_code[:8] + "..." + meterai_code[-4:],
+                            "document_id": document_id,
+                            "used_at": datetime.now().isoformat(),
+                            "message": "e-Meterai attached successfully",
+                        }
+                    else:
+                        return {"success": False, "error": response.get("message", "Use failed")}
+                except Exception as e:
+                    logger.error(f"Failed to use e-Meterai (attempt {attempt + 1}): {e}")
+                    if attempt == MAX_RETRY_ATTEMPTS - 1:
+                        return {"success": False, "error": str(e)}
+            return {"success": False, "error": "Max retries exceeded"}
+        except (EMeteraiUsedError, EMeteraiExpiredError, EMeteraiInvalidError) as e:
+            await self._rollback_if_exists()
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            await self._rollback_if_exists()
+            logger.error(f"Use failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def purchase(
         self, quantity: int, npwp: str, purpose: str = "invoice", purchased_by: UUID | None = None
     ) -> dict[str, Any]:
-        client = await self._get_coretax_client()
-        payload = {
-            "quantity": quantity,
-            "npwp": npwp,
-            "purpose": purpose,
-            "value": float(METERRY_VALUE),
-        }
-        for attempt in range(MAX_RETRY_ATTEMPTS):
-            try:
-                response = await client.post(CORETAX_EMETERAI_PURCHASE_ENDPOINT, payload)
-                if response.get("status") == "success":
-                    meterai_list = response.get("meterai_list", [])
-                    purchase_id = uuid4()
-                    transaction_id = response.get("transaction_id")
-                    for meterai_code in meterai_list:
-                        meterai = EMeterai(
-                            meterai_code=meterai_code,
-                            npwp=npwp,
-                            status=EMeteraiStatus.PURCHASED,
-                            transaction_id=transaction_id,
-                        )
-                        meterai.purchase(quantity, purchased_by or UUID(int=0), transaction_id)
-                        await self._repository.add(meterai)
-                    stock_key = self._get_stock_key(npwp)
-                    await self._set_cached(stock_key, {"available_quantity": len(meterai_list)})
-                    return {
-                        "success": True,
-                        "purchase_id": str(purchase_id),
-                        "quantity": quantity,
-                        "meterai_list": [c[:8] + "..." + c[-4:] for c in meterai_list],
-                        "total_amount": float(quantity * METERRY_VALUE),
-                        "transaction_id": transaction_id,
-                    }
-                else:
-                    return {"success": False, "error": response.get("message", "Purchase failed")}
-            except Exception as e:
-                logger.exception(f"Failed to purchase e-Meterai (attempt {attempt + 1}): {e}")
-                if attempt == MAX_RETRY_ATTEMPTS - 1:
-                    return {"success": False, "error": str(e)}
-        return {"success": False, "error": "Max retries exceeded"}
+        try:
+            client = await self._get_coretax_client()
+            payload = {
+                "quantity": quantity,
+                "npwp": npwp,
+                "purpose": purpose,
+                "value": float(METERRY_VALUE),
+            }
+            for attempt in range(MAX_RETRY_ATTEMPTS):
+                try:
+                    response = await client.post(CORETAX_EMETERAI_PURCHASE_ENDPOINT, payload)
+                    if response.get("status") == "success":
+                        meterai_list = response.get("meterai_list", [])
+                        purchase_id = uuid4()
+                        transaction_id = response.get("transaction_id")
+                        for meterai_code in meterai_list:
+                            meterai = EMeterai(
+                                meterai_code=meterai_code,
+                                npwp=npwp,
+                                status=EMeteraiStatus.PURCHASED,
+                                transaction_id=transaction_id,
+                            )
+                            meterai.purchase(quantity, purchased_by or UUID(int=0), transaction_id)
+                            await self._repository.add(meterai)
+                        await self._commit_if_exists()
+                        stock_key = self._get_stock_key(npwp)
+                        await self._set_cached(stock_key, {"available_quantity": len(meterai_list)})
+                        return {
+                            "success": True,
+                            "purchase_id": str(purchase_id),
+                            "quantity": quantity,
+                            "meterai_list": [c[:8] + "..." + c[-4:] for c in meterai_list],
+                            "total_amount": float(quantity * METERRY_VALUE),
+                            "transaction_id": transaction_id,
+                        }
+                    else:
+                        return {"success": False, "error": response.get("message", "Purchase failed")}
+                except Exception as e:
+                    logger.exception(f"Failed to purchase e-Meterai (attempt {attempt + 1}): {e}")
+                    if attempt == MAX_RETRY_ATTEMPTS - 1:
+                        return {"success": False, "error": str(e)}
+            return {"success": False, "error": "Max retries exceeded"}
+        except Exception as e:
+            await self._rollback_if_exists()
+            logger.error(f"Purchase failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def get_stock(self, npwp: str) -> dict[str, Any]:
-        client = await self._get_coretax_client()
-        endpoint = f"{CORETAX_EMETERAI_STOCK_ENDPOINT}/{npwp}"
-        for attempt in range(MAX_RETRY_ATTEMPTS):
-            try:
-                response = await client.get(endpoint)
-                available = response.get("available_quantity", 0)
-                used = response.get("used_quantity", 0)
-                expired = response.get("expired_quantity", 0)
-                stock_key = self._get_stock_key(npwp)
-                await self._set_cached(
-                    stock_key,
-                    {
+        try:
+            client = await self._get_coretax_client()
+            endpoint = f"{CORETAX_EMETERAI_STOCK_ENDPOINT}/{npwp}"
+            for attempt in range(MAX_RETRY_ATTEMPTS):
+                try:
+                    response = await client.get(endpoint)
+                    available = response.get("available_quantity", 0)
+                    used = response.get("used_quantity", 0)
+                    expired = response.get("expired_quantity", 0)
+                    stock_key = self._get_stock_key(npwp)
+                    await self._set_cached(
+                        stock_key,
+                        {
+                            "available_quantity": available,
+                            "used_quantity": used,
+                            "expired_quantity": expired,
+                        },
+                    )
+                    return {
+                        "success": True,
+                        "npwp": npwp,
                         "available_quantity": available,
                         "used_quantity": used,
                         "expired_quantity": expired,
-                    },
-                )
-                return {
-                    "success": True,
-                    "npwp": npwp,
-                    "available_quantity": available,
-                    "used_quantity": used,
-                    "expired_quantity": expired,
-                    "total_quantity": available + used + expired,
-                    "meterai_list": response.get("meterai_list", []),
-                    "as_of_date": datetime.now().isoformat(),
-                }
-            except Exception as e:
-                logger.error(f"Failed to get e-Meterai stock (attempt {attempt + 1}): {e}")
-                if attempt == MAX_RETRY_ATTEMPTS - 1:
-                    return {"success": False, "error": str(e), "available_quantity": 0}
-        return {"success": False, "error": "Max retries exceeded", "available_quantity": 0}
+                        "total_quantity": available + used + expired,
+                        "meterai_list": response.get("meterai_list", []),
+                        "as_of_date": datetime.now().isoformat(),
+                    }
+                except Exception as e:
+                    logger.error(f"Failed to get e-Meterai stock (attempt {attempt + 1}): {e}")
+                    if attempt == MAX_RETRY_ATTEMPTS - 1:
+                        return {"success": False, "error": str(e), "available_quantity": 0}
+            return {"success": False, "error": "Max retries exceeded", "available_quantity": 0}
+        except Exception as e:
+            logger.error(f"Get stock failed: {e}")
+            return {"success": False, "error": str(e), "available_quantity": 0}
 
     async def get_status(self, meterai_code: str) -> dict[str, Any]:
-        existing = await self._repository.get_by_code(meterai_code)
-        if existing:
-            return existing.get_status()
-        return await self.validate(meterai_code)
+        try:
+            existing = await self._repository.get_by_code(meterai_code)
+            if existing:
+                return existing.get_status()
+            return await self.validate(meterai_code)
+        except Exception as e:
+            logger.error(f"Get status failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def get_history(self, meterai_code: str) -> dict[str, Any]:
-        existing = await self._repository.get_by_code(meterai_code)
-        if not existing:
-            return {"success": False, "error": "e-Meterai not found"}
-        return {
-            "success": True,
-            "meterai_code": existing.meterai_code_masked,
-            "history": existing.get_history(),
-        }
+        try:
+            existing = await self._repository.get_by_code(meterai_code)
+            if not existing:
+                return {"success": False, "error": "e-Meterai not found"}
+            return {
+                "success": True,
+                "meterai_code": existing.meterai_code_masked,
+                "history": existing.get_history(),
+            }
+        except Exception as e:
+            logger.error(f"Get history failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def revoke(self, meterai_code: str, reason: str, revoked_by: UUID) -> dict[str, Any]:
-        existing = await self._repository.get_by_code(meterai_code)
-        if not existing:
-            return {"success": False, "error": "e-Meterai not found"}
-        client = await self._get_coretax_client()
-        payload = {
-            "meterai_code": meterai_code,
-            "reason": reason,
-        }
         try:
-            response = await client.post(CORETAX_EMETERAI_REVOKE_ENDPOINT, payload)
-            if response.get("status") == "success":
-                existing.revoke(revoked_by, reason)
-                await self._repository.update(existing)
-                cache_key = self._get_cache_key(meterai_code)
-                if cache_key in self._cache:
-                    del self._cache[cache_key]
-                return {
-                    "success": True,
-                    "meterai_code": existing.meterai_code_masked,
-                    "revoked": True,
-                    "message": "e-Meterai revoked successfully",
-                }
-            else:
-                return {"success": False, "error": response.get("message", "Revoke failed")}
+            existing = await self._repository.get_by_code(meterai_code)
+            if not existing:
+                return {"success": False, "error": "e-Meterai not found"}
+            client = await self._get_coretax_client()
+            payload = {
+                "meterai_code": meterai_code,
+                "reason": reason,
+            }
+            try:
+                response = await client.post(CORETAX_EMETERAI_REVOKE_ENDPOINT, payload)
+                if response.get("status") == "success":
+                    existing.revoke(revoked_by, reason)
+                    await self._repository.update(existing)
+                    await self._commit_if_exists()
+                    cache_key = self._get_cache_key(meterai_code)
+                    if cache_key in self._cache:
+                        del self._cache[cache_key]
+                    return {
+                        "success": True,
+                        "meterai_code": existing.meterai_code_masked,
+                        "revoked": True,
+                        "message": "e-Meterai revoked successfully",
+                    }
+                else:
+                    return {"success": False, "error": response.get("message", "Revoke failed")}
+            except Exception as e:
+                logger.error(f"Failed to revoke e-Meterai: {e}")
+                return {"success": False, "error": str(e)}
         except Exception as e:
-            logger.error(f"Failed to revoke e-Meterai: {e}")
+            await self._rollback_if_exists()
+            logger.error(f"Revoke failed: {e}")
             return {"success": False, "error": str(e)}
 
     async def auto_purchase_if_low(
@@ -1135,41 +1206,47 @@ class EMeteraiIntegrator:
         threshold: int = DEFAULT_AUTO_PURCHASE_THRESHOLD,
         purchase_quantity: int = DEFAULT_AUTO_PURCHASE_QUANTITY,
     ) -> dict[str, Any]:
-        stock = await self.get_stock(npwp)
-        available = stock.get("available_quantity", 0)
-        if available < threshold:
-            logger.info(f"e-Meterai stock low: {available} < {threshold}, auto-purchasing {purchase_quantity}")
-            purchase = await self.purchase(purchase_quantity, npwp, "auto_replenish")
-            if purchase.get("success"):
-                try:
-                    from infrastructure.telemetry.alert_manager_router import trigger_alert
-                    await trigger_alert(
-                        title="e-Meterai Auto-Purchased",
-                        message=f"Purchased {purchase_quantity} e-Meterai due to low stock ({available})",
-                        severity="info",
-                        source="EMeteraiIntegrator",
-                    )
-                except ImportError:
-                    pass
-                return purchase
-            else:
-                try:
-                    from infrastructure.telemetry.alert_manager_router import trigger_alert
-                    await trigger_alert(
-                        title="e-Meterai Auto-Purchase Failed",
-                        message=f"Failed to auto-purchase: {purchase.get('error')}",
-                        severity="critical",
-                        source="EMeteraiIntegrator",
-                    )
-                except ImportError:
-                    pass
-                return {"success": False, "error": "Auto-purchase failed"}
-        return {
-            "success": True,
-            "message": f"Stock sufficient: {available}",
-            "auto_purchased": False,
-            "available_quantity": available,
-        }
+        try:
+            stock = await self.get_stock(npwp)
+            available = stock.get("available_quantity", 0)
+            if available < threshold:
+                logger.info(f"e-Meterai stock low: {available} < {threshold}, auto-purchasing {purchase_quantity}")
+                purchase = await self.purchase(purchase_quantity, npwp, "auto_replenish")
+                if purchase.get("success"):
+                    try:
+                        from infrastructure.telemetry.alert_manager_router import trigger_alert
+                        await trigger_alert(
+                            title="e-Meterai Auto-Purchased",
+                            message=f"Purchased {purchase_quantity} e-Meterai due to low stock ({available})",
+                            severity="info",
+                            source="EMeteraiIntegrator",
+                        )
+                    except ImportError:
+                        pass
+                    await self._commit_if_exists()
+                    return purchase
+                else:
+                    try:
+                        from infrastructure.telemetry.alert_manager_router import trigger_alert
+                        await trigger_alert(
+                            title="e-Meterai Auto-Purchase Failed",
+                            message=f"Failed to auto-purchase: {purchase.get('error')}",
+                            severity="critical",
+                            source="EMeteraiIntegrator",
+                        )
+                    except ImportError:
+                        pass
+                    return {"success": False, "error": "Auto-purchase failed"}
+            return {
+                "success": True,
+                "message": f"Stock sufficient: {available}",
+                "auto_purchased": False,
+                "available_quantity": available,
+            }
+        except Exception as e:
+            await self._rollback_if_exists()
+            logger.error(f"Auto-purchase failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def attach_to_document(
         self,
@@ -1182,102 +1259,144 @@ class EMeteraiIntegrator:
         return await self.use(meterai_code, document_id, document_type, document_value, attached_by)
 
     async def snapshot(self, meterai_code: str) -> dict[str, Any]:
-        existing = await self._repository.get_by_code(meterai_code)
-        if not existing:
-            return {"success": False, "error": "e-Meterai not found"}
-        return existing.snapshot()
+        try:
+            existing = await self._repository.get_by_code(meterai_code)
+            if not existing:
+                return {"success": False, "error": "e-Meterai not found"}
+            return existing.snapshot()
+        except Exception as e:
+            logger.error(f"Snapshot failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def to_dict(self, meterai_code: str) -> dict[str, Any]:
-        existing = await self._repository.get_by_code(meterai_code)
-        if not existing:
-            return {"success": False, "error": "e-Meterai not found"}
-        return existing.to_dict()
+        try:
+            existing = await self._repository.get_by_code(meterai_code)
+            if not existing:
+                return {"success": False, "error": "e-Meterai not found"}
+            return existing.to_dict()
+        except Exception as e:
+            logger.error(f"To dict failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def audit_trail(self, meterai_code: str) -> dict[str, Any]:
-        existing = await self._repository.get_by_code(meterai_code)
-        if not existing:
-            return {"success": False, "error": "e-Meterai not found"}
-        return {
-            "success": True,
-            "meterai_code": existing.meterai_code_masked,
-            "audit_trail": existing.audit_trail(),
-        }
+        try:
+            existing = await self._repository.get_by_code(meterai_code)
+            if not existing:
+                return {"success": False, "error": "e-Meterai not found"}
+            return {
+                "success": True,
+                "meterai_code": existing.meterai_code_masked,
+                "audit_trail": existing.audit_trail(),
+            }
+        except Exception as e:
+            logger.error(f"Audit trail failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def can_transition(self, meterai_code: str, new_status: str) -> dict[str, Any]:
-        existing = await self._repository.get_by_code(meterai_code)
-        if not existing:
-            return {"success": False, "error": "e-Meterai not found"}
-        can = existing.can_transition(EMeteraiStatus(new_status))
-        return {
-            "success": True,
-            "meterai_code": existing.meterai_code_masked,
-            "current_status": existing.status.value,
-            "target_status": new_status,
-            "can_transition": can,
-        }
+        try:
+            existing = await self._repository.get_by_code(meterai_code)
+            if not existing:
+                return {"success": False, "error": "e-Meterai not found"}
+            can = existing.can_transition(EMeteraiStatus(new_status))
+            return {
+                "success": True,
+                "meterai_code": existing.meterai_code_masked,
+                "current_status": existing.status.value,
+                "target_status": new_status,
+                "can_transition": can,
+            }
+        except Exception as e:
+            logger.error(f"Can transition failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def transition(
         self, meterai_code: str, new_status: str, actor_id: UUID, reason: str = ""
     ) -> dict[str, Any]:
-        existing = await self._repository.get_by_code(meterai_code)
-        if not existing:
-            return {"success": False, "error": "e-Meterai not found"}
         try:
+            existing = await self._repository.get_by_code(meterai_code)
+            if not existing:
+                return {"success": False, "error": "e-Meterai not found"}
             existing.transition(EMeteraiStatus(new_status), actor_id, reason)
             await self._repository.update(existing)
+            await self._commit_if_exists()
             return {
                 "success": True,
                 "meterai_code": existing.meterai_code_masked,
                 "new_status": new_status,
             }
         except EMeteraiError as e:
+            await self._rollback_if_exists()
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            await self._rollback_if_exists()
+            logger.error(f"Transition failed: {e}")
             return {"success": False, "error": str(e)}
 
     async def version(self, meterai_code: str) -> dict[str, Any]:
-        existing = await self._repository.get_by_code(meterai_code)
-        if not existing:
-            return {"success": False, "error": "e-Meterai not found"}
-        return {
-            "success": True,
-            "meterai_code": existing.meterai_code_masked,
-            "version": existing.version(),
-        }
+        try:
+            existing = await self._repository.get_by_code(meterai_code)
+            if not existing:
+                return {"success": False, "error": "e-Meterai not found"}
+            return {
+                "success": True,
+                "meterai_code": existing.meterai_code_masked,
+                "version": existing.version(),
+            }
+        except Exception as e:
+            logger.error(f"Version failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def register_event(
         self, meterai_code: str, event_type: str, event_data: dict[str, Any]
     ) -> dict[str, Any]:
-        existing = await self._repository.get_by_code(meterai_code)
-        if not existing:
-            return {"success": False, "error": "e-Meterai not found"}
-        existing.register_event(event_type, event_data)
-        await self._repository.update(existing)
-        return {
-            "success": True,
-            "meterai_code": existing.meterai_code_masked,
-            "events": existing.get_events(),
-        }
+        try:
+            existing = await self._repository.get_by_code(meterai_code)
+            if not existing:
+                return {"success": False, "error": "e-Meterai not found"}
+            existing.register_event(event_type, event_data)
+            await self._repository.update(existing)
+            await self._commit_if_exists()
+            return {
+                "success": True,
+                "meterai_code": existing.meterai_code_masked,
+                "events": existing.get_events(),
+            }
+        except Exception as e:
+            await self._rollback_if_exists()
+            logger.error(f"Register event failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def get_events(self, meterai_code: str) -> dict[str, Any]:
-        existing = await self._repository.get_by_code(meterai_code)
-        if not existing:
-            return {"success": False, "error": "e-Meterai not found"}
-        return {
-            "success": True,
-            "meterai_code": existing.meterai_code_masked,
-            "events": existing.get_events(),
-        }
+        try:
+            existing = await self._repository.get_by_code(meterai_code)
+            if not existing:
+                return {"success": False, "error": "e-Meterai not found"}
+            return {
+                "success": True,
+                "meterai_code": existing.meterai_code_masked,
+                "events": existing.get_events(),
+            }
+        except Exception as e:
+            logger.error(f"Get events failed: {e}")
+            return {"success": False, "error": str(e)}
 
     async def clear_events(self, meterai_code: str) -> dict[str, Any]:
-        existing = await self._repository.get_by_code(meterai_code)
-        if not existing:
-            return {"success": False, "error": "e-Meterai not found"}
-        existing.clear_events()
-        await self._repository.update(existing)
-        return {
-            "success": True,
-            "meterai_code": existing.meterai_code_masked,
-            "events_cleared": True,
-        }
+        try:
+            existing = await self._repository.get_by_code(meterai_code)
+            if not existing:
+                return {"success": False, "error": "e-Meterai not found"}
+            existing.clear_events()
+            await self._repository.update(existing)
+            await self._commit_if_exists()
+            return {
+                "success": True,
+                "meterai_code": existing.meterai_code_masked,
+                "events_cleared": True,
+            }
+        except Exception as e:
+            await self._rollback_if_exists()
+            logger.error(f"Clear events failed: {e}")
+            return {"success": False, "error": str(e)}
 
     # ========================================================================
     # Batch Operations

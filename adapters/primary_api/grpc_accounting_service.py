@@ -6,9 +6,9 @@ import asyncio
 import hashlib
 import json
 import logging
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID
 
 from grpc import StatusCode, aio
@@ -38,7 +38,7 @@ class IdempotencyManager:
 
     def __init__(self):
         # In-memory storage: key -> (result_json, timestamp)
-        self._storage: Dict[str, tuple[str, datetime]] = {}
+        self._storage: dict[str, tuple[str, datetime]] = {}
         self._ttl_seconds = 86400  # 24 jam
 
     def _get_key(self, idempotency_key: str, method_name: str) -> str:
@@ -46,7 +46,7 @@ class IdempotencyManager:
         raw = f"{method_name}:{idempotency_key}"
         return hashlib.sha256(raw.encode()).hexdigest()
 
-    def get_cached_result(self, idempotency_key: str, method_name: str) -> Optional[Any]:
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> Any | None:
         """Ambil hasil yang sudah di-cache berdasarkan key."""
         storage_key = self._get_key(idempotency_key, method_name)
         entry = self._storage.get(storage_key)
@@ -54,7 +54,7 @@ class IdempotencyManager:
             return None
         result_json, timestamp = entry
         # Cek TTL
-        if (datetime.now(timezone.utc) - timestamp).total_seconds() > self._ttl_seconds:
+        if (datetime.now(UTC) - timestamp).total_seconds() > self._ttl_seconds:
             del self._storage[storage_key]
             return None
         try:
@@ -73,7 +73,7 @@ class IdempotencyManager:
                 result_json = json.dumps(result.to_dict(), default=str)
             else:
                 result_json = json.dumps({"result": str(result)}, default=str)
-        self._storage[storage_key] = (result_json, datetime.now(timezone.utc))
+        self._storage[storage_key] = (result_json, datetime.now(UTC))
 
 
 # ============================================================================
@@ -103,21 +103,39 @@ class AuthenticationInterceptor(aio.ServerInterceptor):
         return await continuation(handler_call_details)
 
     async def _abort(self, call_details, code, details):
-        logger.error(f"Authentication aborted: {code}")
+        logger.error(f"Authentication aborted: {code} - {details}")
 
+
+# ============================================================================
+# PERBAIKAN: AuditInterceptor dengan safe create_task
+# ============================================================================
 
 class AuditInterceptor(aio.ServerInterceptor):
+    """Interceptor untuk audit logging dengan task management."""
+
+    def __init__(self):
+        self._pending_tasks: list[asyncio.Task] = []
+
+    def _add_pending_task(self, task: asyncio.Task) -> None:
+        """Tambahkan task ke daftar pending dan daftarkan callback untuk menghapusnya."""
+        self._pending_tasks.append(task)
+        task.add_done_callback(
+            lambda t: self._pending_tasks.remove(t) if t in self._pending_tasks else None
+        )
+
     async def intercept_service(self, continuation, handler_call_details):
         method_name = handler_call_details.method
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         try:
             response = await continuation(handler_call_details)
-            duration = (datetime.now(timezone.utc) - start).total_seconds()
-            asyncio.create_task(self._log_audit(method_name, True, duration, None))
+            duration = (datetime.now(UTC) - start).total_seconds()
+            task = asyncio.create_task(self._log_audit(method_name, True, duration, None))
+            self._add_pending_task(task)
             return response
         except Exception as e:
-            duration = (datetime.now(timezone.utc) - start).total_seconds()
-            asyncio.create_task(self._log_audit(method_name, False, duration, str(e)))
+            duration = (datetime.now(UTC) - start).total_seconds()
+            task = asyncio.create_task(self._log_audit(method_name, False, duration, str(e)))
+            self._add_pending_task(task)
             raise
 
     async def _log_audit(self, method, success, duration, error):
@@ -172,7 +190,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
     def _get_legal_entity_id(self, context) -> str:
         return dict(context.invocation_metadata() or {}).get("legal-entity-id", "")
 
-    def _get_idempotency_key(self, context) -> Optional[str]:
+    def _get_idempotency_key(self, context) -> str | None:
         """Ambil idempotency key dari metadata gRPC."""
         metadata = dict(context.invocation_metadata() or {})
         # Coba beberapa varian header
@@ -185,7 +203,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
     # Journal Methods (write operations with explicit idempotency)
     # ------------------------------------------------------------------------
 
-    async def CreateJournal(self, request, context, idempotency_key: Optional[str] = None):
+    async def CreateJournal(self, request, context, idempotency_key: str | None = None):
         try:
             # Get idempotency key from parameter or context
             if idempotency_key is None:
@@ -247,7 +265,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
             logger.exception("CreateJournal failed")
             await context.abort(StatusCode.INVALID_ARGUMENT, str(e))
 
-    async def PostJournal(self, request, context, idempotency_key: Optional[str] = None):
+    async def PostJournal(self, request, context, idempotency_key: str | None = None):
         try:
             if idempotency_key is None:
                 idempotency_key = self._get_idempotency_key(context)
@@ -287,7 +305,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
         except Exception as e:
             await context.abort(StatusCode.INVALID_ARGUMENT, str(e))
 
-    async def ReverseJournal(self, request, context, idempotency_key: Optional[str] = None):
+    async def ReverseJournal(self, request, context, idempotency_key: str | None = None):
         try:
             if idempotency_key is None:
                 idempotency_key = self._get_idempotency_key(context)
@@ -412,7 +430,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
     # AR/AP Methods (write operations with explicit idempotency)
     # ------------------------------------------------------------------------
 
-    async def CreateARInvoice(self, request, context, idempotency_key: Optional[str] = None):
+    async def CreateARInvoice(self, request, context, idempotency_key: str | None = None):
         try:
             if idempotency_key is None:
                 idempotency_key = self._get_idempotency_key(context)
@@ -467,7 +485,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
         except Exception as e:
             await context.abort(StatusCode.INVALID_ARGUMENT, str(e))
 
-    async def RecordARPayment(self, request, context, idempotency_key: Optional[str] = None):
+    async def RecordARPayment(self, request, context, idempotency_key: str | None = None):
         try:
             if idempotency_key is None:
                 idempotency_key = self._get_idempotency_key(context)
@@ -512,7 +530,7 @@ class AccountingServiceServicer(accounting_pb2_grpc.AccountingServiceServicer):
         except Exception as e:
             await context.abort(StatusCode.INVALID_ARGUMENT, str(e))
 
-    async def CreateAPInvoice(self, request, context, idempotency_key: Optional[str] = None):
+    async def CreateAPInvoice(self, request, context, idempotency_key: str | None = None):
         try:
             if idempotency_key is None:
                 idempotency_key = self._get_idempotency_key(context)
@@ -586,6 +604,7 @@ async def start_grpc_server():
     try:
         await server.wait_for_termination()
     except KeyboardInterrupt:
+        logger.info("Received KeyboardInterrupt, shutting down gRPC server gracefully...")
         await server.stop(grace=5)
 
 

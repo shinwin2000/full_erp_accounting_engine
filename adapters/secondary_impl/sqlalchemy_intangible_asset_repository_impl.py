@@ -12,12 +12,18 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    and_, or_, select, text, func,
-    Column, String, Numeric, Date, DateTime, Text, Boolean,
+    Column,
+    Date,
+    DateTime,
+    Numeric,
+    func,
+    or_,
+    select,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +31,6 @@ from sqlalchemy.orm import declarative_base
 
 from domain.intangible_asset.aggregate_root import IntangibleAsset
 from domain.intangible_asset.asset_entity import IntangibleAssetEntity
-
 from infrastructure.database.session_factory_sqlalchemy import get_async_session
 from infrastructure.persistence_orm.intangible_asset_table import IntangibleAssetTable
 from ports.primary.intangible_asset_repository_port import IntangibleAssetRepositoryPort

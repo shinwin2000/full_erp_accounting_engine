@@ -23,8 +23,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 # PERBAIKAN: import DropTable dari sqlalchemy.schema
-from sqlalchemy import DDL, MetaData, Table, text
-from sqlalchemy.schema import DropTable
+from sqlalchemy import DDL, text
 
 from config.loader_yaml import load_yaml_config
 
@@ -406,6 +405,7 @@ class PartitionManagerPgPartman:
                     await asyncio.sleep(86400)  # 24 hours
                     await self.run_maintenance()
                 except asyncio.CancelledError:
+                    logger.debug("Periodic maintenance loop cancelled")
                     break
                 except Exception as e:
                     logger.error(f"Periodic maintenance error: {e}")
@@ -417,6 +417,10 @@ class PartitionManagerPgPartman:
         """Stop periodic maintenance."""
         if self._maintenance_task:
             self._maintenance_task.cancel()
+            try:
+                await self._maintenance_task
+            except asyncio.CancelledError:
+                logger.debug("Periodic maintenance task cancelled during stop")
             self._maintenance_task = None
             logger.info("Periodic partition maintenance stopped")
 

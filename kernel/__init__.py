@@ -73,6 +73,11 @@ def __getattr__(name):
         from kernel.command_handler_registry import CommandHandlerRegistry
 
         return CommandHandlerRegistry
+    # ===== PERBAIKAN: tambahkan alias untuk command_handler_registry (instance) =====
+    if name == "command_handler_registry":
+        from kernel.command_handler_registry import get_handler_registry
+
+        return get_handler_registry()
     if name == "get_handler_registry":
         from kernel.command_handler_registry import get_handler_registry
 
@@ -81,6 +86,11 @@ def __getattr__(name):
         from kernel.context_holder import ContextHolder
 
         return ContextHolder
+    # ===== PERBAIKAN: tambahkan alias untuk context_holder (instance) =====
+    if name == "context_holder":
+        from kernel.context_holder import get_context_holder
+
+        return get_context_holder()
     if name == "get_context_holder":
         from kernel.context_holder import get_context_holder
 
@@ -176,6 +186,8 @@ __all__ = [
     "TransactionalExecutor",
     "ValidationPipeline",
     "__version__",
+    "command_handler_registry",  
+    "context_holder",             
     "get_audit_hook_injector",
     "get_circuit_breaker",
     "get_command_dispatcher",

@@ -96,12 +96,12 @@ class AmortizationMonthlyRunCommand(BaseCommand):
     """
 
     __slots__ = (
-        "legal_entity_id",
         "as_of_date",
         "asset_ids",
+        "correlation_id",
+        "legal_entity_id",
         "post_to_ledger",
         "user_id",
-        "correlation_id",
     )
 
     def __init__(

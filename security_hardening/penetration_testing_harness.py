@@ -484,8 +484,10 @@ class PenetrationTestingHarness:
             duration = (time.time() - start) * 1000
             return resp.status_code, resp.text[:5000], duration
         except requests.exceptions.Timeout:
+            logger.warning(f"Request timeout to {url}")
             return 408, "Timeout", (time.time() - start) * 1000
         except Exception as e:
+            logger.warning(f"Request error to {url}: {e}")
             return 500, str(e), (time.time() - start) * 1000
 
     # ------------------------------------------------------------------------

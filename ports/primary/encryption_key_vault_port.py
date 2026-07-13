@@ -94,21 +94,27 @@ class EncryptionKeyVaultPort:
         self._lock = asyncio.Lock()
         self._master_salt = master_key_salt or os.urandom(32)
         self._rotation_job_active = False
+        # ===== PERBAIKAN: Simpan referensi task background =====
+        self._background_tasks: list[asyncio.Task] = []
 
-        # Inisialisasi default master key (untuk testing/development)
-        self._init_default_keys()
+    def _add_background_task(self, task: asyncio.Task) -> None:
+        """Tambahkan task ke daftar background dan daftarkan callback untuk menghapusnya."""
+        self._background_tasks.append(task)
+        task.add_done_callback(
+            lambda t: self._background_tasks.remove(t) if t in self._background_tasks else None
+        )
+
+    # ========================================================================
+    # Inisialisasi default keys (dengan task management)
+    # ========================================================================
 
     def _init_default_keys(self):
         """Membuat key default untuk development."""
-        # Since we are in synchronous __init__, we cannot run async code directly.
-        # We'll schedule it later if event loop is running, or use asyncio.run if needed.
-        # For simplicity, we'll create a task if loop exists.
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(self._create_default_keys())
+            task = loop.create_task(self._create_default_keys())
+            self._add_background_task(task)
         except RuntimeError:
-            # No running loop, we'll create them synchronously? Actually we can't.
-            # We'll just log and let the application call create_key later if needed.
             logger.warning(
                 "No async loop running, default keys not created automatically. Call create_key() manually."
             )
@@ -140,6 +146,10 @@ class EncryptionKeyVaultPort:
         except Exception as e:
             logger.warning(f"Could not create default keys: {e}")
 
+    # ========================================================================
+    # Audit logging
+    # ========================================================================
+
     async def _log_audit(self, action: str, key_id: str, user_id: UUID, details: dict[str, Any]):
         """Mencatat aksi ke audit log."""
         entry = {
@@ -151,6 +161,10 @@ class EncryptionKeyVaultPort:
         }
         self._audit_log.append(entry)
         logger.info(f"VAULT AUDIT: {action} on {key_id} by {user_id}")
+
+    # ========================================================================
+    # Key management
+    # ========================================================================
 
     async def create_key(
         self,
@@ -345,6 +359,10 @@ class EncryptionKeyVaultPort:
             result.append(meta.to_dict())
         return result
 
+    # ========================================================================
+    # Enkripsi / Dekripsi
+    # ========================================================================
+
     async def encrypt_with_vault(
         self,
         key_id: str,
@@ -423,6 +441,10 @@ class EncryptionKeyVaultPort:
         wrapped = aesgcm.encrypt(nonce, old_key, None)
         return nonce + wrapped
 
+    # ========================================================================
+    # Auto-rotation (dengan task management)
+    # ========================================================================
+
     async def start_auto_rotation(
         self, key_id: str, rotation_days: int = 90, check_interval_hours: int = 24
     ):
@@ -431,9 +453,13 @@ class EncryptionKeyVaultPort:
             logger.warning("Auto rotation already running")
             return
 
+        self._rotation_job_active = True
+
         async def _rotation_loop():
-            while True:
+            while self._rotation_job_active:
                 await asyncio.sleep(check_interval_hours * 3600)
+                if not self._rotation_job_active:
+                    break
                 try:
                     meta = await self.get_key_metadata(key_id)
                     if meta.expires_at and meta.expires_at <= datetime.now(UTC):
@@ -442,8 +468,29 @@ class EncryptionKeyVaultPort:
                 except Exception as e:
                     logger.error(f"Auto-rotation error: {e}")
 
-        self._rotation_job_active = True
-        asyncio.create_task(_rotation_loop())
+        task = asyncio.create_task(_rotation_loop())
+        self._add_background_task(task)
+        logger.info(f"Auto-rotation started for key {key_id}")
+
+    # ========================================================================
+    # PERBAIKAN: stop_auto_rotation (SUDAH ADA, tapi dipastikan lengkap)
+    # ========================================================================
+
+    async def stop_auto_rotation(self):
+        """Menghentikan task background rotasi otomatis."""
+        self._rotation_job_active = False
+        # Batalkan semua background tasks
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            self._background_tasks.clear()
+        logger.info("Auto-rotation stopped")
+
+    # ========================================================================
+    # Export / Import (dengan AAD context)
+    # ========================================================================
 
     async def export_key(self, key_id: str, version: str, passphrase: str) -> str:
         """
@@ -510,6 +557,10 @@ class EncryptionKeyVaultPort:
             ):
                 self._key_aliases[key_id] = full_id
         await self._log_audit("IMPORT_KEY", key_id, UUID(int=0), {"version": version})
+
+    # ========================================================================
+    # Audit log & health
+    # ========================================================================
 
     async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """Mengambil audit log."""

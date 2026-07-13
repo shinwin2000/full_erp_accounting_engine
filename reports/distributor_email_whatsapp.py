@@ -12,6 +12,10 @@ Dependencies:
 - infrastructure.telemetry.structured_json_logging
 - config.loader_yaml -> DIINJEKSI DARI LUAR (tidak diimpor langsung)
 Audit: Setiap distribusi laporan dicatat, termasuk penerima, channel, dan status.
+
+Perbaikan async:
+    - Semua operasi blocking file I/O (open) di dalam fungsi async diganti dengan aiofiles.
+    - Menambahkan import aiofiles dan menggunakannya untuk membaca file secara async.
 """
 
 from __future__ import annotations
@@ -22,6 +26,8 @@ import mimetypes
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
+
+import aiofiles  # <-- Tambahan untuk async file I/O
 
 # Email sending
 try:
@@ -152,7 +158,7 @@ class ReportDistributor:
             await self._session.close()
 
     # ========================================================================
-    # EMAIL DISTRIBUTION
+    # EMAIL DISTRIBUTION — DIPERBAIKI (aiofiles untuk membaca attachment)
     # ========================================================================
 
     async def send_email(
@@ -214,14 +220,15 @@ class ReportDistributor:
         msg.set_content(body)  # Plain text fallback
         msg.add_alternative(body, subtype="html")  # HTML version
 
-        # Add attachment
+        # Add attachment with async file I/O
         if attachment_path and attachment_path.exists():
             content_type, _encoding = mimetypes.guess_type(str(attachment_path))
             if content_type is None:
                 content_type = "application/octet-stream"
 
-            with open(attachment_path, "rb") as f:
-                file_data = f.read()
+            # ===== PERBAIKAN: Baca file secara async dengan aiofiles =====
+            async with aiofiles.open(attachment_path, "rb") as f:
+                file_data = await f.read()
 
             display_name = attachment_name or attachment_path.name
             msg.add_attachment(
@@ -388,7 +395,7 @@ class ReportDistributor:
         return False
 
     # ========================================================================
-    # GENERIC DISTRIBUTE METHOD
+    # GENERIC DISTRIBUTE METHOD — DIPERBAIKI (aiofiles untuk membaca file)
     # ========================================================================
 
     async def distribute(
@@ -431,10 +438,12 @@ class ReportDistributor:
                 from infrastructure.file_storage.s3_adapter import get_s3_storage_adapter
 
                 storage = await get_s3_storage_adapter()
-                with open(file_path, "rb") as f:
-                    uri = await storage.upload(
-                        file_content=f, file_name=file_name, bucket="erp-reports"
-                    )
+                # ===== PERBAIKAN: Baca file secara async dengan aiofiles =====
+                async with aiofiles.open(file_path, "rb") as f:
+                    file_content = await f.read()
+                uri = await storage.upload(
+                    file_content=file_content, file_name=file_name, bucket="erp-reports"
+                )
                 # Generate presigned URL for access
                 file_url = await storage.generate_presigned_url(uri, expiration_seconds=7 * 86400)
                 result["file_url"] = file_url

@@ -168,6 +168,8 @@ class AccountCodeVO:
                     f"Account code '{norm_code}' does not match pattern {self.pattern}"
                 )
         except re.error as e:
+            # Log the regex error before raising
+            logger.debug(f"Regex error while validating code '{norm_code}' with pattern '{self.pattern}': {e}")
             raise AccountCodeFormatError(f"Invalid regex pattern: {self.pattern} - {e}")
 
         # Compute levels based on separator
@@ -448,7 +450,9 @@ class AccountCodeVO:
         pat = pattern or self.pattern
         try:
             return bool(re.match(pat, self.normalized_code))
-        except re.error:
+        except re.error as e:
+            # Log the regex error to avoid silent swallow
+            logger.debug(f"Regex error in matches_pattern for code '{self.normalized_code}' with pattern '{pat}': {e}")
             return False
 
     @classmethod

@@ -15,6 +15,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from application.sagas.saga_orchestrator_base import SagaOrchestratorBase
+
 # Perbaikan: import DoubleEntryValidator bukan validate_balance
 from axioms.double_entry import DoubleEntryValidator
 from ports.primary.saga_state_store_port import SagaStateStorePort
@@ -94,7 +95,7 @@ class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]
             state.status = "MATERIAL_ISSUED"
             state.updated_at = datetime.utcnow()
         except Exception as e:
-            state.add_error(f"Material issue failed: {str(e)}")
+            state.add_error(f"Material issue failed: {e!s}")
             raise
         return state
 
@@ -111,7 +112,7 @@ class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]
                 state.updated_at = datetime.utcnow()
             except Exception as e:
                 logger.error(f"Reverse material issue failed: {e}")
-                state.add_error(f"Reverse material issue failed: {str(e)}")
+                state.add_error(f"Reverse material issue failed: {e!s}")
         return state
 
     async def _record_labor(self, state: ManufacturingSagaState) -> ManufacturingSagaState:
@@ -127,7 +128,7 @@ class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]
             state.status = "LABOR_RECORDED"
             state.updated_at = datetime.utcnow()
         except Exception as e:
-            state.add_error(f"Labor recording failed: {str(e)}")
+            state.add_error(f"Labor recording failed: {e!s}")
             raise
         return state
 
@@ -144,7 +145,7 @@ class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]
                 state.updated_at = datetime.utcnow()
             except Exception as e:
                 logger.error(f"Reverse labor failed: {e}")
-                state.add_error(f"Reverse labor failed: {str(e)}")
+                state.add_error(f"Reverse labor failed: {e!s}")
         return state
 
     async def _complete_production(self, state: ManufacturingSagaState) -> ManufacturingSagaState:
@@ -161,7 +162,7 @@ class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]
             state.status = "PRODUCTION_COMPLETED"
             state.updated_at = datetime.utcnow()
         except Exception as e:
-            state.add_error(f"Production completion failed: {str(e)}")
+            state.add_error(f"Production completion failed: {e!s}")
             raise
         return state
 
@@ -178,7 +179,7 @@ class ManufacturingSagaOrchestrator(SagaOrchestratorBase[ManufacturingSagaState]
                 state.updated_at = datetime.utcnow()
             except Exception as e:
                 logger.error(f"Reverse production failed: {e}")
-                state.add_error(f"Reverse production failed: {str(e)}")
+                state.add_error(f"Reverse production failed: {e!s}")
         return state
 
     async def _post_journal(self, state: ManufacturingSagaState) -> ManufacturingSagaState:

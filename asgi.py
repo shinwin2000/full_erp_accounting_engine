@@ -191,7 +191,7 @@ except ImportError as exc:
 
 # Import infrastruktur (wajib)
 try:
-    from bootstrap.dependency_container.container_bootstrap import build_container  # <-- PERUBAHAN DI SINI
+    from bootstrap.dependency_container.container_bootstrap import build_container
     from infrastructure.caching.redis_manager import close as close_redis
     from infrastructure.caching.redis_manager import get_redis_client
     from infrastructure.database.session_factory_sqlalchemy import create_session_factory, dispose
@@ -261,15 +261,48 @@ except ImportError:
 # Import router V1 (wajib, karena API utama)
 try:
     from adapters.primary_api.v1.fastapi_ap_router import router as ap_router
+    from adapters.primary_api.v1.fastapi_approval_router import router as approval_router
     from adapters.primary_api.v1.fastapi_ar_router import router as ar_router
+    from adapters.primary_api.v1.fastapi_audit_router import router as audit_router
     from adapters.primary_api.v1.fastapi_bank_cash_router import router as bank_cash_router
+    from adapters.primary_api.v1.fastapi_budget_router import router as budget_router
+    from adapters.primary_api.v1.fastapi_capital_router import router as capital_router
     from adapters.primary_api.v1.fastapi_coa_router import router as coa_router
+    from adapters.primary_api.v1.fastapi_consolidation_router import router as consolidation_router
+    from adapters.primary_api.v1.fastapi_currency_exchange_router import (
+        router as currency_exchange_router,
+    )
+    from adapters.primary_api.v1.fastapi_customer_router import router as customer_router
+    from adapters.primary_api.v1.fastapi_document_router import router as document_router
+    from adapters.primary_api.v1.fastapi_employee_router import router as employee_router
+    from adapters.primary_api.v1.fastapi_fiscal_period_router import router as fiscal_period_router
     from adapters.primary_api.v1.fastapi_fixed_asset_router import router as fixed_asset_router
+    from adapters.primary_api.v1.fastapi_forex_router import router as forex_router
+    from adapters.primary_api.v1.fastapi_goodwill_router import router as goodwill_router
+    from adapters.primary_api.v1.fastapi_hedge_router import router as hedge_router
+    from adapters.primary_api.v1.fastapi_iam_router import router as iam_router
+    from adapters.primary_api.v1.fastapi_intangible_asset_router import (
+        router as intangible_asset_router,
+    )
     from adapters.primary_api.v1.fastapi_inventory_router import router as inventory_router
     from adapters.primary_api.v1.fastapi_journal_router import router as journal_router
     from adapters.primary_api.v1.fastapi_ledger_router import router as ledger_router
+    from adapters.primary_api.v1.fastapi_legal_entity_router import router as legal_entity_router
+    from adapters.primary_api.v1.fastapi_maintenance_router import router as maintenance_router
+    from adapters.primary_api.v1.fastapi_manufacturing_router import router as manufacturing_router
+    from adapters.primary_api.v1.fastapi_payment_router import router as payment_router
+    from adapters.primary_api.v1.fastapi_payroll_router import router as payroll_router
+    from adapters.primary_api.v1.fastapi_project_router import router as project_router
+    from adapters.primary_api.v1.fastapi_purchase_sales_router import (
+        router as purchase_sales_router,
+    )
     from adapters.primary_api.v1.fastapi_report_router import router as report_router
+    from adapters.primary_api.v1.fastapi_supplier_router import router as supplier_router
+    from adapters.primary_api.v1.fastapi_system_settings_router import (
+        router as system_settings_router,
+    )
     from adapters.primary_api.v1.fastapi_tax_coretax_router import router as tax_router
+    from adapters.primary_api.v1.fastapi_umkm_router import router as umkm_router
 except ImportError as exc:
     _raw_log.critical(f"Router V1 import failed: {exc}")
     sys.exit(1)
@@ -330,6 +363,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     try:
         container = _get_container()  # inisialisasi container
+        app.state.container = container  # <-- SIMPAN CONTAINER KE APP.STATE
         logger.info("✅ IoC Container")
     except Exception as exc:
         logger.error(f"❌ IoC Container — {type(exc).__name__}: {exc}")
@@ -341,6 +375,52 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("✅ Service Registrations (including outbox_repository)")
     except Exception as exc:
         logger.error(f"❌ Service Registration — {type(exc).__name__}: {exc}")
+        startup_errors += 1
+    # ============================================================================
+
+    # ==================== BUAT IAMSERVICE SECARA ASYNC ====================
+    try:
+        container = _get_container()
+        from ports.primary.token_issuer_port import TokenIssuerPort
+
+        from application.service_layer.service_iam import IAMService
+        from ports.primary.cache_port import CachePort
+        from ports.primary.event_publisher_port import EventPublisherPort
+        from ports.primary.iam_repository_port import IAMRepositoryPort
+        from ports.primary.unit_of_work_port import UnitOfWorkPort
+
+        # Resolve dependencies secara async
+        iam_repo = await container.resolve_async(IAMRepositoryPort)
+        uow = await container.resolve_async(UnitOfWorkPort)
+        event_publisher = None
+        token_issuer = None
+        cache = None
+
+        # Coba resolve optional dependencies jika ada
+        try:
+            event_publisher = await container.resolve_async(EventPublisherPort)
+        except Exception:
+            pass
+        try:
+            token_issuer = await container.resolve_async(TokenIssuerPort)
+        except Exception:
+            pass
+        try:
+            cache = await container.resolve_async(CachePort)
+        except Exception:
+            pass
+
+        iam_service = IAMService(
+            iam_repo=iam_repo,
+            uow=uow,
+            event_publisher=event_publisher,
+            token_issuer=token_issuer,
+            cache=cache
+        )
+        app.state.iam_service = iam_service
+        logger.info("✅ IAMService instance created and attached to app.state")
+    except Exception as exc:
+        logger.error(f"❌ IAMService creation failed: {type(exc).__name__}: {exc}")
         startup_errors += 1
     # ============================================================================
 
@@ -441,8 +521,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         await stop_relay()
         logger.info("🔒 Outbox Relay — ditutup")
-    except Exception:
-        pass
+    except Exception as e:
+        # Perbaikan: tidak lagi bare except, exception ditangkap dengan alias dan dicatat
+        logger.debug(f"Shutdown error on Outbox Relay: {e}")
 
     try:
         # shutdown_event_gate mungkin async, jadi perlu await jika coroutine
@@ -451,14 +532,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             shutdown_event_gate()
         logger.info("🔒 Event Gateway — ditutup")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Shutdown error on Event Gateway: {e}")
 
     try:
         await close_redis()
         logger.info("🔒 Redis Manager — ditutup")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Shutdown error on Redis Manager: {e}")
 
     try:
         # dispose mungkin async
@@ -467,8 +548,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             dispose()
         logger.info("🔒 Database Pool — ditutup")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Shutdown error on Database Pool: {e}")
 
     try:
         # flush_metrics mungkin async
@@ -477,8 +558,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             flush_metrics()
         logger.info("🔒 Telemetry — flushed")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Shutdown error on Telemetry flush: {e}")
 
     logger.info("Shutdown selesai.")
 
@@ -678,8 +759,33 @@ def _register_domain_routers(app: FastAPI) -> None:
     app.include_router(bank_cash_router, prefix="/api/v1/bank-cash", tags=["Bank & Cash"])
     app.include_router(tax_router, prefix="/api/v1/tax", tags=["Tax & Coretax"])
     app.include_router(report_router, prefix="/api/v1/reports", tags=["Reports"])
+    app.include_router(iam_router, prefix="/api/v1")
+    app.include_router(approval_router, prefix="/api/v1/approval", tags=["Approval"])
+    app.include_router(audit_router, prefix="/api/v1/audit", tags=["Audit"])
+    app.include_router(budget_router, prefix="/api/v1/budget", tags=["Budget"])
+    app.include_router(capital_router, prefix="/api/v1/capital", tags=["Capital"])
+    app.include_router(consolidation_router, prefix="/api/v1/consolidation", tags=["Consolidation"])
+    app.include_router(currency_exchange_router, prefix="/api/v1/currency-exchange", tags=["Currency Exchange"])
+    app.include_router(customer_router, prefix="/api/v1/customers", tags=["Customer"])
+    app.include_router(document_router, prefix="/api/v1/documents", tags=["Document"])
+    app.include_router(employee_router, prefix="/api/v1/employees", tags=["Employee"])
+    app.include_router(fiscal_period_router, prefix="/api/v1/fiscal-periods", tags=["Fiscal Period"])
+    app.include_router(forex_router, prefix="/api/v1/forex", tags=["Forex"])
+    app.include_router(goodwill_router, prefix="/api/v1/goodwill", tags=["Goodwill"])
+    app.include_router(hedge_router, prefix="/api/v1/hedge", tags=["Hedge"])
+    app.include_router(intangible_asset_router, prefix="/api/v1/intangible-assets", tags=["Intangible Asset"])
+    app.include_router(legal_entity_router, prefix="/api/v1/legal-entities", tags=["Legal Entity"])
+    app.include_router(maintenance_router, prefix="/api/v1/maintenance", tags=["Maintenance"])
+    app.include_router(manufacturing_router, prefix="/api/v1/manufacturing", tags=["Manufacturing"])
+    app.include_router(payment_router, prefix="/api/v1/payments", tags=["Payment"])
+    app.include_router(payroll_router, prefix="/api/v1/payroll", tags=["Payroll"])
+    app.include_router(project_router, prefix="/api/v1/projects", tags=["Project"])
+    app.include_router(purchase_sales_router, prefix="/api/v1/purchase-sales", tags=["Purchase Sales"])
+    app.include_router(supplier_router, prefix="/api/v1/suppliers", tags=["Supplier"])
+    app.include_router(system_settings_router, prefix="/api/v1/settings", tags=["System Settings"])
+    app.include_router(umkm_router, prefix="/api/v1/umkm", tags=["UMKM"])
     logger = get_logger()
-    logger.info("[routers] 10 router V1 berhasil didaftarkan")
+    logger.info("[routers] 35 router V1 berhasil didaftarkan")
 
 
 # ============================================================================

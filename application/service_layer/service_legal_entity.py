@@ -18,8 +18,6 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from ports.primary.event_publisher_port import EventPublisherPort
-
 # Import domain events
 from application.events import (
     CompanyAddressUpdatedEvent,
@@ -32,6 +30,7 @@ from application.events import (
     LegalEntityDeactivatedEvent,
     LegalEntityUpdatedEvent,
 )
+from ports.primary.event_publisher_port import EventPublisherPort
 
 logger = logging.getLogger(__name__)
 

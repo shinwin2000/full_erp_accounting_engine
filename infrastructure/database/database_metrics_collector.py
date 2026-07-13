@@ -294,6 +294,7 @@ class DatabaseMetricsCollector:
                     await self.collect_all_metrics()
                     await asyncio.sleep(self._interval)
                 except asyncio.CancelledError:
+                    logger.debug("Database metrics collection loop cancelled")
                     break
                 except Exception as e:
                     logger.error(f"Metrics collection error: {e}")
@@ -310,7 +311,8 @@ class DatabaseMetricsCollector:
             try:
                 await self._collection_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Database metrics collection task cancelled during stop")
+                # Expected cancellation; continue
             self._collection_task = None
         logger.info("Database metrics collection stopped")
 

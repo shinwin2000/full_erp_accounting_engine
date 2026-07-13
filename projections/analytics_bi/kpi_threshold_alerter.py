@@ -468,6 +468,7 @@ class KPIThresholdAlerter:
                     await self.check_and_alert(legal_entity_id, period_id)
                     await asyncio.sleep(CHECK_INTERVAL_SECONDS)
                 except asyncio.CancelledError:
+                    logger.debug("KPI threshold alerter check loop cancelled")
                     break
                 except Exception as e:
                     logger.error(f"KPI check error: {e}")
@@ -484,7 +485,8 @@ class KPIThresholdAlerter:
             try:
                 await self._check_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("KPI threshold alerter check task cancelled during stop")
+                # Expected cancellation; continue
             self._check_task = None
         logger.info("KPI threshold alerter stopped")
 

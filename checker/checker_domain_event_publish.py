@@ -33,7 +33,6 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any
 
 # =============================================================================
 # Konfigurasi Root Project
@@ -239,12 +238,6 @@ DUPLICATE_EXCEPTIONS = {
     "BankTransferCancelledEvent",
     "BankTransferExecutedEvent",
     # Other
-    "CompanySuspendedEvent",
-    "CompanyReactivatedEvent",
-    "CompanyDissolvedEvent",
-    "CompanyRegisteredEvent",
-    "CompanyAddressUpdatedEvent",
-    "CompanyContactUpdatedEvent",
     "MaterialIssuedEvent",
     "LaborPostedEvent",
     "OverheadAppliedEvent",
@@ -323,7 +316,6 @@ DUPLICATE_EXCEPTIONS = {
     "SessionCompromisedEvent",
     "MeteraiUsedEvent",
     "PKPStatusChangedEvent",
-    "TaxProfileUpdatedEvent",
 }
 
 @dataclass
@@ -738,7 +730,7 @@ class EventPublishChecker:
                 violations.append(Violation(
                     severity=severity,
                     message=f"Event '{ev_name}' digunakan tetapi tidak terdaftar di registry." +
-                            (f" (domain event)" if is_domain_event else " (non-domain/base event)"),
+                            (" (domain event)" if is_domain_event else " (non-domain/base event)"),
                     detail=detail
                 ))
 
@@ -886,7 +878,7 @@ def main():
         if checker.base_events:
             print(f"  Skipped Base Events      :  {len(checker.base_events)} (detected and skipped)")
         else:
-            print(f"  Skipped Base Events      :  None detected")
+            print("  Skipped Base Events      :  None detected")
 
         duplicates = {k: v for k, v in checker.publish_counts.items() if v > 1}
         if duplicates:

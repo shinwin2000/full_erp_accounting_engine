@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/checker_integration.py
 ════════════════════════════════════════════════════════════════════════════
@@ -32,11 +31,13 @@ import subprocess
 import sys
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutureTimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ROOT PROJECT DETECTION [B001]
@@ -96,7 +97,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict[str, Any]] = None) -> Optional[Any]:
+def _rca_analyze(exc: Exception, context: dict[str, Any] | None = None) -> Any | None:
     if not _RCA_AVAILABLE or _RCA_ENGINE is None:
         return None
     try:
@@ -104,7 +105,7 @@ def _rca_analyze(exc: Exception, context: Optional[Dict[str, Any]] = None) -> Op
     except Exception:
         return None
 
-def _rca_to_dict(rca_result: Optional[Any]) -> Optional[Dict[str, Any]]:
+def _rca_to_dict(rca_result: Any | None) -> dict[str, Any] | None:
     if rca_result is None:
         return None
     try:
@@ -115,7 +116,7 @@ def _rca_to_dict(rca_result: Optional[Any]) -> Optional[Dict[str, Any]]:
 # ─────────────────────────────────────────────────────────────────────────────
 # TERMINAL COLORS
 # ─────────────────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED":    "\033[91m",
     "GREEN":  "\033[92m",
     "YELLOW": "\033[93m",
@@ -126,18 +127,18 @@ COLOR: Dict[str, str] = {
     "RESET":  "\033[0m",
 }
 if not sys.stdout.isatty():
-    COLOR = {k: "" for k in COLOR}
+    COLOR = dict.fromkeys(COLOR, "")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
-SKIP_DIRS: Set[str] = {
+SKIP_DIRS: set[str] = {
     "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
     ".git", ".venv", "venv", "node_modules", ".tox", ".cache",
     "site-packages", "dist-packages", "dist", "build", "uv",
 }
 
-PROJECT_TOPS: Set[str] = {
+PROJECT_TOPS: set[str] = {
     "app", "adapters", "application", "domain", "infrastructure",
     "kernel", "ports", "config", "migrations", "tests", "compliance",
     "audit", "constitution", "axioms", "bootstrap", "policy_engine",
@@ -146,18 +147,18 @@ PROJECT_TOPS: Set[str] = {
     "checker",
 }
 
-CHECKER_FILES: Set[str] = {
+CHECKER_FILES: set[str] = {
     "checker_integration.py", "checker_integration_unified.py",
     "checker_integration_v2.py", "main_checker.py", "main_checker_3.py",
     "main_checker_v5.py", "architecture_drift_checker.py", "rca.py",
     "fix.py", "fix_bom.py",
 }
 
-PROTECTED_LAYERS: Set[str] = {
+PROTECTED_LAYERS: set[str] = {
     "domain", "kernel", "application", "ports", "axioms", "constitution",
 }
 
-ALLOWED_DYNAMIC_MODS: Set[str] = {
+ALLOWED_DYNAMIC_MODS: set[str] = {
     "datetime", "typing", "collections", "itertools", "functools",
     "json", "yaml", "csv", "re", "os", "sys", "pathlib",
     "decimal", "uuid", "enum", "dataclasses", "kernel.context_holder",
@@ -165,18 +166,18 @@ ALLOWED_DYNAMIC_MODS: Set[str] = {
 
 RUNTIME_IMPORT_TIMEOUT = 10
 # [B046] Timeout override untuk modul berat
-RUNTIME_IMPORT_TIMEOUT_OVERRIDE: Dict[str, int] = {
+RUNTIME_IMPORT_TIMEOUT_OVERRIDE: dict[str, int] = {
     "bootstrap.orchestrator": 30,
     "bootstrap.dependency_container.container_bootstrap": 30,
     "app.main": 30,
     "domain.journal.aggregate_root": 20,
 }
 # [B043] File entry point yang tidak diuji runtime
-RUNTIME_IMPORT_SKIP_FILES: Set[str] = {
+RUNTIME_IMPORT_SKIP_FILES: set[str] = {
     "asgi.py", "app/main.py", "wsgi.py", "manage.py", "setup.py",
 }
 # [B044] Hanya layer kritis yang diuji runtime
-RUNTIME_ALLOWED_LAYERS: Set[str] = {
+RUNTIME_ALLOWED_LAYERS: set[str] = {
     "domain", "application", "kernel", "infrastructure", "bootstrap", "config"
 }
 # Jumlah worker paralel untuk runtime import
@@ -195,8 +196,8 @@ class Finding:
     recommendation: str   = ""
     rca_result:     Any   = field(default=None, repr=False)
 
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
             "severity":       self.severity,
             "file":           self.file,
             "line":           self.line,
@@ -213,14 +214,14 @@ class Finding:
 class PhaseResult:
     name:     str
     passed:   bool           = True
-    findings: List[Finding]  = field(default_factory=list)
+    findings: list[Finding]  = field(default_factory=list)
     duration: float          = 0.0
 
     def add(
         self, sev: str, file: str, line: int, msg: str,
         detail: str = "", rec: str = "",
-        exc: Optional[Exception] = None,
-        rca_context: Optional[Dict[str, Any]] = None,
+        exc: Exception | None = None,
+        rca_context: dict[str, Any] | None = None,
     ) -> None:
         rca_result = None
         if exc is not None:
@@ -250,10 +251,10 @@ def rel_path(p: Path) -> str:
         return str(p)
 
 
-def all_py_files() -> List[Path]:
+def all_py_files() -> list[Path]:
     """[B015] Kumpulkan semua file .py di project."""
-    seen: Set[Path] = set()
-    files: List[Path] = []
+    seen: set[Path] = set()
+    files: list[Path] = []
 
     # Root level
     for p in ROOT.glob("*.py"):
@@ -278,7 +279,7 @@ def all_py_files() -> List[Path]:
     return sorted(files)
 
 
-def module_name(p: Path) -> Optional[str]:
+def module_name(p: Path) -> str | None:
     """[B018] Konversi path ke module name."""
     try:
         rel = p.relative_to(ROOT)
@@ -294,7 +295,7 @@ def top_layer(mod: str) -> str:
     return mod.split(".")[0] if mod else "unknown"
 
 
-def read_file_robust(path: Path) -> Optional[str]:
+def read_file_robust(path: Path) -> str | None:
     """[B026] Baca file dengan multiple encoding."""
     encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']
     for enc in encodings:
@@ -307,7 +308,7 @@ def read_file_robust(path: Path) -> Optional[str]:
     return None
 
 
-def get_ast_tree(p: Path) -> Optional[ast.AST]:
+def get_ast_tree(p: Path) -> ast.AST | None:
     """[B029] Parse AST dengan fallback encoding."""
     src = read_file_robust(p)
     if src is None:
@@ -318,7 +319,7 @@ def get_ast_tree(p: Path) -> Optional[ast.AST]:
         return None
 
 
-def safe_import(mod: str, timeout: int = RUNTIME_IMPORT_TIMEOUT) -> Tuple[bool, Optional[str]]:
+def safe_import(mod: str, timeout: int = RUNTIME_IMPORT_TIMEOUT) -> tuple[bool, str | None]:
     """
     [B003] Import modul dalam subprocess terpisah dengan timeout.
     [B036] Copy environment variables.
@@ -358,9 +359,9 @@ def resolve_import_target(imp: str, root: Path) -> bool:
 def resolve_relative_import(
     current_file: Path,
     level: int,
-    module: Optional[str],
-    name: Optional[str],
-) -> List[Path]:
+    module: str | None,
+    name: str | None,
+) -> list[Path]:
     """
     [B005-FIXED v2]: Naik (level - 1) kali — sesuai PEP 328.
     level=1 → current package (tidak naik)
@@ -371,7 +372,7 @@ def resolve_relative_import(
     for _ in range(max(0, level - 1)):
         target_dir = target_dir.parent
 
-    candidates: List[Path] = []
+    candidates: list[Path] = []
     if module:
         parts = module.split(".")
         py   = target_dir / Path(*parts).with_suffix(".py")
@@ -420,7 +421,7 @@ def check_symbol_in_ast(target_file: Path, symbol: str) -> bool:
     return False
 
 
-def get_exported_symbols(init_file: Path) -> Set[str]:
+def get_exported_symbols(init_file: Path) -> set[str]:
     """[B027] Ekstrak simbol yang diekspor via __all__."""
     tree = get_ast_tree(init_file)
     if tree is None:
@@ -434,7 +435,7 @@ def get_exported_symbols(init_file: Path) -> Set[str]:
     return set()
 
 
-def resolve_deep_import(module_path: str, symbol: str) -> Tuple[bool, str]:
+def resolve_deep_import(module_path: str, symbol: str) -> tuple[bool, str]:
     """[B010][B027] Periksa re-export via __init__.py dan __all__."""
     parts = module_path.split(".")
     for i in range(len(parts), 0, -1):
@@ -466,9 +467,9 @@ def resolve_deep_import(module_path: str, symbol: str) -> Tuple[bool, str]:
     return False, f"Modul fisik '{module_path}' tidak ditemukan"
 
 
-def get_true_runtime_imports(tree: ast.AST) -> List[str]:
+def get_true_runtime_imports(tree: ast.AST) -> list[str]:
     """Kumpulkan import runtime (skip TYPE_CHECKING)."""
-    result: List[str] = []
+    result: list[str] = []
 
     class RuntimeImportCollector(ast.NodeVisitor):
         def __init__(self):
@@ -513,7 +514,7 @@ def phase_bytecode_compilation() -> PhaseResult:
     pr = PhaseResult("Syntax & Bytecode Compilation")
     t0 = time.monotonic()
     files = all_py_files()
-    errors: List[Tuple[str, str, int]] = []
+    errors: list[tuple[str, str, int]] = []
 
     for f in files:
         try:
@@ -541,13 +542,13 @@ def phase_bytecode_compilation() -> PhaseResult:
 # ─────────────────────────────────────────────────────────────────────────────
 # PHASE 2: BROKEN IMPORTS
 # ─────────────────────────────────────────────────────────────────────────────
-def phase_broken_imports(prior_findings: List[Finding]) -> PhaseResult:
+def phase_broken_imports(prior_findings: list[Finding]) -> PhaseResult:
     pr = PhaseResult("Broken Imports & Symbol Check")
     t0 = time.monotonic()
     files     = all_py_files()
     local_mods = {module_name(f) for f in files if module_name(f)}
     local_tops = {m.split(".")[0] for m in local_mods}
-    broken: List[Tuple[str, int, str, str]] = []
+    broken: list[tuple[str, int, str, str]] = []
 
     syntax_errored = {f.file for f in prior_findings if f.severity == "CRITICAL"}
 
@@ -618,7 +619,7 @@ def phase_circular_imports() -> PhaseResult:
     pr = PhaseResult("Runtime Circular Imports")
     t0 = time.monotonic()
     files      = all_py_files()
-    module_map: Dict[str, Path] = {}
+    module_map: dict[str, Path] = {}
     for f in files:
         mod = module_name(f)
         if mod:
@@ -626,7 +627,7 @@ def phase_circular_imports() -> PhaseResult:
     local_mods = set(module_map.keys())
     local_tops = {m.split(".")[0] for m in local_mods}
 
-    graph: Dict[str, Set[str]] = collections.defaultdict(set)
+    graph: dict[str, set[str]] = collections.defaultdict(set)
 
     for f in files:
         mod = module_name(f)
@@ -651,14 +652,14 @@ def phase_circular_imports() -> PhaseResult:
 
     # Tarjan SCC Iteratif [B002]
     index_counter = [0]
-    indices:  Dict[str, int]  = {}
-    lowlinks: Dict[str, int]  = {}
-    on_stack: Set[str]        = set()
-    stack:    List[str]       = []
-    sccs:     List[List[str]] = []
+    indices:  dict[str, int]  = {}
+    lowlinks: dict[str, int]  = {}
+    on_stack: set[str]        = set()
+    stack:    list[str]       = []
+    sccs:     list[list[str]] = []
 
     def _strongconnect(start: str) -> None:
-        call_stack: List[Tuple[str, List[str], int]] = []
+        call_stack: list[tuple[str, list[str], int]] = []
         if start in indices:
             return
         indices[start]  = index_counter[0]
@@ -690,7 +691,7 @@ def phase_circular_imports() -> PhaseResult:
                     parent = call_stack[-1][0]
                     lowlinks[parent] = min(lowlinks[parent], lowlinks[v])
                 if lowlinks[v] == indices[v]:
-                    scc: List[str] = []
+                    scc: list[str] = []
                     while True:
                         w = stack.pop()
                         on_stack.discard(w)
@@ -720,8 +721,8 @@ def phase_circular_imports() -> PhaseResult:
 # ─────────────────────────────────────────────────────────────────────────────
 # PHASE 4: DYNAMIC IMPORTS [B007][B032]
 # ─────────────────────────────────────────────────────────────────────────────
-def _extract_dynamic_imports(tree: ast.AST) -> List[Tuple[int, str, str, bool]]:
-    results: List[Tuple[int, str, str, bool]] = []
+def _extract_dynamic_imports(tree: ast.AST) -> list[tuple[int, str, str, bool]]:
+    results: list[tuple[int, str, str, bool]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             func = node.func
@@ -747,7 +748,7 @@ def phase_dynamic_imports() -> PhaseResult:
     pr = PhaseResult("Dynamic Imports in Core Layers")
     t0 = time.monotonic()
     files      = all_py_files()
-    violations: List[Tuple[str, int, str]] = []
+    violations: list[tuple[str, int, str]] = []
 
     for f in files:
         mod   = module_name(f)
@@ -782,7 +783,7 @@ def phase_dynamic_imports() -> PhaseResult:
 # ─────────────────────────────────────────────────────────────────────────────
 # PHASE 5: RUNTIME IMPORTS [B003][B008][B036] dengan PERBAIKAN v5.1.0
 # ─────────────────────────────────────────────────────────────────────────────
-def _import_worker(mod: str, timeout: int, verbose: bool = False) -> Tuple[str, bool, Optional[str], float]:
+def _import_worker(mod: str, timeout: int, verbose: bool = False) -> tuple[str, bool, str | None, float]:
     """Worker untuk paralelisasi import."""
     start = time.monotonic()
     ok, err = safe_import(mod, timeout=timeout)
@@ -792,16 +793,16 @@ def _import_worker(mod: str, timeout: int, verbose: bool = False) -> Tuple[str, 
     return mod, ok, err, dur
 
 
-def phase_runtime_imports(prior_findings: List[Finding], verbose: bool = False) -> PhaseResult:
+def phase_runtime_imports(prior_findings: list[Finding], verbose: bool = False) -> PhaseResult:
     pr = PhaseResult("Runtime Imports (subprocess isolated)")
     t0 = time.monotonic()
     files = all_py_files()
-    errors: List[Tuple[str, str, str]] = []   # (file, mod, error)
+    errors: list[tuple[str, str, str]] = []   # (file, mod, error)
     SKIP_TOP_LAYERS = {"tests", "migrations", "checker"}
     already_broken = {f.file for f in prior_findings if f.severity == "CRITICAL"}
 
     # Kumpulkan modul yang akan diuji
-    modules_to_test: List[Tuple[str, Path, int]] = []  # (mod, file, timeout)
+    modules_to_test: list[tuple[str, Path, int]] = []  # (mod, file, timeout)
     for f in files:
         if f.name in RUNTIME_IMPORT_SKIP_FILES:
             if verbose:
@@ -868,7 +869,7 @@ def phase_critical_imports() -> PhaseResult:
     pr = PhaseResult("Critical Modules Import")
     t0 = time.monotonic()
 
-    critical: List[Tuple[str, str]] = [
+    critical: list[tuple[str, str]] = [
         ("constitution.supreme_law",                        "Constitution Supreme Law"),
         ("constitution.enforcement_engine",                 "Constitution Enforcement Engine"),
         ("axioms.double_entry",                             "Double Entry Axiom"),
@@ -886,7 +887,7 @@ def phase_critical_imports() -> PhaseResult:
         ("compliance",                                      "Compliance Package"),
     ]
 
-    errors: List[Tuple[str, str, str]] = []
+    errors: list[tuple[str, str, str]] = []
     for mod, label in critical:
         parts = mod.split(".")
         exists = (
@@ -1112,12 +1113,12 @@ def phase_sterile_probe(enable: bool) -> PhaseResult:
                 err = res.stderr.strip().split("\n")[-1] if res.stderr else "Unknown"
                 exc = ImportError(err)
                 pr.add("CRITICAL", mod.replace(".", "/") + ".py", 0,
-                       f"Gagal di-boot dalam subprocess steril!",
+                       "Gagal di-boot dalam subprocess steril!",
                        detail=err, exc=exc,
                        rca_context={"phase": "sterile_probe", "module": mod})
         except subprocess.TimeoutExpired:
             pr.add("CRITICAL", mod.replace(".", "/") + ".py", 0,
-                   f"Timeout 30s — modul hang saat import dalam subprocess steril",
+                   "Timeout 30s — modul hang saat import dalam subprocess steril",
                    rec="Cek circular import atau blocking call saat module load.")
 
     if pr.passed:
@@ -1131,12 +1132,12 @@ def phase_sterile_probe(enable: bool) -> PhaseResult:
 # ─────────────────────────────────────────────────────────────────────────────
 def run_unified_check(
     verbose:       bool,
-    json_out:      Optional[str],
-    sarif_out:     Optional[str],
+    json_out:      str | None,
+    sarif_out:     str | None,
     skip_runtime:  bool,
     skip_db:       bool,
     strict_isolate: bool,
-    skip_runtime_files: Optional[str] = None,
+    skip_runtime_files: str | None = None,
 ) -> int:
     # Jika ada opsi skip_runtime_files, tambahkan ke set global
     global RUNTIME_IMPORT_SKIP_FILES
@@ -1145,7 +1146,7 @@ def run_unified_check(
         RUNTIME_IMPORT_SKIP_FILES.update(extra)
 
     git_hash = _get_git_info()
-    scan_ts  = datetime.now(timezone.utc).isoformat()
+    scan_ts  = datetime.now(UTC).isoformat()
 
     print(f"{COLOR['BOLD']}{COLOR['CYAN']}╔{'═'*78}╗{COLOR['RESET']}")
     print(f"{COLOR['BOLD']}{COLOR['CYAN']}║{'SOVEREIGN ERP — ULTIMATE INTEGRATION VALIDATOR v5.1.0':^78}║{COLOR['RESET']}")
@@ -1168,8 +1169,8 @@ def run_unified_check(
         print(f"  {COLOR['DIM']}   Skip runtime files: {', '.join(sorted(RUNTIME_IMPORT_SKIP_FILES))}{COLOR['RESET']}")
     print()
 
-    results: List[PhaseResult] = []
-    all_findings: List[Finding] = []
+    results: list[PhaseResult] = []
+    all_findings: list[Finding] = []
 
     def run_phase(name: str, fn) -> PhaseResult:
         print(f"{COLOR['CYAN']}▶ {name.upper()}{COLOR['RESET']}")

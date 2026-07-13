@@ -28,12 +28,15 @@ Perbaikan presisi:
 
 from __future__ import annotations
 
+import asyncio
+import csv
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import aiofiles
 from sqlalchemy import select
 
 # Internal dependencies
@@ -404,6 +407,10 @@ class OJKFormatBuilder:
             "generated_at": datetime.now(UTC).isoformat(),
         }
 
+    # ========================================================================
+    # EXPORT FUNCTIONS — DIPERBAIKI (async file I/O + thread pool)
+    # ========================================================================
+
     async def export_json(self, legal_entity_id: UUID, period_id: UUID) -> Path:
         """
         Mengekspor laporan OJK ke file JSON.
@@ -426,8 +433,16 @@ class OJKFormatBuilder:
 
         filename = f"ojk_report_{legal_entity_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         output_path = self._output_dir / filename
-        with open(output_path, "w") as f:
-            json.dump(report, f, indent=2, default=str)
+
+        # Serialisasi JSON di thread pool (CPU-bound)
+        def _dump_json_sync() -> str:
+            return json.dumps(report, indent=2, default=str)
+
+        json_content = await asyncio.to_thread(_dump_json_sync)
+
+        # Tulis JSON secara async
+        async with aiofiles.open(output_path, "w") as f:
+            await f.write(json_content)
 
         logger.info(f"OJK report exported to {output_path}")
         return output_path
@@ -436,45 +451,68 @@ class OJKFormatBuilder:
         """
         Mengekspor laporan OJK ke file CSV (multiple sheets via separate files).
         """
-        import csv
-
         balance_sheet = await self.build_balance_sheet(legal_entity_id, period_id)
         income_stmt = await self.build_income_statement(legal_entity_id, period_id)
         cash_flow = await self.build_cash_flow_statement(legal_entity_id, period_id)
 
         base_name = f"ojk_report_{legal_entity_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
+        # Helper untuk menulis CSV
+        async def _write_csv(filename: str, header: list, rows: list[list]) -> None:
+            file_path = self._output_dir / filename
+
+            def _write_sync() -> str:
+                import io
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(header)
+                for row in rows:
+                    writer.writerow(row)
+                return output.getvalue()
+
+            csv_content = await asyncio.to_thread(_write_sync)
+            async with aiofiles.open(file_path, "w", newline="") as f:
+                await f.write(csv_content)
+
         # Balance sheet CSV
-        bs_path = self._output_dir / f"{base_name}_balance_sheet.csv"
-        with open(bs_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["Code", "Account", "Amount"])
-            for item in balance_sheet["assets"]:
-                writer.writerow([item["code"], item["label"], item["value"]])
-            for item in balance_sheet["liabilities"]:
-                writer.writerow([item["code"], item["label"], item["value"]])
-            for item in balance_sheet["equity"]:
-                writer.writerow([item["code"], item["label"], item["value"]])
+        bs_rows = []
+        for item in balance_sheet["assets"]:
+            bs_rows.append([item["code"], item["label"], item["value"]])
+        for item in balance_sheet["liabilities"]:
+            bs_rows.append([item["code"], item["label"], item["value"]])
+        for item in balance_sheet["equity"]:
+            bs_rows.append([item["code"], item["label"], item["value"]])
+        await _write_csv(
+            f"{base_name}_balance_sheet.csv",
+            ["Code", "Account", "Amount"],
+            bs_rows
+        )
 
         # Income statement CSV
-        is_path = self._output_dir / f"{base_name}_income_statement.csv"
-        with open(is_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["Code", "Description", "Amount"])
-            for item in income_stmt["lines"]:
-                writer.writerow([item["code"], item["label"], item["value"]])
+        is_rows = [
+            [item["code"], item["label"], item["value"]]
+            for item in income_stmt["lines"]
+        ]
+        await _write_csv(
+            f"{base_name}_income_statement.csv",
+            ["Code", "Description", "Amount"],
+            is_rows
+        )
 
         # Cash flow CSV
-        cf_path = self._output_dir / f"{base_name}_cash_flow.csv"
-        with open(cf_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["Activity", "Amount"])
-            writer.writerow(["Operating", cash_flow["operating_activities"]])
-            writer.writerow(["Investing", cash_flow["investing_activities"]])
-            writer.writerow(["Financing", cash_flow["financing_activities"]])
-            writer.writerow(["Net Cash Flow", cash_flow["net_increase_decrease"]])
-            writer.writerow(["Beginning Cash", cash_flow["beginning_cash"]])
-            writer.writerow(["Ending Cash", cash_flow["ending_cash"]])
+        cf_rows = [
+            ["Operating", cash_flow["operating_activities"]],
+            ["Investing", cash_flow["investing_activities"]],
+            ["Financing", cash_flow["financing_activities"]],
+            ["Net Cash Flow", cash_flow["net_increase_decrease"]],
+            ["Beginning Cash", cash_flow["beginning_cash"]],
+            ["Ending Cash", cash_flow["ending_cash"]],
+        ]
+        await _write_csv(
+            f"{base_name}_cash_flow.csv",
+            ["Activity", "Amount"],
+            cf_rows
+        )
 
         logger.info(f"OJK CSV reports exported to {self._output_dir}")
         return self._output_dir / f"{base_name}_balance_sheet.csv"

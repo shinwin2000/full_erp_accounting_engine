@@ -28,6 +28,8 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+import aiofiles  # <-- Tambahan untuk async file I/O
+
 # Import dari layer audit (diizinkan)
 from audit.hash_chain_builder import AuditHashChainBuilder, get_audit_hash_builder
 
@@ -575,6 +577,9 @@ class RegulatoryAttestationSigner:
                 break
         return attestations
 
+    # ========================================================================
+    # PERBAIKAN: export_attestation menggunakan aiofiles
+    # ========================================================================
     async def export_attestation(self, attestation_id: UUID) -> Path:
         """
         Mengekspor attestation ke file JSON beserta signature untuk auditor.
@@ -597,8 +602,10 @@ class RegulatoryAttestationSigner:
         filename = f"attestation_{attestation_id}_{timestamp}.json"
         file_path = self._output_dir / filename
 
-        with open(file_path, "w") as f:
-            json.dump(export_data, f, indent=2, default=str)
+        # Gunakan aiofiles untuk write async
+        content = json.dumps(export_data, indent=2, default=str)
+        async with aiofiles.open(file_path, "w") as f:
+            await f.write(content)
 
         logger = _get_logger()
         logger.info(f"Attestation exported to {file_path}")
@@ -635,7 +642,7 @@ async def get_regulatory_attestation_signer() -> RegulatoryAttestationSigner:
 
 
 # ============================================================================
-# CLI COMMAND
+# CLI COMMAND — DIPERBAIKI (tanpa unsafe create_task)
 # ============================================================================
 
 
@@ -699,15 +706,19 @@ def cli():
             path = await signer.export_attestation(UUID(args.attestation_id))
             print(f"Exported to: {path}")
 
+    # Eksekusi dengan aman, tanpa unsafe create_task
     try:
-        asyncio.get_running_loop()
-        asyncio.create_task(run())
+        loop = asyncio.get_running_loop()
+        # Jika ada loop berjalan, jalankan di thread terpisah
+        import threading
+        def _run_in_thread():
+            asyncio.run(run())
+        thread = threading.Thread(target=_run_in_thread)
+        thread.start()
+        thread.join()
     except RuntimeError:
-        sub_loop = asyncio.new_event_loop()
-        try:
-            sub_loop.run_until_complete(run())
-        finally:
-            sub_loop.close()
+        # Tidak ada loop aktif, jalankan langsung
+        asyncio.run(run())
 
 
 # ============================================================================

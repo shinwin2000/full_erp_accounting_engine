@@ -9,16 +9,16 @@ Menggunakan lazy import untuk menghindari ketergantungan langsung ke lapisan aud
 
 from __future__ import annotations
 
-import importlib
 import hashlib
+import importlib
 import json
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from ports.primary.hash_chain_service_port import (
-    HashChainServicePort,
     ChainType,
     HashChainEntry,
+    HashChainServicePort,
     IntegrityCheckResult,
 )
 

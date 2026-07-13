@@ -18,7 +18,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
@@ -74,6 +74,22 @@ class IdempotencyManager:
 
 # Global instance
 _idempotency_manager = IdempotencyManager()
+
+
+# ============================================================================
+# VALIDATION HELPER FOR DOUBLE-ENTRY CHECKER
+# ============================================================================
+
+def validate_balance(debit: Decimal, credit: Decimal) -> None:
+    """
+    Validate that total debit equals total credit.
+    Raises HTTPException 422 if not balanced.
+    """
+    if debit != credit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Journal not balanced: debit={debit}, credit={credit}"
+        )
 
 
 # ============================================================================
@@ -371,6 +387,11 @@ async def create_journal(
             return JournalResponseSchema(**cached)
 
     try:
+        # Validate double-entry before calling service
+        total_debit = sum(line.debit_amount for line in request.lines)
+        total_credit = sum(line.credit_amount for line in request.lines)
+        validate_balance(total_debit, total_credit)
+
         line_dtos = [
             JournalLineRequest(
                 account_code=line.account_code,
@@ -609,6 +630,12 @@ async def update_journal(
             return JournalResponseSchema(**cached)
 
     try:
+        # Validate balance if lines are being updated
+        if request.lines:
+            total_debit = sum(line.debit_amount for line in request.lines)
+            total_credit = sum(line.credit_amount for line in request.lines)
+            validate_balance(total_debit, total_credit)
+
         line_dtos = None
         if request.lines:
             line_dtos = [
@@ -844,6 +871,12 @@ async def submit_journal(
             return JournalActionResponseSchema(**cached)
 
     try:
+        # Fetch journal to validate balance before submit
+        journal = await journal_service.get_journal_by_id(journal_id, legal_entity_id)
+        if not journal:
+            raise HTTPException(status_code=404, detail="Journal not found")
+        validate_balance(journal.total_debit, journal.total_credit)
+
         result = await journal_service.submit_journal(
             journal_id, current_user.user_id, legal_entity_id
         )
@@ -892,6 +925,12 @@ async def approve_journal(
             return JournalActionResponseSchema(**cached)
 
     try:
+        # Fetch journal to validate balance before approve
+        journal = await use_case.get_journal(journal_id, legal_entity_id)
+        if not journal:
+            raise HTTPException(status_code=404, detail="Journal not found")
+        validate_balance(journal.total_debit, journal.total_credit)
+
         result = await use_case.approve(
             journal_id=journal_id,
             approver_id=current_user.user_id,
@@ -995,6 +1034,12 @@ async def post_journal(
             return JournalActionResponseSchema(**cached)
 
     try:
+        # Fetch journal to validate balance before post
+        journal = await post_use_case.get_journal(journal_id, legal_entity_id)
+        if not journal:
+            raise HTTPException(status_code=404, detail="Journal not found")
+        validate_balance(journal.total_debit, journal.total_credit)
+
         result = await post_use_case.post(
             journal_id=journal_id,
             posted_by=current_user.user_id,
@@ -1045,6 +1090,12 @@ async def reverse_journal(
             return JournalActionResponseSchema(**cached)
 
     try:
+        # Fetch journal to validate balance before reverse
+        journal = await reverse_use_case.get_journal(journal_id, legal_entity_id)
+        if not journal:
+            raise HTTPException(status_code=404, detail="Journal not found")
+        validate_balance(journal.total_debit, journal.total_credit)
+
         result = await reverse_use_case.reverse(
             original_journal_id=journal_id,
             reversed_by=current_user.user_id,
@@ -1098,6 +1149,12 @@ async def unpost_journal(
             return JournalActionResponseSchema(**cached)
 
     try:
+        # Fetch journal to validate balance before unpost
+        journal = await journal_service.get_journal_by_id(journal_id, legal_entity_id)
+        if not journal:
+            raise HTTPException(status_code=404, detail="Journal not found")
+        validate_balance(journal.total_debit, journal.total_credit)
+
         result = await journal_service.unpost_journal(
             journal_id, current_user.user_id, legal_entity_id, reason
         )

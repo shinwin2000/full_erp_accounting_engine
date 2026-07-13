@@ -625,36 +625,56 @@ class SQLAlchemyManufacturingRepository(ManufacturingRepositoryPort):
         return count == 0
 
     # ========================================================================
-    # BATCH OPERATIONS
+    # BATCH OPERATIONS — DIPERBAIKI (tanpa query dalam loop)
     # ========================================================================
 
     async def save_bom_batch(self, boms: list[BillOfMaterialsEntity]) -> None:
+        if not boms:
+            return
         session = await self._get_session()
+        ids = [bom.id for bom in boms]
+
+        # Ambil semua BOM yang sudah ada dalam satu query
+        stmt = select(BillOfMaterialsTable).where(BillOfMaterialsTable.id.in_(ids))
+        result = await session.execute(stmt)
+        existing_map = {row.id: row for row in result.scalars().all()}
+
         for bom in boms:
             table = self._bom_from_domain(bom)
-            existing = await session.get(BillOfMaterialsTable, bom.id)
-            if existing:
+            if bom.id in existing_map:
+                existing = existing_map[bom.id]
+                # Update semua kolom kecuali id dan meta
                 for key, value in table.__dict__.items():
                     if not key.startswith("_") and key != "id":
                         setattr(existing, key, value)
                 existing.updated_at = datetime.utcnow()
             else:
                 session.add(table)
-            # Save lines? Not implemented yet; assuming BOM entity doesn't have lines in this context.
+
         await session.flush()
 
     async def save_work_order_batch(self, work_orders: list[WorkOrderEntity]) -> None:
+        if not work_orders:
+            return
         session = await self._get_session()
+        ids = [wo.id for wo in work_orders]
+
+        # Ambil semua Work Order yang sudah ada dalam satu query
+        stmt = select(ManufacturingWorkOrderTable).where(ManufacturingWorkOrderTable.id.in_(ids))
+        result = await session.execute(stmt)
+        existing_map = {row.id: row for row in result.scalars().all()}
+
         for wo in work_orders:
             table = self._wo_from_domain(wo)
-            existing = await session.get(ManufacturingWorkOrderTable, wo.id)
-            if existing:
+            if wo.id in existing_map:
+                existing = existing_map[wo.id]
                 for key, value in table.__dict__.items():
                     if not key.startswith("_") and key != "id":
                         setattr(existing, key, value)
                 existing.updated_at = datetime.utcnow()
             else:
                 session.add(table)
+
         await session.flush()
 
 

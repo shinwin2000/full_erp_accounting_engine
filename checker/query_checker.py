@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/query_checker.py – Query Handler / Query Bus Compliance Checker
 ========================================================================
@@ -20,14 +19,13 @@ import concurrent.futures
 import csv
 import json
 import logging
-import os
 import pathlib
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
+from datetime import UTC, datetime
 
 # ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
 _RCA_ENGINE = None
@@ -38,7 +36,7 @@ def _init_rca() -> bool:
     if _RCA_AVAILABLE:
         return True
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -48,7 +46,7 @@ def _init_rca() -> bool:
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -58,7 +56,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -93,7 +91,7 @@ if not logger.handlers:
     logger.addHandler(_log_handler)
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
     "WHITE": "", "BOLD": "", "DIM": "", "RESET": "",
 }
@@ -147,7 +145,7 @@ SKIP_CLASS_PATTERNS = {
     "Service", "Manager", "Provider", "Config", "Settings", "Entity", "ValueObject",
     "Aggregate", "Projection", "ReadModel", "Table", "Model", "Migration",
     "Injector", "Interceptor", "Decorator", "Wrapper",
-    "Metadata", "Status", "Result", "Envelope", "Wrapper", "Payload",
+    "Metadata", "Status", "Result", "Envelope", "Payload",
 }
 
 # I/O operations that require error handling
@@ -168,9 +166,9 @@ class QueryViolation:
     line: int
     message: str
     suggestion: str
-    rca: Optional[Dict] = None
+    rca: dict | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "severity": self.severity,
             "file": self.file,
@@ -197,12 +195,12 @@ class QueryInfo:
     has_return_annotation: bool
     performs_io: bool
     needs_di: bool
-    violations: List[QueryViolation] = field(default_factory=list)
+    violations: list[QueryViolation] = field(default_factory=list)
 
 @dataclass
 class Report:
-    queries: List[QueryInfo] = field(default_factory=list)
-    violations: List[QueryViolation] = field(default_factory=list)
+    queries: list[QueryInfo] = field(default_factory=list)
+    violations: list[QueryViolation] = field(default_factory=list)
     total_files_scanned: int = 0
     total_queries: int = 0
     score: float = 100.0
@@ -229,10 +227,10 @@ class Report:
         return self.error_count == 0 and self.high_count == 0
 
 # ─── AST UTILITIES ──────────────────────────────────────────────────────────
-_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_AST_CACHE: dict[str, tuple[ast.AST | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
 
-def _read_source(py_file: pathlib.Path) -> Optional[str]:
+def _read_source(py_file: pathlib.Path) -> str | None:
     encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
     for enc in encodings:
         try:
@@ -244,7 +242,7 @@ def _read_source(py_file: pathlib.Path) -> Optional[str]:
     except OSError:
         return None
 
-def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     key = str(py_file.resolve())
     with _CACHE_LOCK:
         if key in _AST_CACHE:
@@ -266,17 +264,17 @@ def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
         _AST_CACHE[key] = (None, err)
         return None, err
 
-def _get_method_names(node: ast.ClassDef) -> Set[str]:
+def _get_method_names(node: ast.ClassDef) -> set[str]:
     return {item.name for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
-def _find_method_by_name(node: ast.ClassDef, names: Set[str]) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
+def _find_method_by_name(node: ast.ClassDef, names: set[str]) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
     for item in node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if item.name in names:
                 return item
     return None
 
-def _extract_type_name(annotation_node: Optional[ast.expr]) -> str:
+def _extract_type_name(annotation_node: ast.expr | None) -> str:
     if annotation_node is None:
         return ""
     if isinstance(annotation_node, ast.Name):
@@ -289,7 +287,7 @@ def _extract_type_name(annotation_node: Optional[ast.expr]) -> str:
         return str(annotation_node.value)
     return "Any"
 
-def _generate_rca(msg: str, severity: str, context: Optional[Dict] = None) -> Optional[Dict]:
+def _generate_rca(msg: str, severity: str, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -311,7 +309,7 @@ class QueryChecker:
         root: pathlib.Path,
         enable_rca: bool = True,
         strict: bool = False,
-        extra_excludes: Optional[Set[str]] = None,
+        extra_excludes: set[str] | None = None,
         max_workers: int = 4,
     ):
         self.root = root
@@ -494,13 +492,13 @@ class QueryChecker:
                 return item.returns is not None
         return False
 
-    def _get_execute_method(self, node: ast.ClassDef) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
+    def _get_execute_method(self, node: ast.ClassDef) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name in EXECUTE_METHODS:
                 return item
         return None
 
-    def _analyze_class(self, node: ast.ClassDef, rel_path: str, file_path: pathlib.Path) -> Optional[QueryInfo]:
+    def _analyze_class(self, node: ast.ClassDef, rel_path: str, file_path: pathlib.Path) -> QueryInfo | None:
         if not self._is_query_handler_class(node, file_path):
             return None
 
@@ -516,7 +514,7 @@ class QueryChecker:
         performs_io = self._detect_io_operations(node)
         needs_di = self._needs_dependency_injection(node)
 
-        violations: List[QueryViolation] = []
+        violations: list[QueryViolation] = []
         execute_method = self._get_execute_method(node)
         line = execute_method.lineno if execute_method else node.lineno
 
@@ -636,7 +634,7 @@ class QueryChecker:
             violations=violations,
         )
 
-    def scan(self, progress_callback: Optional[Callable] = None) -> Report:
+    def scan(self, progress_callback: Callable | None = None) -> Report:
         t0 = time.monotonic()
         report = Report()
         py_files = []
@@ -653,10 +651,10 @@ class QueryChecker:
         py_files = sorted(set(py_files))
         report.total_files_scanned = len(py_files)
 
-        results: List[QueryInfo] = []
+        results: list[QueryInfo] = []
         total = len(py_files)
 
-        def _scan_one(idx: int, py_file: pathlib.Path) -> List[QueryInfo]:
+        def _scan_one(idx: int, py_file: pathlib.Path) -> list[QueryInfo]:
             if progress_callback:
                 progress_callback(idx + 1, total)
             tree, err = _get_ast(py_file)
@@ -725,7 +723,7 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
     _safe_print("    ✅ caching (optional)                     — performance (INFO)")
     _safe_print("    ✅ logging/audit                          — observability (INFO)")
 
-    _safe_print(f"\n  📊 Summary:")
+    _safe_print("\n  📊 Summary:")
     _safe_print(f"    Files scanned    : {report.total_files_scanned}")
     _safe_print(f"    Query Handlers   : {report.total_queries}")
     _safe_print(f"    CRITICAL         : {c['RED']}{report.error_count}{c['RESET']}")
@@ -780,7 +778,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
     try:
         data = {
             "version": __version__,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "score": report.score,
             "passed": report.passed,
             "scan_time": report.scan_time,

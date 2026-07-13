@@ -26,10 +26,9 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-from ports.primary.event_publisher_port import EventPublisherPort
-
 # Import domain events
 from application.events import HierarchyChangedEvent
+from ports.primary.event_publisher_port import EventPublisherPort
 
 logger = logging.getLogger(__name__)
 
@@ -449,11 +448,11 @@ async def create_hierarchy_service(
 
 
 __all__ = [
+    "HierarchyAction",
     "HierarchyNode",
     "HierarchyNodeNotFoundError",
     "HierarchyService",
     "HierarchyServiceError",
     "HierarchyType",
-    "HierarchyAction",
     "create_hierarchy_service",
 ]

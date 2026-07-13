@@ -15,9 +15,9 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -29,7 +29,6 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    delete,
     func,
     select,
     text,
@@ -82,8 +81,8 @@ class CustomerTable(Base):
     blacklisted_by = Column(PGUUID(as_uuid=True), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_by = Column(PGUUID(as_uuid=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=lambda: datetime.now(UTC))
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
 
@@ -94,7 +93,7 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
     This adapter provides full CRUD and business operations for Customer aggregate.
     """
 
-    def __init__(self, session: Optional[AsyncSession] = None):
+    def __init__(self, session: AsyncSession | None = None):
         self._session = session
         self._audit_log: list[dict] = []
 
@@ -108,7 +107,7 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
     async def _log_audit(self, action: str, customer_id: UUID, details: dict[str, Any]) -> None:
         """Log audit trail for customer operations."""
         self._audit_log.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "action": action,
             "customer_id": str(customer_id),
             "details": details,
@@ -199,7 +198,7 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             stmt = select(CustomerTable).where(CustomerTable.id == customer.id)
             result = await session.execute(stmt)
             existing = result.scalar_one_or_none()
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             if existing:
                 existing.customer_code = customer.customer_code
                 existing.customer_name = customer.customer_name
@@ -269,7 +268,7 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             result = await session.execute(stmt)
             if result.scalar_one_or_none():
                 raise ValueError(f"Customer code {customer.customer_code} already exists")
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             new = CustomerTable(
                 id=customer.id or uuid4(),
                 legal_entity_id=customer.legal_entity_id,
@@ -316,7 +315,7 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             if not existing:
                 raise ValueError(f"Customer {customer.id} not found")
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             existing.customer_code = customer.customer_code
             existing.customer_name = customer.customer_name
             existing.npwp = customer.npwp
@@ -358,7 +357,7 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
                 await self._log_audit("DELETE_PERMANENT", customer_id, {"user_id": str(user_id) if user_id else None})
                 return True
             else:
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 row.deleted_at = now
                 row.is_active = False
                 row.status = "INACTIVE"
@@ -379,7 +378,7 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             row = result.scalar_one_or_none()
             if not row:
                 return False
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             row.deleted_at = None
             row.is_active = True
             row.status = "ACTIVE"
@@ -502,15 +501,15 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
         try:
             session = await self._get_session()
             await session.execute(text("SELECT 1"))
-            return {"status": "healthy", "database": "connected", "timestamp": datetime.now(timezone.utc).isoformat()}
+            return {"status": "healthy", "database": "connected", "timestamp": datetime.now(UTC).isoformat()}
         except Exception as e:
-            return {"status": "unhealthy", "database": "disconnected", "error": str(e), "timestamp": datetime.now(timezone.utc).isoformat()}
+            return {"status": "unhealthy", "database": "disconnected", "error": str(e), "timestamp": datetime.now(UTC).isoformat()}
 
     async def add_order(self, customer_id: UUID, order: Any) -> None:
         """Increment order count for a customer."""
         session = await self._get_session()
         async with session.begin():
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             stmt = (
                 update(CustomerTable)
                 .where(CustomerTable.id == customer_id)
@@ -532,7 +531,7 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
             row = result.scalar_one_or_none()
             if not row:
                 return False
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             row.status = "BLACKLISTED"
             row.is_active = False
             row.blacklisted_reason = reason
@@ -558,7 +557,7 @@ class SQLAlchemyCustomerRepository(CustomerRepositoryPort):
                 raise ValueError(f"Customer {customer_id} not found")
 
             row.credit_used += amount_used
-            row.updated_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(UTC)
             await session.flush()
             await self._log_audit("UPDATE_CREDIT", customer_id, {"amount": float(amount_used)})
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, auto
@@ -472,15 +473,17 @@ class CausalNodeService:
         current_id = start_node_id
         if direction == "forward":
             while current_id:
-                node = self._nodes.get(current_id)
-                if not node:
+                if current_id in self._nodes:
+                    node = self._nodes[current_id]
+                else:
                     break
                 chain.append(node)
                 current_id = node.next_node_id
         else:
             while current_id:
-                node = self._nodes.get(current_id)
-                if not node:
+                if current_id in self._nodes:
+                    node = self._nodes[current_id]
+                else:
                     break
                 chain.insert(0, node)
                 current_id = node.previous_node_id
@@ -522,15 +525,16 @@ class CausalNodeService:
             if current_id in visited or depth > max_depth:
                 continue
             visited.add(current_id)
-            node = self._nodes.get(current_id)
-            if node:
-                graph[current_id] = []
-                if node.next_node_id and node.next_node_id not in visited:
-                    graph[current_id].append(node.next_node_id)
-                    queue.append((node.next_node_id, depth + 1))
-                if node.previous_node_id and node.previous_node_id not in visited:
-                    graph[current_id].append(node.previous_node_id)
-                    queue.append((node.previous_node_id, depth + 1))
+            if current_id not in self._nodes:
+                continue
+            node = self._nodes[current_id]
+            graph[current_id] = []
+            if node.next_node_id and node.next_node_id not in visited:
+                graph[current_id].append(node.next_node_id)
+                queue.append((node.next_node_id, depth + 1))
+            if node.previous_node_id and node.previous_node_id not in visited:
+                graph[current_id].append(node.previous_node_id)
+                queue.append((node.previous_node_id, depth + 1))
         return graph
 
     # ------------------------------------------------------------------------
@@ -570,16 +574,17 @@ class CausalNodeService:
             visited.add(node_id)
             rec_stack.add(node_id)
             path.append(node_id)
-            node = self._nodes.get(node_id)
-            if node and node.next_node_id:
-                neighbor = node.next_node_id
-                if neighbor not in visited:
-                    parent[neighbor] = node_id
-                    dfs(neighbor, path)
-                elif neighbor in rec_stack:
-                    # Cycle detected
-                    cycle_start = path.index(neighbor)
-                    cycles.append(path[cycle_start:] + [neighbor])
+            if node_id in self._nodes:
+                node = self._nodes[node_id]
+                if node.next_node_id:
+                    neighbor = node.next_node_id
+                    if neighbor not in visited:
+                        parent[neighbor] = node_id
+                        dfs(neighbor, path)
+                    elif neighbor in rec_stack:
+                        # Cycle detected
+                        cycle_start = path.index(neighbor)
+                        cycles.append(path[cycle_start:] + [neighbor])
             rec_stack.remove(node_id)
             path.pop()
 
@@ -644,13 +649,14 @@ class CausalNodeService:
     # ------------------------------------------------------------------------
     def get_statistics(self) -> dict[str, Any]:
         total = len(self._nodes)
-        by_type: dict[str, int] = {}
+        by_type: dict[str, int] = defaultdict(int)
         for node in self._nodes.values():
-            type_name = node.node_type.name
-            by_type[type_name] = by_type.get(type_name, 0) + 1
-        by_entity_type: dict[str, int] = {}
+            by_type[node.node_type.name] += 1
+
+        by_entity_type: dict[str, int] = defaultdict(int)
         for node in self._nodes.values():
-            by_entity_type[node.entity_type] = by_entity_type.get(node.entity_type, 0) + 1
+            by_entity_type[node.entity_type] += 1
+
         processed = set()
         chain_lengths = []
         for node in self._nodes.values():
@@ -667,8 +673,8 @@ class CausalNodeService:
         valid_hashes = sum(1 for v in hash_verification.values() if v)
         return {
             "total_nodes": total,
-            "by_node_type": by_type,
-            "by_entity_type": by_entity_type,
+            "by_node_type": dict(by_type),
+            "by_entity_type": dict(by_entity_type),
             "total_chains": len(chain_lengths),
             "average_chain_length": avg_len,
             "max_chain_length": max(chain_lengths) if chain_lengths else 0,

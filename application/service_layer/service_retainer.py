@@ -21,10 +21,9 @@ from decimal import Decimal
 from enum import Enum
 from uuid import UUID, uuid4
 
-from ports.primary.event_publisher_port import EventPublisherPort
-
 # Import domain events
 from application.events import RetainerContractActivatedEvent
+from ports.primary.event_publisher_port import EventPublisherPort
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +92,23 @@ class RetainerService:
         self._contracts: dict[UUID, RetainerContract] = {}
         self._event_publisher = event_publisher
         self._stats = {"contracts_created": 0, "contracts_activated": 0}
-
+        self._audit_trail: list[dict] = []
         logger.info("RetainerService initialized")
+
+    # ==================== AUDIT TRAIL ====================
+
+    def _record_audit(self, action: str, details: dict) -> None:
+        """Record audit trail entry."""
+        entry = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "RetainerService",
+            "action": action,
+            "details": details,
+        }
+        self._audit_trail.append(entry)
+        logger.info(f"AUDIT: {action} - {details}")
+
+    # ==================== BUSINESS METHODS ====================
 
     async def create_retainer_contract(
         self,
@@ -133,6 +147,15 @@ class RetainerService:
         self._contracts[contract.id] = contract
         self._stats["contracts_created"] += 1
 
+        # Audit trail
+        self._record_audit("CREATE_RETAINER_CONTRACT", {
+            "contract_id": str(contract.id),
+            "contract_number": contract_number,
+            "customer_id": str(customer_id),
+            "amount": str(total_amount),
+            "created_by": str(created_by) if created_by else None,
+        })
+
         logger.info(f"Retainer contract created: {contract_number}")
         return contract
 
@@ -155,6 +178,13 @@ class RetainerService:
         contract.version += 1
         self._contracts[contract_id] = contract
         self._stats["contracts_activated"] += 1
+
+        # Audit trail
+        self._record_audit("ACTIVATE_RETAINER_CONTRACT", {
+            "contract_id": str(contract.id),
+            "contract_number": contract.contract_number,
+            "activated_by": str(activated_by),
+        })
 
         # --- PUBLISH EVENT ---
         if self._event_publisher:
@@ -199,6 +229,15 @@ class RetainerService:
         contract.version += 1
         self._contracts[contract_id] = contract
 
+        # Audit trail
+        self._record_audit("CANCEL_RETAINER_CONTRACT", {
+            "contract_id": str(contract.id),
+            "contract_number": contract.contract_number,
+            "reason": reason,
+            "cancelled_by": str(cancelled_by),
+        })
+
+        logger.info(f"Retainer contract cancelled: {contract.contract_number}")
         return contract
 
     async def suspend_retainer_contract(
@@ -214,12 +253,20 @@ class RetainerService:
             raise RetainerNotFoundError(f"Contract {contract_id} not found")
 
         if contract.status != RetainerStatus.ACTIVE:
-            raise RetainerServiceError(f"Only active contracts can be suspended")
+            raise RetainerServiceError("Only active contracts can be suspended")
 
         contract.status = RetainerStatus.SUSPENDED
         contract.updated_at = datetime.now(UTC)
         contract.version += 1
         self._contracts[contract_id] = contract
+
+        # Audit trail
+        self._record_audit("SUSPEND_RETAINER_CONTRACT", {
+            "contract_id": str(contract.id),
+            "contract_number": contract.contract_number,
+            "reason": reason,
+            "suspended_by": str(suspended_by),
+        })
 
         return contract
 
@@ -238,6 +285,9 @@ class RetainerService:
 
     def get_stats(self) -> dict[str, int]:
         return self._stats.copy()
+
+    def get_audit_trail(self) -> list[dict]:
+        return self._audit_trail.copy()
 
 
 # ============================================================================

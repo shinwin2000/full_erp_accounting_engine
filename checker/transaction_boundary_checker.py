@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 transaction_boundary_checker.py – Transaction Boundary & UoW Validator v5.3.0
 =======================================================================
@@ -16,15 +15,15 @@ from __future__ import annotations
 
 import argparse
 import ast
+import csv
 import json
 import pathlib
 import sys
-import time
 import threading
-import csv
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple, Callable
+from datetime import UTC, datetime
 
 # ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
 _RCA_AVAILABLE = False
@@ -35,14 +34,14 @@ def _init_rca() -> bool:
     if _RCA_AVAILABLE:
         return True
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
     except ImportError:
         pass
     try:
-        from core.rca import get_engine, analyze_exception, Severity
+        from core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -52,7 +51,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {"root_cause": str(exc)[:200], "suggested_fix": "Install RCA engine", "confidence": 0.0}
     try:
@@ -71,7 +70,7 @@ def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dic
         return None
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
     "BOLD": "", "DIM": "", "RESET": "",
 }
@@ -113,9 +112,9 @@ class TransactionIssue:
     line: int
     message: str
     detail: str = ""
-    rca: Optional[Dict] = None
+    rca: dict | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {"severity": self.severity, "file": self.file, "line": self.line,
                 "message": self.message, "detail": self.detail, "rca": self.rca}
 
@@ -129,8 +128,8 @@ class UoWUsage:
 @dataclass
 class Report:
     total_files: int = 0
-    uow_usages: List[UoWUsage] = field(default_factory=list)
-    issues: List[TransactionIssue] = field(default_factory=list)
+    uow_usages: list[UoWUsage] = field(default_factory=list)
+    issues: list[TransactionIssue] = field(default_factory=list)
     has_uow_port: bool = False
     uow_port_file: str = ""
     score: float = 100.0
@@ -153,10 +152,10 @@ class Report:
         return self.error_count == 0
 
 # ─── AST HELPERS ──────────────────────────────────────────────────────────
-_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_AST_CACHE: dict[str, tuple[ast.AST | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
 
-def _read_source(py_file: pathlib.Path) -> Optional[str]:
+def _read_source(py_file: pathlib.Path) -> str | None:
     for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
         try:
             return py_file.read_text(encoding=enc, errors="strict")
@@ -167,7 +166,7 @@ def _read_source(py_file: pathlib.Path) -> Optional[str]:
     except OSError:
         return None
 
-def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     key = str(py_file.resolve())
     with _CACHE_LOCK:
         if key in _AST_CACHE:
@@ -195,7 +194,7 @@ def _is_uow_name(name: str) -> bool:
 # ─── CHECKER ──────────────────────────────────────────────────────────────────
 class TransactionBoundaryChecker:
     def __init__(self, root: pathlib.Path, enable_rca: bool = True,
-                 strict: bool = False, extra_excludes: Optional[Set[str]] = None):
+                 strict: bool = False, extra_excludes: set[str] | None = None):
         self.root = root
         self.enable_rca = enable_rca and _RCA_AVAILABLE
         self.strict = strict
@@ -241,7 +240,7 @@ class TransactionBoundaryChecker:
                 return True
         return False
 
-    def _generate_rca(self, msg: str, severity: str, context: Optional[Dict] = None) -> Optional[Dict]:
+    def _generate_rca(self, msg: str, severity: str, context: dict | None = None) -> dict | None:
         if not self.enable_rca:
             return None
         try:
@@ -251,7 +250,7 @@ class TransactionBoundaryChecker:
             return {"root_cause": msg, "suggested_fix": "Periksa implementasi transaksi."}
 
     # ─── UoW PORT CHECK ──────────────────────────────────────────────────────
-    def check_uow_port(self) -> List[TransactionIssue]:
+    def check_uow_port(self) -> list[TransactionIssue]:
         issues = []
         port_file = self.root / "ports" / "primary" / UOW_PORT_FILENAME
         if not port_file.exists():
@@ -305,7 +304,7 @@ class TransactionBoundaryChecker:
         return issues
 
     # ─── UOW USAGE DETECTION ─────────────────────────────────────────────
-    def _find_uow_usages(self, tree: ast.AST, file_rel: str) -> List[UoWUsage]:
+    def _find_uow_usages(self, tree: ast.AST, file_rel: str) -> list[UoWUsage]:
         usages = []
         uow_names = set()
 
@@ -364,7 +363,7 @@ class TransactionBoundaryChecker:
         return unique
 
     # ─── SCAN ──────────────────────────────────────────────────────────────
-    def scan(self, progress_callback: Optional[Callable] = None) -> Report:
+    def scan(self, progress_callback: Callable | None = None) -> Report:
         t0 = time.monotonic()
         report = Report()
         all_py = list(self.root.glob("**/*.py"))
@@ -449,7 +448,7 @@ def print_report(report: Report, checker: TransactionBoundaryChecker, verbose: b
     print(f"  v{__version__} — Big 4 Audit Grade")
     print(f"{'='*72}{c['RESET']}")
 
-    print(f"\n  📊 Summary:")
+    print("\n  📊 Summary:")
     print(f"    UoW Port found  : {c['GREEN'] if report.has_uow_port else c['RED']}{report.has_uow_port}{c['RESET']}")
     if report.has_uow_port:
         print(f"    UoW Port file   : {report.uow_port_file}")
@@ -494,7 +493,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
     try:
         data = {
             "version": __version__,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "score": report.score,
             "passed": report.passed,
             "scan_time": report.scan_time,

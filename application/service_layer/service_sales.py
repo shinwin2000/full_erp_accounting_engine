@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 if TYPE_CHECKING:
-    from ports.primary.sales_repository_port import SalesRepositoryPort
     from ports.primary.event_publisher_port import EventPublisherPort
+    from ports.primary.sales_repository_port import SalesRepositoryPort
     from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)

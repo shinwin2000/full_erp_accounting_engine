@@ -18,26 +18,20 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
-from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from adapters.dependency_provider import get_service
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     TokenPayload,
-    get_current_legal_entity,
     get_current_user,
-    require_permission,
 )
 
 # Import service
 from application.service_layer.service_fiscal_period import (
-    FiscalPeriodService,
-    CreatePeriodRequest,
     ClosePeriodRequest,
-    LockPeriodRequest,
+    CreatePeriodRequest,
+    FiscalPeriodService,
     ReopenPeriodRequest,
-    PeriodResponse,
-    FiscalPeriodServiceError,
 )
 
 logger = logging.getLogger(__name__)
@@ -387,7 +381,9 @@ async def update_period(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Fiscal period not found",
             )
-        from application.service_layer.service_fiscal_period import UpdatePeriodRequest as UpdatePeriodRequestDTO
+        from application.service_layer.service_fiscal_period import (
+            UpdatePeriodRequest as UpdatePeriodRequestDTO,
+        )
         req = UpdatePeriodRequestDTO(
             start_date=payload.start_date,
             end_date=payload.end_date,

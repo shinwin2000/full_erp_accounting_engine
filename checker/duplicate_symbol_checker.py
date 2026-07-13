@@ -19,12 +19,11 @@ import argparse
 import ast
 import json
 import pathlib
-import sys
 import re
+import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional, Set, List, Dict, Tuple
 
 # ============================================================
 # Warna terminal
@@ -70,7 +69,7 @@ class MethodInfo:
 @dataclass
 class FieldInfo:
     name: str
-    type_hint: Optional[str]
+    type_hint: str | None
     has_default: bool
     lineno: int
 
@@ -93,7 +92,7 @@ class SymbolInfo:
     is_dataclass: bool = False
     is_pydantic: bool = False
     has_business_methods: bool = False
-    value: Optional[str] = None
+    value: str | None = None
 
 # ============================================================
 # Kelompok duplikat
@@ -156,7 +155,7 @@ def extract_symbols_from_file(file_path: pathlib.Path, module: str) -> list[Symb
                     ))
     return symbols
 
-def _extract_class_symbol(node: ast.ClassDef, module: str, file_path: pathlib.Path) -> Optional[SymbolInfo]:
+def _extract_class_symbol(node: ast.ClassDef, module: str, file_path: pathlib.Path) -> SymbolInfo | None:
     symbol_type = SymbolType.CLASS
     is_dataclass = False
     is_pydantic = False
@@ -181,9 +180,7 @@ def _extract_class_symbol(node: ast.ClassDef, module: str, file_path: pathlib.Pa
             is_exception = True
 
     for deco in node.decorator_list:
-        if isinstance(deco, ast.Name) and deco.id == "dataclass":
-            is_dataclass = True
-        elif isinstance(deco, ast.Call) and isinstance(deco.func, ast.Name) and deco.func.id == "dataclass":
+        if (isinstance(deco, ast.Name) and deco.id == "dataclass") or (isinstance(deco, ast.Call) and isinstance(deco.func, ast.Name) and deco.func.id == "dataclass"):
             is_dataclass = True
 
     methods: list[MethodInfo] = []
@@ -368,7 +365,7 @@ IGNORE_PATTERNS = [
     r"^MAGIC_.*",
 ]
 
-def should_ignore_symbol(name: str, symbol_type: SymbolType, ignore_set: Set[str]) -> bool:
+def should_ignore_symbol(name: str, symbol_type: SymbolType, ignore_set: set[str]) -> bool:
     if symbol_type == SymbolType.CONSTANT:
         return True
     if name in ignore_set:
@@ -385,7 +382,7 @@ def find_duplicates(
     symbols: list[SymbolInfo],
     threshold: float = 0.8,
     ignore_constants: bool = True,
-    ignore_names: Set[str] = None,
+    ignore_names: set[str] = None,
     min_occurrences: int = 3,
 ) -> list[DuplicateGroup]:
     if ignore_names is None:
@@ -489,9 +486,9 @@ def find_duplicates(
 # Scan proyek
 # ============================================================
 def scan_project(
-    exclude_dirs: Optional[list[str]] = None,
+    exclude_dirs: list[str] | None = None,
     ignore_constants: bool = True,
-    ignore_names: Set[str] = None,
+    ignore_names: set[str] = None,
     min_occurrences: int = 3,
 ) -> Report:
     if exclude_dirs is None:

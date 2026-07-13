@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 fiscal_period_checker.py – Fiscal Period Rules & Lifecycle Validator
 ====================================================================
@@ -14,14 +13,13 @@ import ast
 import csv
 import json
 import logging
-import os
 import pathlib
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple, Callable
+from datetime import UTC, datetime
 
 # ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
 _RCA_ENGINE = None
@@ -32,7 +30,7 @@ def _init_rca() -> bool:
     if _RCA_AVAILABLE:
         return True
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -42,7 +40,7 @@ def _init_rca() -> bool:
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -52,7 +50,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -87,7 +85,7 @@ if not logger.handlers:
     logger.addHandler(_log_handler)
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
     "WHITE": "", "BOLD": "", "DIM": "", "RESET": "",
 }
@@ -150,9 +148,9 @@ class Finding:
     category: str
     message: str
     detail: str = ""
-    rca: Optional[Dict] = None
+    rca: dict | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "severity": self.severity,
             "file": self.file,
@@ -165,7 +163,7 @@ class Finding:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: int = 100
     scan_time: float = 0.0
 
@@ -186,10 +184,10 @@ class Report:
         return self.error_count == 0
 
 # ─── AST UTILITIES ──────────────────────────────────────────────────────────
-_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_AST_CACHE: dict[str, tuple[ast.AST | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
 
-def _read_source(py_file: pathlib.Path) -> Optional[str]:
+def _read_source(py_file: pathlib.Path) -> str | None:
     encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
     for enc in encodings:
         try:
@@ -201,7 +199,7 @@ def _read_source(py_file: pathlib.Path) -> Optional[str]:
     except OSError:
         return None
 
-def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     key = str(py_file.resolve())
     with _CACHE_LOCK:
         if key in _AST_CACHE:
@@ -264,7 +262,7 @@ def _has_if_status_check(node: ast.AST) -> bool:
                 return True
     return False
 
-def _has_method_call(node: ast.AST, names: List[str]) -> bool:
+def _has_method_call(node: ast.AST, names: list[str]) -> bool:
     for sub in ast.walk(node):
         if isinstance(sub, ast.Call):
             if isinstance(sub.func, ast.Name) and sub.func.id.lower() in names:
@@ -283,7 +281,7 @@ def _is_getter_or_validator(func_name: str) -> bool:
     return any(lower.startswith(p) for p in GETTER_PREFIXES)
 
 # ─── FILE FILTER ──────────────────────────────────────────────────────────────
-def get_relevant_files(project_root: pathlib.Path, extra_excludes: Set[str]) -> List[pathlib.Path]:
+def get_relevant_files(project_root: pathlib.Path, extra_excludes: set[str]) -> list[pathlib.Path]:
     relevant = []
     skip_dirs = {
         ".venv", "venv", "__pycache__", ".git", "node_modules",
@@ -331,7 +329,7 @@ def get_relevant_files(project_root: pathlib.Path, extra_excludes: Set[str]) -> 
     return relevant
 
 # ─── ANALYZERS (dengan parameter project_root) ──────────────────────────────
-def analyze_period_validation(tree: ast.AST, file_path: pathlib.Path, project_root: pathlib.Path) -> List[Finding]:
+def analyze_period_validation(tree: ast.AST, file_path: pathlib.Path, project_root: pathlib.Path) -> list[Finding]:
     findings = []
     rel = str(file_path.relative_to(project_root)).replace("\\", "/")
     is_service = "service" in rel
@@ -364,7 +362,7 @@ def analyze_period_validation(tree: ast.AST, file_path: pathlib.Path, project_ro
         ))
     return findings
 
-def analyze_fiscal_year(tree: ast.AST, file_path: pathlib.Path, project_root: pathlib.Path) -> List[Finding]:
+def analyze_fiscal_year(tree: ast.AST, file_path: pathlib.Path, project_root: pathlib.Path) -> list[Finding]:
     findings = []
     rel = str(file_path.relative_to(project_root)).replace("\\", "/")
     if not rel.startswith("domain/"):
@@ -424,7 +422,7 @@ def analyze_fiscal_year(tree: ast.AST, file_path: pathlib.Path, project_root: pa
             ))
     return findings
 
-def analyze_closure_constraints(tree: ast.AST, file_path: pathlib.Path, project_root: pathlib.Path) -> List[Finding]:
+def analyze_closure_constraints(tree: ast.AST, file_path: pathlib.Path, project_root: pathlib.Path) -> list[Finding]:
     findings = []
     rel = str(file_path.relative_to(project_root)).replace("\\", "/")
     if not (rel.startswith("domain/") or rel.startswith("application/service_layer/") or rel.startswith("application/use_cases/")):
@@ -466,7 +464,7 @@ def analyze_closure_constraints(tree: ast.AST, file_path: pathlib.Path, project_
             ))
     return findings
 
-def analyze_year_end(tree: ast.AST, file_path: pathlib.Path, project_root: pathlib.Path) -> List[Finding]:
+def analyze_year_end(tree: ast.AST, file_path: pathlib.Path, project_root: pathlib.Path) -> list[Finding]:
     findings = []
     rel = str(file_path.relative_to(project_root)).replace("\\", "/")
     if not (rel.startswith("application/service_layer/") or rel.startswith("application/use_cases/")):
@@ -501,9 +499,9 @@ def analyze_year_end(tree: ast.AST, file_path: pathlib.Path, project_root: pathl
 # ─── ORCHESTRATOR ────────────────────────────────────────────────────────────
 def scan_project(
     project_root: pathlib.Path,
-    extra_excludes: Set[str],
+    extra_excludes: set[str],
     run_rca: bool = True,
-    progress_callback: Optional[Callable] = None,
+    progress_callback: Callable | None = None,
 ) -> Report:
     t0 = time.monotonic()
     report = Report()
@@ -560,7 +558,7 @@ def scan_project(
     report.scan_time = time.monotonic() - t0
     return report
 
-def find_period_status_enum(project_root: pathlib.Path) -> Tuple[Optional[pathlib.Path], Set[str]]:
+def find_period_status_enum(project_root: pathlib.Path) -> tuple[pathlib.Path | None, set[str]]:
     search_dirs = [
         project_root / "domain" / "fiscal_period",
         project_root / "domain" / "shared_value_objects",
@@ -664,7 +662,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
     try:
         data = {
             "version": __version__,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "score": report.score,
             "passed": report.passed,
             "scan_time": report.scan_time,
@@ -798,7 +796,7 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    if args.self_test:  
+    if args.self_test:
         return 0 if self_test(verbose=True) else 1
 
     project_root = pathlib.Path(__file__).resolve().parent.parent

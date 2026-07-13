@@ -8,9 +8,9 @@ Responsibility: Port interface untuk repository Employee.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 

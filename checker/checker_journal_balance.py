@@ -21,9 +21,8 @@ import argparse
 import ast
 import json
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Set, List, Dict
 
 # ============================================================
 # Import RCA (jika ada)
@@ -36,11 +35,18 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 try:
-    from rca import RCAEngine, Severity, RCAResult, analyze_exception, Category, ErrorCode
+    from rca import Category, ErrorCode, RCAEngine, RCAResult, Severity, analyze_exception
     RCA_AVAILABLE = True
 except ImportError:
     try:
-        from checker.core.rca import RCAEngine, Severity, RCAResult, analyze_exception, Category, ErrorCode
+        from checker.core.rca import (
+            Category,
+            ErrorCode,
+            RCAEngine,
+            RCAResult,
+            Severity,
+            analyze_exception,
+        )
         RCA_AVAILABLE = True
     except ImportError:
         RCA_AVAILABLE = False
@@ -118,7 +124,7 @@ class MethodCall:
 
 # ─── AST Helpers ──────────────────────────────────────────────────────────────
 
-def get_ast_tree(path: Path) -> Optional[ast.AST]:
+def get_ast_tree(path: Path) -> ast.AST | None:
     try:
         src = path.read_text(encoding="utf-8")
         return ast.parse(src, filename=str(path))
@@ -303,7 +309,7 @@ class BalanceCheckVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def is_journal_constructor(call_node: ast.Call, class_names: Set[str]) -> Optional[str]:
+def is_journal_constructor(call_node: ast.Call, class_names: set[str]) -> str | None:
     if isinstance(call_node.func, ast.Name):
         if call_node.func.id in class_names:
             return call_node.func.id
@@ -312,7 +318,7 @@ def is_journal_constructor(call_node: ast.Call, class_names: Set[str]) -> Option
 
 def extract_object_creations(
     func_node: ast.FunctionDef,
-    journal_class_names: Set[str],
+    journal_class_names: set[str],
     file_path: Path
 ) -> list[ObjectCreation]:
     creations = []
@@ -404,7 +410,7 @@ def get_rca_analysis_for_finding(finding: Finding) -> tuple[str, str]:
 
 # ─── Main Orchestrator ──────────────────────────────────────────────────────
 
-def run_checker(verbose: bool = False, json_out: Optional[str] = None, use_rca: bool = True) -> int:
+def run_checker(verbose: bool = False, json_out: str | None = None, use_rca: bool = True) -> int:
     print(f"{BOLD}{CYAN}╔{'═'*78}╗{RESET}")
     print(f"{BOLD}{CYAN}║{' '*20}JOURNAL BALANCE CHECKER v3 (RCA-ENABLED){' '*20}║{RESET}")
     print(f"{BOLD}{CYAN}╚{'═'*78}╝{RESET}")
@@ -427,7 +433,7 @@ def run_checker(verbose: bool = False, json_out: Optional[str] = None, use_rca: 
 
     findings: list[Finding] = []
     journal_classes: list[JournalClassInfo] = []
-    journal_class_names: Set[str] = set()
+    journal_class_names: set[str] = set()
 
     # ─── Step 1: Kumpulkan semua class jurnal ────────────────────────────────
     for file_path in all_files:

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/axioms_checker.py — Axioms Integrity Checker (v6.2.4)
 ================================================================
@@ -15,10 +14,10 @@ import json
 import logging
 import sys
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 # ---- Add project root ----
 _ROOT = Path(__file__).parent.parent
@@ -28,8 +27,13 @@ if str(_ROOT) not in sys.path:
 # ---- RCA Engine ----
 try:
     from checker.core.rca import (
-        RCAEngine, RCAResult, Severity, Category, ErrorCode,
-        get_engine, analyze_exception
+        Category,
+        ErrorCode,
+        RCAEngine,
+        RCAResult,
+        Severity,
+        analyze_exception,
+        get_engine,
     )
 except ImportError:
     # Fallback dummy jika RCA tidak tersedia
@@ -63,9 +67,9 @@ except ImportError:
 # ---- SQLAlchemy (async) ----
 try:
     import sqlalchemy as sa
+    from sqlalchemy import Column, DateTime, Integer, Numeric, String, select, text
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-    from sqlalchemy.orm import sessionmaker, declarative_base
-    from sqlalchemy import Column, String, Integer, Numeric, DateTime, select, text
+    from sqlalchemy.orm import declarative_base, sessionmaker
     HAS_SQLALCHEMY = True
 except ImportError:
     HAS_SQLALCHEMY = False
@@ -134,7 +138,7 @@ class RCAAnalyzer:
 
     def __init__(self):
         self.engine = get_engine()
-        self._cache: Dict[str, RCAResult] = {}
+        self._cache: dict[str, RCAResult] = {}
         self._cache_ttl = 300
 
     @classmethod
@@ -144,7 +148,7 @@ class RCAAnalyzer:
                 cls._instance = RCAAnalyzer()
             return cls._instance
 
-    async def analyze(self, exception: Exception, context: Dict[str, Any]) -> RCAResult:
+    async def analyze(self, exception: Exception, context: dict[str, Any]) -> RCAResult:
         key = f"{type(exception).__name__}:{str(exception)[:100]}"
         if key in self._cache:
             result = self._cache[key]
@@ -235,10 +239,10 @@ class AxiomCheck:
     severity_if_violated: Severity = Severity.CRITICAL if hasattr(Severity, 'CRITICAL') else "CRITICAL"
     error_code: ErrorCode = ErrorCode.ERP_VALIDATION if hasattr(ErrorCode, 'ERP_VALIDATION') else "ERP_VALIDATION"
 
-    def __init__(self, config: Dict[str, Any], rca: RCAAnalyzer):
+    def __init__(self, config: dict[str, Any], rca: RCAAnalyzer):
         self.config = config
         self.rca = rca
-        self._session: Optional[AsyncSession] = None
+        self._session: AsyncSession | None = None
         self._event_store = None
         self._demo_mode = config.get("demo_mode", False)
 
@@ -248,7 +252,7 @@ class AxiomCheck:
     async def set_event_store(self, store) -> None:
         self._event_store = store
 
-    async def check(self) -> Optional[RCAResult]:
+    async def check(self) -> RCAResult | None:
         raise NotImplementedError
 
     async def _safe_query(self, query, *args, **kwargs) -> Any:
@@ -259,15 +263,15 @@ class AxiomCheck:
                     self._session.execute(query, *args, **kwargs),
                     timeout=self.config.get("timeout", 10.0)
                 )
-            except Exception as e:
+            except Exception:
                 attempts += 1
                 if attempts >= self.config.get("retry_attempts", 2):
                     raise
                 await asyncio.sleep(self.config.get("retry_backoff", 1.0) ** attempts)
         raise RuntimeError("Query failed after retries")
 
-    def _violation_result(self, root_cause: str, evidence: List[str],
-                          impact: List[str], fix: str,
+    def _violation_result(self, root_cause: str, evidence: list[str],
+                          impact: list[str], fix: str,
                           confidence: float = 0.85) -> RCAResult:
         return RCAResult(
             severity=self.severity_if_violated,
@@ -290,7 +294,7 @@ class DoubleEntryCheck(AxiomCheck):
     severity_if_violated = Severity.FATAL if hasattr(Severity, 'FATAL') else "FATAL"
     error_code = ErrorCode.ERP_BALANCE_MISMATCH if hasattr(ErrorCode, 'ERP_BALANCE_MISMATCH') else "ERP_BALANCE_MISMATCH"
 
-    async def check(self) -> Optional[RCAResult]:
+    async def check(self) -> RCAResult | None:
         if self._session is None:
             return None
 
@@ -334,7 +338,7 @@ class ConservationOfValueCheck(AxiomCheck):
     severity_if_violated = Severity.FATAL if hasattr(Severity, 'FATAL') else "FATAL"
     error_code = ErrorCode.ERP_BALANCE_MISMATCH if hasattr(ErrorCode, 'ERP_BALANCE_MISMATCH') else "ERP_BALANCE_MISMATCH"
 
-    async def check(self) -> Optional[RCAResult]:
+    async def check(self) -> RCAResult | None:
         if self._session is None:
             return None
 
@@ -375,7 +379,7 @@ class AccrualBasisCheck(AxiomCheck):
     severity_if_violated = Severity.CRITICAL if hasattr(Severity, 'CRITICAL') else "CRITICAL"
     error_code = ErrorCode.ERP_VALIDATION if hasattr(ErrorCode, 'ERP_VALIDATION') else "ERP_VALIDATION"
 
-    async def check(self) -> Optional[RCAResult]:
+    async def check(self) -> RCAResult | None:
         if self._session is None:
             return None
 
@@ -408,7 +412,7 @@ class EntityIsolationCheck(AxiomCheck):
     severity_if_violated = Severity.CRITICAL if hasattr(Severity, 'CRITICAL') else "CRITICAL"
     error_code = ErrorCode.ERP_VALIDATION if hasattr(ErrorCode, 'ERP_VALIDATION') else "ERP_VALIDATION"
 
-    async def check(self) -> Optional[RCAResult]:
+    async def check(self) -> RCAResult | None:
         if self._session is None:
             return None
 
@@ -440,7 +444,7 @@ class MonetaryUnitCheck(AxiomCheck):
     severity_if_violated = Severity.HIGH if hasattr(Severity, 'HIGH') else "HIGH"
     error_code = ErrorCode.ERP_VALIDATION if hasattr(ErrorCode, 'ERP_VALIDATION') else "ERP_VALIDATION"
 
-    async def check(self) -> Optional[RCAResult]:
+    async def check(self) -> RCAResult | None:
         if self._session is None:
             return None
 
@@ -472,7 +476,7 @@ class TimeIrreversibilityCheck(AxiomCheck):
     severity_if_violated = Severity.HIGH if hasattr(Severity, 'HIGH') else "HIGH"
     error_code = ErrorCode.ERP_VALIDATION if hasattr(ErrorCode, 'ERP_VALIDATION') else "ERP_VALIDATION"
 
-    async def check(self) -> Optional[RCAResult]:
+    async def check(self) -> RCAResult | None:
         if self._session is None:
             return None
 
@@ -507,7 +511,7 @@ class GoingConcernCheck(AxiomCheck):
     severity_if_violated = Severity.INFO if hasattr(Severity, 'INFO') else "INFO"
     error_code = ErrorCode.ERP_VALIDATION if hasattr(ErrorCode, 'ERP_VALIDATION') else "ERP_VALIDATION"
 
-    async def check(self) -> Optional[RCAResult]:
+    async def check(self) -> RCAResult | None:
         if self._session is None:
             return None
 
@@ -547,7 +551,7 @@ class ImmutabilityCheck(AxiomCheck):
     severity_if_violated = Severity.FATAL if hasattr(Severity, 'FATAL') else "FATAL"
     error_code = ErrorCode.AGGREGATE_ERROR if hasattr(ErrorCode, 'AGGREGATE_ERROR') else "AGGREGATE_ERROR"
 
-    async def check(self) -> Optional[RCAResult]:
+    async def check(self) -> RCAResult | None:
         if self._event_store is None:
             return None
 
@@ -611,8 +615,8 @@ async def populate_demo_data(session: AsyncSession) -> None:
     tx = Transaction(
         type="REVENUE",
         amount=Decimal("5000.00"),
-        posting_date=datetime(2024, 1, 15, tzinfo=timezone.utc),
-        service_date=datetime(2024, 3, 1, tzinfo=timezone.utc),
+        posting_date=datetime(2024, 1, 15, tzinfo=UTC),
+        service_date=datetime(2024, 3, 1, tzinfo=UTC),
         currency_code="USD"
     )
     session.add(tx)
@@ -621,8 +625,8 @@ async def populate_demo_data(session: AsyncSession) -> None:
     tx2 = Transaction(
         type="EXPENSE",
         amount=Decimal("200.00"),
-        posting_date=datetime(2024, 2, 1, tzinfo=timezone.utc),
-        service_date=datetime(2024, 2, 1, tzinfo=timezone.utc),
+        posting_date=datetime(2024, 2, 1, tzinfo=UTC),
+        service_date=datetime(2024, 2, 1, tzinfo=UTC),
         currency_code="XYZ"
     )
     session.add(tx2)
@@ -633,20 +637,20 @@ async def populate_demo_data(session: AsyncSession) -> None:
 
     # Insert a fiscal period
     period = FiscalPeriod(
-        start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
-        end_date=datetime(2024, 12, 31, tzinfo=timezone.utc),
+        start_date=datetime(2024, 1, 1, tzinfo=UTC),
+        end_date=datetime(2024, 12, 31, tzinfo=UTC),
         status="OPEN"
     )
     session.add(period)
 
     # Insert income statement with negative income (going concern)
     income = IncomeStatement(
-        period_end=datetime(2023, 12, 31, tzinfo=timezone.utc),
+        period_end=datetime(2023, 12, 31, tzinfo=UTC),
         net_income=Decimal("-10000.00")
     )
     session.add(income)
     income2 = IncomeStatement(
-        period_end=datetime(2022, 12, 31, tzinfo=timezone.utc),
+        period_end=datetime(2022, 12, 31, tzinfo=UTC),
         net_income=Decimal("-5000.00")
     )
     session.add(income2)
@@ -665,17 +669,17 @@ async def populate_demo_data(session: AsyncSession) -> None:
 class AxiomsChecker:
     """Orchestrates all axiom checks with full RCA integration."""
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         self.config = DEFAULT_CONFIG.copy()
         if config:
             self.config.update(config)
-        self.rca: Optional[RCAAnalyzer] = None
+        self.rca: RCAAnalyzer | None = None
         self._engine = None
         self._session_factory = None
         self._event_store = None
-        self.results: List[RCAResult] = []
-        self.violations: List[Dict[str, Any]] = []
-        self.checks: List[AxiomCheck] = []
+        self.results: list[RCAResult] = []
+        self.violations: list[dict[str, Any]] = []
+        self.checks: list[AxiomCheck] = []
 
     async def initialize(self) -> None:
         """Set up database, event store, and RCA."""
@@ -736,7 +740,7 @@ class AxiomsChecker:
         if self._engine:
             await self._engine.dispose()
 
-    async def check_all(self) -> List[RCAResult]:
+    async def check_all(self) -> list[RCAResult]:
         """Run all checks within a single database session."""
         self.results.clear()
         self.violations.clear()
@@ -799,8 +803,8 @@ class AxiomsChecker:
 
         return self.results
 
-    def generate_report(self) -> Dict[str, Any]:
-        now = datetime.now(timezone.utc)
+    def generate_report(self) -> dict[str, Any]:
+        now = datetime.now(UTC)
         return {
             "timestamp": now.isoformat(),
             "version": "6.2.4",
@@ -834,7 +838,7 @@ class AxiomsChecker:
         report = self.generate_report()
         export_dir = Path(self.config.get("export_dir", "./reports"))
         export_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
         fmt = self.config.get("export_format", "json")
         if fmt in ("json", "both"):
@@ -855,7 +859,7 @@ class AxiomsChecker:
 # CLI
 # ============================================================
 
-async def async_main(args: List[str]) -> None:
+async def async_main(args: list[str]) -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -904,8 +908,8 @@ async def async_main(args: List[str]) -> None:
                 await checker.export_report()
         else:
             logger.info(f"Dynamic mode: monitoring for {parsed.duration}s...")
-            end = datetime.now(timezone.utc) + timedelta(seconds=parsed.duration)
-            while datetime.now(timezone.utc) < end:
+            end = datetime.now(UTC) + timedelta(seconds=parsed.duration)
+            while datetime.now(UTC) < end:
                 await checker.check_all()
                 if checker.violations:
                     logger.warning("Violations detected!")

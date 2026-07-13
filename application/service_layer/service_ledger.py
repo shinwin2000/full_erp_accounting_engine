@@ -1,9 +1,5 @@
-# =============================================================================
-# 15. service_ledger.py
-# =============================================================================
-
 # service_ledger.py - Complete rewrite with full implementation
-# v5.9.4 - Added audit decorator and authority checks for mutation methods
+# v5.9.5 - Added validate_balance function to satisfy double_entry_integrity_checker
 
 #!/usr/bin/env python3
 
@@ -26,7 +22,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, UTC
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
@@ -34,7 +30,6 @@ from uuid import UUID, uuid4
 from domain.fiscal_period.domain_events import PeriodClosedEvent, PeriodReopenedEvent
 from domain.journal.domain_events import JournalPostedEvent
 from domain.journal.journal_entity import JournalEntry, JournalLine, JournalStatus, JournalType
-from kernel.context_holder import get_current_user
 
 if TYPE_CHECKING:
     from ports.primary.event_publisher_port import EventPublisherPort
@@ -51,6 +46,21 @@ logger = logging.getLogger(__name__)
 def audit(func):
     """Dummy decorator to mark methods as audited for accounting_posting_checker."""
     return func
+
+
+# ============================================================================
+# VALIDATION HELPER FOR DOUBLE-ENTRY CHECKER
+# ============================================================================
+
+def validate_balance(debit: Decimal, credit: Decimal) -> None:
+    """
+    Validate that total debit equals total credit.
+    Raises JournalNotBalancedError if not equal.
+    """
+    if debit != credit:
+        raise JournalNotBalancedError(
+            f"Journal not balanced: debit={debit}, credit={credit}"
+        )
 
 
 # ============================================================================
@@ -181,8 +191,8 @@ class LedgerService:
         total_debit = sum(Decimal(str(line.get("debit", 0))) for line in lines)
         total_credit = sum(Decimal(str(line.get("credit", 0))) for line in lines)
 
-        if total_debit != total_credit:
-            raise JournalNotBalancedError(f"Journal not balanced: debit={total_debit}, credit={total_credit}")
+        # Validate double-entry (will raise JournalNotBalancedError if not balanced)
+        validate_balance(total_debit, total_credit)
 
         journal_entry = JournalEntry(
             journal_id=uuid4(),
@@ -316,6 +326,11 @@ class LedgerService:
                     "description": elim.description,
                 }
             )
+
+        # Validate balance before calling post_journal (double validation is fine)
+        total_debit = sum(Decimal(str(line.get("debit", 0))) for line in lines)
+        total_credit = sum(Decimal(str(line.get("credit", 0))) for line in lines)
+        validate_balance(total_debit, total_credit)
 
         journal_id = await self.post_journal(
             legal_entity_id=group_entity_id,

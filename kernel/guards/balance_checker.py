@@ -787,5 +787,5 @@ __all__ = [
     "BalanceCheckResult",
     "BalanceCheckSeverity",
     "BalanceChecker",
-    "InMemoryAccountBalancePort", 
-] 
+    "InMemoryAccountBalancePort",
+]

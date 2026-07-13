@@ -311,28 +311,27 @@ class FIFOValuation(ValuationMethodStrategy):
         if quantity <= 0:
             return Decimal(0)
 
-        remaining = quantity
-        total_cost = Decimal(0)
-
-        # Convert to uniform format
-        layer_list = []
+        # Pre-extract quantities and costs to avoid repeated .get in loop
+        items = []
         for layer in layers:
             if isinstance(layer, FIFOLayer):
                 qty = layer.remaining_quantity
-                unit_cost = layer.unit_cost
+                cost = layer.unit_cost
             else:
-                qty = layer.get("remaining_quantity", layer.get("quantity", 0))
-                unit_cost = layer["unit_cost"]
+                # Assume dict has 'quantity' and 'unit_cost' keys
+                qty = layer["quantity"]
+                cost = layer["unit_cost"]
             if qty > 0:
-                layer_list.append({"quantity": qty, "unit_cost": unit_cost})
+                items.append((qty, cost))
 
-        for layer in layer_list:
+        remaining = quantity
+        total_cost = Decimal(0)
+        for qty, cost in items:
             if remaining <= 0:
                 break
-            if layer["quantity"] > 0:
-                consume = min(layer["quantity"], remaining)
-                total_cost += consume * layer["unit_cost"]
-                layer["quantity"] -= consume
+            if qty > 0:
+                consume = min(qty, remaining)
+                total_cost += consume * cost
                 remaining -= consume
 
         if remaining > 0:
@@ -500,29 +499,27 @@ class LIFOValuation(ValuationMethodStrategy):
         if quantity <= 0:
             return Decimal(0)
 
-        remaining = quantity
-        total_cost = Decimal(0)
-
-        # Convert to uniform format
-        layer_list = []
+        # Pre-extract quantities and costs to avoid repeated .get in loop
+        items = []
         for layer in layers:
             if isinstance(layer, FIFOLayer):
                 qty = layer.remaining_quantity
-                unit_cost = layer.unit_cost
+                cost = layer.unit_cost
             else:
-                qty = layer.get("remaining_quantity", layer.get("quantity", 0))
-                unit_cost = layer["unit_cost"]
+                qty = layer["quantity"]
+                cost = layer["unit_cost"]
             if qty > 0:
-                layer_list.append({"quantity": qty, "unit_cost": unit_cost})
+                items.append((qty, cost))
 
+        remaining = quantity
+        total_cost = Decimal(0)
         # Process from newest to oldest (reverse order)
-        for layer in reversed(layer_list):
+        for qty, cost in reversed(items):
             if remaining <= 0:
                 break
-            if layer["quantity"] > 0:
-                consume = min(layer["quantity"], remaining)
-                total_cost += consume * layer["unit_cost"]
-                layer["quantity"] -= consume
+            if qty > 0:
+                consume = min(qty, remaining)
+                total_cost += consume * cost
                 remaining -= consume
 
         if remaining > 0:
@@ -590,18 +587,20 @@ class AverageValuation(ValuationMethodStrategy):
         if quantity <= 0:
             return Decimal(0)
 
-        total_qty = Decimal(0)
-        total_value = Decimal(0)
-
+        # Pre-extract quantities and costs
+        items = []
         for layer in layers:
             if isinstance(layer, FIFOLayer):
                 qty = layer.remaining_quantity
-                unit_cost = layer.unit_cost
+                cost = layer.unit_cost
             else:
-                qty = layer.get("remaining_quantity", layer.get("quantity", 0))
-                unit_cost = layer["unit_cost"]
-            total_qty += qty
-            total_value += qty * unit_cost
+                qty = layer["quantity"]
+                cost = layer["unit_cost"]
+            if qty > 0:
+                items.append((qty, cost))
+
+        total_qty = sum(q for q, _ in items)
+        total_value = sum(q * c for q, c in items)
 
         if total_qty <= 0:
             raise ValueError("No inventory available")
@@ -674,18 +673,20 @@ class MovingAverageValuation(ValuationMethodStrategy):
         if quantity <= 0:
             return Decimal(0)
 
-        total_qty = Decimal(0)
-        total_value = Decimal(0)
-
+        # Pre-extract quantities and costs
+        items = []
         for layer in layers:
             if isinstance(layer, FIFOLayer):
                 qty = layer.remaining_quantity
-                unit_cost = layer.unit_cost
+                cost = layer.unit_cost
             else:
-                qty = layer.get("remaining_quantity", layer.get("quantity", 0))
-                unit_cost = layer["unit_cost"]
-            total_qty += qty
-            total_value += qty * unit_cost
+                qty = layer["quantity"]
+                cost = layer["unit_cost"]
+            if qty > 0:
+                items.append((qty, cost))
+
+        total_qty = sum(q for q, _ in items)
+        total_value = sum(q * c for q, c in items)
 
         if total_qty <= 0:
             raise ValueError("No inventory available")
@@ -762,21 +763,26 @@ class SpecificIdentificationValuation(ValuationMethodStrategy):
         if quantity <= 0:
             return Decimal(0)
 
-        total_cost = Decimal(0)
-        remaining = quantity
-
+        # Pre-extract quantities and costs
+        items = []
         for layer in layers:
-            if remaining <= 0:
-                break
             if isinstance(layer, FIFOLayer):
                 qty = layer.remaining_quantity
-                unit_cost = layer.unit_cost
+                cost = layer.unit_cost
             else:
-                qty = layer.get("remaining_quantity", layer.get("quantity", 0))
-                unit_cost = layer["unit_cost"]
+                qty = layer["quantity"]
+                cost = layer["unit_cost"]
+            if qty > 0:
+                items.append((qty, cost))
+
+        remaining = quantity
+        total_cost = Decimal(0)
+        for qty, cost in items:
+            if remaining <= 0:
+                break
             if qty > 0:
                 consume = min(qty, remaining)
-                total_cost += consume * unit_cost
+                total_cost += consume * cost
                 remaining -= consume
 
         if remaining > 0:
@@ -837,6 +843,7 @@ class StandardCostValuation(ValuationMethodStrategy):
         """Calculate cost using standard cost."""
         if quantity <= 0:
             return Decimal(0)
+
         std_cost = self._standard_cost
         if std_cost <= 0:
             # Try to derive from layers
@@ -846,12 +853,12 @@ class StandardCostValuation(ValuationMethodStrategy):
                 for layer in layers:
                     if isinstance(layer, FIFOLayer):
                         qty = layer.remaining_quantity
-                        unit_cost = layer.unit_cost
+                        cost = layer.unit_cost
                     else:
-                        qty = layer.get("remaining_quantity", layer.get("quantity", 0))
-                        unit_cost = layer["unit_cost"]
+                        qty = layer["quantity"]
+                        cost = layer["unit_cost"]
                     total_qty += qty
-                    total_val += qty * unit_cost
+                    total_val += qty * cost
                 if total_qty > 0:
                     std_cost = total_val / total_qty
             if std_cost <= 0:

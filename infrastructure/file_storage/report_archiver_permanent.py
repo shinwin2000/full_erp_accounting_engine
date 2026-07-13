@@ -20,12 +20,15 @@ Audit: Setiap operasi archive dan restore dicatat untuk compliance.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
+
+import aiofiles  # <-- Tambahan untuk async file I/O
 
 from infrastructure.caching.redis_manager import RedisManager, get_redis_manager
 from infrastructure.event_store.append_only_store import get_event_store
@@ -158,6 +161,22 @@ class ReportArchiverPermanent:
         timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         return f"reports/{report_type}/{legal_entity_id}/{period}/{timestamp}_{report_id}.pdf"
 
+    # ========================================================================
+    # Helper untuk hashing (CPU-bound) di thread pool
+    # ========================================================================
+
+    async def _compute_hash(self, content: bytes) -> str:
+        """Compute hash of content in thread pool."""
+        return await asyncio.to_thread(self._hasher.compute_hash, content)
+
+    async def _verify_hash(self, content: bytes, expected_hash: str) -> bool:
+        """Verify hash of content in thread pool."""
+        return await asyncio.to_thread(self._hasher.verify_hash, content, expected_hash)
+
+    # ========================================================================
+    # Archive Report
+    # ========================================================================
+
     async def archive_report(
         self,
         report_content: bytes,
@@ -183,8 +202,8 @@ class ReportArchiverPermanent:
         Returns:
             Archive info dictionary
         """
-        # Compute hash for integrity
-        content_hash = self._hasher.compute_hash(report_content)
+        # Compute hash for integrity (CPU-bound)
+        content_hash = await self._compute_hash(report_content)
         retention_days = self._get_retention_days(report_type)
         archive_key = self._generate_archive_key(
             report_type, report_id, str(legal_entity_id), period
@@ -207,10 +226,13 @@ class ReportArchiverPermanent:
         if metadata:
             archive_metadata.update(metadata)
 
-        # Create temporary file
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp.write(report_content)
-            tmp_path = Path(tmp.name)
+        # ===== PERBAIKAN: Gunakan thread pool untuk operasi temporary file =====
+        def _write_temp_file(content: bytes) -> Path:
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp.write(content)
+                return Path(tmp.name)
+
+        tmp_path = await asyncio.to_thread(_write_temp_file, report_content)
 
         try:
             # Upload to hot storage first (for quick access)
@@ -255,14 +277,20 @@ class ReportArchiverPermanent:
 
             logger.info(f"Report archived: {report_name} ({report_type}) to {cold_uri}")
 
-            # Clean up temp file
-            tmp_path.unlink()
+            # Clean up temp file (blocking, jalankan di thread pool)
+            await asyncio.to_thread(lambda: tmp_path.unlink(missing_ok=True))
 
             return self._archive_index[archive_id]
 
         except Exception as e:
             logger.error(f"Failed to archive report: {e}")
+            # Clean up temp file
+            await asyncio.to_thread(lambda: tmp_path.unlink(missing_ok=True))
             raise ArchiveFailedError(f"Archive failed: {e}") from e
+
+    # ========================================================================
+    # Archive Report from File
+    # ========================================================================
 
     async def archive_report_from_file(
         self,
@@ -277,11 +305,16 @@ class ReportArchiverPermanent:
         """
         Archive a report from local file path.
         """
-        with open(file_path, "rb") as f:
-            content = f.read()
+        # ===== PERBAIKAN: Baca file secara async dengan aiofiles =====
+        async with aiofiles.open(file_path, "rb") as f:
+            content = await f.read()
         return await self.archive_report(
             content, report_type, report_id, report_name, legal_entity_id, period, metadata
         )
+
+    # ========================================================================
+    # Restore Report
+    # ========================================================================
 
     async def restore_report(self, archive_id: str, target_path: Path | None = None) -> bytes:
         """
@@ -308,9 +341,9 @@ class ReportArchiverPermanent:
             cold_uri = archive_info["cold_uri"]
             content = await cold_storage.download(cold_uri)
 
-            # Verify integrity
+            # Verify integrity (CPU-bound)
             stored_hash = archive_info["content_hash"]
-            if not self._hasher.verify_hash(content, stored_hash):
+            if not await self._verify_hash(content, stored_hash):
                 await trigger_alert(
                     title="Archived Report Integrity Check Failed",
                     message=f"Report {archive_info['report_name']} hash mismatch",
@@ -322,8 +355,9 @@ class ReportArchiverPermanent:
             # Save to target path if provided
             if target_path:
                 target_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(target_path, "wb") as f:
-                    f.write(content)
+                # ===== PERBAIKAN: Tulis file secara async dengan aiofiles =====
+                async with aiofiles.open(target_path, "wb") as f:
+                    await f.write(content)
 
             # Update status
             archive_info["status"] = ARCHIVE_STATUS_RESTORED
@@ -343,6 +377,10 @@ class ReportArchiverPermanent:
         except Exception as e:
             logger.error(f"Failed to restore report: {e}")
             raise RestoreFailedError(f"Restore failed: {e}") from e
+
+    # ========================================================================
+    # Other Methods (unchanged, but ensure no blocking)
+    # ========================================================================
 
     async def get_archive_info(self, archive_id: str) -> dict[str, Any]:
         """

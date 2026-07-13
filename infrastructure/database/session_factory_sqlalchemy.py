@@ -326,15 +326,26 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     FastAPI dependency for database session.
     """
     factory = await get_session_factory()
-    async with factory.get_session() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+    # FIX: `factory.get_session()` adalah coroutine biasa (async def yang
+    # me-return AsyncSession), BUKAN async context manager. Sebelumnya kode
+    # ini memakai `async with factory.get_session() as session:` langsung
+    # di atas coroutine tsb -> TypeError: 'coroutine' object does not
+    # support the asynchronous context manager protocol, dan coroutine-nya
+    # sendiri tidak pernah di-await (RuntimeWarning: coroutine
+    # 'SQLAlchemySessionFactory.get_session' was never awaited).
+    # Perbaikan: await dulu untuk dapat AsyncSession-nya, baru urus
+    # commit/rollback/close secara manual (tidak perlu `async with` lagi
+    # karena siklus hidupnya sudah ditangani penuh oleh try/except/finally
+    # di bawah).
+    session = await factory.get_session()
+    try:
+        yield session
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
@@ -350,11 +361,14 @@ async def get_read_session() -> AsyncGenerator[AsyncSession, None]:
     FastAPI dependency for read-only database session.
     """
     factory = await get_session_factory()
-    async with factory.get_readonly_session() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+    # FIX: bug kembar dari get_async_session() di atas -- get_readonly_session()
+    # juga coroutine biasa (bukan async context manager), jadi harus di-await
+    # dulu, bukan langsung dipakai dengan `async with`.
+    session = await factory.get_readonly_session()
+    try:
+        yield session
+    finally:
+        await session.close()
 
 
 # ============================================================================
@@ -419,10 +433,10 @@ __all__ = [
     "dispose",
     "get_async_session",
     "get_async_session_factory",
-    "get_engine",           # fixed to auto-initialize
+    "get_engine",
     "get_read_session",
     "get_session",
     "get_session_factory",
-    "get_session_factory_sync",  # synchronous version for checker
+    "get_session_factory_sync",
     "get_test_session",
 ]

@@ -160,7 +160,8 @@ class KafkaDeadLetterHandler:
             try:
                 await self._process_task
             except asyncio.CancelledError:
-                pass
+                # Log cancellation during shutdown
+                logger.debug("Dead letter handler process task cancelled during stop")
             self._process_task = None
 
         if self._consumer:
@@ -196,6 +197,7 @@ class KafkaDeadLetterHandler:
                 await consumer.commit()
 
             except asyncio.CancelledError:
+                logger.debug("Dead letter handler processing loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in DLQ processing loop: {e}")
@@ -411,7 +413,7 @@ DeadLetterHandler = KafkaDeadLetterHandler
 
 __all__ = [
     "DLQProcessingError",
-    "DeadLetterHandler",              
+    "DeadLetterHandler",
     "DeadLetterHandlerError",
     "KafkaDeadLetterHandler",
     "get_dead_letter_handler",

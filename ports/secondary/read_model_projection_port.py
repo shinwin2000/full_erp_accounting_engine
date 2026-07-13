@@ -111,6 +111,15 @@ class ReadModelProjectionPort:
         self._audit_log: list[dict[str, Any]] = []
         self._processed_events: set[UUID] = set()  # idempotency
         self._stats: dict[str, dict[str, Any]] = {}
+        # ===== PERBAIKAN: Simpan referensi task =====
+        self._pending_tasks: list[asyncio.Task] = []
+
+    def _add_pending_task(self, task: asyncio.Task) -> None:
+        """Tambahkan task ke daftar pending dan daftarkan callback untuk menghapusnya."""
+        self._pending_tasks.append(task)
+        task.add_done_callback(
+            lambda t: self._pending_tasks.remove(t) if t in self._pending_tasks else None
+        )
 
     # ==================== HELPER ====================
 
@@ -189,6 +198,10 @@ class ReadModelProjectionPort:
         for event in events:
             await self.submit_event(event)
 
+    # ========================================================================
+    # PERBAIKAN: start_worker dengan task management
+    # ========================================================================
+
     async def start_worker(self, concurrency: int = 4):
         """Start background worker untuk memproses queue."""
         if self._running:
@@ -196,7 +209,12 @@ class ReadModelProjectionPort:
             return
         self._running = True
         self._worker_task = asyncio.create_task(self._worker_loop(concurrency))
+        self._add_pending_task(self._worker_task)
         logger.info("Projection worker started")
+
+    # ========================================================================
+    # PERBAIKAN: _worker_loop menggunakan _add_pending_task
+    # ========================================================================
 
     async def _worker_loop(self, concurrency: int):
         semaphore = asyncio.Semaphore(concurrency)
@@ -204,11 +222,34 @@ class ReadModelProjectionPort:
             try:
                 event = await self._event_queue.get()
                 async with semaphore:
-                    asyncio.create_task(self._process_event(event))
+                    # ===== PERBAIKAN: Simpan task ke pending list =====
+                    task = asyncio.create_task(self._process_event(event))
+                    self._add_pending_task(task)
             except asyncio.CancelledError:
+                logger.debug("Projection worker loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"Worker error: {e}")
+
+    # ========================================================================
+    # PERBAIKAN: stop_worker membatalkan semua pending tasks
+    # ========================================================================
+
+    async def stop_worker(self):
+        self._running = False
+        # Batalkan semua pending tasks
+        if self._pending_tasks:
+            for task in self._pending_tasks:
+                if not task.done():
+                    task.cancel()
+            # Tunggu hingga semua task selesai
+            if self._pending_tasks:
+                await asyncio.gather(*self._pending_tasks, return_exceptions=True)
+                self._pending_tasks.clear()
+        self._worker_task = None
+        logger.info("Projection worker stopped")
+
+    # ========================================================================
 
     async def _process_event(self, event: ProjectionEvent):
         """Kirim event ke semua projector yang bisa handle."""
@@ -243,16 +284,6 @@ class ReadModelProjectionPort:
                 "projectors": [p for p in self._projectors.keys()],
             },
         )
-
-    async def stop_worker(self):
-        self._running = False
-        if self._worker_task:
-            self._worker_task.cancel()
-            try:
-                await self._worker_task
-            except asyncio.CancelledError:
-                pass
-        logger.info("Projection worker stopped")
 
     # ==================== REBUILD ====================
 

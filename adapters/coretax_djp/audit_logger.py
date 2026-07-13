@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from functools import wraps
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field

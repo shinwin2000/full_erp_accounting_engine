@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/master_checker.py
 ==========================================================================
@@ -8,7 +7,7 @@ MASTER CHECKER — Penggabung Seluruh Checker Menjadi 1 Output Menyeluruh
 
 TUJUAN
 ------
-Folder `checker/` ini berisi ~52 checker independen (masing-masing file
+Folder `checker/` ini berisi 62 checker independen (masing-masing file
 punya class, dataclass, dan fungsi `main()` sendiri-sendiri). Banyak nama
 class/fungsi yang SAMA PERSIS antar file (Report, Finding, Violation,
 CheckerResult, main(), dll — sudah dicek, ada puluhan tabrakan nama).
@@ -54,13 +53,22 @@ CARA PAKAI
 
 CATATAN PENTING
 ---------------
-- 44 dari 52 checker mendukung flag --json (skor 0-100 dibaca langsung
+- 54 dari 62 checker mendukung flag --json (skor 0-100 dibaca langsung
   dari sana). 8 checker lama (axioms_checker, checker_external_services,
   checker_fastapi_route, checker_migrations_orm, checker_port_adapter,
   checker_startup_runtime, checker_unified_import_validator, smoke_test)
   TIDAK punya opsi --json, sehingga skornya dihitung biner dari exit
   code (100 jika lulus/exit 0, 0 jika gagal) — ditandai [BINARY] di
   laporan supaya Anda tahu skor itu bukan skala granular.
+- 10 checker tambahan (batch baru) sudah diverifikasi kodenya: semuanya
+  punya flag --json dan menulis skor 0-100 ke key "score" di root JSON
+  (circular_dependency_checker, dependency_graph_checker,
+  dead_code_checker, transaction_leak_checker, async_safety_checker,
+  performance_anti_pattern_checker, audit_trail_completeness_checker,
+  ledger_replay_checker, double_entry_integrity_checker,
+  business_rule_conflict_checker). Semuanya static-analysis murni
+  (membaca source code lewat AST), jadi ditandai "heavy": False dan
+  ikut dijalankan paralel bersama static_batch lainnya.
 - Setiap checker tetap membaca/menganalisis source code project ASLI
   Anda (bukan file checker itu sendiri), jadi hasil yang akurat baru
   akan keluar saat script ini dijalankan dari root project sungguhan.
@@ -76,16 +84,14 @@ import argparse
 import concurrent.futures
 import json
 import os
-import re
 import statistics
 import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 # ==========================================================================
 # 1. REGISTRY — daftar seluruh checker (tidak ada yang duplikat)
@@ -102,7 +108,7 @@ CATEGORY_SECURITY = "Keamanan"
 CATEGORY_RUNTIME = "Runtime, Integrasi & Kualitas"
 CATEGORY_GOVERNANCE = "Governance / Aturan Proyek"
 
-CHECKER_REGISTRY: List[Dict[str, Any]] = [
+CHECKER_REGISTRY: list[dict[str, Any]] = [
     # --- Arsitektur & Struktur Kode ---
     {"module": "layer_checker", "category": CATEGORY_ARCH, "json": True, "heavy": False},
     {"module": "architecture_drift_checker", "category": CATEGORY_ARCH, "json": True, "heavy": False},
@@ -127,6 +133,10 @@ CHECKER_REGISTRY: List[Dict[str, Any]] = [
     {"module": "idempotency_checker", "category": CATEGORY_ARCH, "json": True, "heavy": False},
     {"module": "race_condition_risk_checker", "category": CATEGORY_ARCH, "json": True, "heavy": False},
     {"module": "guards_checker", "category": CATEGORY_ARCH, "json": True, "heavy": False},
+    {"module": "circular_dependency_checker", "category": CATEGORY_ARCH, "json": True, "heavy": False},
+    {"module": "dependency_graph_checker", "category": CATEGORY_ARCH, "json": True, "heavy": False},
+    {"module": "dead_code_checker", "category": CATEGORY_ARCH, "json": True, "heavy": False},
+    {"module": "transaction_leak_checker", "category": CATEGORY_ARCH, "json": True, "heavy": False},
 
     # --- Domain Akuntansi & Keuangan ---
     {"module": "accounting_posting_checker", "category": CATEGORY_ACCOUNTING, "json": True, "heavy": False},
@@ -139,6 +149,10 @@ CHECKER_REGISTRY: List[Dict[str, Any]] = [
     {"module": "posting_flow_checker", "category": CATEGORY_ACCOUNTING, "json": True, "heavy": False},
     {"module": "checker_audit_accounting_logic", "category": CATEGORY_ACCOUNTING, "json": True, "heavy": False},
     {"module": "inventory_integrity_checker", "category": CATEGORY_ACCOUNTING, "json": True, "heavy": False},
+    {"module": "audit_trail_completeness_checker", "category": CATEGORY_ACCOUNTING, "json": True, "heavy": False},
+    {"module": "ledger_replay_checker", "category": CATEGORY_ACCOUNTING, "json": True, "heavy": False},
+    {"module": "double_entry_integrity_checker", "category": CATEGORY_ACCOUNTING, "json": True, "heavy": False},
+    {"module": "business_rule_conflict_checker", "category": CATEGORY_ACCOUNTING, "json": True, "heavy": False},
 
     # --- Keamanan ---
     {"module": "sql_injection_checker", "category": CATEGORY_SECURITY, "json": True, "heavy": False},
@@ -148,6 +162,8 @@ CHECKER_REGISTRY: List[Dict[str, Any]] = [
     # (checker di kategori ini banyak yang "heavy": benar-benar mengimpor/menjalankan
     #  aplikasi asli -> DB, FastAPI, message broker -- rawan bentrok kalau paralel)
     {"module": "exception_swallow_checker", "category": CATEGORY_RUNTIME, "json": True, "heavy": False},
+    {"module": "async_safety_checker", "category": CATEGORY_RUNTIME, "json": True, "heavy": False},
+    {"module": "performance_anti_pattern_checker", "category": CATEGORY_RUNTIME, "json": True, "heavy": False},
     {"module": "runtime_exhaustive_checker", "category": CATEGORY_RUNTIME, "json": True, "heavy": True},
     {"module": "checker_startup_runtime", "category": CATEGORY_RUNTIME, "json": False, "heavy": True},
     {"module": "checker_fastapi_route", "category": CATEGORY_RUNTIME, "json": False, "heavy": True},
@@ -184,6 +200,17 @@ SCORE_KEY_CANDIDATES = [
 PASSED_KEY_CANDIDATES = ["passed", "is_passed", "success"]
 NESTED_CONTAINERS = ["metadata", "summary", "report", "result"]
 
+# Override timeout per checker (detik) — khusus untuk yang lambat.
+TIMEOUT_OVERRIDES = {
+    "checker_integration": 600,      # butuh waktu 10 menit
+    "smoke_test": 120,
+    "pytest_checker": 180,
+    "checker_external_services": 60,
+    "checker_startup_runtime": 120,
+    "runtime_exhaustive_checker": 120,
+    "checker_unified_import_validator": 120,
+}
+
 
 @dataclass
 class CheckerRun:
@@ -191,15 +218,15 @@ class CheckerRun:
     category: str
     supports_json: bool
     ok: bool = False               # proses berjalan tanpa crash/timeout
-    returncode: Optional[int] = None
-    score: Optional[float] = None  # 0-100, None jika benar-benar tidak terbaca
+    returncode: int | None = None
+    score: float | None = None  # 0-100, None jika benar-benar tidak terbaca
     binary_score: bool = False     # True jika skor cuma dari exit code (bukan granular)
     duration_sec: float = 0.0
-    error: Optional[str] = None    # ringkasan error jika ada
+    error: str | None = None    # ringkasan error jika ada
     status: str = "ERROR"          # PASS / FAIL / ERROR / SKIP
 
 
-def find_score(data: Any) -> Optional[tuple[float, bool]]:
+def find_score(data: Any) -> tuple[float, bool] | None:
     """Cari nilai skor di JSON hasil checker.
     Return (score_0_100, is_granular) atau None jika tak ditemukan sama sekali.
     is_granular=False berarti skor ini hanya diturunkan dari field boolean
@@ -231,7 +258,7 @@ def find_score(data: Any) -> Optional[tuple[float, bool]]:
     return None
 
 
-def run_one_checker(row: Dict[str, Any], project_root: Path, package_name: str, timeout: int) -> CheckerRun:
+def run_one_checker(row: dict[str, Any], project_root: Path, package_name: str, timeout: int) -> CheckerRun:
     module = row["module"]
     run = CheckerRun(module=module, category=row["category"], supports_json=row["json"])
 
@@ -262,7 +289,7 @@ def run_one_checker(row: Dict[str, Any], project_root: Path, package_name: str, 
         run.ok = True
         run.returncode = proc.returncode
 
-        def _extract_from(text: str) -> List[str]:
+        def _extract_from(text: str) -> list[str]:
             if not text or not text.strip():
                 return []
             lines = [ln for ln in text.strip().splitlines() if ln.strip()]
@@ -288,7 +315,7 @@ def run_one_checker(row: Dict[str, Any], project_root: Path, package_name: str, 
 
         if row["json"] and tmp_path and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
             try:
-                with open(tmp_path, "r", encoding="utf-8", errors="replace") as fh:
+                with open(tmp_path, encoding="utf-8", errors="replace") as fh:
                     data = json.load(fh)
                 found = find_score(data)
                 if found is not None:
@@ -366,8 +393,8 @@ def status_color(c: Colors, status: str) -> str:
     return {"PASS": c.GREEN, "FAIL": c.RED, "ERROR": c.YELLOW, "SKIP": c.DIM}.get(status, "")
 
 
-def print_report(runs: List[CheckerRun], c: Colors, fail_under: float, elapsed: float) -> Dict[str, Any]:
-    by_category: Dict[str, List[CheckerRun]] = {}
+def print_report(runs: list[CheckerRun], c: Colors, fail_under: float, elapsed: float) -> dict[str, Any]:
+    by_category: dict[str, list[CheckerRun]] = {}
     for r in runs:
         by_category.setdefault(r.category, []).append(r)
 
@@ -524,6 +551,7 @@ def main() -> int:
 
     c = Colors(enabled=not args.no_color and sys.stdout.isatty())
 
+    # Pisahkan static dan heavy, lalu atur timeout per checker
     static_batch = [r for r in registry if not r.get("heavy")]
     heavy_batch = [r for r in registry if r.get("heavy")]
 
@@ -536,7 +564,7 @@ def main() -> int:
               f"sengaja dijalankan satu-satu supaya tidak rebutan resource DB/port/dsb){c.RESET}")
 
     start = time.time()
-    runs: List[CheckerRun] = []
+    runs: list[CheckerRun] = []
 
     if static_batch:
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
@@ -558,9 +586,11 @@ def main() -> int:
                 print(f"  {c.DIM}[{done_count}/{len(static_batch)}]{c.RESET} selesai: {run.module}")
 
     for i, row in enumerate(heavy_batch, start=1):
-        print(f"  {c.DIM}[heavy {i}/{len(heavy_batch)}]{c.RESET} menjalankan: {row['module']} ...")
+        # Gunakan timeout override jika ada, fallback ke args.timeout
+        timeout = TIMEOUT_OVERRIDES.get(row["module"], args.timeout)
+        print(f"  {c.DIM}[heavy {i}/{len(heavy_batch)}]{c.RESET} menjalankan: {row['module']} (timeout={timeout}s) ...")
         try:
-            run = run_one_checker(row, project_root, package_name, args.timeout)
+            run = run_one_checker(row, project_root, package_name, timeout)
         except Exception as exc:
             run = CheckerRun(module=row["module"], category=row["category"],
                               supports_json=row["json"], ok=False, status="ERROR",

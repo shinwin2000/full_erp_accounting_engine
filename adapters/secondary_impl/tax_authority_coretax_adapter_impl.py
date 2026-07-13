@@ -346,8 +346,8 @@ CoretaxAuthorityAdapterImpl = TaxAuthorityCoretaxPortImpl
 
 
 __all__ = [
-    "CoretaxConfig",
     "CoretaxAuthorityAdapter",
     "CoretaxAuthorityAdapterImpl",
+    "CoretaxConfig",
     "TaxAuthorityCoretaxPortImpl",
 ]

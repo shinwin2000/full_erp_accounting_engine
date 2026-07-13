@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 inventory_integrity_checker.py — Inventory Integrity Checker v3.3
 ============================================================================
@@ -24,7 +23,7 @@ import pathlib
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # ─── Integrasi RCA ──────────────────────────────────────────────────────────
 RCA_AVAILABLE = False
@@ -32,7 +31,8 @@ _analyze_exception = None
 
 try:
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-    from core.rca import analyze_exception as rca_analyze, get_engine
+    from core.rca import analyze_exception as rca_analyze
+    from core.rca import get_engine
     _analyze_exception = rca_analyze
     RCA_AVAILABLE = True
 except ImportError:
@@ -98,12 +98,12 @@ class Finding:
     message: str
     snippet: str = ""
     recommendation: str = ""
-    rca: Optional[Dict[str, Any]] = None
+    rca: dict[str, Any] | None = None
 
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: int = 100
     rca_enabled: bool = False
     elapsed_seconds: float = 0.0
@@ -129,9 +129,9 @@ class InventoryIntegrityChecker:
     def __init__(self, root_dir: pathlib.Path, enable_rca: bool = True):
         self.root_dir = root_dir
         self.enable_rca = enable_rca and RCA_AVAILABLE
-        self.findings: List[Finding] = []
+        self.findings: list[Finding] = []
 
-    def _get_relevant_files(self) -> List[pathlib.Path]:
+    def _get_relevant_files(self) -> list[pathlib.Path]:
         files = []
         target_patterns = [
             "domain/inventory",
@@ -271,7 +271,7 @@ class InventoryIntegrityChecker:
         has_warehouse = any('warehouse' in p.lower() for p in params)
         return has_from and has_to and has_warehouse
 
-    def _generate_rca(self, rule_id: str, message: str, severity: str, context: Dict) -> Optional[Dict]:
+    def _generate_rca(self, rule_id: str, message: str, severity: str, context: dict) -> dict | None:
         if not self.enable_rca or _analyze_exception is None:
             return None
         try:
@@ -552,14 +552,14 @@ class InventoryIntegrityChecker:
                     recommendation="Tambahkan method schedule() untuk menjadwalkan cycle count."
                 )
 
-    def scan(self) -> List[Finding]:
+    def scan(self) -> list[Finding]:
         for file_path in self._get_relevant_files():
             self._scan_file(file_path)
         return self.findings
 
 
 # ─── Reporting ─────────────────────────────────────────────────────────────
-def generate_report(findings: List[Finding], rca_enabled: bool, elapsed: float) -> Report:
+def generate_report(findings: list[Finding], rca_enabled: bool, elapsed: float) -> Report:
     report = Report(findings=findings, rca_enabled=rca_enabled, elapsed_seconds=elapsed)
     weights = {"CRITICAL": 10, "HIGH": 5, "MEDIUM": 2, "LOW": 1, "INFO": 0}
     penalty = sum(weights.get(f.severity, 0) for f in findings)
@@ -570,7 +570,7 @@ def generate_report(findings: List[Finding], rca_enabled: bool, elapsed: float) 
 def print_report(report: Report, verbose: bool = False) -> None:
     c = COLOR
     print(f"\n{c['CYAN']}{'='*80}{c['RESET']}")
-    print(f"{c['CYAN']}INVENTORY INTEGRITY CHECKER v3.3 — {report.rca_enabled and 'RCA ON' or 'RCA OFF'}{c['RESET']}")
+    print(f"{c['CYAN']}INVENTORY INTEGRITY CHECKER v3.3 — {(report.rca_enabled and 'RCA ON') or 'RCA OFF'}{c['RESET']}")
     print(f"{c['CYAN']}{'='*80}{c['RESET']}")
 
     severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}

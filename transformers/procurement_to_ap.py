@@ -24,9 +24,9 @@ from application.service_layer.service_ap import APService
 from domain.subledger_ap.three_way_match_engine import ThreeWayMatchEngine, ThreeWayMatchResult
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
-from ports.primary.supplier_repository_port import SupplierRepositoryPort
 from ports.primary.goods_receipt_repository_port import GoodsReceiptRepositoryPort
 from ports.primary.purchase_order_repository_port import PurchaseOrderRepositoryPort
+from ports.primary.supplier_repository_port import SupplierRepositoryPort
 
 if TYPE_CHECKING:
     from domain.customer_supplier_employee.supplier_aggregate_root import SupplierAggregate

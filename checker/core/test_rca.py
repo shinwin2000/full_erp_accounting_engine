@@ -3,15 +3,23 @@
 test_rca.py — pytest suite for rca.py (v5.0.0)
 Run: pytest test_rca.py -v --tb=short
 """
-import sys, os
+import os
+import sys
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 import pytest
 from rca import (
-    RCAEngine, RCAResult, Severity, Category, ErrorCode,
-    RCARule, get_all_causes, get_traceback_frames,
-    _SEVERITY_ORDER, _ThreadSafeLRUCache,
+    _SEVERITY_ORDER,
+    Category,
+    ErrorCode,
+    RCAEngine,
+    RCAResult,
+    Severity,
+    _ThreadSafeLRUCache,
+    get_all_causes,
 )
+
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 @pytest.fixture(scope="module")

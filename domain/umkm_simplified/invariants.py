@@ -10,7 +10,7 @@ Metode entity dasar untuk InvariantResult dan enforcer.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 

@@ -90,8 +90,8 @@ SQLAlchemySagaStateStore = SQLAlchemySagaStateStoreRepository
 # EXPORTS
 # ============================================================================
 __all__ = [
-    "SQLAlchemySagaStateStoreRepository",
-    "SagaStateTable",
-    "SagaStateStore",
     "SQLAlchemySagaStateStore",
+    "SQLAlchemySagaStateStoreRepository",
+    "SagaStateStore",
+    "SagaStateTable",
 ]

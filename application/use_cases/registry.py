@@ -10,12 +10,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
 from application.commands_cqrs.command_handler_registry import (
     CommandHandlerRegistry,
     get_command_handler_registry,
 )
-from application.commands_cqrs.query_bus_unified import BaseQuery, QueryResult
 from application.commands_cqrs.query_handler_registry import (
     QueryHandlerRegistry,
     get_query_handler_registry,

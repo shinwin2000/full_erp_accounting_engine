@@ -30,7 +30,7 @@ import pathlib
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 # ============================================================================
 # PROJECT ROOT & SYS.PATH
@@ -57,7 +57,7 @@ analyze_exception = None
 RCAResult = None
 
 try:
-    from checker.core.rca import get_engine, analyze_exception, RCAResult
+    from checker.core.rca import RCAResult, analyze_exception, get_engine
     RCA_AVAILABLE = True
 except ImportError:
     try:
@@ -111,7 +111,7 @@ class Finding:
     category: str
     message: str
     detail: str = ""
-    rca: Optional[dict] = None
+    rca: dict | None = None
 
 @dataclass
 class Report:
@@ -165,7 +165,7 @@ class HybridModuleAnalyzer:
         except Exception as e:
             logging.debug(f"Runtime loading failed for {self.module_name}: {e}")
 
-    def add_finding(self, severity: str, category: str, message: str, detail: str, line: int = 1, rca: Optional[dict] = None):
+    def add_finding(self, severity: str, category: str, message: str, detail: str, line: int = 1, rca: dict | None = None):
         self.findings.append(Finding(str(self.file_path), line, severity, category, message, detail, rca))
 
     def get_ast_nodes(self, node_type: type[ast.AST]) -> list[ast.AST]:
@@ -223,7 +223,7 @@ def _is_mutative_business_logic(func_name: str, file_path: str, rule_type: str =
 
     return False
 
-def _get_rca_for_finding(rule_id: str, message: str, context: dict) -> Optional[dict]:
+def _get_rca_for_finding(rule_id: str, message: str, context: dict) -> dict | None:
     if not RCA_AVAILABLE or analyze_exception is None:
         return None
     try:

@@ -114,6 +114,8 @@ class KafkaProducerWrapper:
             "last_error": None,
         }
         self._message_counter = 0
+        # Daftar untuk menyimpan task callback agar tidak orphan
+        self._callback_tasks: list[asyncio.Task] = []
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
@@ -180,8 +182,17 @@ class KafkaProducerWrapper:
                 logger.warning("Starting dummy producer instead (Kafka unavailable).")
 
     async def stop(self) -> None:
-        """Stop Kafka producer and close connections."""
+        """Stop Kafka producer and close connections, cancel pending callbacks."""
         self._running = False
+        # Batalkan semua task callback yang masih berjalan
+        for task in self._callback_tasks:
+            if not task.done():
+                task.cancel()
+        # Tunggu hingga semua task selesai (dengan timeout)
+        if self._callback_tasks:
+            await asyncio.gather(*self._callback_tasks, return_exceptions=True)
+        self._callback_tasks.clear()
+
         if self._producer:
             try:
                 await self._producer.stop()
@@ -191,6 +202,19 @@ class KafkaProducerWrapper:
                 logger.warning(f"Error stopping Kafka producer: {e}")
             finally:
                 self._producer = None
+
+    # ========================================================================
+    # PERBAIKAN: helper untuk membuat callback task dan menyimpannya
+    # ========================================================================
+    def _safe_create_callback_task(self, coro) -> asyncio.Task:
+        """Buat task untuk callback dan simpan referensi."""
+        task = asyncio.create_task(coro)
+        self._callback_tasks.append(task)
+        # Tambahkan callback untuk menghapus task setelah selesai
+        task.add_done_callback(lambda t: self._callback_tasks.remove(t) if t in self._callback_tasks else None)
+        return task
+
+    # ========================================================================
 
     async def send(
         self,
@@ -229,7 +253,7 @@ class KafkaProducerWrapper:
             )
             self._stats["messages_sent"] += 1
             if callback:
-                asyncio.create_task(self._invoke_callback(callback, result))
+                self._safe_create_callback_task(self._invoke_callback(callback, result))
             return result
 
         topic = topic or self.config.get("topic", "erp-events")
@@ -283,7 +307,7 @@ class KafkaProducerWrapper:
             )
 
             if callback:
-                asyncio.create_task(self._invoke_callback(callback, result))
+                self._safe_create_callback_task(self._invoke_callback(callback, result))
 
             return result
 
@@ -323,7 +347,7 @@ class KafkaProducerWrapper:
                 error=str(e),
             )
             if callback:
-                asyncio.create_task(self._invoke_callback(callback, result))
+                self._safe_create_callback_task(self._invoke_callback(callback, result))
 
             raise KafkaProduceError(
                 f"Failed to send message after {max_retries} retries: {e}"
@@ -369,7 +393,7 @@ class KafkaProducerWrapper:
                 final_results.append(r)
 
         if callback:
-            asyncio.create_task(self._invoke_batch_callback(callback, final_results))
+            self._safe_create_callback_task(self._invoke_batch_callback(callback, final_results))
 
         return final_results
 

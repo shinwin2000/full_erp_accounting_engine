@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker_unified_import_validator.py – Sovereign Import Validator
 ================================================================
@@ -49,7 +48,6 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 # ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
 _RCA_ENGINE = None
@@ -60,7 +58,7 @@ def _init_rca() -> bool:
     if _RCA_AVAILABLE:
         return True
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -71,7 +69,7 @@ def _init_rca() -> bool:
         _root = Path(__file__).resolve().parent.parent
         if str(_root) not in sys.path:
             sys.path.insert(0, str(_root))
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -81,7 +79,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -145,14 +143,14 @@ for _noisy in ("sqlalchemy", "infrastructure", "adapters", "bootstrap",
     logging.getLogger(_noisy).setLevel(logging.CRITICAL)
 
 # ─── FOLDER & SKIP CONFIGURATION ──────────────────────────────────────────────
-CRITICAL_FOLDERS: List[str] = [
+CRITICAL_FOLDERS: list[str] = [
     "domain", "ports", "axioms", "constitution", "kernel",
     "application", "policy_engine", "compliance", "audit",
     "infrastructure", "adapters", "event_gateway", "projections", "reports",
     "bootstrap", "config", "app",
 ]
 
-LAYER_OWNERSHIP: Dict[str, str] = {
+LAYER_OWNERSHIP: dict[str, str] = {
     "domain"        : "Core Domain",
     "ports"         : "Port Interface",
     "axioms"        : "Core Domain",
@@ -172,22 +170,22 @@ LAYER_OWNERSHIP: Dict[str, str] = {
     "app"           : "Composition Root",
 }
 
-SKIP_STEMS: Set[str] = {
+SKIP_STEMS: set[str] = {
     "__init__", "__main__",
     "main_checker", "tax_checker", "layer_checker",
     "fiscal_period_checker", "conftest", "setup", "manage",
 }
-SKIP_STEM_PATTERNS: List[re.Pattern] = [
+SKIP_STEM_PATTERNS: list[re.Pattern] = [
     re.compile(r"^test_"), re.compile(r"_test$"),
     re.compile(r"^checker_"),
 ]
-SKIP_MODULE_SUBSTR: Set[str] = {
+SKIP_MODULE_SUBSTR: set[str] = {
     "proto", "test", "grpc", "pb2", "migrations",
     "alembic", "fixture", "factory", "stub", "mock",
     "conftest", "sandbox", "playground",
 }
 
-DEPENDENCY_VIOLATIONS_RULES: Dict[str, Set[str]] = {
+DEPENDENCY_VIOLATIONS_RULES: dict[str, set[str]] = {
     "Core Domain"        : {"Infrastructure", "Composition Root"},
     "Port Interface"     : {"Infrastructure", "Composition Root"},
     "Application Service": {"Composition Root"},
@@ -233,11 +231,11 @@ class ScanResult:
     error_message: str = ""
     traceback_str: str = ""
     duration_ms: float = 0.0
-    new_sys_modules: List[str] = field(default_factory=list)
+    new_sys_modules: list[str] = field(default_factory=list)
     public_symbols: int = 0
-    warnings_caught: List[str] = field(default_factory=list)
-    side_effects: List[str] = field(default_factory=list)
-    rca: Optional[Dict] = None
+    warnings_caught: list[str] = field(default_factory=list)
+    side_effects: list[str] = field(default_factory=list)
+    rca: dict | None = None
 
     @property
     def ok(self) -> bool:
@@ -264,7 +262,7 @@ class ContractFailure:
 class PhaseResult:
     name: str
     passed: bool = True
-    findings: List[Dict] = field(default_factory=list)
+    findings: list[dict] = field(default_factory=list)
     duration: float = 0.0
 
 @dataclass
@@ -286,10 +284,10 @@ class ScanReport:
     warn_count: int = 0
     skip_count: int = 0
     duration_sec: float = 0.0
-    results: List[ScanResult] = field(default_factory=list)
-    layer_summary: Dict[str, dict] = field(default_factory=dict)
-    dependency_issues: List[str] = field(default_factory=list)
-    contract_failures: List[ContractFailure] = field(default_factory=list)
+    results: list[ScanResult] = field(default_factory=list)
+    layer_summary: dict[str, dict] = field(default_factory=dict)
+    dependency_issues: list[str] = field(default_factory=list)
+    contract_failures: list[ContractFailure] = field(default_factory=list)
     lifecycle_passed: bool = True
     overall_pass: bool = False
     exit_code: int = 1
@@ -328,7 +326,7 @@ def _file_sha256(path: Path) -> str:
     except OSError:
         return "unavailable"
 
-def _validate_ast(path: Path) -> Tuple[bool, str, int]:
+def _validate_ast(path: Path) -> tuple[bool, str, int]:
     try:
         source = path.read_text(encoding="utf-8", errors="replace")
         line_count = source.count("\n") + 1
@@ -339,7 +337,7 @@ def _validate_ast(path: Path) -> Tuple[bool, str, int]:
     except OSError as e:
         return False, f"OSError: {e}", 0
 
-def _git_info() -> Tuple[str, str]:
+def _git_info() -> tuple[str, str]:
     def _run(cmd):
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=5, cwd=str(PROJECT_ROOT))
@@ -349,10 +347,10 @@ def _git_info() -> Tuple[str, str]:
     return _run(["git", "rev-parse", "--short", "HEAD"]), _run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
 
 # ─── MODULE COLLECTION ────────────────────────────────────────────────────────
-def collect_modules() -> List[ModuleInfo]:
-    modules: List[ModuleInfo] = []
-    seen_paths: Set[str] = set()
-    seen_modules: Set[str] = set()
+def collect_modules() -> list[ModuleInfo]:
+    modules: list[ModuleInfo] = []
+    seen_paths: set[str] = set()
+    seen_modules: set[str] = set()
 
     for folder in CRITICAL_FOLDERS:
         dir_path = PROJECT_ROOT / folder
@@ -418,10 +416,10 @@ def collect_modules() -> List[ModuleInfo]:
 # ─── SAFE IMPORT ENGINE ──────────────────────────────────────────────────────
 _import_lock = threading.Lock()
 
-def _capture_sys_modules_delta(before: Set[str], after: dict) -> List[str]:
+def _capture_sys_modules_delta(before: set[str], after: dict) -> list[str]:
     return [k for k in after if k not in before]
 
-def _detect_dangerous_side_effects(module: types.ModuleType) -> List[str]:
+def _detect_dangerous_side_effects(module: types.ModuleType) -> list[str]:
     dangers = []
     dangerous_attrs = {
         "_engine", "_db", "_session", "_conn", "_connection",
@@ -432,7 +430,7 @@ def _detect_dangerous_side_effects(module: types.ModuleType) -> List[str]:
             dangers.append(f"Atribut koneksi saat import: {attr}")
     return dangers
 
-def _import_with_timeout(module_name: str, timeout: int) -> Tuple[bool, Optional[types.ModuleType], str, str]:
+def _import_with_timeout(module_name: str, timeout: int) -> tuple[bool, types.ModuleType | None, str, str]:
     result_container = [None, None, "", ""]
 
     def _do_import():
@@ -526,7 +524,7 @@ def safe_import(info: ModuleInfo) -> ScanResult:
     return result
 
 # ─── CONTRACT INTROSPECTION ──────────────────────────────────────────────────
-def check_single_contract(module_name: str, names: List[str], file: str, lineno: int) -> List[ContractFailure]:
+def check_single_contract(module_name: str, names: list[str], file: str, lineno: int) -> list[ContractFailure]:
     failures = []
     try:
         mod = importlib.import_module(module_name)
@@ -605,7 +603,7 @@ def phase_isolated_runtime() -> PhaseResult:
     if failed:
         for label, err in failed[:20]:
             pr.findings.append({"severity": "CRITICAL", "file": label, "line": 0,
-                                "message": f"Isolated runtime panic", "detail": err,
+                                "message": "Isolated runtime panic", "detail": err,
                                 "recommendation": "Periksa dependency atau side effects"})
         if len(failed) > 20:
             pr.findings.append({"severity": "INFO", "file": ".", "line": 0,
@@ -669,6 +667,7 @@ def phase_lifecycle(optional_db: bool = True) -> PhaseResult:
     else:
         try:
             import asyncio
+
             from sqlalchemy import text
             from sqlalchemy.ext.asyncio import create_async_engine
             if "postgresql://" in db_url and "+asyncpg" not in db_url:
@@ -691,7 +690,7 @@ def phase_lifecycle(optional_db: bool = True) -> PhaseResult:
     return pr
 
 # ─── LAYER DEPENDENCY CHECK ──────────────────────────────────────────────────
-def check_dependency_violations(results: List[ScanResult]) -> List[str]:
+def check_dependency_violations(results: list[ScanResult]) -> list[str]:
     violations = []
     infra_keywords = {"sqlalchemy", "redis", "kafka", "celery", "boto",
                       "requests", "httpx", "fastapi", "django", "flask",
@@ -711,7 +710,7 @@ def check_dependency_violations(results: List[ScanResult]) -> List[str]:
                     break
     return violations
 
-def build_layer_summary(results: List[ScanResult]) -> Dict[str, dict]:
+def build_layer_summary(results: list[ScanResult]) -> dict[str, dict]:
     summary = defaultdict(lambda: {"total": 0, "ok": 0, "failed": 0, "warnings": 0, "pass_rate": 0.0})
     for r in results:
         layer = r.module_info.layer
@@ -749,7 +748,7 @@ def _result_to_dict(r: ScanResult) -> dict:
         "rca": r.rca,
     }
 
-def save_reports(report: ScanReport, results: List[ScanResult]) -> Tuple[Path, Path]:
+def save_reports(report: ScanReport, results: list[ScanResult]) -> tuple[Path, Path]:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
     json_path = REPORT_DIR / f"import_scan_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}_{report.scan_id}.json"
@@ -860,7 +859,7 @@ def main() -> int:
         print(_red("[ERROR] PROJECT_ROOT tidak valid"), file=sys.stderr)
         return 3
 
-    ts_utc = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00","Z")
+    ts_utc = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00","Z")
     git_commit, git_branch = _git_info()
     modules = collect_modules()
     total = len(modules)
@@ -879,7 +878,7 @@ def main() -> int:
     print(f"  ⏱️  Timeout: {IMPORT_TIMEOUT_SEC}s per modul")
     print()
 
-    results: List[ScanResult] = []
+    results: list[ScanResult] = []
     ok_count = fail_count = warn_count = 0
 
     for idx, info in enumerate(modules, 1):

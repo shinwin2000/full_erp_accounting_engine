@@ -30,6 +30,8 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import func, select, text
+
 # Internal dependencies
 from infrastructure.event_store.append_only_store import AppendOnlyStore, get_event_store
 from infrastructure.event_store.snapshot_store_aggregate import (
@@ -150,6 +152,10 @@ last_append_timestamp = get_gauge(
     f"{METRIC_PREFIX}_last_append_timestamp_seconds", "Timestamp of last append operation"
 )
 
+events_per_second_gauge = get_gauge(
+    f"{METRIC_PREFIX}_events_per_second", "Events per second throughput"
+)
+
 
 # ============================================================================
 # EVENT STORE METRICS COLLECTOR
@@ -216,8 +222,6 @@ class EventStoreMetricsCollector:
             stream_stats = {}
 
             async with store._session_factory() as session:
-                from sqlalchemy import func, text
-
                 from infrastructure.persistence_orm.event_store_table import EventStoreTable
 
                 # Count total events
@@ -282,7 +286,6 @@ class EventStoreMetricsCollector:
                 total_streams_gauge.set(total_streams)
                 event_store_size_bytes.set(size_bytes)
                 if self._throughput_cache.get("events_per_second"):
-                    events_per_second_gauge = get_gauge(f"{METRIC_PREFIX}_events_per_second")
                     events_per_second_gauge.set(self._throughput_cache["events_per_second"])
 
                 # Update per-stream gauges
@@ -311,8 +314,6 @@ class EventStoreMetricsCollector:
             hash_builder = get_hash_chain_builder()
 
             async with store._session_factory() as session:
-                from sqlalchemy import select
-
                 from infrastructure.persistence_orm.event_store_table import EventStoreTable
 
                 # Get all streams
@@ -367,6 +368,7 @@ class EventStoreMetricsCollector:
                 await self.collect_metrics()
                 await self.check_hash_chain_integrity()
             except asyncio.CancelledError:
+                logger.debug("Periodic metrics collection loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in periodic metrics collection: {e}")
@@ -383,7 +385,8 @@ class EventStoreMetricsCollector:
             try:
                 await self._collection_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Metrics collection task cancelled during stop")
+                # Expected cancellation; continue
             self._collection_task = None
         logger.info("Stopped periodic metrics collection")
 

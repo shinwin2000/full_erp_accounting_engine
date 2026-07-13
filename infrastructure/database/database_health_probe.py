@@ -356,6 +356,7 @@ class DatabaseHealthProbe:
                     await self.run_full_health_check()
                     await asyncio.sleep(self._check_interval)
                 except asyncio.CancelledError:
+                    logger.debug("Database health probe loop cancelled")
                     break
                 except Exception as e:
                     logger.error(f"Health check error: {e}")
@@ -372,7 +373,8 @@ class DatabaseHealthProbe:
             try:
                 await self._health_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Database health probe task cancelled during stop")
+                # Expected cancellation; continue
             self._health_task = None
         logger.info("Database health probe stopped")
 

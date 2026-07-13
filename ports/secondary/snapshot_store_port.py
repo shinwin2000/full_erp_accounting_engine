@@ -344,7 +344,9 @@ class SnapshotStorePort:
             try:
                 await self._cleanup_task
             except asyncio.CancelledError:
-                pass
+                # Perbaikan: log bahwa task berhenti normal, tidak lagi silent swallow
+                logger.info("Cleanup task cancelled successfully.")
+                # Tidak perlu raise karena ini adalah shutdown yang diinginkan
 
     # ==================== QUERY ====================
 

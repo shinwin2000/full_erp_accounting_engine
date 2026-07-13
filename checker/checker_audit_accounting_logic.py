@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker_audit_accounting_logic.py — Sovereign Accounting Logic & Forensic Checker v2.6.6
 =========================================================================================
@@ -23,7 +22,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, get_type_hints
+from typing import Any, get_type_hints
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -36,7 +35,8 @@ try:
     _checker_core = ROOT / "checker" / "core"
     if str(_checker_core) not in sys.path:
         sys.path.insert(0, str(_checker_core))
-    from rca import get_engine as rca_get_engine, analyze_exception
+    from rca import analyze_exception
+    from rca import get_engine as rca_get_engine
     _analyze_exception = analyze_exception
     RCA_AVAILABLE = True
 except ImportError:
@@ -138,11 +138,11 @@ class Finding:
     message: str
     snippet: str = ""
     recommendation: str = ""
-    rca: Optional[Dict[str, Any]] = None
+    rca: dict[str, Any] | None = None
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: int = 100
     rca_enabled: bool = False
     elapsed_seconds: float = 0.0
@@ -155,12 +155,12 @@ class SovereignAccountingLogicGatekeeper:
         self.root_dir = root_dir
         self.enable_rca = enable_rca and RCA_AVAILABLE
         self.strict = strict
-        self.findings: List[Finding] = []
+        self.findings: list[Finding] = []
         self.files_scanned = 0
         self.runtime_imported = 0
         sys.path.insert(0, str(root_dir))
 
-    def _generate_rca(self, rule_id: str, message: str, severity: str, context: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+    def _generate_rca(self, rule_id: str, message: str, severity: str, context: dict[str, Any] = None) -> dict[str, Any] | None:
         if not self.enable_rca or _analyze_exception is None:
             return None
         try:
@@ -265,7 +265,7 @@ class SovereignAccountingLogicGatekeeper:
                 return True
         return False
 
-    def _get_target_files(self) -> List[Path]:
+    def _get_target_files(self) -> list[Path]:
         files = []
         target_packages = ["domain", "application", "infrastructure", "kernel", "ports",
                            "axioms", "constitution", "policy_engine", "audit", "adapters",
@@ -395,7 +395,7 @@ class SovereignAccountingLogicGatekeeper:
                                 "monetary_integrity",
                                 f"Variabel moneter '{target.id}' diisi oleh literal float: {node.value.value}",
                                 snippet=ast.unparse(node),
-                                recommendation=f"Gunakan Decimal('{str(node.value.value)}') untuk presisi moneter."
+                                recommendation=f"Gunakan Decimal('{node.value.value!s}') untuk presisi moneter."
                             )
 
             # --- ACC-002: Float annotation ---
@@ -671,7 +671,7 @@ class SovereignAccountingLogicGatekeeper:
         print(f"{COLOR['BOLD']}{COLOR['CYAN']}╔════════════════════════════════════════════════════════════════════════════╗")
         print("║     SOVEREIGN HYBRID ACCOUNTING LOGIC GATEKEEPER v2.6.6 (S+ Grade)      ║")
         print(f"╚════════════════════════════════════════════════════════════════════════════╝{COLOR['RESET']}")
-        print(f"  Mode Introspeksi  : ✅ MULTILAYER AKTIF (AST + Dynamic Runtime)")
+        print("  Mode Introspeksi  : ✅ MULTILAYER AKTIF (AST + Dynamic Runtime)")
         print(f"  RCA Engine        : {'✅ Aktif' if self.enable_rca else '⚠️ Nonaktif'}")
         print(f"  Mode Strict       : {'✅ Aktif' if self.strict else '⚠️ Nonaktif'}\n")
         print(f"📂 Memindai {len(target_files)} file...")

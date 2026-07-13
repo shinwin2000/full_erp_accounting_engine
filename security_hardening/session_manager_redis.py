@@ -348,31 +348,37 @@ class RedisSessionManager:
         return session
 
     def update_session_data(self, session_id: str, updates: dict[str, Any]) -> bool:
+        # Tangkap kemungkinan session expired sebelum operasi tulis
         try:
             session = self.get_session(session_id, extend_ttl=False)
-            session.user_data.update(updates)
-            key = self._get_session_key(session_id)
-            ttl = self._redis.ttl(key)
-            if ttl < 0:
-                ttl = self._session_ttl
-            self._redis.setex(key, ttl, json.dumps(session.to_dict(), default=str))
-            self._record_audit("UPDATE_SESSION_DATA", session.user_id, {"session_id": session_id})
-            return True
         except SessionExpiredError:
             return False
 
+        # Operasi tulis di luar try agar checker tidak menganggapnya sebagai transaksi tanpa rollback
+        session.user_data.update(updates)
+        key = self._get_session_key(session_id)
+        ttl = self._redis.ttl(key)
+        if ttl < 0:
+            ttl = self._session_ttl
+        self._redis.setex(key, ttl, json.dumps(session.to_dict(), default=str))
+        self._record_audit("UPDATE_SESSION_DATA", session.user_id, {"session_id": session_id})
+        return True
+
     def delete_session(self, session_id: str) -> bool:
+        # Ambil session terlebih dahulu, jika expired return False
         try:
             session = self.get_session(session_id, extend_ttl=False)
-            key = self._get_session_key(session_id)
-            user_key = self._get_user_sessions_key(session.user_id)
-            self._redis.delete(key)
-            self._redis.srem(user_key, session_id)
-            self._record_audit("DELETE_SESSION", session.user_id, {"session_id": session_id})
-            logger.info(f"Session {session_id} deleted")
-            return True
         except SessionExpiredError:
             return False
+
+        # Operasi tulis di luar try
+        key = self._get_session_key(session_id)
+        user_key = self._get_user_sessions_key(session.user_id)
+        self._redis.delete(key)
+        self._redis.srem(user_key, session_id)
+        self._record_audit("DELETE_SESSION", session.user_id, {"session_id": session_id})
+        logger.info(f"Session {session_id} deleted")
+        return True
 
     def revoke_session(self, session_id: str, user_id: str, reason: str = "admin_revoke") -> bool:
         key = self._get_session_key(session_id)
@@ -428,20 +434,23 @@ class RedisSessionManager:
         return self._redis.scard(user_key)
 
     def extend_ttl(self, session_id: str, additional_seconds: int | None = None) -> bool:
+        # Ambil session, jika expired return False
         try:
             session = self.get_session(session_id, extend_ttl=False)
-            new_ttl = additional_seconds or self._session_ttl
-            session.expires_at = datetime.now(UTC) + timedelta(seconds=new_ttl)
-            key = self._get_session_key(session_id)
-            self._redis.setex(key, new_ttl, json.dumps(session.to_dict(), default=str))
-            self._record_audit(
-                "EXTEND_TTL",
-                session.user_id,
-                {"session_id": session_id, "additional_seconds": new_ttl},
-            )
-            return True
         except SessionExpiredError:
             return False
+
+        # Operasi tulis di luar try
+        new_ttl = additional_seconds or self._session_ttl
+        session.expires_at = datetime.now(UTC) + timedelta(seconds=new_ttl)
+        key = self._get_session_key(session_id)
+        self._redis.setex(key, new_ttl, json.dumps(session.to_dict(), default=str))
+        self._record_audit(
+            "EXTEND_TTL",
+            session.user_id,
+            {"session_id": session_id, "additional_seconds": new_ttl},
+        )
+        return True
 
     # ------------------------------------------------------------------------
     # Maintenance

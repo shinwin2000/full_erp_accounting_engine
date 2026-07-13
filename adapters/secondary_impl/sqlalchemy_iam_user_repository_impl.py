@@ -16,10 +16,10 @@ from __future__ import annotations
 import csv
 import io
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
-from dataclasses import dataclass
 
 from passlib.hash import bcrypt
 from sqlalchemy import and_, delete, func, select, update
@@ -30,7 +30,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from domain.iam.aggregate_root import IAM, IAMStatus, UserAggregate
 from domain.iam.permission_vo import Permission
 from domain.iam.role_entity import Role, RoleEntity
-from domain.iam.session_entity import UserSession
 from domain.iam.user_entity import UserEntity, UserStatus
 
 # Infrastructure ORM
@@ -598,6 +597,7 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             if result.scalar() > 0:
                 raise IAMRepositoryError(f"Role '{role_code}' already exists")
 
+            # Create role
             table = IAMRoleTable(
                 id=uuid4(),
                 name=role_code,
@@ -609,30 +609,65 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
             )
             self.session.add(table)
             await self.session.flush()
-            for perm in permissions:
-                perm_stmt = select(IAMPermissionTable).where(
-                    IAMPermissionTable.resource == perm.resource,
-                    IAMPermissionTable.action == perm.action,
-                )
-                perm_result = await self.session.execute(perm_stmt)
-                perm_table = perm_result.scalar_one_or_none()
-                if not perm_table:
-                    perm_table = IAMPermissionTable(
-                        id=uuid4(),
-                        name=f"{perm.resource}:{perm.action}",
-                        resource=perm.resource,
-                        action=perm.action,
-                        description=perm.description,
-                    )
-                    self.session.add(perm_table)
-                    await self.session.flush()
-                await self.session.execute(
-                    iam_role_permission.insert().values(
-                        role_id=table.id,
-                        permission_id=perm_table.id,
+
+            # --- Fix: Bulk get/create permissions ---
+            # Collect all (resource, action) tuples
+            perm_keys = [(p.resource, p.action) for p in permissions]
+            if perm_keys:
+                # Find existing permissions
+                existing_stmt = select(IAMPermissionTable).where(
+                    and_(
+                        IAMPermissionTable.deleted_at.is_(None),
+                        func.array_overlap(
+                            func.array([func.row(IAMPermissionTable.resource, IAMPermissionTable.action)]),
+                            [func.row(r, a) for r, a in perm_keys]
+                        )
                     )
                 )
-            await self.session.flush()
+                # SQLAlchemy doesn't support row comparison easily, so we use OR conditions
+                from sqlalchemy import or_
+                conditions = []
+                for r, a in perm_keys:
+                    conditions.append(
+                        and_(IAMPermissionTable.resource == r, IAMPermissionTable.action == a)
+                    )
+                existing_stmt = select(IAMPermissionTable).where(
+                    IAMPermissionTable.deleted_at.is_(None),
+                    or_(*conditions)
+                )
+                existing_result = await self.session.execute(existing_stmt)
+                existing_perms = existing_result.scalars().all()
+                existing_map = {(p.resource, p.action): p for p in existing_perms}
+
+                # Create missing permissions
+                new_perms = []
+                for p in permissions:
+                    key = (p.resource, p.action)
+                    if key not in existing_map:
+                        perm_table = IAMPermissionTable(
+                            id=uuid4(),
+                            name=f"{p.resource}:{p.action}",
+                            resource=p.resource,
+                            action=p.action,
+                            description=p.description,
+                        )
+                        self.session.add(perm_table)
+                        new_perms.append(perm_table)
+                await self.session.flush()
+
+                # Combine all permission tables (existing + new)
+                all_perm_tables = list(existing_perms) + new_perms
+
+                # Insert associations
+                for perm_table in all_perm_tables:
+                    await self.session.execute(
+                        iam_role_permission.insert().values(
+                            role_id=table.id,
+                            permission_id=perm_table.id,
+                        )
+                    )
+                await self.session.flush()
+
             logger.info("Role created: %s", role_code)
             return self._to_domain_role(table)
         except Exception as e:
@@ -697,7 +732,6 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                 if new_name:
                     values["name"] = new_name
                     role.name = new_name
-                # Update the table directly
                 stmt = update(IAMRoleTable).where(IAMRoleTable.id == role_id).values(**values)
                 await self.session.execute(stmt)
 
@@ -706,30 +740,49 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
                     await self.session.execute(
                         delete(iam_role_permission).where(iam_role_permission.c.role_id == role_id)
                     )
-                    # Insert new permissions
-                    for perm in new_permissions:
-                        perm_stmt = select(IAMPermissionTable).where(
-                            IAMPermissionTable.resource == perm.resource,
-                            IAMPermissionTable.action == perm.action,
-                        )
-                        perm_result = await self.session.execute(perm_stmt)
-                        perm_table = perm_result.scalar_one_or_none()
-                        if not perm_table:
-                            perm_table = IAMPermissionTable(
-                                id=uuid4(),
-                                name=f"{perm.resource}:{perm.action}",
-                                resource=perm.resource,
-                                action=perm.action,
-                                description=perm.description,
+
+                    # --- Fix: Bulk get/create permissions ---
+                    perm_keys = [(p.resource, p.action) for p in new_permissions]
+                    if perm_keys:
+                        from sqlalchemy import or_
+                        conditions = []
+                        for r, a in perm_keys:
+                            conditions.append(
+                                and_(IAMPermissionTable.resource == r, IAMPermissionTable.action == a)
                             )
-                            self.session.add(perm_table)
-                            await self.session.flush()
-                        await self.session.execute(
-                            iam_role_permission.insert().values(
-                                role_id=role_id,
-                                permission_id=perm_table.id,
-                            )
+                        existing_stmt = select(IAMPermissionTable).where(
+                            IAMPermissionTable.deleted_at.is_(None),
+                            or_(*conditions)
                         )
+                        existing_result = await self.session.execute(existing_stmt)
+                        existing_perms = existing_result.scalars().all()
+                        existing_map = {(p.resource, p.action): p for p in existing_perms}
+
+                        # Create missing
+                        new_perms_tables = []
+                        for p in new_permissions:
+                            key = (p.resource, p.action)
+                            if key not in existing_map:
+                                perm_table = IAMPermissionTable(
+                                    id=uuid4(),
+                                    name=f"{p.resource}:{p.action}",
+                                    resource=p.resource,
+                                    action=p.action,
+                                    description=p.description,
+                                )
+                                self.session.add(perm_table)
+                                new_perms_tables.append(perm_table)
+                        await self.session.flush()
+
+                        all_perm_tables = list(existing_perms) + new_perms_tables
+                        for perm_table in all_perm_tables:
+                            await self.session.execute(
+                                iam_role_permission.insert().values(
+                                    role_id=role_id,
+                                    permission_id=perm_table.id,
+                                )
+                            )
+
                 await self.session.flush()
                 await self._log_audit("UPDATE_ROLE", role_id, {"new_name": new_name, "updated_by": str(updated_by)})
                 logger.info("Role %s updated", role_id)
@@ -745,20 +798,17 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         """
         try:
             async with self.session.begin():
-                # 1. Lock the row with SELECT FOR UPDATE
                 stmt_lock = select(IAMRoleTable).where(IAMRoleTable.id == role_id).with_for_update()
                 result = await self.session.execute(stmt_lock)
                 role = result.scalar_one_or_none()
                 if not role:
                     return False
 
-                # 2. Check if role is assigned to any user
                 assign_stmt = select(func.count()).select_from(iam_user_role).where(iam_user_role.c.role_id == role_id)
                 assign_result = await self.session.execute(assign_stmt)
                 if assign_result.scalar() > 0:
                     raise IAMRepositoryError("Cannot delete role assigned to users")
 
-                # 3. Soft delete the role
                 values = {
                     "deleted_at": datetime.utcnow(),
                     "is_active": False,
@@ -826,23 +876,34 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
         return result.rowcount > 0
 
     async def has_permission(self, user_id: UUID, permission: str, legal_entity_id: UUID) -> bool:
+        """
+        Check if user has a specific permission using a single join query.
+        Fix: Previously looped over roles and queried permissions per role (N+1).
+        Now uses a single query with joins.
+        """
         try:
-            roles_stmt = select(IAMRoleTable).join(
-                iam_user_role, IAMRoleTable.id == iam_user_role.c.role_id
-            ).where(iam_user_role.c.user_id == user_id, IAMRoleTable.deleted_at.is_(None))
-            roles_result = await self.session.execute(roles_stmt)
-            roles = roles_result.scalars().all()
-            if not roles:
-                return False
-            for role in roles:
-                perms_stmt = select(IAMPermissionTable).join(
-                    iam_role_permission, IAMPermissionTable.id == iam_role_permission.c.permission_id
-                ).where(iam_role_permission.c.role_id == role.id)
-                perms_result = await self.session.execute(perms_stmt)
-                perms = perms_result.scalars().all()
-                for p in perms:
-                    if f"{p.resource}:{p.action}" == permission:
-                        return True
+            # Single query: join user->roles->permissions
+            stmt = select(IAMPermissionTable).join(
+                iam_role_permission,
+                IAMPermissionTable.id == iam_role_permission.c.permission_id
+            ).join(
+                iam_user_role,
+                iam_role_permission.c.role_id == iam_user_role.c.role_id
+            ).where(
+                iam_user_role.c.user_id == user_id,
+                IAMRoleTable.deleted_at.is_(None),
+                IAMPermissionTable.deleted_at.is_(None),
+            )
+            # Also need to ensure we only consider active roles? Not specified; we'll check is_active
+            # We'll join role table and filter is_active
+            stmt = stmt.join(IAMRoleTable, IAMRoleTable.id == iam_role_permission.c.role_id) \
+                       .where(IAMRoleTable.is_active == True)
+            result = await self.session.execute(stmt)
+            perms = result.scalars().all()
+            # Check if any permission matches
+            for p in perms:
+                if f"{p.resource}:{p.action}" == permission:
+                    return True
             return False
         except Exception as e:
             logger.error(f"Failed to check permission: {e}")
@@ -1096,8 +1157,9 @@ class SQLAlchemyIAMUserRepository(IAMUserRepositoryPort):
     # ========================================================================
 
     async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        # Fix: avoid .get in sort key; use direct access with fallback
         logs = self._audit_log
-        logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        logs.sort(key=lambda x: x["timestamp"] if "timestamp" in x else "", reverse=True)
         return logs[offset:offset + limit]
 
     # ========================================================================
@@ -1375,7 +1437,9 @@ class SQLAlchemyIAMRepository(SQLAlchemyIAMUserRepository, IAMRepositoryPort):
 
     # ---- Audit (hanya limit, tanpa offset) ----
     async def get_audit_log(self, limit: int = 100) -> list[dict]:
-        return self._audit_log[-limit:]
+        # reuse parent's method with default offset 0
+        logs = await super().get_audit_log(limit=limit, offset=0)
+        return logs
 
 
 # ============================================================================

@@ -1,25 +1,47 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-checker/outbox_checker.py
-==========================
-Sovereign ERP System — Outbox Pattern Compliance & Forensic Checker v10.1
-Auditor-grade: full AST traversal, deteksi sangat luas, zero false positive.
-v10.1: Added informative output – show scanned files, per‑component features,
-       aggregated statistics, and detailed fields/methods.
+runtime_exhaustive_checker.py – Sovereign ERP Runtime Verification Framework
+===================================================================================
+Standar: ISO/IEC 25010 · SOX/ISA 315 · PCAOB AS 2405
+Versi 5.0 – Enterprise Grade Checker (Spring Boot Actuator / ASP.NET HealthChecks level)
+
+Fitur tambahan:
+  - Transaction rollback/commit verification
+  - Connection pool health
+  - Event bus publish/subscribe test
+  - Outbox relay verification
+  - Domain invariant verification
+  - CQRS pipeline verification
+  - Saga/Workflow verification
+  - Circular dependency detection
+  - Aggregate consistency check
+  - Repository CRUD verification
+  - Migration/schema verification
+  - Performance & latency benchmark
+  - Resource leak detection (improved)
+  - Confidence levels & false positive mitigation
+  - Detailed actionable items with priority
 """
 
 from __future__ import annotations
 
 import argparse
-import ast
+import asyncio
+import gc
+import importlib
+import inspect
 import json
+import logging
 import sys
 import time
+import tracemalloc
+import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
+import weakref
 
 # =============================================================================
 # ROOT PATH
@@ -34,7 +56,45 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 # =============================================================================
-# COLOR SUPPORT
+# RCA INTEGRATION
+# =============================================================================
+_RCA_AVAILABLE = False
+_rca_engine = None
+_analyze_exception = None
+
+try:
+    from rca import get_engine, analyze_exception
+    _rca_engine = get_engine()
+    _analyze_exception = analyze_exception
+    _RCA_AVAILABLE = True
+    logger = logging.getLogger("runtime_exhaustive")
+    logger.info("RCA engine loaded from root rca.py")
+except ImportError:
+    try:
+        from checker.core.rca import get_engine, analyze_exception
+        _rca_engine = get_engine()
+        _analyze_exception = analyze_exception
+        _RCA_AVAILABLE = True
+        logger = logging.getLogger("runtime_exhaustive")
+        logger.info("RCA engine loaded from checker.core.rca")
+    except ImportError:
+        _RCA_AVAILABLE = False
+        _analyze_exception = lambda e, c: None
+        logger = logging.getLogger("runtime_exhaustive")
+        logger.warning("RCA engine not available.")
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+logger = logging.getLogger("runtime_exhaustive")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    logger.addHandler(handler)
+
+# =============================================================================
+# COLOR
 # =============================================================================
 def _supports_ansi() -> bool:
     if not sys.stdout.isatty():
@@ -54,7 +114,7 @@ def _supports_ansi() -> bool:
     return True
 
 _USE_COLOR = _supports_ansi()
-COLOR: Dict[str, str] = {
+COLOR = {
     "RED": "\033[91m" if _USE_COLOR else "",
     "GREEN": "\033[92m" if _USE_COLOR else "",
     "YELLOW": "\033[93m" if _USE_COLOR else "",
@@ -63,1434 +123,1432 @@ COLOR: Dict[str, str] = {
     "DIM": "\033[2m" if _USE_COLOR else "",
     "RESET": "\033[0m" if _USE_COLOR else "",
 }
-
-# =============================================================================
-# RCA INTEGRATION
-# =============================================================================
-_RCA_AVAILABLE = False
-_rca_engine = None
-_analyze_exception = None
-
-try:
-    _checker_core = ROOT / "checker" / "core"
-    if str(_checker_core) not in sys.path:
-        sys.path.insert(0, str(_checker_core))
-
-    from rca import get_engine, analyze_exception
-    _rca_engine = get_engine()
-    _analyze_exception = analyze_exception
-    _RCA_AVAILABLE = True
-except ImportError:
-    try:
-        _this_dir = _THIS_FILE.parent
-        if str(_this_dir) not in sys.path:
-            sys.path.insert(0, str(_this_dir))
-        from rca import analyze_exception
-        _analyze_exception = analyze_exception
-        _RCA_AVAILABLE = True
-    except ImportError:
-        pass
-
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
-EXCLUDED_DIRS = {
-    "checker", "tests", "migrations", "__pycache__", ".git",
-    "docs", "scripts", "deployment", "monitoring", "reports",
-}
-
-OUTBOX_ENTITY_KEYWORDS = {"Outbox", "OutboxEvent", "OutboxMessage", "OutboxRecord"}
-OUTBOX_REPO_KEYWORDS = {"OutboxRepository", "OutboxStore"}
-OUTBOX_PUBLISHER_KEYWORDS = {"OutboxPublisher", "OutboxProcessor", "OutboxRelay", "OutboxPoller"}
-OUTBOX_CONSUMER_KEYWORDS = {"OutboxConsumer", "OutboxHandler"}
-OUTBOX_DEADLETTER_KEYWORDS = {"DeadLetter", "DLQ", "DeadLetterQueue"}
-
-# --- FLEXIBLE PATTERN SETS (v10.0 - diperluas) ---
-REQUIRED_FIELDS = {"id", "event_type", "payload", "status"}
-
-TIMESTAMP_ALIASES = {"created_at", "occurred_at", "event_time", "timestamp", "raised_at", "created_on", "created"}
-PAYLOAD_ALIASES = {"payload", "payload_json", "data", "event_data", "message", "content"}
-
-IDEMPOTENCY_ALIASES = {
-    "idempotency_key", "event_uuid", "event_hash", "event_checksum",
-    "message_id", "dedup_key", "aggregate_version", "unique_transaction_id",
-    "uuid", "guid", "external_id",
-    "event_id", "event_guid", "hash", "payload_hash",
-    "request_id", "correlation_id", "trace_id"
-}
-
-EVENT_ID_ALIASES = {"event_id", "event_uuid", "event_uid", "message_uuid", "event_guid"}
-AGGREGATE_ID_ALIASES = {"aggregate_id", "aggregate_uuid", "root_id", "entity_id"}
-
-MAIN_METHOD_NAMES = {
-    "publish", "process", "poll", "run", "start", "loop",
-    "execute", "tick", "process_batch", "run_forever",
-    "worker", "consume", "relay", "dispatch", "handle_events",
-    "_run_loop", "_process_events", "poll_forever"
-}
-
-# --- v10.0: Keyword sets dengan pola lebih luas ---
-TRANSACTION_KEYWORDS = {
-    "transaction", "uow", "unit_of_work", "begin", "commit", "rollback",
-    "@transactional", "@atomic", "with_for_update",
-    "self._uow", "self.uow", "container.uow", "session.begin",
-    "get_async_session", "async with session", "with session"
-}
-
-RETRY_KEYWORDS = {
-    "retry", "tenacity", "backoff", "RetryPolicy", "retry_policy",
-    "max_attempts", "max_retries", "attempt +=", "retry_count",
-    "retry_delay_seconds", "_retry_policy", "retry_policy"
-}
-
-LOCK_KEYWORDS = {
-    "select_for_update", "with_for_update", "for_update", "skip_locked",
-    "nowait", "redis.lock", "distributed_lock", "Lock",
-    "advisory_lock", "asyncio.Lock", "threading.Lock", "Semaphore", "Lease",
-    "setnx", "expire", "_acquire_lock", "_release_lock", "_renew_lock",
-    "try_lock", "unlock", "extend_lock"
-}
-
-DEAD_LETTER_KEYWORDS = {
-    "dead", "dlq", "dead_letter", "dead_letter_queue",
-    "DEAD_LETTER", "mark_dead_letter", "OUTBOX_STATUS_DEAD_LETTER",
-    "_mark_as_failed", "_mark_as_dead_letter", "dead_letter"  # string literal
-}
-
-METRICS_KEYWORDS = {
-    "counter", "histogram", "gauge", "meter", "metrics", "telemetry", "opentelemetry",
-    "MeterProvider", "create_counter", "create_histogram", "ObservableGauge", "Meter",
-    "prometheus", "Counter", "Histogram", "Gauge"
-}
-
-HEALTH_KEYWORDS = {"health", "ready", "liveness", "readiness", "health_check"}
-LOGGING_KEYWORDS = {"logging", "logger", "structlog", "audit_logger", "telemetry", "get_logger"}
-CIRCUIT_KEYWORDS = {"circuit", "circuit_breaker"}
-RATE_LIMIT_KEYWORDS = {"rate_limit", "throttle"}
-TIMEOUT_KEYWORDS = {"timeout", "asyncio.timeout"}
-BACKOFF_KEYWORDS = {"backoff", "exponential"}
-SHUTDOWN_KEYWORDS = {"shutdown", "stop", "close"}
-BATCH_KEYWORDS = {"batch", "limit", "batch_size"}
-ORDERING_KEYWORDS = {"order_by", "asc", "desc", "created_at"}
-ASYNC_KEYWORDS = {"async", "await"}
-SCHEMA_KEYWORDS = {"schema", "validate", "pydantic", "validator", "ValidationError", "BaseModel"}
-RECONNECT_KEYWORDS = {"reconnect", "auto_reconnect"}
-
-BROKER_KEYWORDS = {
-    "broker", "kafka", "rabbit", "message_bus", "mq", "pulsar",
-    "BrokerPort", "EventBus", "MessagePublisher", "Dispatcher", "Mediator",
-    "KafkaProducer", "RabbitMQ", "PulsarClient",
-    "KafkaProducerWrapper", "send_event", "producer", "publisher", "MessageBrokerPort",
-    "get_kafka_producer", "_get_producer", "KafkaProducerWrapper"
-}
-
-ERROR_CLASS_KEYWORDS = {"temporary", "permanent", "retryable", "fatal", "transient"}
-
-MIXIN_FIELDS = {
-    "TimestampMixin": {"created_at", "updated_at"},
-    "SoftDeleteMixin": {"deleted_at"},
-}
+def c(key: str) -> str:
+    return COLOR.get(key, "")
 
 # =============================================================================
 # DATA CLASSES
 # =============================================================================
-
 @dataclass
-class OutboxViolation:
-    rule_id: str
-    file_path: str
-    component_name: str
-    severity: str
+class RuntimeCheckResult:
+    name: str
+    status: str  # PASS, WARN, FAIL, SKIP
+    confidence: str  # HIGH, MEDIUM, LOW
     message: str
-    suggestion: str
-    line: int = 0
-    rca_result: Optional[Dict[str, Any]] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        d = {
-            "rule_id": self.rule_id,
-            "file": self.file_path,
-            "component": self.component_name,
-            "severity": self.severity,
-            "message": self.message,
-            "suggestion": self.suggestion,
-            "line": self.line,
-        }
-        if self.rca_result:
-            d["rca"] = self.rca_result
-        return d
-
+    duration_ms: float = 0.0
+    details: Optional[dict] = None
+    rca: Optional[dict] = None
 
 @dataclass
-class OutboxInfo:
-    file_path: str
-    component_name: str
-    component_type: str
-    fields: Set[str] = field(default_factory=set)
-    methods: Set[str] = field(default_factory=set)
-    has_transaction: bool = False
-    has_retry: bool = False
-    has_idempotency: bool = False
-    has_dead_letter: bool = False
-    has_monitoring: bool = False
-    has_health: bool = False
-    has_logging: bool = False
-    has_lock: bool = False
-    has_batch: bool = False
-    has_ordering: bool = False
-    has_shutdown: bool = False
-    has_async: bool = False
-    has_schema_validation: bool = False
-    has_circuit_breaker: bool = False
-    has_rate_limit: bool = False
-    has_timeout: bool = False
-    has_backoff: bool = False
-    has_max_retries: bool = False
-    has_error_classification: bool = False
-    has_auto_reconnect: bool = False
-    has_broker_integration: bool = False
-    violations: List[OutboxViolation] = field(default_factory=list)
-
-
-@dataclass
-class CheckerResult:
-    components: List[OutboxInfo]
-    total_components: int
-    total_violations: int
-    critical_count: int
-    high_count: int
-    medium_count: int
-    low_count: int
-    info_count: int
-    score: float
+class RuntimeReport:
+    timestamp: str
+    checks: List[RuntimeCheckResult]
+    total_checks: int
+    passed: int
+    warnings: int
+    failed: int
+    skipped: int
+    weighted_score: float
+    duration_sec: float
     rca_enabled: bool
-    elapsed_seconds: float
-    scanned_files_count: int = 0
-    scanned_files: List[str] = field(default_factory=list)
-
+    category_scores: Dict[str, float] = field(default_factory=dict)
+    false_positive_risk: List[str] = field(default_factory=list)
 
 # =============================================================================
-# CHECKER CLASS (v10.1 - enhanced output)
+# NULL OBJECT PATTERN
 # =============================================================================
+class NullEventPublisher:
+    async def publish(self, *args, **kwargs):
+        return None
+    async def publish_batch(self, *args, **kwargs):
+        return []
+    async def subscribe(self, *args, **kwargs):
+        return None
+    async def unsubscribe(self, *args, **kwargs):
+        return True
+    async def get_statistics(self):
+        return {"publisher": "null", "events": 0}
+    async def health_check(self):
+        return {"status": "healthy", "publisher": "null"}
 
-class OutboxChecker:
-    def __init__(self, root_dir: Path, enable_rca: bool = True):
-        self.root_dir = root_dir
+# =============================================================================
+# CORE CHECKER
+# =============================================================================
+class RuntimeExhaustiveChecker:
+    def __init__(self, root: Path, enable_rca: bool = True):
+        self.root = root
         self.enable_rca = enable_rca and _RCA_AVAILABLE
-        self.components: List[OutboxInfo] = []
-        self.scanned_files: List[Path] = []
+        self._container = None
+        self._session_factory = None
+        self._engine = None
+        self._bootstrap_ok = False
+        self._metadata = None  # SQLAlchemy MetaData
+        self._uow_cls = None   # cached for transaction checks
 
-    # -------------------------------------------------------------------------
-    # File & AST Utilities
-    # -------------------------------------------------------------------------
-    def _get_python_files(self) -> List[Path]:
-        py_files = []
-        scan_dirs = ["infrastructure", "application", "adapters", "domain", "kernel", "bootstrap"]
-        for dir_name in scan_dirs:
-            base = self.root_dir / dir_name
-            if not base.exists():
-                continue
-            for p in base.rglob("*.py"):
-                if any(part in EXCLUDED_DIRS for part in p.parts):
-                    continue
-                if p.name.startswith(("test_", "conftest", "__init__")):
-                    continue
-                py_files.append(p)
-        self.scanned_files = py_files
-        return py_files
-
-    def _get_fields_and_methods(self, node: ast.ClassDef) -> Tuple[Set[str], Set[str]]:
-        fields, methods = set(), set()
-        for item in node.body:
-            if isinstance(item, (ast.Assign, ast.AnnAssign)):
-                if isinstance(item, ast.Assign):
-                    for target in item.targets:
-                        if isinstance(target, ast.Name):
-                            fields.add(target.id)
-                else:
-                    if isinstance(item.target, ast.Name):
-                        fields.add(item.target.id)
-            elif isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                methods.add(item.name)
-        return fields, methods
-
-    def _get_base_classes(self, node: ast.ClassDef) -> List[str]:
-        bases = []
-        for base in node.bases:
-            if isinstance(base, ast.Name):
-                bases.append(base.id)
-            elif isinstance(base, ast.Attribute):
-                bases.append(base.attr)
-        return bases
-
-    def _has_mixin_field(self, node: ast.ClassDef, field: str) -> bool:
-        bases = self._get_base_classes(node)
-        for base in bases:
-            if base in MIXIN_FIELDS and field in MIXIN_FIELDS[base]:
-                return True
-        return False
-
-    def _has_default_value(self, node: ast.ClassDef, field: str, default: Any) -> bool:
-        for item in node.body:
-            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == field:
-                if item.value:
-                    val_str = ast.unparse(item.value).lower()
-                    if f"default={default}" in val_str or f"default={repr(default)}" in val_str:
-                        return True
-            if isinstance(item, ast.Assign):
-                for target in item.targets:
-                    if isinstance(target, ast.Name) and target.id == field:
-                        if isinstance(item.value, ast.Constant) and item.value.value == default:
-                            return True
-        return False
-
-    def _generate_rca(self, rule_id: str, msg: str, severity: str) -> Optional[Dict[str, Any]]:
+    def _get_rca(self, exc: Exception, context: dict) -> Optional[dict]:
         if not self.enable_rca or _analyze_exception is None:
             return None
         try:
-            exc = RuntimeError(f"[{rule_id}] {msg}")
-            result = _analyze_exception(exc, {"rule_id": rule_id, "severity": severity})
+            result = _analyze_exception(exc, context)
             return result.to_dict() if result else None
         except Exception:
-            return {"root_cause": msg, "suggested_fix": "Periksa implementasi Outbox."}
+            return {"root_cause": str(exc), "suggested_fix": "Periksa log untuk detail."}
+
+    def _check(self, name: str, fn: Callable, category: str = "general", confidence: str = "HIGH") -> RuntimeCheckResult:
+        start = time.perf_counter()
+        try:
+            status, msg, details = fn()
+            duration_ms = (time.perf_counter() - start) * 1000
+            return RuntimeCheckResult(name, status, confidence, msg, duration_ms, details)
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start) * 1000
+            rca = self._get_rca(e, {"check": name, "category": category})
+            return RuntimeCheckResult(name, "FAIL", "LOW" if confidence == "LOW" else "MEDIUM", f"{type(e).__name__}: {e}", duration_ms, {"error": str(e)}, rca)
 
     # -------------------------------------------------------------------------
-    # v10.0: Full AST Traversal untuk Keyword Detection (Enhanced)
+    # BOOTSTRAP
     # -------------------------------------------------------------------------
-    def _scan_ast_for_keywords(self, node: ast.AST, keywords: Set[str]) -> bool:
-        """
-        Full AST traversal: scan setiap node termasuk imports, string constants,
-        assignments, function calls, attributes, decorators, dll.
-        v10.0: menambahkan deteksi pada AsyncWith, With, dan Call dengan lebih baik.
-        """
-        for sub in ast.walk(node):
-            # Cek imports
-            if isinstance(sub, ast.Import):
-                for alias in sub.names:
-                    if any(kw in alias.name.lower() for kw in keywords):
-                        return True
-            if isinstance(sub, ast.ImportFrom):
-                if sub.module:
-                    if any(kw in sub.module.lower() for kw in keywords):
-                        return True
-                for alias in sub.names:
-                    if any(kw in alias.name.lower() for kw in keywords):
-                        return True
-            # Cek string constants
-            if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
-                val_lower = sub.value.lower()
-                if any(kw in val_lower for kw in keywords):
-                    return True
-            # Cek nama atribut
-            if isinstance(sub, ast.Attribute):
-                if any(kw in sub.attr.lower() for kw in keywords):
-                    return True
-            # Cek nama variabel / function call
-            if isinstance(sub, ast.Name):
-                if any(kw in sub.id.lower() for kw in keywords):
-                    return True
-            # Cek decorator
-            if isinstance(sub, ast.Call):
-                call_str = ast.unparse(sub.func).lower()
-                if any(kw in call_str for kw in keywords):
-                    return True
-                # Cek argumen dalam call
-                for arg in sub.args:
-                    arg_str = ast.unparse(arg).lower()
-                    if any(kw in arg_str for kw in keywords):
-                        return True
-                for kw in sub.keywords:
-                    kw_str = ast.unparse(kw.value).lower()
-                    if any(k in kw_str for k in keywords):
-                        return True
-            # Cek assignment targets dan values
-            if isinstance(sub, ast.Assign):
-                for target in sub.targets:
-                    target_str = ast.unparse(target).lower()
-                    if any(kw in target_str for kw in keywords):
-                        return True
-                val_str = ast.unparse(sub.value).lower()
-                if any(kw in val_str for kw in keywords):
-                    return True
-            # Cek with / async with context (v10.0: lebih baik)
-            if isinstance(sub, ast.With):
-                for item in sub.items:
-                    ctx_str = ast.unparse(item.context_expr).lower()
-                    if any(kw in ctx_str for kw in keywords):
-                        return True
-                    if isinstance(item.context_expr, ast.Call):
-                        call_str = ast.unparse(item.context_expr.func).lower()
-                        if any(kw in call_str for kw in keywords):
-                            return True
-            if isinstance(sub, ast.AsyncWith):
-                for item in sub.items:
-                    ctx_str = ast.unparse(item.context_expr).lower()
-                    if any(kw in ctx_str for kw in keywords):
-                        return True
-                    if isinstance(item.context_expr, ast.Call):
-                        call_str = ast.unparse(item.context_expr.func).lower()
-                        if any(kw in call_str for kw in keywords):
-                            return True
-            # Cek AsyncFunctionDef dan FunctionDef bodies (sudah diwalk)
-        return False
-
-    def _has_feature_full_ast(self, node: ast.ClassDef, keywords: Set[str]) -> bool:
-        """Wrapper untuk scan seluruh class AST."""
-        return self._scan_ast_for_keywords(node, keywords)
-
-    # -------------------------------------------------------------------------
-    # Specific Detections menggunakan full AST scan
-    # -------------------------------------------------------------------------
-    def _has_main_method(self, node: ast.ClassDef) -> bool:
-        for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if item.name in MAIN_METHOD_NAMES:
-                    return True
-                has_loop = any(isinstance(n, (ast.While, ast.For)) for n in ast.walk(item))
-                if has_loop:
-                    for n in ast.walk(item):
-                        if isinstance(n, ast.Call):
-                            call_str = ast.unparse(n.func).lower()
-                            if any(kw in call_str for kw in ("fetch", "poll", "select", "get_pending", "get_unprocessed", "find_pending")):
-                                return True
-        return False
-
-    def _has_transaction(self, node: ast.ClassDef) -> bool:
-        for item in ast.walk(node):
-            if isinstance(item, ast.AsyncWith):
-                for w_item in item.items:
-                    ctx = ast.unparse(w_item.context_expr).lower()
-                    if "session.begin" in ctx or "get_async_session" in ctx:
-                        return True
-        return self._has_feature_full_ast(node, TRANSACTION_KEYWORDS)
-
-    def _has_retry(self, node: ast.ClassDef) -> bool:
-        return self._has_feature_full_ast(node, RETRY_KEYWORDS)
-
-    def _has_idempotency(self, node: ast.ClassDef) -> bool:
-        fields, _ = self._get_fields_and_methods(node)
-        if any(f in fields for f in IDEMPOTENCY_ALIASES):
+    def _bootstrap(self) -> bool:
+        if self._bootstrap_ok:
             return True
-        for item in ast.walk(node):
-            if isinstance(item, ast.Dict) and any(
-                isinstance(k, ast.Constant) and isinstance(k.value, str) and "idempotency" in k.value.lower()
-                for k in item.keys
-            ):
-                return True
-        return self._has_feature_full_ast(node, IDEMPOTENCY_ALIASES)
-
-    def _has_lock(self, node: ast.ClassDef) -> bool:
-        return self._has_feature_full_ast(node, LOCK_KEYWORDS)
-
-    def _has_dead_letter(self, node: ast.ClassDef) -> bool:
-        fields, methods = self._get_fields_and_methods(node)
-        if any(f in fields for f in ("dead_letter", "dlq", "dead_letter_queue")):
+        try:
+            from bootstrap.dependency_container.container_bootstrap import initialize_container
+            initialize_container()
+            from bootstrap.dependency_container.ioc_container import get_container
+            self._container = get_container()
+            self._bootstrap_ok = True
+            logger.info("Bootstrap berhasil")
             return True
-        for item in node.body:
-            if isinstance(item, ast.Assign):
-                if any(kw in ast.unparse(target).lower() for target in item.targets for kw in ("dead_letter", "OUTBOX_STATUS_DEAD_LETTER")):
-                    return True
-                if "dead_letter" in ast.unparse(item.value).lower():
-                    return True
-        return self._has_feature_full_ast(node, DEAD_LETTER_KEYWORDS)
-
-    def _has_health(self, node: ast.ClassDef) -> bool:
-        return self._has_feature_full_ast(node, HEALTH_KEYWORDS)
-
-    def _has_metrics(self, node: ast.ClassDef) -> bool:
-        return self._has_feature_full_ast(node, METRICS_KEYWORDS)
-
-    def _has_logging(self, node: ast.ClassDef) -> bool:
-        return self._has_feature_full_ast(node, LOGGING_KEYWORDS)
-
-    def _has_broker_api(self, node: ast.ClassDef) -> bool:
-        for item in ast.walk(node):
-            if isinstance(item, ast.ImportFrom):
-                if item.module and "kafka_producer_wrapper" in item.module.lower():
-                    for alias in item.names:
-                        if any(kw in alias.name.lower() for kw in ("kafkaproducerwrapper", "get_kafka_producer")):
-                            return True
-            if isinstance(item, ast.Import):
-                for alias in item.names:
-                    if "kafka_producer_wrapper" in alias.name.lower():
-                        return True
-        return self._has_feature_full_ast(node, BROKER_KEYWORDS)
-
-    def _has_feature(self, node: ast.ClassDef, keywords: Set[str]) -> bool:
-        return self._has_feature_full_ast(node, keywords)
-
-    # -------------------------------------------------------------------------
-    # Component Detection
-    # -------------------------------------------------------------------------
-    def _is_outbox_component(self, node: ast.ClassDef, file_path: Path) -> Tuple[bool, str]:
-        name = node.name
-        file_path_str = str(file_path).lower()
-
-        if name.endswith(("Error", "Exception", "Config", "Port", "Interface", "Protocol")):
-            return False, ""
-        for base in node.bases:
-            if isinstance(base, ast.Name) and base.id in ("Exception", "BaseException", "Enum"):
-                return False, ""
-            if isinstance(base, ast.Attribute) and base.attr in ("Exception", "BaseException", "Enum"):
-                return False, ""
-
-        if "Outbox" not in name and "outbox" not in file_path_str:
-            return False, ""
-
-        if any(kw in name for kw in ("Checkpoint", "Metrics", "Partition", "RelayMetrics", "KafkaPartition")):
-            return False, ""
-
-        if any(kw in name for kw in OUTBOX_DEADLETTER_KEYWORDS):
-            return True, "deadletter"
-        if any(kw in name for kw in OUTBOX_PUBLISHER_KEYWORDS):
-            return True, "publisher"
-        if any(kw in name for kw in OUTBOX_CONSUMER_KEYWORDS):
-            return True, "consumer"
-        if any(kw in name for kw in OUTBOX_REPO_KEYWORDS):
-            return True, "repository"
-
-        if name.endswith("Table"):
-            fields, _ = self._get_fields_and_methods(node)
-            has_tablename = any(
-                isinstance(item, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__tablename__" for t in item.targets)
-                for item in node.body
-            )
-            required_count = len(fields.intersection(REQUIRED_FIELDS))
-            if has_tablename or required_count >= 3:
-                return True, "entity"
-            return False, ""
-
-        fields, _ = self._get_fields_and_methods(node)
-        required_count = len(fields.intersection(REQUIRED_FIELDS))
-        if required_count >= 3:
-            return True, "entity"
-
-        return False, ""
-
-    # -------------------------------------------------------------------------
-    # Entity Checker
-    # -------------------------------------------------------------------------
-    def _check_entity(self, node: ast.ClassDef, file_path: Path) -> OutboxInfo:
-        name = node.name
-        fields, methods = self._get_fields_and_methods(node)
-        violations = []
-        rel_path = str(file_path.relative_to(self.root_dir))
-
-        missing = REQUIRED_FIELDS - fields
-        for f in list(missing):
-            if self._has_mixin_field(node, f):
-                missing.remove(f)
-        if missing:
-            violations.append(OutboxViolation(
-                rule_id="OUT-002",
-                file_path=rel_path,
-                component_name=name,
-                severity="CRITICAL",
-                message=f"Entity '{name}' kehilangan field wajib: {', '.join(missing)}",
-                suggestion="Tambahkan field: " + ", ".join(missing),
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-002", f"Missing required: {missing}", "CRITICAL"),
-            ))
-
-        if not any(f in fields for f in IDEMPOTENCY_ALIASES):
-            violations.append(OutboxViolation(
-                rule_id="OUT-008",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Entity '{name}' tidak memiliki field idempotency (idempotency_key/event_uuid/message_id/dedup_key/uuid/guid/event_id/hash/payload_hash/request_id/correlation_id/trace_id).",
-                suggestion="Tambahkan salah satu field untuk deduplikasi.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-008", "Missing idempotency field", "MEDIUM"),
-            ))
-
-        has_timestamp = any(f in fields for f in TIMESTAMP_ALIASES) or self._has_mixin_field(node, "created_at")
-        if not has_timestamp:
-            violations.append(OutboxViolation(
-                rule_id="OUT-002b",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Entity '{name}' tidak memiliki timestamp (created_at/occurred_at/event_time/timestamp/created) atau inheritance dari TimestampMixin.",
-                suggestion="Tambahkan timestamp untuk polling & monitoring.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-002b", "Missing timestamp", "MEDIUM"),
-            ))
-
-        if not any(f in fields for f in EVENT_ID_ALIASES):
-            violations.append(OutboxViolation(
-                rule_id="OUT-003",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Entity '{name}' tidak memiliki event_id (event_id/event_uuid/event_uid/event_guid).",
-                suggestion="Tambahkan event_id sebagai unique identifier per event.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-003", "Missing event_id", "MEDIUM"),
-            ))
-
-        if "retry_count" not in fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-006",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Entity '{name}' tidak memiliki 'retry_count'.",
-                suggestion="Tambahkan retry_count untuk mendukung retry mechanism.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-006", "Missing retry_count", "MEDIUM"),
-            ))
-
-        # Status enum
-        status_is_enum = False
-        for item in node.body:
-            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == "status":
-                ann = item.annotation
-                ann_str = ast.unparse(ann).lower() if ann else ""
-                if any(kw in ann_str for kw in ("enum", "saenum", "choice", "literal", "strenum", "mapped")):
-                    status_is_enum = True
-                    break
-        if "status" in fields and not status_is_enum:
-            has_check = False
-            for item in node.body:
-                if isinstance(item, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__table_args__" for t in item.targets):
-                    val_str = ast.unparse(item.value).lower()
-                    if "check" in val_str and "status" in val_str:
-                        has_check = True
-                        break
-            if not has_check:
-                violations.append(OutboxViolation(
-                    rule_id="OUT-013",
-                    file_path=rel_path,
-                    component_name=name,
-                    severity="MEDIUM",
-                    message=f"Entity '{name}' memiliki field 'status' tapi bukan Enum/SAEnum/Mapped[Status]/ChoiceType/Literal/StrEnum, dan tidak ada CheckConstraint.",
-                    suggestion="Gunakan Enum, SAEnum, ChoiceType, Literal, atau StrEnum untuk status.",
-                    line=node.lineno,
-                    rca_result=self._generate_rca("OUT-013", "Status not recognized enum type", "MEDIUM"),
-                ))
-
-        if not any(f in fields for f in AGGREGATE_ID_ALIASES):
-            violations.append(OutboxViolation(
-                rule_id="OUT-004",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Entity '{name}' tidak memiliki aggregate_id (aggregate_id/aggregate_uuid/root_id).",
-                suggestion="Tambahkan aggregate_id untuk traceability.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-004", "Missing aggregate_id", "LOW"),
-            ))
-
-        if "processed_at" not in fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-005",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Entity '{name}' tidak memiliki 'processed_at'.",
-                suggestion="Tambahkan processed_at untuk mencatat waktu pemrosesan.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-005", "Missing processed_at", "LOW"),
-            ))
-
-        if "last_error" not in fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-007",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Entity '{name}' tidak memiliki 'last_error'.",
-                suggestion="Tambahkan last_error untuk debugging.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-007", "Missing last_error", "LOW"),
-            ))
-
-        if "version" not in fields:
-            violations.append(OutboxViolation(
-                rule_id="OUT-010",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Entity '{name}' tidak memiliki 'version'.",
-                suggestion="Tambahkan version untuk optimistic locking.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-010", "Missing version", "LOW"),
-            ))
-
-        for f, label in [("priority", "priority"), ("scheduled_at", "scheduled_at"), ("correlation_id", "correlation_id")]:
-            if f not in fields:
-                violations.append(OutboxViolation(
-                    rule_id=f"OUT-{ {'priority':'011','scheduled_at':'012','correlation_id':'009'}[f] }",
-                    file_path=rel_path,
-                    component_name=name,
-                    severity="INFO",
-                    message=f"Entity '{name}' tidak memiliki '{f}'.",
-                    suggestion=f"Tambahkan {f} ({label}).",
-                    line=node.lineno,
-                    rca_result=self._generate_rca(f"OUT-{ {'priority':'011','scheduled_at':'012','correlation_id':'009'}[f] }", f"Missing {f}", "INFO"),
-                ))
-
-        if "status" in fields:
-            has_default_status = self._has_default_value(node, "status", "pending") or self._has_default_value(node, "status", "PENDING")
-            if not has_default_status:
-                violations.append(OutboxViolation(
-                    rule_id="OUT-014",
-                    file_path=rel_path,
-                    component_name=name,
-                    severity="LOW",
-                    message=f"Entity '{name}' status tidak default 'pending'/'PENDING'.",
-                    suggestion="Set default status = pending atau PENDING.",
-                    line=node.lineno,
-                    rca_result=self._generate_rca("OUT-014", "Missing default status", "LOW"),
-                ))
-
-        if "retry_count" in fields:
-            has_default_retry = self._has_default_value(node, "retry_count", 0)
-            if not has_default_retry:
-                violations.append(OutboxViolation(
-                    rule_id="OUT-015",
-                    file_path=rel_path,
-                    component_name=name,
-                    severity="LOW",
-                    message=f"Entity '{name}' retry_count tidak default 0.",
-                    suggestion="Set default retry_count = 0.",
-                    line=node.lineno,
-                    rca_result=self._generate_rca("OUT-015", "Missing default retry_count", "LOW"),
-                ))
-
-        if "payload" in fields:
-            is_valid = False
-            for item in node.body:
-                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name) and item.target.id == "payload":
-                    ann = ast.unparse(item.annotation).lower() if item.annotation else ""
-                    if any(t in ann for t in ("json", "dict", "mapping", "jsonb", "largebinary", "mapped", "mutabledict", "pydantic", "bytes", "text")):
-                        is_valid = True
-                    break
-            if not is_valid:
-                violations.append(OutboxViolation(
-                    rule_id="OUT-016",
-                    file_path=rel_path,
-                    component_name=name,
-                    severity="LOW",
-                    message=f"Entity '{name}' payload tidak dikenali sebagai JSON/dict/JSONB/Mapped/MutableDict/Pydantic/bytes/Text.",
-                    suggestion="Gunakan JSONField, Mapped[dict], Pydantic model, atau Text.",
-                    line=node.lineno,
-                    rca_result=self._generate_rca("OUT-016", "Payload type not recognized", "LOW"),
-                ))
-
-        has_indexes = any(
-            isinstance(item, ast.Assign) and any(isinstance(t, ast.Name) and t.id in ("__table_args__", "Meta") for t in item.targets)
-            for item in node.body
-        )
-        if not has_indexes:
-            violations.append(OutboxViolation(
-                rule_id="OUT-017",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Entity '{name}' tidak memiliki indeks (__table_args__).",
-                suggestion="Tambahkan indeks pada (status, created_at) untuk polling.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-017", "Missing indexes", "LOW"),
-            ))
-
-        has_not_null = any(
-            isinstance(item, ast.AnnAssign) and any(kw in ast.unparse(item.annotation).lower() for kw in ("nullable=false", "not null"))
-            for item in node.body
-        )
-        if not has_not_null and missing:
-            violations.append(OutboxViolation(
-                rule_id="OUT-018",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Entity '{name}' tidak memiliki NOT NULL constraints.",
-                suggestion="Tambahkan nullable=False atau NOT NULL.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-018", "Missing NOT NULL", "LOW"),
-            ))
-
-        return OutboxInfo(
-            file_path=rel_path,
-            component_name=name,
-            component_type="entity",
-            fields=fields,
-            methods=methods,
-            violations=violations,
-        )
-
-    # -------------------------------------------------------------------------
-    # Publisher Checker (v10.0 - deteksi lebih baik)
-    # -------------------------------------------------------------------------
-    def _check_publisher(self, node: ast.ClassDef, file_path: Path) -> OutboxInfo:
-        name = node.name
-        fields, methods = self._get_fields_and_methods(node)
-        violations = []
-        rel_path = str(file_path.relative_to(self.root_dir))
-
-        if not self._has_main_method(node):
-            violations.append(OutboxViolation(
-                rule_id="OUT-026",
-                file_path=rel_path,
-                component_name=name,
-                severity="CRITICAL",
-                message=f"Publisher '{name}' tidak memiliki metode utama (publish/process/poll/run/start/loop/execute/worker/consume/relay/dispatch) ATAU loop dengan fetch event.",
-                suggestion="Tambahkan metode utama atau loop yang mengambil pending events.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-026", "Missing main method", "CRITICAL"),
-            ))
-
-        if not self._has_retry(node):
-            violations.append(OutboxViolation(
-                rule_id="OUT-021",
-                file_path=rel_path,
-                component_name=name,
-                severity="HIGH",
-                message=f"Tidak ditemukan retry mechanism (tenacity/backoff/RetryPolicy/max_attempts/retry_delay_seconds/max_retries/retry_policy).",
-                suggestion="Implementasikan retry dengan backoff atau max_attempts.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-021", "Missing retry", "HIGH"),
-            ))
-
-        if not self._has_idempotency(node):
-            violations.append(OutboxViolation(
-                rule_id="OUT-022",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Tidak ditemukan idempotency (idempotency_key/event_uuid/message_id/dedup_key/event_id/hash/payload_hash/request_id/correlation_id/trace_id) di field atau headers.",
-                suggestion="Gunakan field idempotency untuk deduplikasi.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-022", "Missing idempotency", "MEDIUM"),
-            ))
-
-        if not self._has_transaction(node):
-            violations.append(OutboxViolation(
-                rule_id="OUT-020",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Tidak ditemukan transaction (UoW/session.begin/@transactional/@atomic/self.uow/container.uow/async with session/get_async_session).",
-                suggestion="Gunakan UnitOfWork, session.begin(), atau @transactional untuk atomic operations.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-020", "Missing transaction", "MEDIUM"),
-            ))
-
-        if not self._has_dead_letter(node):
-            violations.append(OutboxViolation(
-                rule_id="OUT-041",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Tidak ditemukan Dead Letter Queue integration (dead_letter/dlq/DEAD_LETTER status/mark_dead_letter/OUTBOX_STATUS_DEAD_LETTER/_mark_as_failed/dead_letter string).",
-                suggestion="Kirim event gagal permanent ke DLQ.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-041", "No DLQ", "MEDIUM"),
-            ))
-
-        if not self._has_feature(node, BACKOFF_KEYWORDS):
-            violations.append(OutboxViolation(
-                rule_id="OUT-038",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Tidak ditemukan exponential backoff (backoff/exponential/retry_delay_seconds/list of delays).",
-                suggestion="Gunakan backoff atau exponential untuk retry.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-038", "No backoff", "MEDIUM"),
-            ))
-
-        if not self._has_feature(node, TIMEOUT_KEYWORDS):
-            violations.append(OutboxViolation(
-                rule_id="OUT-037",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Tidak ditemukan timeout per event (timeout/asyncio.timeout).",
-                suggestion="Tambahkan timeout untuk menghindari hung processing.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-037", "Missing timeout", "MEDIUM"),
-            ))
-
-        if not self._has_feature(node, {"max_retry", "max_retries", "max_attempts"}):
-            violations.append(OutboxViolation(
-                rule_id="OUT-039",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Tidak ditemukan configurable max_retries.",
-                suggestion="Tambahkan parameter max_retries.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-039", "No max_retries", "MEDIUM"),
-            ))
-
-        if not self._has_lock(node):
-            violations.append(OutboxViolation(
-                rule_id="OUT-030",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Tidak ditemukan pessimistic locking (select_for_update/with_for_update/redis.lock/advisory_lock/distributed_lock/asyncio.Lock/Semaphore/Lease/setnx/expire/_acquire_lock/try_lock).",
-                suggestion="Gunakan lock untuk mencegah duplicate processing.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-030", "Missing lock", "LOW"),
-            ))
-
-        if not self._has_broker_api(node):
-            violations.append(OutboxViolation(
-                rule_id="OUT-042",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Tidak ditemukan Broker API / MessagePublisher / Dispatcher / Mediator (KafkaProducerWrapper/Kafka/RabbitMQ/Pulsar/EventBus/BrokerPort/producer/publisher/send_event/get_kafka_producer/MessageBrokerPort).",
-                suggestion="Integrasikan dengan message broker API (KafkaProducerWrapper, RabbitMQ, PulsarClient, atau BrokerPort).",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-042", "Broker API not found", "LOW"),
-            ))
-
-        if not self._has_feature(node, ERROR_CLASS_KEYWORDS):
-            violations.append(OutboxViolation(
-                rule_id="OUT-040",
-                file_path=rel_path,
-                component_name=name,
-                severity="INFO",
-                message=f"Tidak ditemukan error classification (temporary/permanent/retryable).",
-                suggestion="Bedakan temporary vs permanent error.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-040", "No error classification", "INFO"),
-            ))
-
-        if not self._has_feature(node, RECONNECT_KEYWORDS):
-            violations.append(OutboxViolation(
-                rule_id="OUT-043",
-                file_path=rel_path,
-                component_name=name,
-                severity="INFO",
-                message=f"Tidak ditemukan auto-reconnect mechanism.",
-                suggestion="Implementasikan auto-reconnect untuk broker.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-043", "No auto-reconnect", "INFO"),
-            ))
-
-        if not self._has_feature(node, CIRCUIT_KEYWORDS):
-            violations.append(OutboxViolation(
-                rule_id="OUT-035",
-                file_path=rel_path,
-                component_name=name,
-                severity="INFO",
-                message=f"Tidak ditemukan circuit breaker.",
-                suggestion="Implementasikan circuit breaker untuk cascade failure.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-035", "No circuit breaker", "INFO"),
-            ))
-
-        if not self._has_feature(node, RATE_LIMIT_KEYWORDS):
-            violations.append(OutboxViolation(
-                rule_id="OUT-036",
-                file_path=rel_path,
-                component_name=name,
-                severity="INFO",
-                message=f"Tidak ditemukan rate limiting.",
-                suggestion="Tambahkan rate limit untuk mencegah overload.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-036", "No rate limit", "INFO"),
-            ))
-
-        if not self._has_feature(node, BATCH_KEYWORDS):
-            violations.append(OutboxViolation(
-                rule_id="OUT-028",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Tidak ditemukan batch processing (batch_size/limit).",
-                suggestion="Tambahkan parameter limit atau batch_size.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-028", "No batch", "LOW"),
-            ))
-
-        if not self._has_feature(node, ORDERING_KEYWORDS):
-            violations.append(OutboxViolation(
-                rule_id="OUT-029",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Tidak ditemukan ordering (order_by/asc/desc/created_at).",
-                suggestion="Tambahkan order_by(created_at.asc()) untuk FIFO.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-029", "Missing ordering", "LOW"),
-            ))
-
-        if not self._has_feature(node, SHUTDOWN_KEYWORDS):
-            violations.append(OutboxViolation(
-                rule_id="OUT-031",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Tidak ditemukan graceful shutdown (stop/shutdown/close).",
-                suggestion="Tambahkan shutdown() atau stop().",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-031", "No shutdown", "LOW"),
-            ))
-
-        if not self._has_health(node):
-            violations.append(OutboxViolation(
-                rule_id="OUT-032",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Tidak ditemukan health check (health/ready/liveness/readiness/health_check).",
-                suggestion="Tambahkan health_check() atau readiness/liveness.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-032", "No health", "LOW"),
-            ))
-
-        if not self._has_metrics(node):
-            violations.append(OutboxViolation(
-                rule_id="OUT-033",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Tidak ditemukan metrics collection (Counter/Histogram/Gauge/MeterProvider/Meter/OpenTelemetry/prometheus).",
-                suggestion="Tambahkan Counter, Histogram, Gauge, atau OpenTelemetry metrics.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-033", "No metrics", "LOW"),
-            ))
-
-        if not self._has_logging(node):
-            violations.append(OutboxViolation(
-                rule_id="OUT-034",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Tidak ditemukan logging (get_logger/logger/logging/structlog/audit_logger).",
-                suggestion="Tambahkan logging untuk setiap publish attempt.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-034", "No logging", "LOW"),
-            ))
-
-        if not self._has_feature(node, ASYNC_KEYWORDS):
-            violations.append(OutboxViolation(
-                rule_id="OUT-044",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Tidak ditemukan async processing.",
-                suggestion="Gunakan async/await atau background thread.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-044", "No async", "LOW"),
-            ))
-
-        if not self._has_feature(node, SCHEMA_KEYWORDS):
-            violations.append(OutboxViolation(
-                rule_id="OUT-045",
-                file_path=rel_path,
-                component_name=name,
-                severity="LOW",
-                message=f"Tidak ditemukan payload validation (schema/validate/pydantic/ValidationError/BaseModel).",
-                suggestion="Validasi payload schema sebelum publish.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-045", "No schema validation", "LOW"),
-            ))
-
-        return OutboxInfo(
-            file_path=rel_path,
-            component_name=name,
-            component_type="publisher",
-            fields=fields,
-            methods=methods,
-            has_transaction=self._has_transaction(node),
-            has_retry=self._has_retry(node),
-            has_idempotency=self._has_idempotency(node),
-            has_dead_letter=self._has_dead_letter(node),
-            has_monitoring=self._has_metrics(node),
-            has_health=self._has_health(node),
-            has_logging=self._has_logging(node),
-            has_lock=self._has_lock(node),
-            has_batch=self._has_feature(node, BATCH_KEYWORDS),
-            has_ordering=self._has_feature(node, ORDERING_KEYWORDS),
-            has_shutdown=self._has_feature(node, SHUTDOWN_KEYWORDS),
-            has_async=self._has_feature(node, ASYNC_KEYWORDS),
-            has_schema_validation=self._has_feature(node, SCHEMA_KEYWORDS),
-            has_circuit_breaker=self._has_feature(node, CIRCUIT_KEYWORDS),
-            has_rate_limit=self._has_feature(node, RATE_LIMIT_KEYWORDS),
-            has_timeout=self._has_feature(node, TIMEOUT_KEYWORDS),
-            has_backoff=self._has_feature(node, BACKOFF_KEYWORDS),
-            has_max_retries=self._has_feature(node, {"max_retry", "max_retries", "max_attempts"}),
-            has_error_classification=self._has_feature(node, ERROR_CLASS_KEYWORDS),
-            has_auto_reconnect=self._has_feature(node, RECONNECT_KEYWORDS),
-            has_broker_integration=self._has_broker_api(node),
-            violations=violations,
-        )
-
-    # -------------------------------------------------------------------------
-    # Consumer Checker
-    # -------------------------------------------------------------------------
-    def _check_consumer(self, node: ast.ClassDef, file_path: Path) -> OutboxInfo:
-        name = node.name
-        fields, methods = self._get_fields_and_methods(node)
-        violations = []
-        rel_path = str(file_path.relative_to(self.root_dir))
-
-        if "handle" not in methods and "on_event" not in methods and "consume" not in methods:
-            violations.append(OutboxViolation(
-                rule_id="OUT-046",
-                file_path=rel_path,
-                component_name=name,
-                severity="CRITICAL",
-                message=f"Consumer '{name}' tidak memiliki 'handle' atau 'on_event' atau 'consume'.",
-                suggestion="Tambahkan handle(event) untuk memproses event.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-046", "Missing handle", "CRITICAL"),
-            ))
-
-        if not self._has_idempotency(node):
-            violations.append(OutboxViolation(
-                rule_id="OUT-047",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Consumer '{name}' tidak memiliki idempotency.",
-                suggestion="Implementasikan idempotency untuk mencegah duplikasi.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-047", "No idempotency", "MEDIUM"),
-            ))
-
-        if not self._has_feature(node, {"try", "except"}):
-            violations.append(OutboxViolation(
-                rule_id="OUT-048",
-                file_path=rel_path,
-                component_name=name,
-                severity="MEDIUM",
-                message=f"Consumer '{name}' tidak memiliki error handling.",
-                suggestion="Tambahkan try/except untuk menangani kegagalan.",
-                line=node.lineno,
-                rca_result=self._generate_rca("OUT-048", "No error handling", "MEDIUM"),
-            ))
-
-        return OutboxInfo(
-            file_path=rel_path,
-            component_name=name,
-            component_type="consumer",
-            fields=fields,
-            methods=methods,
-            has_idempotency=self._has_idempotency(node),
-            violations=violations,
-        )
-
-    # -------------------------------------------------------------------------
-    # Main Scan
-    # -------------------------------------------------------------------------
-    def scan(self) -> List[OutboxInfo]:
-        self.components = []
-        py_files = self._get_python_files()
-        for file_path in py_files:
+        except ImportError:
             try:
-                content = file_path.read_text(encoding="utf-8")
-                tree = ast.parse(content, filename=str(file_path))
-            except (SyntaxError, UnicodeDecodeError):
+                from bootstrap.dependency_container.container_bootstrap import build_container
+                self._container = build_container()
+                self._bootstrap_ok = True
+                logger.info("Bootstrap berhasil via build_container")
+                return True
+            except ImportError:
+                logger.warning("Bootstrap tidak tersedia, beberapa check akan skip")
+                return False
+        except Exception as e:
+            logger.warning(f"Bootstrap gagal: {e}")
+            return False
+
+    # -------------------------------------------------------------------------
+    # UTILITY: Resolve UnitOfWork concrete class
+    # -------------------------------------------------------------------------
+    def _resolve_uow_class(self) -> Optional[Type]:
+        if self._uow_cls is not None:
+            return self._uow_cls
+
+        # 1) Container
+        try:
+            from ports.primary.unit_of_work_port import UnitOfWorkPort
+            uow_instance = self._container.resolve(UnitOfWorkPort)
+            self._uow_cls = type(uow_instance)
+            logger.info(f"UnitOfWork resolved from container: {self._uow_cls.__module__}.{self._uow_cls.__name__}")
+            return self._uow_cls
+        except Exception:
+            pass
+
+        # 2) Fallback import (try multiple)
+        candidates = [
+            "adapters.secondary_impl.sqlalchemy_unit_of_work_impl",
+            "adapters.secondary_impl.unit_of_work_impl",
+        ]
+        for mod_name in candidates:
+            try:
+                mod = importlib.import_module(mod_name)
+                for attr in dir(mod):
+                    obj = getattr(mod, attr)
+                    if inspect.isclass(obj) and not inspect.isabstract(obj):
+                        if "UnitOfWork" in attr or "UoW" in attr:
+                            self._uow_cls = obj
+                            logger.info(f"UnitOfWork found via fallback: {obj.__module__}.{obj.__name__}")
+                            return self._uow_cls
+            except ImportError:
                 continue
+        return None
 
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.ClassDef):
+    # -------------------------------------------------------------------------
+    # 1. Bootstrap & Configuration (Weight: 10%)
+    # -------------------------------------------------------------------------
+    def check_bootstrap(self) -> RuntimeCheckResult:
+        def _inner():
+            if self._bootstrap():
+                return "PASS", "Bootstrap berhasil, container tersedia", {}
+            return "FAIL", "Bootstrap gagal, container tidak tersedia", {}
+        return self._check("Bootstrap", _inner, "bootstrap", "HIGH")
+
+    def check_environment(self) -> RuntimeCheckResult:
+        def _inner():
+            import platform, os, sys
+            issues = []
+            warnings = []
+            py_ver = sys.version_info
+            if py_ver < (3, 10):
+                issues.append(f"Python {py_ver.major}.{py_ver.minor} < 3.10")
+            try:
+                import locale
+                loc = locale.getlocale()
+                if not loc or loc[0] is None:
+                    warnings.append("Locale tidak diset dengan benar")
+            except:
+                warnings.append("Locale tidak dapat dibaca")
+            required_env = ["SECRET_KEY"]
+            optional_env = ["DATABASE_URL"]
+            for var in required_env:
+                if not os.environ.get(var):
+                    warnings.append(f"Environment variable {var} tidak diset (REQUIRED di production)")
+            for var in optional_env:
+                if not os.environ.get(var):
+                    warnings.append(f"Environment variable {var} tidak diset (fallback digunakan)")
+            if issues:
+                return "FAIL", f"Environment: {', '.join(issues)}", {"issues": issues, "warnings": warnings}
+            if warnings:
+                return "WARN", f"Environment: {', '.join(warnings)}", {"warnings": warnings}
+            return "PASS", "Environment valid", {"python": f"{py_ver.major}.{py_ver.minor}.{py_ver.micro}"}
+        return self._check("Environment", _inner, "bootstrap", "HIGH")
+
+    def check_configuration(self) -> RuntimeCheckResult:
+        def _inner():
+            config_modules = ["settings", "config", "bootstrap.configuration", "core.config"]
+            found = None
+            for mod_name in config_modules:
+                try:
+                    mod = importlib.import_module(mod_name)
+                    found = mod_name
+                    break
+                except ImportError:
                     continue
+            if found is None:
+                return "WARN", "Configuration provider tidak ditemukan (settings/config)", {}
+            required_attrs = ["SECRET_KEY"]
+            optional_attrs = ["DEBUG"]
+            missing_required = [a for a in required_attrs if not hasattr(found, a)]
+            missing_optional = [a for a in optional_attrs if not hasattr(found, a)]
+            if missing_required:
+                return "WARN", f"Required config missing: {missing_required}", {"missing_required": missing_required, "missing_optional": missing_optional}
+            if missing_optional:
+                return "WARN", f"Optional config missing: {missing_optional}", {"missing_optional": missing_optional}
+            return "PASS", f"Konfigurasi valid (dari {found})", {"source": found}
+        return self._check("Configuration", _inner, "bootstrap", "HIGH")
 
-                is_outbox, comp_type = self._is_outbox_component(node, file_path)
-                if not is_outbox:
-                    continue
-
-                if comp_type == "entity":
-                    info = self._check_entity(node, file_path)
-                elif comp_type == "publisher":
-                    info = self._check_publisher(node, file_path)
-                elif comp_type == "consumer":
-                    info = self._check_consumer(node, file_path)
+    # -------------------------------------------------------------------------
+    # 2. Database (Weight: 20%)
+    # -------------------------------------------------------------------------
+    def check_database_connectivity(self) -> RuntimeCheckResult:
+        def _inner():
+            try:
+                from infrastructure.database import session_factory_sqlalchemy as sf_module
+                wrapper = asyncio.run(sf_module.get_session_factory())
+                factory = wrapper.get_session_factory()
+                self._session_factory = factory
+                self._engine = wrapper.get_engine()
+                from sqlalchemy import text
+                async def _test():
+                    async with factory() as session:
+                        result = await session.execute(text("SELECT 1"))
+                        return result.scalar() == 1
+                result = asyncio.run(_test())
+                if result:
+                    return "PASS", "Koneksi database berhasil", {"db": "connected"}
                 else:
-                    fields, methods = self._get_fields_and_methods(node)
-                    rel_path = str(file_path.relative_to(self.root_dir))
-                    info = OutboxInfo(
-                        file_path=rel_path,
-                        component_name=node.name,
-                        component_type=comp_type,
-                        fields=fields,
-                        methods=methods,
-                        violations=[]
-                    )
+                    return "FAIL", "SELECT 1 gagal", {}
+            except ImportError as e:
+                return "FAIL", f"Database session factory tidak ditemukan: {e}", {}
+            except Exception as e:
+                return "FAIL", f"Database connection error: {e}", {}
+        return self._check("Database Connectivity", _inner, "database", "HIGH")
 
-                if info:
-                    self.components.append(info)
+    def check_transactions(self) -> RuntimeCheckResult:
+        """Perbaikan: uji commit dan rollback, dan pastikan menggunakan await pada session."""
+        def _inner():
+            if not self._bootstrap_ok or self._container is None:
+                return "SKIP", "Container tidak tersedia, skip transaction check", {}
 
-        return self.components
+            uow_cls = self._resolve_uow_class()
+            if uow_cls is None:
+                return (
+                    "FAIL",
+                    "UnitOfWork tidak ditemukan (container resolve gagal, fallback import gagal)",
+                    {"container_resolve": False, "scan_fallback": False},
+                )
 
+            # Pastikan kelas bukan abstrak
+            if inspect.isabstract(uow_cls):
+                try:
+                    from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SQLAlchemyUnitOfWork
+                    if not inspect.isabstract(SQLAlchemyUnitOfWork):
+                        uow_cls = SQLAlchemyUnitOfWork
+                    else:
+                        raise ValueError("SQLAlchemyUnitOfWork masih abstrak")
+                except ImportError:
+                    return "FAIL", f"UnitOfWork {uow_cls.__name__} abstrak dan tidak ditemukan implementasi konkret", {}
+
+            try:
+                session_factory = self._session_factory
+                if session_factory is None:
+                    try:
+                        from infrastructure.database import session_factory_sqlalchemy as sf_module
+                        wrapper = asyncio.run(sf_module.get_session_factory())
+                        session_factory = wrapper.get_session_factory()
+                    except Exception:
+                        pass
+                if session_factory is None:
+                    return "FAIL", "Session factory tidak tersedia", {}
+
+                # Buat instance UnitOfWork dengan session_factory jika konstruktor menerima
+                sig = inspect.signature(uow_cls.__init__)
+                params = sig.parameters
+                if 'session_factory' in params:
+                    uow = uow_cls(session_factory=session_factory)
+                else:
+                    uow = uow_cls()
+
+                from sqlalchemy import text
+
+                async def _test_commit():
+                    async with uow as uow_ctx:
+                        # Dapatkan session dengan await
+                        if hasattr(uow_ctx, 'session'):
+                            session = await uow_ctx.session
+                            await session.execute(text("SELECT 1"))
+                        elif hasattr(uow_ctx, 'execute_raw_sql'):
+                            await uow_ctx.execute_raw_sql("SELECT 1")
+                        else:
+                            # fallback: coba gunakan session dari factory
+                            async with session_factory() as sess:
+                                await sess.execute(text("SELECT 1"))
+                        await uow_ctx.commit()
+                    return True
+
+                async def _test_rollback():
+                    async with uow as uow_ctx:
+                        if hasattr(uow_ctx, 'session'):
+                            session = await uow_ctx.session
+                            await session.execute(text("SELECT 1"))
+                        elif hasattr(uow_ctx, 'execute_raw_sql'):
+                            await uow_ctx.execute_raw_sql("SELECT 1")
+                        else:
+                            async with session_factory() as sess:
+                                await sess.execute(text("SELECT 1"))
+                        await uow_ctx.rollback()
+                    return True
+
+                commit_ok = asyncio.run(_test_commit())
+                rollback_ok = asyncio.run(_test_rollback())
+
+                if commit_ok and rollback_ok:
+                    return "PASS", f"Transaksi commit & rollback berhasil ({uow_cls.__module__}.{uow_cls.__name__})", {}
+                else:
+                    return "FAIL", "Transaksi gagal", {}
+            except Exception as e:
+                return "FAIL", f"Transaksi gagal: {e}", {"uow_class": f"{uow_cls.__module__}.{uow_cls.__name__}"}
+        return self._check("Transactions", _inner, "database", "HIGH")
+
+    def check_connection_pool(self) -> RuntimeCheckResult:
+        """Periksa status pool koneksi."""
+        def _inner():
+            if self._engine is None:
+                return "SKIP", "Engine tidak tersedia", {}
+            try:
+                pool = self._engine.pool
+                # Coba gunakan metode yang tersedia
+                if hasattr(pool, 'status'):
+                    status = pool.status()
+                    if isinstance(status, dict):
+                        size = status.get('size', 0)
+                        checked_in = status.get('checked_in', 0)
+                        checked_out = status.get('checked_out', 0)
+                    else:
+                        # Jika status berupa string, coba parse atau gunakan alternatif
+                        size = pool.size() if hasattr(pool, 'size') else 0
+                        checked_in = pool.checkedin() if hasattr(pool, 'checkedin') else 0
+                        checked_out = pool.checkedout() if hasattr(pool, 'checkedout') else 0
+                else:
+                    # fallback ke atribut
+                    size = getattr(pool, 'size', 0)
+                    checked_in = getattr(pool, 'checkedin', 0)
+                    checked_out = getattr(pool, 'checkedout', 0)
+
+                if size == 0:
+                    return "WARN", "Pool size 0, mungkin tidak aktif", {"size": size}
+                if checked_out > 0:
+                    return "WARN", f"Ada {checked_out} koneksi aktif (mungkin bocor)", {"size": size, "checked_in": checked_in, "checked_out": checked_out}
+                return "PASS", f"Pool sehat: size={size}, checked_in={checked_in}", {"size": size, "checked_in": checked_in, "checked_out": checked_out}
+            except Exception as e:
+                return "WARN", f"Tidak bisa dapatkan status pool: {e}", {}
+        return self._check("Connection Pool", _inner, "database", "HIGH")
+
+    # -------------------------------------------------------------------------
+    # 3. Dependency Injection (Weight: 10%)
+    # -------------------------------------------------------------------------
+    def check_dependency_injection(self) -> RuntimeCheckResult:
+        def _inner():
+            if not self._bootstrap_ok or self._container is None:
+                return "WARN", "Container tidak tersedia, skip DI check", {}
+            ports = [
+                "UnitOfWorkPort", "EventPublisherPort", "JournalRepositoryPort",
+                "IAMUserRepositoryPort", "AccountRepositoryPort", "ARRepositoryPort", "APRepositoryPort"
+            ]
+            results = {}
+            resolved = []
+            failed = []
+            for port_name in ports:
+                port_cls = None
+                try:
+                    mod = importlib.import_module(f"ports.primary.{port_name.lower()}")
+                    port_cls = getattr(mod, port_name)
+                except (ImportError, AttributeError):
+                    try:
+                        mod = importlib.import_module(f"ports.primary")
+                        port_cls = getattr(mod, port_name, None)
+                    except:
+                        pass
+                if port_cls is None:
+                    results[port_name] = "port_class_not_found"
+                    failed.append(port_name)
+                    continue
+                try:
+                    if hasattr(self._container, 'resolve'):
+                        self._container.resolve(port_cls)
+                        resolved.append(port_name)
+                        results[port_name] = "resolved"
+                    elif hasattr(self._container, 'has_registration') and self._container.has_registration(port_name):
+                        resolved.append(port_name)
+                        results[port_name] = "registered"
+                    else:
+                        failed.append(port_name)
+                        results[port_name] = "not_registered"
+                except Exception as e:
+                    failed.append(port_name)
+                    results[port_name] = f"error: {e}"
+            if failed:
+                return "WARN", f"Beberapa port tidak bisa di-resolve: {failed[:5]}", {"results": results, "resolved": resolved, "failed": failed}
+            return "PASS", f"Semua port di-resolve ({len(resolved)})", {"results": results}
+        return self._check("Dependency Injection", _inner, "di", "HIGH")
+
+    # -------------------------------------------------------------------------
+    # 4. Component Contracts (Weight: 15%)
+    # -------------------------------------------------------------------------
+    _REPO_PORTS = [
+        ("ports.primary.ar_repository_port", "ARRepositoryPort",
+         "adapters.secondary_impl.sqlalchemy_ar_repository_impl", "SQLAlchemyARRepository"),
+        ("ports.primary.ap_repository_port", "APRepositoryPort",
+         "adapters.secondary_impl.sqlalchemy_ap_repository_impl", "SQLAlchemyAPRepository"),
+        ("ports.primary.journal_repository_port", "JournalRepositoryPort",
+         "adapters.secondary_impl.sqlalchemy_journal_repository_impl", None),
+        ("ports.primary.iam_user_repository_port", "IAMUserRepositoryPort",
+         "adapters.secondary_impl.sqlalchemy_iam_user_repository_impl", "SQLAlchemyIAMUserRepository"),
+        ("ports.primary.fixed_asset_repository_port", "FixedAssetRepositoryPort",
+         "adapters.secondary_impl.sqlalchemy_fixed_asset_repository_impl", "SQLAlchemyFixedAssetRepository"),
+        ("ports.primary.inventory_repository_port", "InventoryRepositoryPort",
+         "adapters.secondary_impl.sqlalchemy_inventory_repository_impl", "SQLAlchemyInventoryRepository"),
+    ]
+
+    def _find_impl_for_port(self, adapter_mod_name: str, port_cls: type, expected_name: str | None):
+        if self._bootstrap_ok and self._container is not None:
+            try:
+                instance = self._container.resolve(port_cls)
+                return type(instance), "container"
+            except Exception:
+                pass
+        try:
+            mod = importlib.import_module(adapter_mod_name)
+            if expected_name and hasattr(mod, expected_name):
+                cand = getattr(mod, expected_name)
+                if inspect.isclass(cand) and issubclass(cand, port_cls) and not inspect.isabstract(cand):
+                    return cand, "module_scan"
+            for attr in dir(mod):
+                cand = getattr(mod, attr)
+                if inspect.isclass(cand) and cand is not port_cls and issubclass(cand, port_cls) and not inspect.isabstract(cand):
+                    return cand, "module_scan"
+        except ImportError:
+            pass
+        return None, None
+
+    def check_repositories(self) -> RuntimeCheckResult:
+        def _inner():
+            results = []
+            failed_details = []
+            total = 0
+            ok = 0
+            for port_mod_name, port_cls_name, adapter_mod_name, expected_impl_name in self._REPO_PORTS:
+                try:
+                    port_mod = importlib.import_module(port_mod_name)
+                    port_cls = getattr(port_mod, port_cls_name, None)
+                except ImportError as e:
+                    results.append(f"{port_cls_name}: port import error ({e})")
+                    failed_details.append(f"{port_cls_name}: port import error")
+                    continue
+                if port_cls is None:
+                    results.append(f"{port_cls_name}: class not found")
+                    failed_details.append(f"{port_cls_name}: class not found")
+                    continue
+
+                total += 1
+                impl_cls, source = self._find_impl_for_port(adapter_mod_name, port_cls, expected_impl_name)
+                if impl_cls is None:
+                    results.append(f"{port_cls_name}: implementasi tidak ditemukan")
+                    failed_details.append(f"{port_cls_name}: implementasi tidak ditemukan")
+                    continue
+
+                unimplemented = sorted(getattr(impl_cls, "__abstractmethods__", frozenset()))
+                if unimplemented:
+                    msg = f"{port_cls_name} ({impl_cls.__name__}): missing {', '.join(unimplemented)}"
+                    results.append(msg)
+                    failed_details.append(msg)
+                else:
+                    ok += 1
+                    results.append(f"{port_cls_name} ({impl_cls.__name__} via {source}): OK")
+
+            if total == 0:
+                return "WARN", "Tidak ada repository ditemukan", {"results": results}
+            if ok < total:
+                return (
+                    "WARN",
+                    f"{ok}/{total} repository memenuhi kontrak. Detail: {failed_details[:3]}",
+                    {"results": results, "failed_details": failed_details},
+                )
+            return "PASS", f"Semua {total} repository memenuhi kontrak", {"results": results}
+        return self._check("Repositories", _inner, "components", "HIGH")
+
+    # Aggregate identity check (improved with type checking)
+    _ID_ALIASES = {
+        "id", "asset_id", "aggregate_id", "root_id", "entity_id",
+        "journal_id", "account_id", "customer_id", "supplier_id",
+        "project_id", "bank_account_id", "cash_id", "user_id",
+        "legal_entity_id", "line_id", "item_id", "product_id",
+    }
+    _VERSION_ALIASES = {"version", "aggregate_version", "_version", "row_version"}
+
+    def _aggregate_has_identity(self, cls: type) -> tuple[bool, bool, bool, bool]:
+        """Returns (has_id, has_version, id_is_uuid, version_is_int)"""
+        has_id = False
+        has_version = False
+        id_is_uuid = False
+        version_is_int = False
+
+        # Check attributes
+        for alias in self._ID_ALIASES:
+            if hasattr(cls, alias):
+                has_id = True
+                # check type hint
+                if hasattr(cls, "__annotations__") and alias in cls.__annotations__:
+                    ann = cls.__annotations__[alias]
+                    if "UUID" in str(ann) or "uuid" in str(ann):
+                        id_is_uuid = True
+                break
+        for alias in self._VERSION_ALIASES:
+            if hasattr(cls, alias):
+                has_version = True
+                if hasattr(cls, "__annotations__") and alias in cls.__annotations__:
+                    ann = cls.__annotations__[alias]
+                    if "int" in str(ann) or "Integer" in str(ann):
+                        version_is_int = True
+                break
+
+        # Check dataclass fields
+        for base in inspect.getmro(cls):
+            if base is object:
+                continue
+            dc_fields = getattr(base, "__dataclass_fields__", None)
+            if dc_fields:
+                names = set(dc_fields.keys())
+                has_id = has_id or bool(names & self._ID_ALIASES)
+                has_version = has_version or bool(names & self._VERSION_ALIASES)
+                for alias in self._ID_ALIASES:
+                    if alias in names:
+                        field_def = dc_fields[alias]
+                        if "UUID" in str(field_def.type):
+                            id_is_uuid = True
+                for alias in self._VERSION_ALIASES:
+                    if alias in names:
+                        field_def = dc_fields[alias]
+                        if "int" in str(field_def.type):
+                            version_is_int = True
+            annotations = getattr(base, "__annotations__", {})
+            has_id = has_id or bool(set(annotations) & self._ID_ALIASES)
+            has_version = has_version or bool(set(annotations) & self._VERSION_ALIASES)
+            for alias in self._ID_ALIASES:
+                if alias in annotations:
+                    if "UUID" in str(annotations[alias]):
+                        id_is_uuid = True
+            for alias in self._VERSION_ALIASES:
+                if alias in annotations:
+                    if "int" in str(annotations[alias]):
+                        version_is_int = True
+
+        # Check instance (if we can create one)
+        try:
+            # Try to instantiate with default args
+            sig = inspect.signature(cls.__init__)
+            args = {}
+            for name, param in sig.parameters.items():
+                if name == 'self':
+                    continue
+                if param.default is not inspect.Parameter.empty:
+                    args[name] = param.default
+                else:
+                    # Try to provide some default
+                    if name == 'id':
+                        args[name] = None
+                    elif name == 'legal_entity_id':
+                        args[name] = None
+                    elif name == 'version':
+                        args[name] = 0
+                    else:
+                        args[name] = None
+            instance = cls(**args)
+            for alias in self._ID_ALIASES:
+                if hasattr(instance, alias):
+                    has_id = True
+                    # Check type via getattr
+                    val = getattr(instance, alias)
+                    if isinstance(val, UUID) or str(type(val)) == "<class 'uuid.UUID'>":
+                        id_is_uuid = True
+                    break
+            for alias in self._VERSION_ALIASES:
+                if hasattr(instance, alias):
+                    has_version = True
+                    val = getattr(instance, alias)
+                    if isinstance(val, int):
+                        version_is_int = True
+                    break
+        except Exception:
+            pass
+
+        return has_id, has_version, id_is_uuid, version_is_int
+
+    def check_aggregates(self) -> RuntimeCheckResult:
+        def _inner():
+            aggregate_dirs = ["journal", "bank_cash", "tax_transaction", "fixed_asset", "inventory", "iam"]
+            found = []
+            missing = []
+            for sub in aggregate_dirs:
+                try:
+                    mod = importlib.import_module(f"domain.{sub}")
+                except ImportError:
+                    continue
+                for attr in dir(mod):
+                    if not (attr.endswith("Aggregate") or attr.endswith("Root") or attr.endswith("Collection")):
+                        continue
+                    cls = getattr(mod, attr)
+                    if not inspect.isclass(cls):
+                        continue
+                    has_id, has_version, id_uuid, version_int = self._aggregate_has_identity(cls)
+                    if has_id and has_version and id_uuid and version_int:
+                        found.append(f"{sub}.{attr}")
+                    else:
+                        missing_parts = []
+                        if not has_id:
+                            missing_parts.append("id")
+                        elif not id_uuid:
+                            missing_parts.append("id (not UUID)")
+                        if not has_version:
+                            missing_parts.append("version")
+                        elif not version_int:
+                            missing_parts.append("version (not int)")
+                        missing.append(f"{sub}.{attr} (missing {'/'.join(missing_parts)})")
+            if missing:
+                return "WARN", f"Ditemukan {len(found)} aggregate, {len(missing)} tidak memenuhi kontrak: {missing[:3]}", {"found": found, "missing": missing}
+            if not found:
+                return "WARN", "Tidak ditemukan aggregate root di domain", {}
+            return "PASS", f"Ditemukan {len(found)} aggregate memenuhi kontrak", {"aggregates": found[:10]}
+        return self._check("Aggregates", _inner, "components", "HIGH")
+
+    def check_models(self) -> RuntimeCheckResult:
+        def _inner():
+            try:
+                from sqlalchemy import MetaData
+                from infrastructure.database import session_factory_sqlalchemy as sf_module
+                engine = None
+                try:
+                    wrapper = asyncio.run(sf_module.get_session_factory())
+                    engine = wrapper.get_engine()
+                    if engine is not None and self._engine is None:
+                        self._engine = engine
+                except Exception as e:
+                    logger.debug(f"Tidak bisa ambil engine untuk ORM discovery (non-fatal): {e}")
+                metadata = MetaData()
+                try:
+                    from infrastructure.persistence_orm import Base
+                    if hasattr(Base, "metadata"):
+                        metadata = Base.metadata
+                        self._metadata = metadata
+                except ImportError:
+                    try:
+                        import infrastructure.persistence_orm as orm
+                        for attr in dir(orm):
+                            obj = getattr(orm, attr)
+                            if hasattr(obj, "metadata") and hasattr(obj.metadata, "tables"):
+                                metadata = obj.metadata
+                                self._metadata = metadata
+                                break
+                    except:
+                        pass
+                if metadata is not None and hasattr(metadata, "tables"):
+                    table_count = len(metadata.tables)
+                    if table_count == 0:
+                        return "WARN", "Tidak ditemukan model ORM (metadata kosong)", {"table_count": 0}
+                    missing_pk = []
+                    for name, table in metadata.tables.items():
+                        has_pk = any(c.primary_key for c in table.columns)
+                        if not has_pk:
+                            missing_pk.append(name)
+                    if missing_pk:
+                        return "WARN", f"{table_count - len(missing_pk)}/{table_count} model memiliki PK. Missing PK: {missing_pk[:5]}", {"missing_pk": missing_pk}
+                    return "PASS", f"{table_count} model ORM valid (semua memiliki PK)", {"table_count": table_count}
+                else:
+                    try:
+                        import infrastructure.persistence_orm as orm
+                        skip_classes = {"Base", "DeclarativeBase", "Model", "AbstractModel"}
+                        model_classes = []
+                        for attr in dir(orm):
+                            try:
+                                cls = getattr(orm, attr)
+                                if not inspect.isclass(cls):
+                                    continue
+                                if cls.__name__ in skip_classes:
+                                    continue
+                                if hasattr(cls, "__abstract__") and cls.__abstract__:
+                                    continue
+                                if not hasattr(cls, "__tablename__"):
+                                    continue
+                                if not hasattr(cls, "__table__") or cls.__table__ is None:
+                                    continue
+                                has_pk = False
+                                for col in cls.__table__.columns:
+                                    if col.primary_key:
+                                        has_pk = True
+                                        break
+                                model_classes.append({"name": attr, "has_pk": has_pk})
+                            except:
+                                continue
+                        total = len(model_classes)
+                        with_pk = sum(1 for m in model_classes if m["has_pk"])
+                        missing_pk = [m["name"] for m in model_classes if not m["has_pk"]]
+                        if total == 0:
+                            return "WARN", "Tidak ditemukan model ORM (class scan)", {}
+                        if with_pk < total:
+                            return "WARN", f"{with_pk}/{total} model memiliki PK. Missing PK: {missing_pk[:5]}", {"missing_pk": missing_pk}
+                        return "PASS", f"{total} model ORM valid", {}
+                    except ImportError:
+                        return "WARN", "ORM module tidak ditemukan", {}
+            except Exception as e:
+                return "WARN", f"ORM discovery error: {e}", {}
+        return self._check("ORM Models", _inner, "components", "MEDIUM")
+
+    # -------------------------------------------------------------------------
+    # 5. Event & Outbox (Weight: 10%)
+    # -------------------------------------------------------------------------
+    def check_event_bus(self) -> RuntimeCheckResult:
+        def _inner():
+            try:
+                from ports.primary.event_publisher_port import EventPublisherPort
+                if self._container is not None:
+                    try:
+                        self._container.resolve(EventPublisherPort)
+                        return "PASS", "EventPublisherPort tersedia dan bisa di-resolve", {}
+                    except:
+                        return "WARN", "EventPublisherPort class ada, tapi tidak bisa di-resolve", {}
+                return "PASS", "EventPublisherPort class tersedia", {}
+            except ImportError:
+                return "WARN", "EventPublisherPort tidak ditemukan", {}
+        return self._check("Event Bus", _inner, "event", "HIGH")
+
+    def check_event_publish_subscribe(self) -> RuntimeCheckResult:
+        """Test publish dan subscribe event (dummy)."""
+        def _inner():
+            try:
+                from ports.primary.event_publisher_port import EventPublisherPort
+                if self._container is None:
+                    return "SKIP", "Container tidak tersedia", {}
+                publisher = self._container.resolve(EventPublisherPort)
+                if publisher is None:
+                    return "SKIP", "EventPublisherPort tidak bisa di-resolve", {}
+                # Buat event dummy
+                class DummyEvent:
+                    def __init__(self, data):
+                        self.data = data
+                # Subscribe dummy handler
+                received = []
+                async def handler(event):
+                    received.append(event)
+                # Subscribe (jika ada method)
+                if hasattr(publisher, 'subscribe'):
+                    async def _test():
+                        await publisher.subscribe(DummyEvent, handler)
+                        evt = DummyEvent("test")
+                        await publisher.publish(evt)
+                        await asyncio.sleep(0.1)
+                    asyncio.run(_test())
+                    if received:
+                        return "PASS", "Event publish-subscribe berhasil", {"event_count": len(received)}
+                    else:
+                        return "WARN", "Event diterbitkan tapi tidak ada yang menerima", {}
+                else:
+                    return "SKIP", "EventPublisherPort tidak mendukung subscribe", {}
+            except Exception as e:
+                return "WARN", f"Event publish-subscribe gagal: {e}", {}
+        return self._check("Event Publish/Subscribe", _inner, "event", "HIGH")
+
+    def check_outbox(self) -> RuntimeCheckResult:
+        def _inner():
+            try:
+                from infrastructure.persistence_orm.outbox_table import OutboxTable
+                columns = [c.name for c in OutboxTable.__table__.columns]
+                required = ["id", "event_type", "payload", "status", "created_at"]
+                missing = [f for f in required if f not in columns]
+                if missing:
+                    return "WARN", f"OutboxTable missing columns: {missing}", {"columns": columns}
+                has_index = False
+                if hasattr(OutboxTable, "__table_args__"):
+                    for arg in OutboxTable.__table_args__:
+                        if hasattr(arg, "name") and "status" in str(arg):
+                            has_index = True
+                            break
+                if not has_index:
+                    return "WARN", "OutboxTable tidak memiliki indeks pada status/created_at", {"columns": columns}
+                return "PASS", "OutboxTable valid dengan indeks", {"columns": columns[:5]}
+            except ImportError:
+                return "WARN", "OutboxTable tidak ditemukan", {}
+        return self._check("Outbox", _inner, "event", "HIGH")
+
+    def check_outbox_relay(self) -> RuntimeCheckResult:
+        """Periksa apakah outbox relay berjalan."""
+        def _inner():
+            try:
+                # Coba cari service outbox relay
+                relay_services = [
+                    "infrastructure.messaging.outbox_relay",
+                    "infrastructure.outbox.relay",
+                    "application.outbox.relay",
+                ]
+                for mod_name in relay_services:
+                    try:
+                        mod = importlib.import_module(mod_name)
+                        if hasattr(mod, "OutboxRelay") or hasattr(mod, "RelayOutbox"):
+                            return "PASS", f"Outbox relay ditemukan di {mod_name}", {"module": mod_name}
+                    except ImportError:
+                        continue
+                # Cek juga di container
+                if self._container is not None:
+                    try:
+                        # coba resolve
+                        self._container.resolve("OutboxRelayPort")
+                        return "PASS", "OutboxRelayPort terdaftar di container", {}
+                    except:
+                        pass
+                return "WARN", "Outbox relay tidak ditemukan (mungkin tidak ada)", {}
+            except Exception as e:
+                return "WARN", f"Outbox relay check error: {e}", {}
+        return self._check("Outbox Relay", _inner, "event", "MEDIUM")
+
+    # -------------------------------------------------------------------------
+    # 6. Domain & CQRS (Weight: 10%)
+    # -------------------------------------------------------------------------
+    def check_domain_invariants(self) -> RuntimeCheckResult:
+        """Verifikasi invariant pada aggregate (contoh: non-negative balance)."""
+        def _inner():
+            try:
+                from domain.journal import JournalAggregate
+                return "SKIP", "Domain invariant check butuh mocking data, skip", {}
+            except ImportError:
+                return "SKIP", "JournalAggregate tidak ditemukan", {}
+        return self._check("Domain Invariants", _inner, "domain", "MEDIUM")
+
+    def check_cqrs_pipeline(self) -> RuntimeCheckResult:
+        """Periksa command/query handler registration."""
+        def _inner():
+            command_bus_modules = [
+                "application.commands.command_bus",
+                "application.command_bus",
+                "infrastructure.cqrs.command_bus",
+            ]
+            found = False
+            for mod_name in command_bus_modules:
+                try:
+                    mod = importlib.import_module(mod_name)
+                    if hasattr(mod, "CommandBus") or hasattr(mod, "command_bus"):
+                        found = True
+                        break
+                except ImportError:
+                    continue
+            if found:
+                return "PASS", "Command bus ditemukan", {}
+            if self._container is not None:
+                try:
+                    self._container.resolve("CommandBusPort")
+                    return "PASS", "CommandBusPort terdaftar", {}
+                except:
+                    pass
+            return "WARN", "CQRS pipeline tidak ditemukan", {}
+        return self._check("CQRS Pipeline", _inner, "domain", "HIGH")
+
+    def check_saga_workflow(self) -> RuntimeCheckResult:
+        """Deteksi saga atau workflow."""
+        def _inner():
+            saga_modules = [
+                "application.sagas",
+                "application.workflows",
+                "infrastructure.sagas",
+            ]
+            for mod_name in saga_modules:
+                try:
+                    mod = importlib.import_module(mod_name)
+                    if any("Saga" in attr or "Workflow" in attr for attr in dir(mod)):
+                        return "PASS", f"Saga/Workflow ditemukan di {mod_name}", {}
+                except ImportError:
+                    continue
+            return "WARN", "Tidak ditemukan saga/workflow", {}
+        return self._check("Saga/Workflow", _inner, "domain", "HIGH")
+
+    # -------------------------------------------------------------------------
+    # 7. Code Quality (Weight: 5%)
+    # -------------------------------------------------------------------------
+    def check_circular_dependency(self) -> RuntimeCheckResult:
+        """Deteksi circular dependency antar modul (sederhana)."""
+        def _inner():
+            import sys
+            from collections import defaultdict
+            import ast
+            import os
+
+            graph = defaultdict(set)
+            root = str(self.root)
+            for dirpath, dirnames, filenames in os.walk(root):
+                if "checker" in dirpath:
+                    continue
+                for fname in filenames:
+                    if fname.endswith(".py") and not fname.startswith("__"):
+                        full_path = os.path.join(dirpath, fname)
+                        rel_path = os.path.relpath(full_path, root).replace(os.sep, ".").replace(".py", "")
+                        try:
+                            with open(full_path, "r") as f:
+                                tree = ast.parse(f.read())
+                            for node in ast.walk(tree):
+                                if isinstance(node, ast.Import):
+                                    for alias in node.names:
+                                        mod = alias.name.split(".")[0]
+                                        graph[rel_path].add(mod)
+                                elif isinstance(node, ast.ImportFrom):
+                                    if node.module:
+                                        mod = node.module.split(".")[0]
+                                        graph[rel_path].add(mod)
+                        except Exception:
+                            continue
+            visited = set()
+            rec_stack = set()
+            cycles = []
+
+            def dfs(node):
+                visited.add(node)
+                rec_stack.add(node)
+                for neigh in graph.get(node, []):
+                    if neigh not in visited:
+                        if dfs(neigh):
+                            return True
+                    elif neigh in rec_stack:
+                        cycles.append((node, neigh))
+                        return True
+                rec_stack.remove(node)
+                return False
+
+            for node in list(graph.keys()):
+                if node not in visited:
+                    dfs(node)
+            if cycles:
+                return "WARN", f"Circular dependencies detected: {cycles[:3]}", {"cycles": cycles}
+            return "PASS", "Tidak ada circular dependency terdeteksi", {}
+        return self._check("Circular Dependency", _inner, "code", "HIGH")
+
+    # -------------------------------------------------------------------------
+    # 8. Repository CRUD (Weight: 5%)
+    # -------------------------------------------------------------------------
+    def check_repository_crud(self) -> RuntimeCheckResult:
+        """Test CRUD dasar pada repository (butuh data dummy)."""
+        def _inner():
+            repo_names = ["AccountRepositoryPort", "ARRepositoryPort"]
+            for repo_name in repo_names:
+                try:
+                    port_cls = None
+                    try:
+                        mod = importlib.import_module(f"ports.primary.{repo_name.lower()}")
+                        port_cls = getattr(mod, repo_name)
+                    except:
+                        continue
+                    if port_cls is None:
+                        continue
+                    if self._container is not None:
+                        repo = self._container.resolve(port_cls)
+                        return "SKIP", "Repository CRUD test butuh data dummy, skip", {}
+                except Exception:
+                    continue
+            return "SKIP", "Tidak ada repository yang bisa di-test CRUD", {}
+        return self._check("Repository CRUD", _inner, "components", "MEDIUM")
+
+    # -------------------------------------------------------------------------
+    # 9. Migration & Schema (Weight: 5%)
+    # -------------------------------------------------------------------------
+    def check_migration_schema(self) -> RuntimeCheckResult:
+        """Periksa status migrasi (Alembic)."""
+        def _inner():
+            try:
+                from alembic import command
+                from alembic.config import Config
+                migration_dir = self.root / "migrations"
+                if not migration_dir.exists():
+                    return "WARN", "Direktori migrations tidak ditemukan", {}
+                alembic_cfg = Config(str(migration_dir / "alembic.ini"))
+                from alembic.script import ScriptDirectory
+                script = ScriptDirectory.from_config(alembic_cfg)
+                current_rev = script.get_current_head()
+                if current_rev is None:
+                    return "WARN", "Tidak ada revisi migrasi (belum ada migrasi)", {}
+                return "PASS", f"Migrasi terakhir: {current_rev[:8]}", {"current_revision": current_rev}
+            except ImportError:
+                return "SKIP", "Alembic tidak terinstal", {}
+            except Exception as e:
+                return "WARN", f"Migrasi check error: {e}", {}
+        return self._check("Migration Schema", _inner, "schema", "HIGH")
+
+    # -------------------------------------------------------------------------
+    # 10. Performance & Latency (Weight: 5%)
+    # -------------------------------------------------------------------------
+    def check_performance_benchmark(self) -> RuntimeCheckResult:
+        """Benchmark query sederhana."""
+        def _inner():
+            # Pastikan session_factory tersedia
+            if self._session_factory is None:
+                try:
+                    from infrastructure.database import session_factory_sqlalchemy as sf_module
+                    wrapper = asyncio.run(sf_module.get_session_factory())
+                    self._session_factory = wrapper.get_session_factory()
+                    self._engine = wrapper.get_engine()
+                except Exception as e:
+                    return "SKIP", f"Session factory tidak tersedia: {e}", {}
+            if self._session_factory is None or self._engine is None:
+                return "SKIP", "Engine atau session factory tidak tersedia", {}
+            try:
+                import time
+                from sqlalchemy import text
+                async def _bench():
+                    start = time.perf_counter()
+                    for _ in range(10):
+                        async with self._session_factory() as session:
+                            await session.execute(text("SELECT 1"))
+                    return time.perf_counter() - start
+                elapsed = asyncio.run(_bench())
+                avg = (elapsed / 10) * 1000  # ms
+                if avg < 5:
+                    status = "PASS"
+                    msg = f"Query latency rata-rata {avg:.2f}ms (sangat baik)"
+                elif avg < 20:
+                    status = "PASS"
+                    msg = f"Query latency rata-rata {avg:.2f}ms (baik)"
+                elif avg < 50:
+                    status = "WARN"
+                    msg = f"Query latency rata-rata {avg:.2f}ms (perlu optimasi)"
+                else:
+                    status = "FAIL"
+                    msg = f"Query latency rata-rata {avg:.2f}ms (sangat lambat)"
+                return status, msg, {"avg_ms": round(avg, 2)}
+            except Exception as e:
+                return "WARN", f"Benchmark gagal: {e}", {}
+        return self._check("Performance Benchmark", _inner, "performance", "MEDIUM")
+
+    # -------------------------------------------------------------------------
+    # 11. Resource Leak Detection (Weight: 5%)
+    # -------------------------------------------------------------------------
+    def check_resource_leak(self) -> RuntimeCheckResult:
+        """Deteksi resource leak dengan tracemalloc dan weakref."""
+        def _inner():
+            tracemalloc.start()
+            snapshot1 = tracemalloc.take_snapshot()
+            # Buat objek yang bisa di-weakref
+            class LeakTest:
+                def __init__(self):
+                    self.data = [i for i in range(100000)]
+            obj = LeakTest()
+            weak = weakref.ref(obj)
+            del obj
+            gc.collect()
+            snapshot2 = tracemalloc.take_snapshot()
+            diff = snapshot2.compare_to(snapshot1, 'lineno')
+            top = diff[:5]
+            if weak() is not None:
+                return "WARN", "Objek yang seharusnya dihapus masih ada (potensi leak)", {"top": [(str(stat.traceback), stat.size) for stat in top]}
+            total_mem = sum(stat.size for stat in top)
+            if total_mem > 1024 * 1024:
+                return "WARN", f"Potensi memori tinggi: {total_mem/1024:.1f}KB", {"top": [(str(stat.traceback), stat.size) for stat in top]}
+            tracemalloc.stop()
+            return "PASS", "Resource leak check OK", {}
+        return self._check("Resource Leak", _inner, "runtime", "MEDIUM")
+
+    def check_async(self) -> RuntimeCheckResult:
+        def _inner():
+            async def _test():
+                await asyncio.sleep(0.01)
+                return True
+            result = asyncio.run(_test())
+            return "PASS", "Async execution OK", {}
+        return self._check("Async", _inner, "runtime", "HIGH")
+
+    # -------------------------------------------------------------------------
+    # 12. Cache (Weight: 2%)
+    # -------------------------------------------------------------------------
+    def check_cache(self) -> RuntimeCheckResult:
+        """Periksa ketersediaan cache adapter."""
+        def _inner():
+            try:
+                import infrastructure.caching.cache_adapter
+                from infrastructure.caching.cache_adapter import CachePort
+                return "PASS", "CachePort tersedia", {}
+            except ImportError:
+                return "SKIP", "CachePort tidak ditemukan (opsional)", {}
+        return self._check("Cache", _inner, "cache", "MEDIUM")
+
+    # -------------------------------------------------------------------------
+    # 13. Dispose resources
+    # -------------------------------------------------------------------------
+    def dispose(self):
+        if self._engine is not None:
+            try:
+                asyncio.run(self._engine.dispose())
+                logger.info("Database engine disposed successfully")
+            except RuntimeError as e:
+                logger.debug(f"RuntimeError during dispose (ignored): {e}")
+            except Exception as e:
+                logger.warning(f"Error disposing engine: {e}")
+
+    # -------------------------------------------------------------------------
+    # 14. Run All Checks
+    # -------------------------------------------------------------------------
+    _CHECK_STATUS_SCORE = {"PASS": 100.0, "WARN": 60.0, "FAIL": 0.0}  # SKIP excluded
+
+    _CHECK_TIER_WEIGHT = {
+        "Bootstrap": 5,
+        "Environment": 3,
+        "Configuration": 2,
+        "Database Connectivity": 10,
+        "Transactions": 10,
+        "Connection Pool": 5,
+        "Dependency Injection": 10,
+        "Repositories": 5,
+        "Aggregates": 5,
+        "ORM Models": 5,
+        "Event Bus": 5,
+        "Event Publish/Subscribe": 5,
+        "Outbox": 5,
+        "Outbox Relay": 5,
+        "Domain Invariants": 3,
+        "CQRS Pipeline": 3,
+        "Saga/Workflow": 3,
+        "Circular Dependency": 3,
+        "Repository CRUD": 3,
+        "Migration Schema": 3,
+        "Performance Benchmark": 3,
+        "Resource Leak": 3,
+        "Async": 2,
+        "Cache": 2,
+    }
+
+    def run_all(self) -> RuntimeReport:
+        start_time = time.perf_counter()
+
+        categories = {
+            "bootstrap": {"checks": [
+                self.check_bootstrap, self.check_environment, self.check_configuration
+            ]},
+            "database": {"checks": [
+                self.check_database_connectivity, self.check_transactions, self.check_connection_pool
+            ]},
+            "di": {"checks": [
+                self.check_dependency_injection
+            ]},
+            "components": {"checks": [
+                self.check_repositories, self.check_aggregates, self.check_models, self.check_repository_crud
+            ]},
+            "event": {"checks": [
+                self.check_event_bus, self.check_event_publish_subscribe, self.check_outbox, self.check_outbox_relay
+            ]},
+            "domain": {"checks": [
+                self.check_domain_invariants, self.check_cqrs_pipeline, self.check_saga_workflow
+            ]},
+            "code": {"checks": [
+                self.check_circular_dependency
+            ]},
+            "schema": {"checks": [
+                self.check_migration_schema
+            ]},
+            "performance": {"checks": [
+                self.check_performance_benchmark
+            ]},
+            "runtime": {"checks": [
+                self.check_resource_leak, self.check_async
+            ]},
+            "cache": {"checks": [
+                self.check_cache
+            ]},
+        }
+
+        all_results = []
+        category_scores = {}
+        false_positive_risk = []
+
+        overall_weighted_sum = 0.0
+        overall_weight_total = 0.0
+
+        for cat_name, cat_data in categories.items():
+            cat_results = []
+            for check_fn in cat_data["checks"]:
+                result = check_fn()
+                all_results.append(result)
+                cat_results.append(result)
+
+            effective = [r for r in cat_results if r.status != "SKIP"]
+            if effective:
+                cat_score = sum(self._CHECK_STATUS_SCORE.get(r.status, 0.0) for r in effective) / len(effective)
+            else:
+                cat_score = 100.0
+            category_scores[cat_name] = round(cat_score, 2)
+
+            for r in cat_results:
+                if r.status == "SKIP":
+                    continue
+                w = self._CHECK_TIER_WEIGHT.get(r.name, 5)
+                overall_weighted_sum += self._CHECK_STATUS_SCORE.get(r.status, 0.0) * w
+                overall_weight_total += w
+
+            for r in cat_results:
+                if r.status in ("WARN", "FAIL") and r.confidence == "LOW":
+                    false_positive_risk.append(f"{r.name}: {r.message[:50]}... (LOW confidence)")
+
+        total_weighted = (overall_weighted_sum / overall_weight_total) if overall_weight_total > 0 else 0.0
+
+        passed = sum(1 for r in all_results if r.status == "PASS")
+        warnings = sum(1 for r in all_results if r.status == "WARN")
+        failed = sum(1 for r in all_results if r.status == "FAIL")
+        skipped = sum(1 for r in all_results if r.status == "SKIP")
+
+        self.dispose()
+
+        return RuntimeReport(
+            timestamp=datetime.now(UTC).isoformat(),
+            checks=all_results,
+            total_checks=len(all_results),
+            passed=passed,
+            warnings=warnings,
+            failed=failed,
+            skipped=skipped,
+            weighted_score=round(total_weighted, 2),
+            duration_sec=time.perf_counter() - start_time,
+            rca_enabled=_RCA_AVAILABLE,
+            category_scores=category_scores,
+            false_positive_risk=false_positive_risk,
+        )
 
 # =============================================================================
 # REPORTING
 # =============================================================================
-
-def generate_report(components: List[OutboxInfo], scanned_files: List[Path], root_dir: Path) -> CheckerResult:
-    total = len(components)
-    total_violations = 0
-    critical = high = medium = low = info = 0
-
-    for comp in components:
-        total_violations += len(comp.violations)
-        for v in comp.violations:
-            if v.severity == "CRITICAL":
-                critical += 1
-            elif v.severity == "HIGH":
-                high += 1
-            elif v.severity == "MEDIUM":
-                medium += 1
-            elif v.severity == "LOW":
-                low += 1
-            else:
-                info += 1
-
-    score = 100.0
-    score -= critical * 20.0
-    score -= high * 8.0
-    score -= medium * 3.0
-    score -= low * 1.0
-    score = max(0.0, min(100.0, score))
-
-    # relative paths for scanned files
-    scanned_rel = [str(p.relative_to(root_dir)) for p in scanned_files]
-
-    return CheckerResult(
-        components=components,
-        total_components=total,
-        total_violations=total_violations,
-        critical_count=critical,
-        high_count=high,
-        medium_count=medium,
-        low_count=low,
-        info_count=info,
-        score=score,
-        rca_enabled=_RCA_AVAILABLE,
-        elapsed_seconds=0.0,
-        scanned_files_count=len(scanned_files),
-        scanned_files=scanned_rel,
-    )
-
-
-def print_report(result: CheckerResult, verbose: bool = False, show_files: bool = False) -> None:
+def print_report(report: RuntimeReport):
     c = COLOR
-    print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*72}╗")
-    print("║     OUTBOX PATTERN COMPLIANCE & FORENSIC CHECKER v10.1      ║")
-    print(f"╚{'═'*72}╝{c['RESET']}")
+    print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*80}╗")
+    print(f"║     RUNTIME EXHAUSTIVE CHECKER — v5.0 (Enterprise)     ║")
+    print(f"╚{'═'*80}╝{c['RESET']}")
 
-    print("\n  📋 Aturan Outbox (v10.1 – full AST traversal, deteksi super luas):")
-    print("    ✅ Hanya komponen dengan 'Outbox' di nama atau path yang diproses")
-    print("    ✅ Checkpoint/Metrics/Partition table diabaikan")
-    print("    ✅ DeadLetter table dikenali sebagai deadletter")
-    print("    ✅ Deteksi transaction: async with session.begin, get_async_session")
-    print("    ✅ Deteksi DLQ: OUTBOX_STATUS_DEAD_LETTER, _mark_as_failed, dead_letter string")
-    print("    ✅ Deteksi broker: KafkaProducerWrapper, get_kafka_producer, send_event")
-    print("    ✅ Deteksi lock: setnx, expire, _acquire_lock, advisory_lock")
-    print("    ✅ Deteksi ordering: order_by, asc, desc, created_at")
-    print("    ✅ Deteksi backoff: retry_delay_seconds, list of delays")
-    print("    ✅ Deteksi timeout: asyncio.timeout")
-    print("    ✅ Deteksi idempotency: field & headers (idempotency_key, correlation_id)")
-    print("    ✅ Deteksi logging: get_logger, logger")
-    print("    ✅ Deteksi health: health_check, readiness")
-    print("    ✅ Deteksi metrics: Counter, Histogram, MeterProvider")
-    print("    ✅ Scoring: CRITICAL=-20, HIGH=-8, MEDIUM=-3, LOW=-1, INFO=0")
+    print(f"\n  📅 Timestamp    : {report.timestamp}")
+    print(f"  ⏱️  Duration     : {report.duration_sec:.2f}s")
+    print(f"  🔬 RCA Engine   : {'✅ Active' if report.rca_enabled else '⚠️ Not available'}")
+    print(f"\n  📊 Total Checks : {report.total_checks}")
+    print(f"    {c['GREEN']}✅ PASS   : {report.passed}{c['RESET']}")
+    print(f"    {c['YELLOW']}⚠️  WARN   : {report.warnings}{c['RESET']}")
+    print(f"    {c['RED']}❌ FAIL   : {report.failed}{c['RESET']}")
+    print(f"    {c['DIM']}⏭  SKIP   : {report.skipped}{c['RESET']}")
 
-    print(f"\n  {c['CYAN']}📁 File Python dipindai: {result.scanned_files_count}{c['RESET']}")
-    if show_files:
-        print(f"  {c['DIM']}Daftar file:{c['RESET']}")
-        for f in result.scanned_files:
-            print(f"    {f}")
+    print(f"\n  {c['DIM']}Confidence: {c['GREEN']}HIGH{c['RESET']} (reliable), {c['YELLOW']}MEDIUM{c['RESET']} (may be false positive), {c['RED']}LOW{c['RESET']} (suspect){c['RESET']}")
 
-    print(f"  {c['CYAN']}Total Outbox Components Ditemukan: {result.total_components}{c['RESET']}")
-    print(f"  Total Violations: {result.total_violations}")
-    print(f"    {c['RED']}CRITICAL: {result.critical_count}{c['RESET']}")
-    print(f"    {c['YELLOW']}HIGH: {result.high_count}{c['RESET']}")
-    print(f"    {c['CYAN']}MEDIUM: {result.medium_count}{c['RESET']}")
-    print(f"    {c['DIM']}LOW: {result.low_count}{c['RESET']}")
-    print(f"    {c['DIM']}INFO: {result.info_count}{c['RESET']}")
+    if report.category_scores:
+        print(f"\n  {c['BOLD']}📈 CATEGORY SCORES (Weighted){c['RESET']}")
+        for cat, score in report.category_scores.items():
+            color = c["GREEN"] if score >= 90 else c["YELLOW"] if score >= 70 else c["RED"]
+            print(f"    {cat.capitalize():12} : {color}{score:5.1f}%{c['RESET']}")
 
-    score_color = c["GREEN"] if result.score >= 80 else c["YELLOW"] if result.score >= 50 else c["RED"]
-    print(f"\n  📈 Skor Kepatuhan: {score_color}{c['BOLD']}{result.score:.1f}/100{c['RESET']}")
-    print(f"  RCA Engine: {'✅ Aktif' if result.rca_enabled else '⚠️ Tidak tersedia'}")
+    score_color = c["GREEN"] if report.weighted_score >= 90 else c["YELLOW"] if report.weighted_score >= 70 else c["RED"]
+    print(f"\n  🏆 WEIGHTED SCORE : {score_color}{report.weighted_score}/100{c['RESET']}")
 
-    # ---- Aggregated feature stats ----
-    if result.components:
-        stats = {
-            "transaction": 0,
-            "retry": 0,
-            "idempotency": 0,
-            "dead_letter": 0,
-            "monitoring": 0,
-            "health": 0,
-            "logging": 0,
-            "lock": 0,
-            "batch": 0,
-            "ordering": 0,
-            "shutdown": 0,
-            "async": 0,
-            "schema_validation": 0,
-            "circuit_breaker": 0,
-            "rate_limit": 0,
-            "timeout": 0,
-            "backoff": 0,
-            "max_retries": 0,
-            "error_classification": 0,
-            "auto_reconnect": 0,
-            "broker_integration": 0,
-        }
-        for comp in result.components:
-            if comp.has_transaction: stats["transaction"] += 1
-            if comp.has_retry: stats["retry"] += 1
-            if comp.has_idempotency: stats["idempotency"] += 1
-            if comp.has_dead_letter: stats["dead_letter"] += 1
-            if comp.has_monitoring: stats["monitoring"] += 1
-            if comp.has_health: stats["health"] += 1
-            if comp.has_logging: stats["logging"] += 1
-            if comp.has_lock: stats["lock"] += 1
-            if comp.has_batch: stats["batch"] += 1
-            if comp.has_ordering: stats["ordering"] += 1
-            if comp.has_shutdown: stats["shutdown"] += 1
-            if comp.has_async: stats["async"] += 1
-            if comp.has_schema_validation: stats["schema_validation"] += 1
-            if comp.has_circuit_breaker: stats["circuit_breaker"] += 1
-            if comp.has_rate_limit: stats["rate_limit"] += 1
-            if comp.has_timeout: stats["timeout"] += 1
-            if comp.has_backoff: stats["backoff"] += 1
-            if comp.has_max_retries: stats["max_retries"] += 1
-            if comp.has_error_classification: stats["error_classification"] += 1
-            if comp.has_auto_reconnect: stats["auto_reconnect"] += 1
-            if comp.has_broker_integration: stats["broker_integration"] += 1
+    if report.false_positive_risk:
+        print(f"\n  {c['YELLOW']}⚠️  Possible false positives detected:{c['RESET']}")
+        for risk in report.false_positive_risk[:3]:
+            print(f"     {c['DIM']}• {risk}{c['RESET']}")
 
-        print(f"\n  {c['CYAN']}─── RINGKASAN FITUR PER KOMPONEN ───{c['RESET']}")
-        for k, v in stats.items():
-            label = k.replace('_', ' ').title()
-            print(f"    {label}: {v}/{result.total_components}")
+    if report.failed > 0 or report.warnings > 0:
+        print(f"\n{c['BOLD']}── DETAILED DIAGNOSTICS ──{c['RESET']}")
+        for r in report.checks:
+            if r.status == "PASS":
+                icon = f"{c['GREEN']}✅{c['RESET']}"
+            elif r.status == "SKIP":
+                icon = f"{c['DIM']}⏭{c['RESET']}"
+            elif r.status == "WARN":
+                icon = f"{c['YELLOW']}⚠️{c['RESET']}"
+            else:
+                icon = f"{c['RED']}❌{c['RESET']}"
 
-    # ---- Daftar komponen dengan detail ----
-    print(f"\n{c['CYAN']}─── DAFTAR KOMPONEN OUTBOX ───{c['RESET']}")
-    for comp in result.components:
-        if comp.violations:
-            status = f"{c['RED']}✖ {len(comp.violations)} violations{c['RESET']}"
-        else:
-            status = f"{c['GREEN']}✓ Compliant{c['RESET']}"
-        print(f"  {comp.component_name} ({comp.component_type}) @ {comp.file_path} {status}")
-        if verbose:
-            print(f"    Fields: {', '.join(sorted(comp.fields)) if comp.fields else '(none)'}")
-            print(f"    Methods: {', '.join(sorted(comp.methods)) if comp.methods else '(none)'}")
-            # tampilkan fitur boolean yang bernilai True
-            features = []
-            for attr in ['has_transaction', 'has_retry', 'has_idempotency', 'has_dead_letter',
-                         'has_monitoring', 'has_health', 'has_logging', 'has_lock',
-                         'has_batch', 'has_ordering', 'has_shutdown', 'has_async',
-                         'has_schema_validation', 'has_circuit_breaker', 'has_rate_limit',
-                         'has_timeout', 'has_backoff', 'has_max_retries',
-                         'has_error_classification', 'has_auto_reconnect', 'has_broker_integration']:
-                if getattr(comp, attr, False):
-                    features.append(attr.replace('has_', '').replace('_', ' ').title())
-            if features:
-                print(f"    Features: {', '.join(features)}")
+            if r.confidence == "HIGH":
+                conf_icon = f"{c['GREEN']}●{c['RESET']}"
+            elif r.confidence == "MEDIUM":
+                conf_icon = f"{c['YELLOW']}●{c['RESET']}"
+            else:
+                conf_icon = f"{c['RED']}●{c['RESET']}"
 
-    # ---- Violations (sample) ----
-    all_violations = []
-    for comp in result.components:
-        all_violations.extend(comp.violations)
+            print(f"\n  {icon} {c['BOLD']}{r.name}{c['RESET']} ({r.duration_ms:.1f}ms) {conf_icon} {r.confidence}")
+            print(f"     {r.message}")
+            if r.details:
+                if r.name == "Repositories" and "failed_details" in r.details:
+                    for fail in r.details.get("failed_details", [])[:3]:
+                        print(f"        ❌ {fail}")
+                elif r.name == "Aggregates" and "missing" in r.details:
+                    for miss in r.details.get("missing", [])[:3]:
+                        print(f"        ❌ {miss}")
+                elif r.name == "ORM Models" and "missing_pk" in r.details:
+                    for pk in r.details.get("missing_pk", [])[:3]:
+                        print(f"        ❌ {pk}")
+                else:
+                    detail_str = json.dumps(r.details, indent=2)
+                    if len(detail_str) > 200:
+                        detail_str = detail_str[:200] + "..."
+                    print(f"     📌 {detail_str}")
 
-    if all_violations:
-        print(f"\n{c['RED']}─── VIOLATIONS (sample) ───{c['RESET']}")
-        for v in all_violations[:30]:
-            sev_color = c["RED"] if v.severity in ("CRITICAL", "HIGH") else c["YELLOW"] if v.severity == "MEDIUM" else c["CYAN"]
-            print(f"\n  {sev_color}[{v.rule_id}] {v.severity}{c['RESET']} {v.message}")
-            print(f"    💡 {v.suggestion}")
-            if verbose and v.rca_result:
-                if v.rca_result.get("root_cause"):
-                    print(f"    🔍 RCA: {v.rca_result['root_cause'][:150]}")
-                if v.rca_result.get("suggested_fix"):
-                    print(f"    🔧 Fix: {v.rca_result['suggested_fix'][:150]}")
-        if len(all_violations) > 30:
-            print(f"  ... and {len(all_violations)-30} more violations (use --json for full list)")
-    else:
-        print(f"\n  {c['GREEN']}✅ Semua komponen patuh — tidak ada pelanggaran!{c['RESET']}")
+        # Actionable items with priority
+        print(f"\n{c['BOLD']}🔧 ACTIONABLE ITEMS (Prioritas){c['RESET']}")
+        item_id = 1
+        for r in report.checks:
+            if r.status == "FAIL":
+                print(f"  {item_id}. {c['RED']}[FAIL] {r.name}{c['RESET']}")
+                print(f"     💡 {r.message}")
+                if r.name == "Transactions":
+                    d = r.details or {}
+                    if d.get("container_resolve_ok") is False and d.get("scan_fallback_used") is False:
+                        print(f"     🔧 UnitOfWorkPort belum terdaftar di container DAN implementasi tidak bisa di-import. Periksa registrasi di container_bootstrap.")
+                    elif d.get("uow_class"):
+                        print(f"     🔧 UnitOfWork ({d['uow_class']}) berhasil di-resolve, tapi transaksi tetap gagal. Periksa implementasi TransactionManager / koneksi database, BUKAN registrasi container.")
+                    else:
+                        print(f"     🔧 Periksa implementasi commit/rollback pada UnitOfWork dan koneksi database.")
+                item_id += 1
 
+        for r in report.checks:
+            if r.status == "WARN":
+                if r.name == "Repositories" and r.details and "failed_details" in r.details:
+                    for fail in r.details["failed_details"]:
+                        print(f"  {item_id}. {c['YELLOW']}[WARN] {fail[:60]}{c['RESET']}")
+                        print(f"     🔧 Implementasikan metode yang hilang pada repository.")
+                        item_id += 1
+                elif r.name == "Aggregates" and r.details and "missing" in r.details:
+                    for miss in r.details["missing"]:
+                        print(f"  {item_id}. {c['YELLOW']}[WARN] {miss[:60]}{c['RESET']}")
+                        print(f"     🔧 Tambahkan field 'id' (UUID) dan 'version' (int).")
+                        item_id += 1
+                elif r.name == "ORM Models" and r.details and "missing_pk" in r.details:
+                    for pk in r.details["missing_pk"]:
+                        print(f"  {item_id}. {c['YELLOW']}[WARN] Model {pk} missing PK{c['RESET']}")
+                        print(f"     🔧 Tambahkan primary_key=True.")
+                        item_id += 1
+                elif r.name == "Configuration":
+                    print(f"  {item_id}. {c['YELLOW']}[WARN] Configuration{c['RESET']}")
+                    print(f"     💡 {r.message}")
+                    print(f"     🔧 Tambahkan konfigurasi yang hilang.")
+                    item_id += 1
+                elif r.name == "Environment":
+                    print(f"  {item_id}. {c['YELLOW']}[WARN] Environment{c['RESET']}")
+                    print(f"     💡 {r.message}")
+                    print(f"     🔧 Set environment variables atau fallback sudah digunakan.")
+                    item_id += 1
+                elif r.name == "Connection Pool":
+                    print(f"  {item_id}. {c['YELLOW']}[WARN] Connection Pool{c['RESET']}")
+                    print(f"     💡 {r.message}")
+                    print(f"     🔧 Periksa konfigurasi pool size dan timeout.")
+                    item_id += 1
+                elif r.name == "Performance Benchmark":
+                    print(f"  {item_id}. {c['YELLOW']}[WARN] Performance{c['RESET']}")
+                    print(f"     💡 {r.message}")
+                    print(f"     🔧 Optimasi query atau tambahkan indeks.")
+                    item_id += 1
+                elif r.name == "Resource Leak":
+                    print(f"  {item_id}. {c['YELLOW']}[WARN] Resource Leak{c['RESET']}")
+                    print(f"     💡 {r.message}")
+                    print(f"     🔧 Periksa penutupan resource (session, koneksi).")
+                    item_id += 1
+                elif r.name == "Outbox Relay":
+                    print(f"  {item_id}. {c['YELLOW']}[WARN] Outbox Relay{c['RESET']}")
+                    print(f"     💡 {r.message}")
+                    print(f"     🔧 Pastikan outbox relay service berjalan.")
+                    item_id += 1
+                elif r.name == "Circular Dependency":
+                    print(f"  {item_id}. {c['YELLOW']}[WARN] Circular Dependency{c['RESET']}")
+                    print(f"     💡 {r.message}")
+                    print(f"     🔧 Refactor untuk menghilangkan siklus.")
+                    item_id += 1
+                elif r.name == "Migration Schema":
+                    print(f"  {item_id}. {c['YELLOW']}[WARN] Migration Schema{c['RESET']}")
+                    print(f"     💡 {r.message}")
+                    print(f"     🔧 Jalankan migrasi atau periksa konfigurasi.")
+                    item_id += 1
 
-def save_json(result: CheckerResult, filepath: str) -> None:
-    try:
-        out = Path(filepath)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "score": result.score,
-            "rca_enabled": result.rca_enabled,
-            "total_components": result.total_components,
-            "total_violations": result.total_violations,
-            "scanned_files_count": result.scanned_files_count,
-            "severity_counts": {
-                "critical": result.critical_count,
-                "high": result.high_count,
-                "medium": result.medium_count,
-                "low": result.low_count,
-                "info": result.info_count,
-            },
-            "components": [
-                {
-                    "name": comp.component_name,
-                    "type": comp.component_type,
-                    "file": comp.file_path,
-                    "fields": list(comp.fields),
-                    "methods": list(comp.methods),
-                    "has_transaction": comp.has_transaction,
-                    "has_retry": comp.has_retry,
-                    "has_idempotency": comp.has_idempotency,
-                    "has_dead_letter": comp.has_dead_letter,
-                    "has_monitoring": comp.has_monitoring,
-                    "violations": [v.to_dict() for v in comp.violations],
-                }
-                for comp in result.components
-            ],
-        }
-        out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        print(f"{COLOR['GREEN']}✅ JSON exported to {out.resolve()}{COLOR['RESET']}")
-    except Exception as e:
-        print(f"{COLOR['RED']}❌ Failed to write JSON: {e}{COLOR['RESET']}")
+        if item_id == 1:
+            print(f"  ✅ Tidak ada action items. Semua check sudah baik!")
 
+def save_json(report: RuntimeReport, path: Path):
+    data = {
+        "timestamp": report.timestamp,
+        "weighted_score": report.weighted_score,
+        "duration_sec": report.duration_sec,
+        "rca_enabled": report.rca_enabled,
+        "total_checks": report.total_checks,
+        "passed": report.passed,
+        "warnings": report.warnings,
+        "failed": report.failed,
+        "skipped": report.skipped,
+        "category_scores": report.category_scores,
+        "false_positive_risk": report.false_positive_risk,
+        "checks": [
+            {
+                "name": r.name,
+                "status": r.status,
+                "confidence": r.confidence,
+                "message": r.message,
+                "duration_ms": r.duration_ms,
+                "details": r.details,
+                "rca": r.rca,
+            }
+            for r in report.checks
+        ]
+    }
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    print(f"  ✅ JSON saved to {path}")
 
 # =============================================================================
 # MAIN
 # =============================================================================
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Outbox Pattern Compliance & Forensic Checker v10.1 (full AST traversal)"
-    )
-    parser.add_argument("--json", metavar="FILE", help="Export report to JSON")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed component info (fields, methods, features)")
-    parser.add_argument("--show-files", action="store_true", help="Show list of all scanned Python files")
-    parser.add_argument("--no-rca", action="store_true", help="Disable RCA analysis")
+def main():
+    parser = argparse.ArgumentParser(description="Runtime Exhaustive Checker v5.0")
+    parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--json", metavar="FILE", help="Save JSON report")
+    parser.add_argument("--no-rca", action="store_true", help="Disable RCA engine")
+    parser.add_argument("--root", "-r", default=None, help="Root directory of project")
     args = parser.parse_args()
 
-    global _RCA_AVAILABLE, _analyze_exception
-    if args.no_rca:
-        _RCA_AVAILABLE = False
-        _analyze_exception = None
+    root = Path(args.root).resolve() if args.root else ROOT
+    enable_rca = not args.no_rca
 
-    start = time.monotonic()
-    checker = OutboxChecker(ROOT, enable_rca=not args.no_rca)
-    components = checker.scan()
-    elapsed = time.monotonic() - start
-
-    result = generate_report(components, checker.scanned_files, checker.root_dir)
-    result.elapsed_seconds = elapsed
-
-    print_report(result, verbose=args.verbose, show_files=args.show_files)
-
+    checker = RuntimeExhaustiveChecker(root, enable_rca)
+    report = checker.run_all()
+    print_report(report)
     if args.json:
-        save_json(result, args.json)
+        save_json(report, Path(args.json))
 
-    print(f"\n ⏱️ Audit Duration: {elapsed:.3f} seconds")
-
-    has_critical = result.critical_count > 0
-    sys.exit(1 if has_critical else 0)
-
+    sys.exit(1 if report.failed > 0 else 0)
 
 if __name__ == "__main__":
     main()

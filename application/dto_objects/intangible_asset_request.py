@@ -18,12 +18,11 @@ Fitur:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Any, List, Optional
+from typing import Any
 from uuid import UUID
-
 
 # ============================================================================
 # 1. CREATE REQUEST
@@ -44,8 +43,8 @@ class IntangibleAssetCreateRequest:
     useful_life_years: int
     asset_type: str  # PATENT, LICENSE, SOFTWARE, GOODWILL, TRADEMARK, COPYRIGHT, FRANCHISE
     amortization_method: str  # STRAIGHT_LINE, DECLINING_BALANCE, DOUBLE_DECLINING, SUM_OF_YEARS
-    description: Optional[str] = None
-    supplier_id: Optional[UUID] = None
+    description: str | None = None
+    supplier_id: UUID | None = None
     is_active: bool = True
 
     def __post_init__(self) -> None:
@@ -111,18 +110,18 @@ class IntangibleAssetUpdateRequest:
     Semua field opsional kecuali id.
     """
     asset_id: UUID
-    legal_entity_id: Optional[UUID] = None
-    asset_code: Optional[str] = None
-    asset_name: Optional[str] = None
-    acquisition_date: Optional[date] = None
-    acquisition_cost: Optional[Decimal] = None
-    residual_value: Optional[Decimal] = None
-    useful_life_years: Optional[int] = None
-    asset_type: Optional[str] = None
-    amortization_method: Optional[str] = None
-    description: Optional[str] = None
-    supplier_id: Optional[UUID] = None
-    is_active: Optional[bool] = None
+    legal_entity_id: UUID | None = None
+    asset_code: str | None = None
+    asset_name: str | None = None
+    acquisition_date: date | None = None
+    acquisition_cost: Decimal | None = None
+    residual_value: Decimal | None = None
+    useful_life_years: int | None = None
+    asset_type: str | None = None
+    amortization_method: str | None = None
+    description: str | None = None
+    supplier_id: UUID | None = None
+    is_active: bool | None = None
 
     def __post_init__(self) -> None:
         if self.asset_code is not None and len(self.asset_code.strip()) < 3:
@@ -177,7 +176,7 @@ class AmortizationRunRequest:
     legal_entity_id: UUID
     period_id: UUID
     period_date: date
-    asset_ids: Optional[List[UUID]] = None  # Jika None, semua aset aktif
+    asset_ids: list[UUID] | None = None  # Jika None, semua aset aktif
 
     def __post_init__(self) -> None:
         if not self.legal_entity_id:
@@ -206,8 +205,8 @@ class RevaluationRequest:
     asset_id: UUID
     revaluation_date: date
     new_fair_value: Decimal
-    reason: Optional[str] = None
-    legal_entity_id: Optional[UUID] = None
+    reason: str | None = None
+    legal_entity_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if self.new_fair_value < 0:
@@ -238,7 +237,7 @@ class DisposalRequest:
     disposal_date: date
     disposal_amount: Decimal
     reason: str
-    legal_entity_id: Optional[UUID] = None
+    legal_entity_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if self.disposal_amount < 0:
@@ -286,8 +285,8 @@ class ImpairmentTestRequest:
     asset_id: UUID
     test_date: date
     recoverable_amount: Decimal
-    reason: Optional[str] = None
-    legal_entity_id: Optional[UUID] = None
+    reason: str | None = None
+    legal_entity_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if self.recoverable_amount < 0:

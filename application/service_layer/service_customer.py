@@ -26,8 +26,6 @@ from decimal import Decimal
 from enum import Enum
 from uuid import UUID, uuid4
 
-from ports.primary.event_publisher_port import EventPublisherPort
-
 # Import domain events
 from application.events import (
     CustomerBalanceUpdatedEvent,
@@ -35,6 +33,7 @@ from application.events import (
     CustomerCreditLimitChangedEvent,
     CustomerStatusChangedEvent,
 )
+from ports.primary.event_publisher_port import EventPublisherPort
 
 logger = logging.getLogger(__name__)
 

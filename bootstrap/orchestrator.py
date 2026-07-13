@@ -25,11 +25,12 @@ import shutil
 import signal
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 # ============================================================
 # Tambahkan root proyek ke sys.path
@@ -499,7 +500,7 @@ class StartupOrchestrator:
         logger.info("Loading constitution directly from constitution.supreme_law...")
         try:
             supreme_law_mod = importlib.import_module("constitution.supreme_law")
-            get_supreme_law = getattr(supreme_law_mod, "get_supreme_law")
+            get_supreme_law = supreme_law_mod.get_supreme_law
             constitution = get_supreme_law()
             if constitution is None:
                 raise RuntimeError("get_supreme_law() returned None")
@@ -521,7 +522,7 @@ class StartupOrchestrator:
         logger.info("Loading axioms directly from axioms.double_entry...")
         try:
             double_entry_mod = importlib.import_module("axioms.double_entry")
-            get_double_entry = getattr(double_entry_mod, "get_double_entry_axiom")
+            get_double_entry = double_entry_mod.get_double_entry_axiom
             axiom = get_double_entry()
             if axiom is None:
                 raise RuntimeError("get_double_entry_axiom() returned None")
@@ -540,7 +541,7 @@ class StartupOrchestrator:
         logger.info("Loading configuration using ConfigManager...")
         try:
             config_manager_mod = importlib.import_module("config.manager")
-            get_manager = getattr(config_manager_mod, "get_config_manager")
+            get_manager = config_manager_mod.get_config_manager
             manager = get_manager()
             config = manager.load_all()
             if not config:
@@ -597,8 +598,8 @@ class StartupOrchestrator:
                 raise RuntimeError("Database configuration is empty or missing")
             pool_mod = importlib.import_module("infrastructure.database.connection_pool_asyncpg")
             session_mod = importlib.import_module("infrastructure.database.session_factory_sqlalchemy")
-            get_pool = getattr(pool_mod, "get_connection_pool")
-            get_session = getattr(session_mod, "get_session_factory")
+            get_pool = pool_mod.get_connection_pool
+            get_session = session_mod.get_session_factory
             sig_pool = inspect.signature(get_pool)
             accepts_config_pool = "config" in sig_pool.parameters
             sig_session = inspect.signature(get_session)
@@ -655,7 +656,7 @@ class StartupOrchestrator:
             kafka_mod = importlib.import_module(
                 "infrastructure.message_broker.kafka_producer_wrapper"
             )
-            get_producer = getattr(kafka_mod, "get_kafka_producer")
+            get_producer = kafka_mod.get_kafka_producer
             sig = inspect.signature(get_producer)
             if "config" in sig.parameters:
                 producer = get_producer(kafka_config)
@@ -698,7 +699,7 @@ class StartupOrchestrator:
             config_manager = self._context.components.get("config_manager")
             redis_config = config_manager.get_section("redis") or config_manager.get_section("cache") or {}
             redis_mod = importlib.import_module("infrastructure.caching.redis_manager")
-            get_redis = getattr(redis_mod, "get_redis_client")
+            get_redis = redis_mod.get_redis_client
             sig = inspect.signature(get_redis)
             if "config" in sig.parameters:
                 if inspect.iscoroutinefunction(get_redis):
@@ -746,7 +747,7 @@ class StartupOrchestrator:
         uow = None
         try:
             uow_mod = importlib.import_module("adapters.secondary_impl.sqlalchemy_unit_of_work_impl")
-            SQLAlchemyUnitOfWork = getattr(uow_mod, "SQLAlchemyUnitOfWork")
+            SQLAlchemyUnitOfWork = uow_mod.SQLAlchemyUnitOfWork
             uow = SQLAlchemyUnitOfWork(session_factory)
             self._context.components["unit_of_work"] = uow
             logger.info("UnitOfWork initialized")
@@ -812,9 +813,9 @@ class StartupOrchestrator:
             ap_mod = importlib.import_module("application.service_layer.service_ap")
             ar_mod = importlib.import_module("application.service_layer.service_ar")
             journal_mod = importlib.import_module("application.service_layer.service_journal")
-            APService = getattr(ap_mod, "APService")
-            ARService = getattr(ar_mod, "ARService")
-            JournalService = getattr(journal_mod, "JournalService")
+            APService = ap_mod.APService
+            ARService = ar_mod.ARService
+            JournalService = journal_mod.JournalService
             services["journal"] = JournalService(
                 repositories["journal"],
                 repositories["account"],
@@ -840,7 +841,7 @@ class StartupOrchestrator:
         logger.info("Initializing kernel...")
         try:
             gate_mod = importlib.import_module("kernel.sealed_gate")
-            get_gate = getattr(gate_mod, "get_sealed_gate")
+            get_gate = gate_mod.get_sealed_gate
             gate = get_gate()
             if gate is None:
                 raise RuntimeError("Sealed gate returned None")
@@ -945,7 +946,7 @@ class StartupOrchestrator:
 
             # ===== 6. Panggil factory =====
             app_mod = importlib.import_module("adapters.primary_api.common.fastapi_app_factory")
-            create_app = getattr(app_mod, "create_app")
+            create_app = app_mod.create_app
 
             if inspect.iscoroutinefunction(create_app):
                 container = await create_app(factory_config)
@@ -1073,7 +1074,7 @@ class StartupOrchestrator:
                 else:
                     health_status["checks"]["database"] = {"status": "unknown", "detail": "mock_pool"}
                     warnings.append("Database pool is mock, not fully tested")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 errors.append("Database health check timeout")
                 health_status["checks"]["database"] = {"status": "critical", "detail": "timeout"}
             except Exception as e:
@@ -1455,8 +1456,8 @@ __all__ = [
     "StartupPhase",
     "StartupStatus",
     "StartupStep",
-    "get_startup_orchestrator",
     "get_health",
+    "get_startup_orchestrator",
     "register_signal_handlers",
     "run_startup",
     "shutdown",

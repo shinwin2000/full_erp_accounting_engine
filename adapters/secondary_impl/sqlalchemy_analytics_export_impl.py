@@ -148,7 +148,8 @@ class SQLAlchemyAnalyticsExport(AnalyticsExportPort):
             try:
                 await self._scheduler_task
             except asyncio.CancelledError:
-                pass
+                # Log cancellation during shutdown
+                logger.debug("Analytics export scheduler task cancelled during stop")
             self._scheduler_task = None
         logger.info("Analytics export scheduler stopped")
 
@@ -162,6 +163,7 @@ class SQLAlchemyAnalyticsExport(AnalyticsExportPort):
                     await self.execute_job(job_id)
                 await asyncio.sleep(self._scheduler_interval)
             except asyncio.CancelledError:
+                logger.debug("Analytics export scheduler loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"Scheduler error: {e}")

@@ -11,7 +11,7 @@ import uuid
 from datetime import date
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence_orm.goods_receipt_note_table import (

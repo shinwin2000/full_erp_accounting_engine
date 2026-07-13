@@ -8,7 +8,7 @@ Responsibility: Port interface for payroll repository.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 from uuid import UUID
 

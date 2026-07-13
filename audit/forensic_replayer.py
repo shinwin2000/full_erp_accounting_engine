@@ -20,12 +20,15 @@ Audit: Setiap replay dicatat untuk audit trail. Hasil replay dapat digunakan
 from __future__ import annotations
 
 import asyncio
+import csv
 import importlib
 import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
+
+import aiofiles  # <-- Tambahan untuk async file I/O
 
 from audit.hash_chain_builder import AuditHashChainBuilder, get_audit_hash_builder
 
@@ -297,6 +300,9 @@ class ForensicReplayer:
             "last_event_at": events[-1].get("timestamp") if events else None,
         }
 
+    # ========================================================================
+    # PERBAIKAN: export_replay menggunakan aiofiles dan asyncio.to_thread
+    # ========================================================================
     async def export_replay(
         self, events: list[dict[str, Any]], filename: str, format: str = "json"
     ) -> Path:
@@ -313,34 +319,41 @@ class ForensicReplayer:
         """
         if format == "json":
             file_path = self._export_dir / f"{filename}.json"
-            with open(file_path, "w") as f:
-                json.dump(events, f, indent=2, default=str)
-        elif format == "csv":
-            import csv
 
+            # JSON serialization bisa blocking untuk data besar, jalankan di thread pool
+            def _dump_json():
+                with open(file_path, "w") as f:
+                    json.dump(events, f, indent=2, default=str)
+            await asyncio.to_thread(_dump_json)
+
+        elif format == "csv":
             file_path = self._export_dir / f"{filename}.csv"
-            with open(file_path, "w", newline="") as f:
-                if events:
-                    fieldnames = [
-                        "id",
-                        "event_type",
-                        "timestamp",
-                        "sequence_number",
-                        "data",
-                        "metadata",
-                    ]
-                    writer = csv.DictWriter(f, fieldnames=fieldnames)
-                    writer.writeheader()
-                    for event in events:
-                        row = {
-                            "id": event.get("id"),
-                            "event_type": event.get("event_type"),
-                            "timestamp": event.get("timestamp"),
-                            "sequence_number": event.get("sequence_number"),
-                            "data": json.dumps(event.get("data", {}), default=str),
-                            "metadata": json.dumps(event.get("metadata", {}), default=str),
-                        }
-                        writer.writerow(row)
+
+            def _write_csv():
+                with open(file_path, "w", newline="") as f:
+                    if events:
+                        fieldnames = [
+                            "id",
+                            "event_type",
+                            "timestamp",
+                            "sequence_number",
+                            "data",
+                            "metadata",
+                        ]
+                        writer = csv.DictWriter(f, fieldnames=fieldnames)
+                        writer.writeheader()
+                        for event in events:
+                            row = {
+                                "id": event.get("id"),
+                                "event_type": event.get("event_type"),
+                                "timestamp": event.get("timestamp"),
+                                "sequence_number": event.get("sequence_number"),
+                                "data": json.dumps(event.get("data", {}), default=str),
+                                "metadata": json.dumps(event.get("metadata", {}), default=str),
+                            }
+                            writer.writerow(row)
+            await asyncio.to_thread(_write_csv)
+
         else:
             raise ValueError(f"Unsupported format: {format}")
 
@@ -374,7 +387,9 @@ class ForensicReplayer:
         state2 = {"event_count": len(events2), "last_event": events2[-1] if events2 else None}
 
         # Find events that occurred between the two times
-        new_events = [e for e in events2 if e not in events1]
+        # Gunakan set untuk efisiensi (hash by id)
+        ids1 = {e.get("id") for e in events1}
+        new_events = [e for e in events2 if e.get("id") not in ids1]
 
         return {
             "aggregate_type": aggregate_type,
@@ -428,7 +443,7 @@ async def get_forensic_replayer() -> ForensicReplayer:
 
 
 # ============================================================================
-# CLI COMMAND
+# CLI COMMAND — DIPERBAIKI (tanpa unsafe create_task)
 # ============================================================================
 
 
@@ -493,15 +508,19 @@ def cli():
             events = await replayer.replay_stream(args.stream, limit=args.limit)
             await replayer.export_replay(events, args.output or "export", args.format)
 
+    # Eksekusi dengan aman, tanpa unsafe create_task
     try:
-        asyncio.get_running_loop()
-        asyncio.create_task(run())
+        loop = asyncio.get_running_loop()
+        # Jika ada loop berjalan, kita jalankan di thread terpisah
+        import threading
+        def _run_in_thread():
+            asyncio.run(run())
+        thread = threading.Thread(target=_run_in_thread)
+        thread.start()
+        thread.join()
     except RuntimeError:
-        sub_loop = asyncio.new_event_loop()
-        try:
-            sub_loop.run_until_complete(run())
-        finally:
-            sub_loop.close()
+        # Tidak ada loop aktif, jalankan langsung
+        asyncio.run(run())
 
 
 # ============================================================================

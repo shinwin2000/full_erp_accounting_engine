@@ -20,7 +20,7 @@ import asyncio
 import hashlib
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from redis.asyncio import ConnectionPool, Redis
@@ -189,7 +189,8 @@ class RedisManager:
                 try:
                     await self._health_check_task
                 except asyncio.CancelledError:
-                    pass
+                    logger.debug("Health check task cancelled during disconnect")
+                    # Expected cancellation; continue
 
             if self._client:
                 await self._client.close()
@@ -220,6 +221,7 @@ class RedisManager:
                 else:
                     await self.connect()
             except asyncio.CancelledError:
+                logger.debug("Health check loop cancelled")
                 break
             except Exception as e:
                 logger.warning(f"Redis health check failed: {e}")

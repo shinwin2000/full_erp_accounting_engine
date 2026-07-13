@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/secret_scanner_checker.py – Secret Scanner (Hardcoded Secrets Detector)
 ================================================================================
@@ -26,15 +25,14 @@ import concurrent.futures
 import csv
 import json
 import logging
-import os
 import pathlib
 import re
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
+from datetime import UTC, datetime
 
 # ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
 _RCA_ENGINE = None
@@ -45,7 +43,7 @@ def _init_rca() -> bool:
     if _RCA_AVAILABLE:
         return True
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -55,7 +53,7 @@ def _init_rca() -> bool:
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -65,7 +63,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -100,7 +98,7 @@ if not logger.handlers:
     logger.addHandler(_log_handler)
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
     "WHITE": "", "BOLD": "", "DIM": "", "RESET": "",
 }
@@ -161,7 +159,7 @@ EXEMPT_FILENAMES = {"pytest", "conftest", "test_", "settings", "config", "consta
 
 # ─── SECRET PATTERNS ──────────────────────────────────────────────────────────
 # Format: (regex_pattern, severity, secret_type, recommendation)
-SECRET_PATTERNS: List[Tuple[re.Pattern, str, str, str]] = [
+SECRET_PATTERNS: list[tuple[re.Pattern, str, str, str]] = [
     # Password (must have at least 4 chars after assignment)
     (re.compile(r'(?i)(?:password|passwd|pwd|pass)\s*[:=]\s*["\']([^"\']{4,})["\']'), "CRITICAL", "password",
      "Gunakan environment variable atau vault (Hashicorp Vault, AWS Secrets Manager)."),
@@ -215,7 +213,7 @@ SECRET_PATTERNS: List[Tuple[re.Pattern, str, str, str]] = [
 ]
 
 # Komentar yang mengandung secret
-COMMENT_PATTERNS: List[Tuple[re.Pattern, str, str, str]] = [
+COMMENT_PATTERNS: list[tuple[re.Pattern, str, str, str]] = [
     (re.compile(r'(?i)(?:password|passwd|pwd)\s*[:=]\s*["\']?[^"\']+["\']?'), "WARNING", "password_in_comment",
      "Hapus secret dari komentar."),
     (re.compile(r'(?i)(?:api_key|apikey|token|secret)\s*[:=]\s*["\']?[A-Za-z0-9]{16,}["\']?'), "WARNING", "secret_in_comment",
@@ -239,9 +237,9 @@ class Finding:
     value: str
     context: str
     recommendation: str
-    rca: Optional[Dict] = None
+    rca: dict | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "severity": self.severity,
             "file": self.file,
@@ -255,7 +253,7 @@ class Finding:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     score: float = 100.0
     scan_time: float = 0.0
     total_files_scanned: int = 0
@@ -278,10 +276,10 @@ class Report:
         return self.error_count == 0
 
 # ─── AST UTILITIES ──────────────────────────────────────────────────────────
-_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_AST_CACHE: dict[str, tuple[ast.AST | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
 
-def _read_source(py_file: pathlib.Path) -> Optional[str]:
+def _read_source(py_file: pathlib.Path) -> str | None:
     encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
     for enc in encodings:
         try:
@@ -293,7 +291,7 @@ def _read_source(py_file: pathlib.Path) -> Optional[str]:
     except OSError:
         return None
 
-def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     key = str(py_file.resolve())
     with _CACHE_LOCK:
         if key in _AST_CACHE:
@@ -315,7 +313,7 @@ def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
         _AST_CACHE[key] = (None, err)
         return None, err
 
-def _extract_string(node: ast.AST) -> Optional[str]:
+def _extract_string(node: ast.AST) -> str | None:
     """Extract string from AST node (handles f-strings partially)."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
@@ -335,7 +333,7 @@ def _extract_string(node: ast.AST) -> Optional[str]:
         return node.id
     return None
 
-def _get_snippet(lines: List[str], line: int, context: int = 2) -> str:
+def _get_snippet(lines: list[str], line: int, context: int = 2) -> str:
     if line <= 0 or line > len(lines):
         return ""
     start = max(0, line - context - 1)
@@ -368,7 +366,7 @@ def _redact_value(value: str, max_len: int = DEFAULT_MAX_VALUE_DISPLAY) -> str:
         return value
     return value[:max_len] + "..."
 
-def _get_captured_value(match: re.Match) -> Optional[str]:
+def _get_captured_value(match: re.Match) -> str | None:
     """Get captured group value safely."""
     groups = match.groups()
     if not groups:
@@ -379,7 +377,7 @@ def _get_captured_value(match: re.Match) -> Optional[str]:
             return g
     return None
 
-def _generate_rca(secret_type: str, value: str, file: str) -> Optional[Dict]:
+def _generate_rca(secret_type: str, value: str, file: str) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -400,7 +398,7 @@ class SecretDetector:
         self,
         file_path: pathlib.Path,
         root: pathlib.Path,
-        lines: List[str],
+        lines: list[str],
         enable_rca: bool = True,
         min_length: int = DEFAULT_MIN_SECRET_LENGTH,
         strict: bool = False,
@@ -411,7 +409,7 @@ class SecretDetector:
         self.enable_rca = enable_rca
         self.min_length = min_length
         self.strict = strict
-        self.findings: List[Finding] = []
+        self.findings: list[Finding] = []
         self.rel_path = str(file_path.relative_to(root)).replace("\\", "/")
 
     def _add_finding(self, line: int, severity: str, secret_type: str, value: str, recommendation: str):
@@ -516,7 +514,7 @@ class SecretDetector:
                     self._add_finding(idx, severity, secret_type, value or "[REDACTED]", recommendation)
                     break
 
-    def scan(self) -> List[Finding]:
+    def scan(self) -> list[Finding]:
         """Run all scans."""
         # For Python files, use AST + regex
         if self.file_path.suffix.lower() == ".py":
@@ -536,7 +534,7 @@ class SecretScanner:
         enable_rca: bool = True,
         strict: bool = False,
         min_length: int = DEFAULT_MIN_SECRET_LENGTH,
-        extra_excludes: Optional[Set[str]] = None,
+        extra_excludes: set[str] | None = None,
         max_workers: int = 4,
     ):
         self.root = root
@@ -560,7 +558,7 @@ class SecretScanner:
             return True
         return False
 
-    def _get_files(self) -> List[pathlib.Path]:
+    def _get_files(self) -> list[pathlib.Path]:
         extensions = {".py", ".env", ".json", ".yaml", ".yml", ".toml",
                       ".ini", ".cfg", ".conf", ".txt", ".sh", ".bash", ".ps1"}
         files = []
@@ -574,16 +572,16 @@ class SecretScanner:
             files.append(p)
         return sorted(set(files))
 
-    def scan(self, progress_callback: Optional[Callable] = None) -> Report:
+    def scan(self, progress_callback: Callable | None = None) -> Report:
         t0 = time.monotonic()
         report = Report()
         files = self._get_files()
         report.total_files_scanned = len(files)
 
-        all_findings: List[Finding] = []
+        all_findings: list[Finding] = []
         total = len(files)
 
-        def _scan_one(idx: int, py_file: pathlib.Path) -> List[Finding]:
+        def _scan_one(idx: int, py_file: pathlib.Path) -> list[Finding]:
             if progress_callback:
                 progress_callback(idx + 1, total)
             src = _read_source(py_file)
@@ -641,7 +639,7 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
     _safe_print("    ✅ No database credentials in source code")
     _safe_print("    ✅ All secrets stored in environment variables or vault")
 
-    _safe_print(f"\n  📊 Summary:")
+    _safe_print("\n  📊 Summary:")
     _safe_print(f"    Files scanned      : {report.total_files_scanned}")
     _safe_print(f"    Files with issues  : {report.files_with_issues}")
     _safe_print(f"    CRITICAL findings  : {c['RED']}{report.error_count}{c['RESET']}")
@@ -692,7 +690,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
     try:
         data = {
             "version": __version__,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "score": report.score,
             "passed": report.passed,
             "scan_time": report.scan_time,

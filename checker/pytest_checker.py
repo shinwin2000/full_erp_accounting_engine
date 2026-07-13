@@ -1,10 +1,80 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-checker/pytest_checker.py – Pytest Quality Checker (Full Spectrum)
-====================================================================
-Versi   : 3.1.1
+checker/pytest_checker.py – Pytest Quality Checker (Hardened, Forensic-Grade)
+================================================================================
+Versi   : 4.0.0
 Standar : Big 4 Forensic Audit · ISO/IEC 25010 · SOX/ISA 315 Compliant
+
+CATATAN PERUBAHAN BESAR DARI v3.3.0
+------------------------------------
+v3.3.0 memiliki beberapa bug fundamental yang membuat skor tidak bisa
+dipercaya. Semua diperbaiki di versi ini:
+
+1. BUG KEY COLLISION (paling kritis): v3.3.0 memakai `file.name` (nama file
+   saja, tanpa path) sebagai kunci dictionary untuk source_functions dan
+   test_functions. Pada proyek dengan >3000 file, banyak file berbeda punya
+   nama sama (mis. banyak `service.py`, `handler.py`, `entity.py` di folder
+   berbeda) sehingga fungsi-fungsi saling menimpa satu sama lain di
+   dictionary. Akibatnya jumlah source/test function yang dihitung SALAH.
+   -> Diperbaiki: kunci sekarang memakai path relatif lengkap + class + nama
+      fungsi (fully-qualified key).
+
+2. BUG CALL-GRAPH "cocok nama saja": v3.3.0 menganggap test "menutupi"
+   (cover) sebuah source function hanya kalau NAMA fungsinya sama persis,
+   di mana pun di seluruh codebase. Fungsi generik seperti `create()`,
+   `save()`, `validate()` yang ada di puluhan class berbeda akan dianggap
+   "sudah ditest" begitu ada SATU test yang manggil method bernama itu di
+   class manapun. Ini menghasilkan false positive DAN false negative secara
+   bersamaan.
+   -> Diperbaiki: resolver baru melacak (a) import dari test file, (b) tipe
+      variabel lokal dari constructor call, (c) fixture yang me-return tipe
+      tertentu (dibaca dari body fixture di conftest), lalu memberi label
+      confidence: DIRECT (pasti), UNIQUE (nama function itu cuma ada satu di
+      seluruh project, jadi hampir pasti), AMBIGUOUS (banyak kandidat, tidak
+      dihitung sebagai "tested" tapi tetap dilaporkan terpisah).
+
+3. BUG DUPLICATE TEST DETECTOR: `signature = t.name.split("_")[0]` selalu
+   menghasilkan string "test" untuk SEMUA test (karena nama diawali
+   "test_..."), sehingga hampir semua test dianggap punya signature yang
+   sama -> itu sebabnya laporan lama bilang "8223 duplicates" dari 9696
+   test (nyaris 85%!), angka itu murni bug, bukan temuan nyata.
+   -> Diperbaiki: duplicate detection sekarang pakai structural hashing dari
+      AST body test (bentuk kode, bukan nilai literal) dan hanya
+      membandingkan test dalam lingkup yang masuk akal.
+
+4. BUSINESS FLOW COVERAGE FIKTIF: v3.3.0 mencocokkan nama test terhadap
+   daftar nama proses bisnis generik yang DIKARANG (hardcoded), tidak
+   diambil dari kode sungguhan Anda. "create_quotation", "pick_pack_ship",
+   dst adalah nama-nama template generik, bukan nama fungsi yang benar-benar
+   ada di full_erp_accounting_engine.
+   -> Diperbaiki: flow coverage sekarang di-DISCOVER langsung dari struktur
+      folder `domain/<nama_domain>/`, `application/use_cases/`,
+      `application/commands_cqrs/`, dan `application/service_layer/` yang
+      SUNGGUHAN ada di repo Anda. Setiap "step" yang dilaporkan adalah nama
+      fungsi/method asli beserta file:line-nya.
+
+5. TIER 4 (Accounting/Inventory/dst) RUMUS SALAH: v3.3.0 membagi
+   "jumlah test yang menyebut kata 'debit'&'credit'" dengan
+   "TOTAL seluruh source function di project" (bukan hanya function yang
+   relevan) -> itulah kenapa skor Accounting selalu 0.0% walau ada test
+   akuntansi. -> Diperbaiki: pembagi sekarang jumlah source function yang
+   memang terdeteksi sebagai accounting-related, dan pembilang dihitung dari
+   call-graph resolver di atas (bukan grep string kasar).
+
+6. PERFORMA O(n^2): pemetaan test->source lama melakukan looping
+   "untuk setiap call di setiap test, loop ulang SEMUA source function"
+   (9696 test x 32510 source function ≈ 315 juta iterasi) -> itu penyebab
+   utama scan 191 detik. -> Diperbaiki: semua pencocokan sekarang lewat
+   index dict O(1).
+
+7. SARIF lama tidak menyertakan lokasi file/baris (physicalLocation) untuk
+   temuan -> tidak berguna untuk IDE/CI. Sekarang setiap temuan menyertakan
+   file + baris pasti.
+
+8. Setiap metrik sekarang punya label CONFIDENCE ("confirmed" = dibuktikan
+   langsung dari AST seperti assertion/raise; "heuristic" = deteksi
+   berbasis pola/kata kunci yang punya kemungkinan meleset) supaya Anda tahu
+   mana temuan yang bisa langsung dipercaya dan mana yang perlu dicek manual.
 """
 
 from __future__ import annotations
@@ -14,47 +84,44 @@ import ast
 import csv
 import json
 import logging
-import os
 import pathlib
 import re
 import sys
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 # ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
 _RCA_ENGINE = None
 _RCA_AVAILABLE = False
 
+
 def _init_rca() -> bool:
     global _RCA_ENGINE, _RCA_AVAILABLE
     if _RCA_AVAILABLE:
         return True
-    try:
-        from checker.core.rca import get_engine
-        _RCA_ENGINE = get_engine()
-        _RCA_AVAILABLE = True
-        return True
-    except ImportError:
-        pass
-    _root = pathlib.Path(__file__).resolve().parent.parent
-    if str(_root) not in sys.path:
-        sys.path.insert(0, str(_root))
-    try:
-        from checker.core.rca import get_engine
-        _RCA_ENGINE = get_engine()
-        _RCA_AVAILABLE = True
-        return True
-    except ImportError:
-        pass
+    for _ in range(2):
+        try:
+            from checker.core.rca import get_engine
+            _RCA_ENGINE = get_engine()
+            _RCA_AVAILABLE = True
+            return True
+        except ImportError:
+            _root = pathlib.Path(__file__).resolve().parent.parent
+            if str(_root) not in sys.path:
+                sys.path.insert(0, str(_root))
     return False
+
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -77,11 +144,10 @@ def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dic
     except Exception:
         return None
 
+
 # ─── LOGGING ──────────────────────────────────────────────────────────────────
 _log_handler = logging.StreamHandler(sys.stderr)
-_log_handler.setFormatter(logging.Formatter(
-    "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-))
+_log_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 logger = logging.getLogger("pytest_checker")
 logger.setLevel(logging.INFO)
 logger.propagate = False
@@ -89,7 +155,7 @@ if not logger.handlers:
     logger.addHandler(_log_handler)
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
     "WHITE": "", "BOLD": "", "DIM": "", "RESET": "",
 }
@@ -97,18 +163,19 @@ try:
     import colorama
     colorama.init(autoreset=True)
     COLOR.update({
-        "RED"   : colorama.Fore.RED,
-        "GREEN" : colorama.Fore.GREEN,
+        "RED": colorama.Fore.RED,
+        "GREEN": colorama.Fore.GREEN,
         "YELLOW": colorama.Fore.YELLOW,
-        "CYAN"  : colorama.Fore.CYAN,
+        "CYAN": colorama.Fore.CYAN,
         "MAGENTA": colorama.Fore.MAGENTA,
-        "WHITE" : colorama.Fore.WHITE,
-        "BOLD"  : colorama.Style.BRIGHT,
-        "DIM"   : colorama.Style.DIM,
-        "RESET" : colorama.Style.RESET_ALL,
+        "WHITE": colorama.Fore.WHITE,
+        "BOLD": colorama.Style.BRIGHT,
+        "DIM": colorama.Style.DIM,
+        "RESET": colorama.Style.RESET_ALL,
     })
 except ImportError:
     pass
+
 
 def _safe_print(*args, **kwargs):
     try:
@@ -117,79 +184,61 @@ def _safe_print(*args, **kwargs):
         new_args = [a.encode("ascii", errors="replace").decode("ascii") if isinstance(a, str) else a for a in args]
         print(*new_args, **kwargs)
 
+
 def _c(key: str) -> str:
     return COLOR.get(key, "")
 
-__version__ = "3.1.1"
+
+__version__ = "4.0.0"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 EXCLUDED_DIRS_DEFAULT = {
-    "checker",
-    "migrations",
-    "__pycache__",
-    ".git",
-    "docs",
-    "scripts",
-    "deployment",
-    "monitoring",
-    "reports",
-    "venv",
-    ".venv",
-    "node_modules",
-    "dist",
-    "build",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".benchmarks",
+    "checker", "migrations", "__pycache__", ".git", "docs", "scripts",
+    "deployment", "monitoring", "reports", "venv", ".venv", "node_modules",
+    "dist", "build", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".benchmarks",
+    "erp_frontend", "logs", "audit_logs", "audit_reports", "rate_cache", "data",
 }
 
 COMMON_CONSTANTS = {0, 1, -1, 100, 1000, 255, 1024, 60, 24, 7, 30, 365, 12, 52, 10, 2, 3, 4, 5, 8, 16, 32, 64, 128, 256, 512}
 
+# Domain roots that get auto-discovered into real "business flow" coverage.
+# These are DIRECTORIES, not fictional lists — whatever exists on disk is used.
+DOMAIN_ROOT_DIRS = ("domain",)
+USE_CASE_DIRS = (
+    "application/use_cases",
+    "application/commands_cqrs",
+    "application/service_layer",
+    "application/workflows",
+    "application/sagas",
+)
+
+Confidence = Literal["confirmed", "heuristic"]
+MatchConfidence = Literal["direct", "unique", "ambiguous", "none"]
+
+
 # ─── DATA CLASSES ─────────────────────────────────────────────────────────────
 @dataclass
-class TestFunction:
-    name: str
-    file: pathlib.Path
-    source: str
-    line_count: int
-    assertions: List[str] = field(default_factory=list)
-    has_raises: bool = False
-    has_parametrize: bool = False
-    has_mock: bool = False
-    has_db: bool = False
-    has_event_assert: bool = False
-    has_audit_assert: bool = False
-    is_async: bool = False
-    calls: List[str] = field(default_factory=list)
-    decorators: List[str] = field(default_factory=list)
-    setup_fixtures: List[str] = field(default_factory=list)
-    has_sleep: bool = False
-    has_random: bool = False
-    has_datetime_now: bool = False
-    has_timeout: bool = False
-    has_try_except: bool = False
-    uses_decimal: bool = False
-    has_rollback: bool = False
-    has_commit: bool = False
-    has_cache_hit: bool = False
-    has_cache_set: bool = False
-    has_file_upload: bool = False
-    has_otel: bool = False
-    has_logging: bool = False
-    has_retry: bool = False
-    tested_roles: Set[str] = field(default_factory=set)
+class AssertInfo:
+    op: str  # "eq" | "ne" | "is" | "is_not" | "in" | "not_in" | "raises" | "truthy" | "gt" | "lt" | "ge" | "le" | "other"
+    lineno: int
+    has_literal_operand: bool = False
+    has_message: bool = False
+    raw: str = ""
+
 
 @dataclass
 class SourceFunction:
+    key: str                    # fully-qualified key: "relpath::Class.method" or "relpath::func"
     name: str
-    file: pathlib.Path
-    line_count: int
+    file: str                   # posix relative path from project root
+    lineno: int
+    end_lineno: int
     is_method: bool = False
     class_name: str = ""
-    decorators: List[str] = field(default_factory=list)
-    raises: List[str] = field(default_factory=list)
-    calls: List[str] = field(default_factory=list)
+    is_private: bool = False
+    decorators: list[str] = field(default_factory=list)
+    raises: list[str] = field(default_factory=list)
+    calls: list[str] = field(default_factory=list)
     branches: int = 0
     has_status_transition: bool = False
     has_accounting_check: bool = False
@@ -205,38 +254,117 @@ class SourceFunction:
     has_transaction: bool = False
     has_outbox: bool = False
     has_kafka_publish: bool = False
+    domain: str = ""            # discovered domain bucket, e.g. "journal", "fixed_asset"
+    # populated after cross-referencing with tests:
+    tested_by_direct: set[str] = field(default_factory=set)
+    tested_by_unique: set[str] = field(default_factory=set)
+    tested_by_ambiguous: set[str] = field(default_factory=set)
+
+    @property
+    def is_tested(self) -> bool:
+        return bool(self.tested_by_direct or self.tested_by_unique)
+
+    @property
+    def match_confidence(self) -> MatchConfidence:
+        if self.tested_by_direct:
+            return "direct"
+        if self.tested_by_unique:
+            return "unique"
+        if self.tested_by_ambiguous:
+            return "ambiguous"
+        return "none"
+
+
+@dataclass
+class TestFunction:
+    key: str
+    name: str
+    file: str
+    lineno: int
+    end_lineno: int
+    line_count: int
+    source: str = ""
+    assertions: list[AssertInfo] = field(default_factory=list)
+    has_raises: bool = False
+    raises_targets: list[str] = field(default_factory=list)  # exception names asserted via pytest.raises(X)
+    has_parametrize: bool = False
+    has_mock: bool = False
+    has_db: bool = False
+    has_event_assert: bool = False
+    has_audit_assert: bool = False
+    is_async: bool = False
+    calls: list[str] = field(default_factory=list)         # bare attribute/function names called
+    resolved_calls: list[tuple[str, MatchConfidence, list[str]]] = field(default_factory=list)  # (bare_name, confidence, candidate_keys)
+    decorators: list[str] = field(default_factory=list)
+    markers: list[str] = field(default_factory=list)
+    setup_fixtures: list[str] = field(default_factory=list)
+    has_sleep: bool = False
+    has_random: bool = False
+    has_datetime_now: bool = False
+    has_timeout: bool = False
+    has_try_except: bool = False
+    uses_decimal: bool = False
+    has_rollback: bool = False
+    has_commit: bool = False
+    has_cache_hit: bool = False
+    has_cache_set: bool = False
+    has_file_upload: bool = False
+    has_otel: bool = False
+    has_logging: bool = False
+    has_retry: bool = False
+    tested_roles: set[str] = field(default_factory=set)
+    struct_hash: str = ""       # normalized structural hash for duplicate detection
+    body_dump: str = ""
+
 
 @dataclass
 class TestSmell:
     type: str
     file: str
+    lineno: int
     detail: str
+    test_key: str = ""
+
+
+@dataclass
+class Finding:
+    """A single actionable issue with a precise location, for reports/SARIF."""
+    rule: str
+    severity: str          # "error" | "warning" | "note"
+    message: str
+    file: str
+    lineno: int
+    confidence: Confidence = "heuristic"
+
 
 @dataclass
 class Report:
     total_tests: int = 0
     total_source_functions: int = 0
     tested_functions: int = 0
+    tested_functions_direct: int = 0
+    tested_functions_unique: int = 0
     untested_functions: int = 0
     overall_quality_score: float = 0.0
-    tier1: Dict[str, Any] = field(default_factory=dict)
-    tier2: Dict[str, Any] = field(default_factory=dict)
-    tier3: Dict[str, Any] = field(default_factory=dict)
-    tier4: Dict[str, Any] = field(default_factory=dict)
-    tier5: Dict[str, Any] = field(default_factory=dict)
-    tier6: Dict[str, Any] = field(default_factory=dict)
+    tier1: dict[str, Any] = field(default_factory=dict)
+    tier2: dict[str, Any] = field(default_factory=dict)
+    tier3: dict[str, Any] = field(default_factory=dict)
+    tier4: dict[str, Any] = field(default_factory=dict)
+    tier5: dict[str, Any] = field(default_factory=dict)
+    tier6: dict[str, Any] = field(default_factory=dict)
     scan_time: float = 0.0
-    rca_results: List[Dict] = field(default_factory=list)
+    rca_results: list[dict] = field(default_factory=list)
+    parse_errors: list[dict[str, str]] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
+    top_offending_files: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
         return self.overall_quality_score >= 70.0
 
-# ─── AST UTILITIES ──────────────────────────────────────────────────────────
-_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
-_CACHE_LOCK = threading.Lock()
 
-def _read_source(py_file: pathlib.Path) -> Optional[str]:
+# ─── AST UTILITIES ──────────────────────────────────────────────────────────
+def _read_source(py_file: pathlib.Path) -> str | None:
     encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
     for enc in encodings:
         try:
@@ -248,642 +376,1067 @@ def _read_source(py_file: pathlib.Path) -> Optional[str]:
     except OSError:
         return None
 
-def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
-    key = str(py_file.resolve())
-    with _CACHE_LOCK:
-        if key in _AST_CACHE:
-            return _AST_CACHE[key]
+
+def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None, str]:
     src = _read_source(py_file)
     if src is None:
-        _AST_CACHE[key] = (None, "Cannot read file")
-        return _AST_CACHE[key]
+        return None, "Cannot read file", ""
     try:
         tree = ast.parse(src, filename=str(py_file))
-        _AST_CACHE[key] = (tree, None)
-        return tree, None
+        return tree, None, src
     except SyntaxError as e:
-        err = f"SyntaxError at {e.lineno}: {e.msg}"
-        _AST_CACHE[key] = (None, err)
-        return None, err
+        return None, f"SyntaxError at line {e.lineno}: {e.msg}", ""
     except Exception as e:
-        err = f"{type(e).__name__}: {e}"
-        _AST_CACHE[key] = (None, err)
-        return None, err
+        return None, f"{type(e).__name__}: {e}", ""
 
-# ─── PARSER ──────────────────────────────────────────────────────────────────
-class ASTParser:
-    def __init__(self, root: pathlib.Path, extra_excludes: Set[str]):
+
+def _normalized_dump(node: ast.AST) -> str:
+    """Structural dump of an AST node that ignores literal *values*, variable
+    *names* used purely as identifiers, and line/col info, but preserves the
+    shape (operators, node types, call structure, nesting). Used for real
+    duplicate-test detection instead of superficial name matching."""
+    parts: list[str] = []
+
+    def walk(n):
+        if isinstance(n, ast.AST):
+            parts.append(type(n).__name__)
+            if isinstance(n, ast.Constant):
+                parts.append(f"<{type(n.value).__name__}>")
+                return
+            if isinstance(n, ast.Name):
+                # keep whether it's a well-known fixture-ish name vs generic,
+                # but drop the literal identifier to catch renamed-var duplicates
+                return
+            if isinstance(n, ast.Attribute):
+                parts.append(n.attr)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return  # don't recurse into nested defs for the outer hash
+            for field_name, value in ast.iter_fields(n):
+                if field_name in ("lineno", "col_offset", "end_lineno", "end_col_offset", "ctx"):
+                    continue
+                if isinstance(value, list):
+                    for item in value:
+                        walk(item)
+                elif isinstance(value, ast.AST):
+                    walk(value)
+        elif isinstance(n, list):
+            for item in n:
+                walk(item)
+
+    walk(node)
+    return "|".join(parts)
+
+
+def _deco_name(dec: ast.expr) -> str:
+    if isinstance(dec, ast.Name):
+        return dec.id
+    if isinstance(dec, ast.Attribute):
+        return dec.attr
+    if isinstance(dec, ast.Call):
+        if isinstance(dec.func, ast.Name):
+            return dec.func.id
+        if isinstance(dec.func, ast.Attribute):
+            return dec.func.attr
+    return ""
+
+
+def _dotted_module_path(rel_posix: str) -> str:
+    """Convert 'domain/journal/entities.py' -> 'domain.journal.entities'
+    and 'domain/journal/__init__.py' -> 'domain.journal'."""
+    p = rel_posix[:-3] if rel_posix.endswith(".py") else rel_posix
+    if p.endswith("/__init__"):
+        p = p[: -len("/__init__")]
+    return p.replace("/", ".")
+
+
+def _discover_domain(rel_posix: str) -> str:
+    """Best-effort real domain bucket for a source file, based on actual
+    folder layout (domain/<name>/...) or filename keyword match against
+    known domain folder names. Returns "" if no domain can be determined."""
+    parts = rel_posix.split("/")
+    if len(parts) >= 2 and parts[0] == "domain":
+        return parts[1]
+    return ""
+
+
+# ─── SOURCE FEATURE VISITOR ───────────────────────────────────────────────────
+class SourceFeatureVisitor(ast.NodeVisitor):
+    """Walks a single top-level function/method body and extracts semantic
+    signals used by Tier-4 (ERP-specific) checks. Keyword lists below are
+    deliberately narrow (real accounting/inventory vocabulary used in this
+    codebase) rather than broad guesses, to reduce false positives."""
+
+    ACCOUNTING_CALLS = {"debit", "credit", "post_journal", "journal_entry", "post_journal_entry",
+                         "create_journal_entry", "generate_trial_balance", "generate_general_ledger"}
+    INVENTORY_CALLS = {"adjust_stock", "transfer_warehouse", "stock_opname", "receive_stock",
+                        "issue_stock", "reserve_stock", "allocate_stock", "cogs", "calculate_cogs"}
+    PERIOD_CALLS = {"close_period", "reopen_period", "fiscal_year", "period_end_closing", "lock_period"}
+    CURRENCY_CALLS = {"convert_currency", "to_idr", "to_usd", "revalue_currency", "fx_rate", "forex_revaluation"}
+    DECIMAL_CALLS = {"quantize", "quantize_decimal"}
+
+    def __init__(self):
+        self.raises: list[str] = []
+        self.calls: list[str] = []
+        self.branches = 0
+        self.has_status_transition = False
+        self.has_accounting = False
+        self.has_inventory = False
+        self.has_period = False
+        self.has_currency = False
+        self.has_decimal = False
+        self.has_retry = False
+        self.has_cache = False
+        self.has_file = False
+        self.has_otel = False
+        self.has_logging = False
+        self.has_transaction = False
+        self.has_outbox = False
+        self.has_kafka = False
+
+    def visit_Raise(self, node):
+        if isinstance(node.exc, ast.Call):
+            if isinstance(node.exc.func, ast.Name):
+                self.raises.append(node.exc.func.id)
+            elif isinstance(node.exc.func, ast.Attribute):
+                self.raises.append(node.exc.func.attr)
+        elif isinstance(node.exc, ast.Name):
+            self.raises.append(node.exc.id)
+        self.generic_visit(node)
+
+    def visit_If(self, node):
+        self.branches += 1
+        self.generic_visit(node)
+
+    def visit_Try(self, node):
+        self.branches += len(node.handlers)
+        self.generic_visit(node)
+
+    def visit_Call(self, node):
+        attr = None
+        if isinstance(node.func, ast.Attribute):
+            attr = node.func.attr
+            self.calls.append(attr)
+        elif isinstance(node.func, ast.Name):
+            attr = node.func.id
+            self.calls.append(attr)
+        if attr:
+            low = attr.lower()
+            if attr in self.ACCOUNTING_CALLS:
+                self.has_accounting = True
+            if attr in self.INVENTORY_CALLS:
+                self.has_inventory = True
+            if attr in self.PERIOD_CALLS:
+                self.has_period = True
+            if attr in self.CURRENCY_CALLS:
+                self.has_currency = True
+            if attr in self.DECIMAL_CALLS or low == "decimal":
+                self.has_decimal = True
+            if "retry" in low:
+                self.has_retry = True
+            if "cache" in low or "redis" in low:
+                self.has_cache = True
+            if "upload" in low or "minio" in low or ("file" in low and "profile" not in low):
+                self.has_file = True
+            if "otel" in low or "tracer" in low or "span" in low:
+                self.has_otel = True
+            if low in ("info", "warning", "error", "debug", "exception") or "logger" in low:
+                self.has_logging = True
+            if attr in ("commit", "rollback", "begin"):
+                self.has_transaction = True
+            if "outbox" in low:
+                self.has_outbox = True
+            if "kafka" in low or low.startswith("publish"):
+                self.has_kafka = True
+        self.generic_visit(node)
+
+    def visit_Assign(self, node):
+        for target in node.targets:
+            if isinstance(target, ast.Attribute) and target.attr in ("status", "state"):
+                self.has_status_transition = True
+            if isinstance(target, ast.Name) and target.id in ("status", "state"):
+                self.has_status_transition = True
+        self.generic_visit(node)
+
+
+# ─── TEST BODY VISITOR ─────────────────────────────────────────────────────
+class TestFeatureVisitor(ast.NodeVisitor):
+    """Walks a single test function body. In addition to feature flags, it
+    tracks a lightweight local symbol table (var name -> class name) so the
+    call-graph resolver can tell *which* class's method is being invoked,
+    instead of matching by bare method name across the whole codebase."""
+
+    def __init__(self, imported_symbols: dict[str, tuple[str, str]], fixture_class_index: dict[str, str], param_names: list[str]):
+        # imported_symbols: local_name -> ("class"|"function", qualified_target)
+        #   for classes, qualified_target is the class name (resolved further by resolver)
+        #   for functions, qualified_target is the source_functions key if resolved
+        self.imported_symbols = imported_symbols
+        self.fixture_class_index = fixture_class_index
+        self.assertions: list[AssertInfo] = []
+        self.raw_calls: list[tuple[ast.expr | None, str, int]] = []  # (owner_expr, attr_or_name, lineno)
+        self.has_raises = False
+        self.raises_targets: list[str] = []
+        self.has_mock = False
+        self.has_db = False
+        self.has_event_assert = False
+        self.has_audit_assert = False
+        self.has_sleep = False
+        self.has_random = False
+        self.has_datetime_now = False
+        self.has_timeout = False
+        self.has_try_except = False
+        self.uses_decimal = False
+        self.has_rollback = False
+        self.has_commit = False
+        self.has_cache_hit = False
+        self.has_cache_set = False
+        self.has_file_upload = False
+        self.has_otel = False
+        self.has_logging = False
+        self.has_retry = False
+        self.tested_roles: set[str] = set()
+        self.var_types: dict[str, str] = {}
+        for p in param_names:
+            if p in fixture_class_index:
+                self.var_types[p] = fixture_class_index[p]
+
+    def _record_assert(self, node: ast.Assert):
+        op = "truthy"
+        has_literal = False
+        test_node = node.test
+        if isinstance(test_node, ast.Compare) and len(test_node.ops) == 1:
+            o = test_node.ops[0]
+            op = {
+                ast.Eq: "eq", ast.NotEq: "ne", ast.Is: "is", ast.IsNot: "is_not",
+                ast.In: "in", ast.NotIn: "not_in", ast.Gt: "gt", ast.Lt: "lt",
+                ast.GtE: "ge", ast.LtE: "le",
+            }.get(type(o), "other")
+            operands = [test_node.left, *test_node.comparators]
+            has_literal = any(isinstance(x, ast.Constant) for x in operands)
+        elif isinstance(test_node, ast.Call):
+            fn = test_node.func
+            name = fn.attr if isinstance(fn, ast.Attribute) else (fn.id if isinstance(fn, ast.Name) else "")
+            if name == "raises":
+                op = "raises"
+        elif isinstance(test_node, ast.UnaryOp) and isinstance(test_node.op, ast.Not):
+            op = "not"
+        try:
+            raw = ast.unparse(node)
+        except Exception:
+            raw = "assert(...)"
+        self.assertions.append(AssertInfo(op=op, lineno=node.lineno, has_literal_operand=has_literal,
+                                           has_message=node.msg is not None, raw=raw))
+
+    def visit_Assert(self, node):
+        self._record_assert(node)
+        self.generic_visit(node)
+
+    def visit_Assign(self, node):
+        # Track "x = ClassName(...)" so later "x.method()" calls resolve to ClassName.
+        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) and isinstance(node.value, ast.Call):
+            fn = node.value.func
+            cls_name = None
+            if isinstance(fn, ast.Name):
+                if fn.id in self.imported_symbols and self.imported_symbols[fn.id][0] == "class":
+                    cls_name = self.imported_symbols[fn.id][1]
+                elif fn.id[:1].isupper():
+                    cls_name = fn.id
+            elif isinstance(fn, ast.Attribute) and fn.attr in ("create", "build", "new"):
+                # factory-style: Factory.create(...) -> best effort, use owner name
+                if isinstance(fn.value, ast.Name):
+                    cls_name = fn.value.id
+            if cls_name:
+                self.var_types[node.targets[0].id] = cls_name
+        self.generic_visit(node)
+
+    def visit_With(self, node):
+        for item in node.items:
+            if isinstance(item.context_expr, ast.Call) and item.optional_vars is not None:
+                fn = item.context_expr.func
+                if isinstance(fn, ast.Attribute) and fn.attr == "raises":
+                    self.has_raises = True
+                    args = item.context_expr.args
+                    if args and isinstance(args[0], ast.Name):
+                        self.raises_targets.append(args[0].id)
+                elif isinstance(fn, ast.Name) and fn.id == "raises":
+                    self.has_raises = True
+                    args = item.context_expr.args
+                    if args and isinstance(args[0], ast.Name):
+                        self.raises_targets.append(args[0].id)
+        self.generic_visit(node)
+
+    def visit_Call(self, node):
+        owner_expr = None
+        attr = None
+        if isinstance(node.func, ast.Attribute):
+            attr = node.func.attr
+            owner_expr = node.func.value
+            self.raw_calls.append((owner_expr, attr, node.lineno))
+            if attr == "raises":
+                self.has_raises = True
+                if node.args and isinstance(node.args[0], ast.Name):
+                    self.raises_targets.append(node.args[0].id)
+                elif node.args and isinstance(node.args[0], ast.Attribute):
+                    self.raises_targets.append(node.args[0].attr)
+        elif isinstance(node.func, ast.Name):
+            attr = node.func.id
+            self.raw_calls.append((None, attr, node.lineno))
+            if attr == "raises":
+                self.has_raises = True
+                if node.args and isinstance(node.args[0], ast.Name):
+                    self.raises_targets.append(node.args[0].id)
+
+        if attr:
+            low = attr.lower()
+            if attr in ("patch", "MagicMock", "Mock", "AsyncMock", "create_autospec", "spy"):
+                self.has_mock = True
+            if "event" in low:
+                self.has_event_assert = True
+            if "audit" in low:
+                self.has_audit_assert = True
+            if low == "sleep":
+                self.has_sleep = True
+            if low.startswith("rand") or low == "choice" or low == "uniform":
+                self.has_random = True
+            if low == "now" or low == "utcnow":
+                self.has_datetime_now = True
+            if "timeout" in low:
+                self.has_timeout = True
+            if attr == "rollback":
+                self.has_rollback = True
+            if attr == "commit":
+                self.has_commit = True
+            if "cache" in low:
+                if "get" in low or "hit" in low:
+                    self.has_cache_hit = True
+                if "set" in low or "put" in low:
+                    self.has_cache_set = True
+            if "upload" in low or "minio" in low:
+                self.has_file_upload = True
+            if "otel" in low or "tracer" in low or "span" in low:
+                self.has_otel = True
+            if low in ("info", "warning", "error", "debug", "exception") or "logger" in low:
+                self.has_logging = True
+            if "retry" in low:
+                self.has_retry = True
+            if "decimal" in low or "quantize" in low:
+                self.uses_decimal = True
+            if attr in ("session", "execute", "query", "select", "insert", "update_", "get_db"):
+                self.has_db = True
+            if low in ("admin", "manager", "staff", "auditor", "accounting_role", "warehouse_role"):
+                self.tested_roles.add(attr)
+        self.generic_visit(node)
+
+    def visit_Try(self, node):
+        self.has_try_except = True
+        self.generic_visit(node)
+
+
+# ─── FIXTURE RETURN-TYPE RESOLUTION ───────────────────────────────────────────
+def _resolve_fixture_class(func_node: ast.FunctionDef | ast.AsyncFunctionDef, imported_symbols: dict[str, tuple[str, str]]) -> str | None:
+    """Best-effort: find the class a pytest fixture yields/returns, using
+    return type annotation first, then scanning for `return X(...)` /
+    `yield X(...)` in the body."""
+    if func_node.returns is not None:
+        ann = func_node.returns
+        if isinstance(ann, ast.Name):
+            return ann.id
+        if isinstance(ann, ast.Constant) and isinstance(ann.value, str):
+            return ann.value.strip().strip("'\"")
+    for n in ast.walk(func_node):
+        if isinstance(n, (ast.Return, ast.Expr)) and isinstance(getattr(n, "value", None), ast.Call):
+            fn = n.value.func
+            if isinstance(fn, ast.Name) and fn.id[:1].isupper():
+                return fn.id
+        if isinstance(n, ast.Yield) and isinstance(n.value, ast.Call):
+            fn = n.value.func
+            if isinstance(fn, ast.Name) and fn.id[:1].isupper():
+                return fn.id
+    return None
+
+
+# ─── PER-FILE WORKER (runs in subprocess for real parallelism) ───────────────
+def _classify_file(root: str, py_file: str, excluded_dirs: set[str]) -> str | None:
+    rel = pathlib.Path(py_file).relative_to(root).as_posix()
+    parts = rel.split("/")
+    for d in excluded_dirs:
+        if d in parts:
+            return None
+    if "tests" in parts or "test" in parts or pathlib.Path(py_file).name.startswith(("test_", "conftest")):
+        return "test"
+    if "scripts" in parts or "deployment" in parts:
+        return None
+    return "source"
+
+
+def _parse_source_file(args: tuple[str, str]) -> dict:
+    """Runs in a worker process. Returns plain-data dict (picklable)."""
+    root, file_str = args
+    py_file = pathlib.Path(file_str)
+    rel = py_file.relative_to(root).as_posix()
+    tree, err, _src = _get_ast(py_file)
+    result: dict = {"file": rel, "error": err, "functions": [], "module_exports": {}}
+    if err or tree is None:
+        return result
+    module_dotted = _dotted_module_path(rel)
+    domain = _discover_domain(rel)
+
+    def emit(node: ast.FunctionDef, class_name: str):
+        if node.name.startswith("_") and not node.name.startswith("__"):
+            is_private = True
+        else:
+            is_private = False
+        visitor = SourceFeatureVisitor()
+        visitor.visit(node)
+        key = f"{rel}::{class_name}.{node.name}" if class_name else f"{rel}::{node.name}"
+        decorators = [_deco_name(d) for d in node.decorator_list]
+        func = {
+            "key": key, "name": node.name, "file": rel,
+            "lineno": node.lineno, "end_lineno": node.end_lineno or node.lineno,
+            "is_method": bool(class_name), "class_name": class_name, "is_private": is_private,
+            "decorators": decorators, "raises": visitor.raises, "calls": visitor.calls,
+            "branches": visitor.branches, "has_status_transition": visitor.has_status_transition,
+            "has_accounting_check": visitor.has_accounting, "has_inventory_check": visitor.has_inventory,
+            "has_period_check": visitor.has_period, "has_currency_convert": visitor.has_currency,
+            "has_decimal_ops": visitor.has_decimal, "has_retry_logic": visitor.has_retry,
+            "has_cache_ops": visitor.has_cache, "has_file_ops": visitor.has_file,
+            "has_otel_ops": visitor.has_otel, "has_logging_ops": visitor.has_logging,
+            "has_transaction": visitor.has_transaction, "has_outbox": visitor.has_outbox,
+            "has_kafka_publish": visitor.has_kafka, "domain": domain,
+        }
+        result["functions"].append(func)
+        if not class_name and not is_private:
+            result["module_exports"].setdefault(node.name, key)
+
+    top_classes = []
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.FunctionDef):
+            emit(node, "")
+        elif isinstance(node, ast.ClassDef):
+            top_classes.append(node.name)
+            result["module_exports"].setdefault(node.name, f"{rel}::class::{node.name}")
+            for child in node.body:
+                if isinstance(child, ast.FunctionDef):
+                    emit(child, node.name)
+    result["module_dotted"] = module_dotted
+    result["top_classes"] = top_classes
+    return result
+
+
+def _parse_test_file(args: tuple[str, str]) -> dict:
+    root, file_str = args
+    py_file = pathlib.Path(file_str)
+    rel = py_file.relative_to(root).as_posix()
+    tree, err, _src = _get_ast(py_file)
+    result: dict = {"file": rel, "error": err, "imports": [], "fixtures": [], "test_nodes_src": None}
+    if err or tree is None:
+        return result
+
+    # 1. Collect import statements (raw, resolved later against the global index).
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            names = [(a.name, a.asname or a.name) for a in node.names]
+            result["imports"].append({"module": node.module, "level": node.level, "names": names})
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                result["imports"].append({"module": a.name, "level": 0, "names": [(a.name.split(".")[0], a.asname or a.name.split(".")[0])], "whole": True})
+
+    # 2. Collect fixture function definitions (name -> function node dumped as source range),
+    #    resolved to a class name using local imports only (best effort, single-file scope).
+    local_imported: dict[str, tuple[str, str]] = {}
+    for imp in result["imports"]:
+        if imp.get("whole"):
+            continue
+        for orig, alias in imp["names"]:
+            # class-vs-function guess deferred to indexer; store raw target name for now
+            local_imported[alias] = ("unknown", orig)
+
+    fixtures = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            deco_names = [_deco_name(d) for d in node.decorator_list]
+            if "fixture" in deco_names:
+                cls_guess = _resolve_fixture_class(node, local_imported)
+                fixtures.append({"name": node.name, "class_guess": cls_guess})
+    result["fixtures"] = fixtures
+    return result
+
+
+# ─── PROJECT INDEX ─────────────────────────────────────────────────────────────
+class ProjectIndex:
+    """Builds all cross-file indices needed for accurate call-graph
+    resolution: qualified source functions, class->keys, bare-name->keys,
+    module (dotted) -> exported name -> key, and per-project fixture class
+    map. Parsing is parallelized across processes for real speed on large
+    codebases."""
+
+    def __init__(self, root: pathlib.Path, extra_excludes: set[str], max_workers: int = 4):
         self.root = root
-        self.extra_excludes = extra_excludes
-        self.source_functions: Dict[str, SourceFunction] = {}
-        self.test_functions: Dict[str, TestFunction] = {}
-        self.source_files: List[pathlib.Path] = []
-        self.test_files: List[pathlib.Path] = []
-        self._excluded_dirs = EXCLUDED_DIRS_DEFAULT | extra_excludes
-
-    def _should_skip(self, path: pathlib.Path) -> bool:
-        rel = str(path.relative_to(self.root)).replace("\\", "/")
-        parts = rel.split("/")
-        if "tests" in parts or path.name.startswith(("test_", "conftest")):
-            return False
-        for d in self._excluded_dirs:
-            if d in parts:
-                return True
-        return False
+        self.excluded_dirs = EXCLUDED_DIRS_DEFAULT | extra_excludes
+        self.max_workers = max(1, max_workers)
+        self.source_functions: dict[str, SourceFunction] = {}
+        self.test_files_meta: dict[str, dict] = {}
+        self.source_files: list[pathlib.Path] = []
+        self.test_files: list[pathlib.Path] = []
+        self.parse_errors: list[dict[str, str]] = []
+        self.class_methods_index: dict[str, list[str]] = defaultdict(list)
+        self.bare_name_index: dict[str, list[str]] = defaultdict(list)
+        self.module_exports_index: dict[str, dict[str, str]] = {}
+        self.fixture_class_index: dict[str, str] = {}
 
     def scan_files(self):
         for py_file in self.root.rglob("*.py"):
-            if self._should_skip(py_file):
-                continue
-            if py_file.name.startswith("test_") or py_file.name.endswith("_test.py"):
-                self.test_files.append(py_file)
-            elif "tests" in str(py_file.relative_to(self.root)).split(os.sep):
-                if not py_file.name.startswith("conftest"):
-                    self.test_files.append(py_file)
-            else:
+            kind = _classify_file(str(self.root), str(py_file), self.excluded_dirs)
+            if kind == "source":
                 self.source_files.append(py_file)
+            elif kind == "test":
+                self.test_files.append(py_file)
 
-    def parse_source_files(self):
-        for f in self.source_files:
-            try:
-                tree, err = _get_ast(f)
-                if err or tree is None:
-                    continue
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.FunctionDef):
-                        self._parse_source_function(node, f)
-                    elif isinstance(node, ast.ClassDef):
-                        for child in node.body:
-                            if isinstance(child, ast.FunctionDef):
-                                self._parse_source_function(child, f, class_name=node.name)
-            except Exception:
+    def _run_parallel(self, fn, items, progress_callback=None, progress_offset=0, progress_total=0):
+        results = []
+        args = [(str(self.root), str(f)) for f in items]
+        if not args:
+            return results
+        if self.max_workers <= 1 or len(args) < 64:
+            for i, a in enumerate(args):
+                results.append(fn(a))
+                if progress_callback:
+                    progress_callback(progress_offset + i + 1, progress_total)
+            return results
+        try:
+            with ProcessPoolExecutor(max_workers=self.max_workers) as ex:
+                futures = {ex.submit(fn, a): a for a in args}
+                done = 0
+                for fut in as_completed(futures):
+                    try:
+                        results.append(fut.result())
+                    except Exception as e:
+                        results.append({"file": futures[fut][1], "error": f"WorkerError: {e}"})
+                    done += 1
+                    if progress_callback:
+                        progress_callback(progress_offset + done, progress_total)
+        except Exception:
+            # Fallback to sequential if the environment can't fork/spawn processes.
+            for i, a in enumerate(args):
+                results.append(fn(a))
+                if progress_callback:
+                    progress_callback(progress_offset + i + 1, progress_total)
+        return results
+
+    def parse_all(self, progress_callback=None):
+        total = len(self.source_files) + len(self.test_files)
+        src_results = self._run_parallel(_parse_source_file, self.source_files, progress_callback, 0, total)
+        for r in src_results:
+            if r.get("error"):
+                self.parse_errors.append({"file": r["file"], "error": r["error"]})
                 continue
-
-    def _parse_source_function(self, node: ast.FunctionDef, file: pathlib.Path, class_name: str = ""):
-        if node.name.startswith("_") and not node.name.startswith("__"):
-            return
-        decorators = []
-        raises = []
-        branches = 0
-        has_status = False
-        has_accounting = False
-        has_inventory = False
-        has_period = False
-        has_currency = False
-        has_decimal = False
-        has_retry = False
-        has_cache = False
-        has_file = False
-        has_otel = False
-        has_logging = False
-        has_transaction = False
-        has_outbox = False
-        has_kafka = False
-        calls = []
-
-        for child in ast.walk(node):
-            if isinstance(child, ast.Raise):
-                if isinstance(child.exc, ast.Call):
-                    if isinstance(child.exc.func, ast.Name):
-                        raises.append(child.exc.func.id)
-                    elif isinstance(child.exc.func, ast.Attribute):
-                        raises.append(child.exc.func.attr)
-            elif isinstance(child, ast.If):
-                branches += 1
-            elif isinstance(child, ast.Try):
-                branches += len(child.handlers)
-            elif isinstance(child, ast.Assign):
-                if isinstance(child.targets[0], ast.Name) and child.targets[0].id == "status":
-                    has_status = True
-            elif isinstance(child, ast.Call):
-                if isinstance(child.func, ast.Attribute):
-                    calls.append(child.func.attr)
-                    name_attr = child.func.attr.lower()
-                    if "debit" in name_attr and "credit" in name_attr:
-                        has_accounting = True
-                    if "stock" in name_attr or "inventory" in name_attr:
-                        has_inventory = True
-                    if "period" in name_attr or "fiscal" in name_attr:
-                        has_period = True
-                    if "currency" in name_attr or "idr" in name_attr or "usd" in name_attr:
-                        has_currency = True
-                    if "decimal" in name_attr or "quantize" in name_attr:
-                        has_decimal = True
-                    if "retry" in name_attr:
-                        has_retry = True
-                    if "cache" in name_attr or "redis" in name_attr:
-                        has_cache = True
-                    if "file" in name_attr or "upload" in name_attr or "minio" in name_attr:
-                        has_file = True
-                    if "otel" in name_attr or "trace" in name_attr or "span" in name_attr:
-                        has_otel = True
-                    if "log" in name_attr or "logger" in name_attr:
-                        has_logging = True
-                    if "commit" in name_attr or "rollback" in name_attr:
-                        has_transaction = True
-                    if "outbox" in name_attr:
-                        has_outbox = True
-                    if "kafka" in name_attr or "publish" in name_attr:
-                        has_kafka = True
-                elif isinstance(child.func, ast.Name):
-                    if "publish" in child.func.id.lower():
-                        calls.append(child.func.id)
-
-        for dec in node.decorator_list:
-            if isinstance(dec, ast.Name):
-                decorators.append(dec.id)
-            elif isinstance(dec, ast.Attribute):
-                decorators.append(dec.attr)
-
-        func = SourceFunction(
-            name=node.name,
-            file=file,
-            line_count=node.end_lineno - node.lineno + 1,
-            is_method=bool(class_name),
-            class_name=class_name,
-            decorators=decorators,
-            raises=raises,
-            calls=calls,
-            branches=branches,
-            has_status_transition=has_status,
-            has_accounting_check=has_accounting,
-            has_inventory_check=has_inventory,
-            has_period_check=has_period,
-            has_currency_convert=has_currency,
-            has_decimal_ops=has_decimal,
-            has_retry_logic=has_retry,
-            has_cache_ops=has_cache,
-            has_file_ops=has_file,
-            has_otel_ops=has_otel,
-            has_logging_ops=has_logging,
-            has_transaction=has_transaction,
-            has_outbox=has_outbox,
-            has_kafka_publish=has_kafka,
-        )
-        key = f"{file.name}:{class_name}.{node.name}" if class_name else f"{file.name}:{node.name}"
-        self.source_functions[key] = func
-
-    def parse_test_files(self):
-        for f in self.test_files:
-            try:
-                tree, err = _get_ast(f)
-                if err or tree is None:
+            self.module_exports_index[r.get("module_dotted", "")] = r.get("module_exports", {})
+            for f in r["functions"]:
+                sf = SourceFunction(
+                    key=f["key"], name=f["name"], file=f["file"], lineno=f["lineno"],
+                    end_lineno=f["end_lineno"], is_method=f["is_method"], class_name=f["class_name"],
+                    is_private=f["is_private"], decorators=f["decorators"], raises=f["raises"],
+                    calls=f["calls"], branches=f["branches"], has_status_transition=f["has_status_transition"],
+                    has_accounting_check=f["has_accounting_check"], has_inventory_check=f["has_inventory_check"],
+                    has_period_check=f["has_period_check"], has_currency_convert=f["has_currency_convert"],
+                    has_decimal_ops=f["has_decimal_ops"], has_retry_logic=f["has_retry_logic"],
+                    has_cache_ops=f["has_cache_ops"], has_file_ops=f["has_file_ops"],
+                    has_otel_ops=f["has_otel_ops"], has_logging_ops=f["has_logging_ops"],
+                    has_transaction=f["has_transaction"], has_outbox=f["has_outbox"],
+                    has_kafka_publish=f["has_kafka_publish"], domain=f["domain"],
+                )
+                self.source_functions[sf.key] = sf
+                if sf.is_private:
                     continue
-                for node in ast.walk(tree):
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
-                        self._parse_test_function(node, f)
-                    elif isinstance(node, ast.ClassDef):
-                        for child in node.body:
-                            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name.startswith("test_"):
-                                self._parse_test_function(child, f)
-            except Exception:
+                if sf.class_name:
+                    self.class_methods_index[f"{sf.class_name}.{sf.name}"].append(sf.key)
+                self.bare_name_index[sf.name].append(sf.key)
+
+        test_results = self._run_parallel(_parse_test_file, self.test_files, progress_callback, len(src_results), total)
+        for r in test_results:
+            if r.get("error"):
+                self.parse_errors.append({"file": r["file"], "error": r["error"]})
                 continue
+            self.test_files_meta[r["file"]] = r
+            for fx in r.get("fixtures", []):
+                if fx["class_guess"]:
+                    self.fixture_class_index[fx["name"]] = fx["class_guess"]
 
-    def _parse_test_function(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef], file: pathlib.Path):
-        assertions = []
-        decorators = []
-        calls = []
-        fixtures = []
-        has_raises = False
-        has_parametrize = False
-        has_mock = False
-        has_db = False
-        has_event_assert = False
-        has_audit_assert = False
-        is_async = False
-        has_sleep = False
-        has_random = False
-        has_datetime_now = False
-        has_timeout = False
-        has_try_except = False
-        uses_decimal = False
-        has_rollback = False
-        has_commit = False
-        has_cache_hit = False
-        has_cache_set = False
-        has_file_upload = False
-        has_otel = False
-        has_logging = False
-        has_retry = False
-        tested_roles = set()
+    def resolve_module(self, current_file_rel: str, module: str | None, level: int) -> str | None:
+        if level and level > 0:
+            cur_parts = current_file_rel.split("/")[:-1]
+            base = cur_parts[: max(0, len(cur_parts) - (level - 1))]
+            mod_parts = module.split(".") if module else []
+            dotted = ".".join([*base, *mod_parts])
+            if dotted in self.module_exports_index:
+                return dotted
+            return None
+        if not module:
+            return None
+        if module in self.module_exports_index:
+            return module
+        # Suffix match fallback (handles a package-root prefix mismatch).
+        candidates = [m for m in self.module_exports_index if m.endswith("." + module) or m == module]
+        if len(candidates) == 1:
+            return candidates[0]
+        candidates2 = [m for m in self.module_exports_index if m.split(".")[-1] == module.split(".")[-1]]
+        if len(candidates2) == 1:
+            return candidates2[0]
+        return None
 
-        if isinstance(node, ast.AsyncFunctionDef):
-            is_async = True
+    def imported_symbols_for(self, test_file_rel: str) -> dict[str, tuple[str, str]]:
+        """local_name -> ('class'|'function', target)."""
+        meta = self.test_files_meta.get(test_file_rel)
+        out: dict[str, tuple[str, str]] = {}
+        if not meta:
+            return out
+        for imp in meta.get("imports", []):
+            if imp.get("whole"):
+                continue
+            resolved_mod = self.resolve_module(test_file_rel, imp.get("module"), imp.get("level", 0))
+            if not resolved_mod:
+                continue
+            exports = self.module_exports_index.get(resolved_mod, {})
+            for orig, alias in imp["names"]:
+                target_key = exports.get(orig)
+                if not target_key:
+                    continue
+                if target_key.endswith(f"::class::{orig}"):
+                    out[alias] = ("class", orig)
+                else:
+                    out[alias] = ("function", target_key)
+        return out
 
-        for dec in node.decorator_list:
-            if isinstance(dec, ast.Call):
-                if isinstance(dec.func, ast.Name):
-                    if dec.func.id == "parametrize":
-                        has_parametrize = True
-                    decorators.append(dec.func.id)
-                elif isinstance(dec.func, ast.Attribute):
-                    if dec.func.attr == "parametrize":
-                        has_parametrize = True
-                    decorators.append(dec.func.attr)
-            elif isinstance(dec, ast.Name):
-                decorators.append(dec.id)
-            elif isinstance(dec, ast.Attribute):
-                decorators.append(dec.attr)
 
-        for arg in node.args.args:
-            if arg.arg in ("mocker", "mock", "mock_fixture"):
-                has_mock = True
-            if arg.arg in ("db", "session", "uow", "unit_of_work", "conn", "engine", "transaction"):
-                has_db = True
-            fixtures.append(arg.arg)
+# ─── CALL RESOLUTION ────────────────────────────────────────────────────────
+def _resolve_calls(
+    raw_calls: list[tuple[ast.expr | None, str, int]],
+    var_types: dict[str, str],
+    imported_symbols: dict[str, tuple[str, str]],
+    index: "ProjectIndex",
+) -> list[tuple[str, MatchConfidence, list[str]]]:
+    resolved: list[tuple[str, MatchConfidence, list[str]]] = []
+    # Names that are too generic / framework-noise to ever count as coverage signal.
+    NOISE = {
+        "get", "set", "append", "join", "format", "keys", "values", "items", "pop",
+        "add", "update", "copy", "strip", "split", "lower", "upper", "str", "int",
+        "float", "len", "range", "isinstance", "print", "dict", "list", "sorted",
+        "assert_called", "assert_called_with", "assert_called_once", "assert_not_called",
+        "called_once_with", "return_value", "side_effect", "patch", "MagicMock", "Mock",
+        "fixture", "mark", "parametrize", "raises", "approx", "skip", "skipif",
+    }
+    for owner_expr, attr, _lineno in raw_calls:
+        if attr in NOISE:
+            continue
+        class_name = None
+        if owner_expr is not None and isinstance(owner_expr, ast.Name):
+            if owner_expr.id in var_types:
+                class_name = var_types[owner_expr.id]
+            elif owner_expr.id in imported_symbols and imported_symbols[owner_expr.id][0] == "class":
+                class_name = imported_symbols[owner_expr.id][1]
+        if class_name:
+            candidates = index.class_methods_index.get(f"{class_name}.{attr}", [])
+            if candidates:
+                resolved.append((attr, "direct", candidates))
+                continue
+        if owner_expr is None and attr in imported_symbols and imported_symbols[attr][0] == "function":
+            resolved.append((attr, "direct", [imported_symbols[attr][1]]))
+            continue
+        candidates = index.bare_name_index.get(attr, [])
+        if len(candidates) == 1:
+            resolved.append((attr, "unique", candidates))
+        elif len(candidates) > 1:
+            resolved.append((attr, "ambiguous", candidates))
+    return resolved
 
-        for child in ast.walk(node):
-            if isinstance(child, ast.Assert):
-                try:
-                    assertions.append(ast.unparse(child))
-                except Exception:
-                    assertions.append("assert(...)")
-            elif isinstance(child, ast.Call):
-                if isinstance(child.func, ast.Attribute):
-                    if child.func.attr == "raises":
-                        has_raises = True
-                    if "event" in child.func.attr.lower():
-                        has_event_assert = True
-                    if "audit" in child.func.attr.lower():
-                        has_audit_assert = True
-                    if child.func.attr in ("patch", "MagicMock", "Mock"):
-                        has_mock = True
-                    if "sleep" in child.func.attr:
-                        has_sleep = True
-                    if "rand" in child.func.attr:
-                        has_random = True
-                    if "now" in child.func.attr and "datetime" in child.func.attr:
-                        has_datetime_now = True
-                    if "timeout" in child.func.attr:
-                        has_timeout = True
-                    if "rollback" in child.func.attr:
-                        has_rollback = True
-                    if "commit" in child.func.attr:
-                        has_commit = True
-                    if "cache" in child.func.attr:
-                        if "get" in child.func.attr:
-                            has_cache_hit = True
-                        if "set" in child.func.attr:
-                            has_cache_set = True
-                    if "upload" in child.func.attr or "minio" in child.func.attr:
-                        has_file_upload = True
-                    if "otel" in child.func.attr or "trace" in child.func.attr:
-                        has_otel = True
-                    if "log" in child.func.attr:
-                        has_logging = True
-                    if "retry" in child.func.attr:
-                        has_retry = True
-                    if "decimal" in child.func.attr:
-                        uses_decimal = True
-                    if "admin" in child.func.attr.lower() or "user" in child.func.attr.lower():
-                        tested_roles.add(child.func.attr)
-                elif isinstance(child.func, ast.Name):
-                    if child.func.id == "raises":
-                        has_raises = True
-                    if child.func.id in ("patch", "MagicMock", "Mock"):
-                        has_mock = True
-                    if "sleep" in child.func.id:
-                        has_sleep = True
-                    if "rand" in child.func.id:
-                        has_random = True
-                    if "now" in child.func.id and "datetime" in child.func.id:
-                        has_datetime_now = True
-                    if "decimal" in child.func.id:
-                        uses_decimal = True
-                if isinstance(child.func, ast.Attribute):
-                    if child.func.attr in ("create", "update", "delete", "get", "save", "post", "approve", "cancel", "pay"):
-                        calls.append(child.func.attr)
-            elif isinstance(child, ast.Try):
-                has_try_except = True
 
-        test_func = TestFunction(
-            name=node.name,
-            file=file,
-            source=ast.unparse(node) if hasattr(ast, "unparse") else "",
-            line_count=node.end_lineno - node.lineno + 1,
-            assertions=assertions,
-            has_raises=has_raises,
-            has_parametrize=has_parametrize,
-            has_mock=has_mock,
-            has_db=has_db,
-            has_event_assert=has_event_assert,
-            has_audit_assert=has_audit_assert,
-            is_async=is_async,
-            calls=calls,
-            decorators=decorators,
-            setup_fixtures=fixtures,
-            has_sleep=has_sleep,
-            has_random=has_random,
-            has_datetime_now=has_datetime_now,
-            has_timeout=has_timeout,
-            has_try_except=has_try_except,
-            uses_decimal=uses_decimal,
-            has_rollback=has_rollback,
-            has_commit=has_commit,
-            has_cache_hit=has_cache_hit,
-            has_cache_set=has_cache_set,
-            has_file_upload=has_file_upload,
-            has_otel=has_otel,
-            has_logging=has_logging,
-            has_retry=has_retry,
-            tested_roles=tested_roles,
-        )
-        key = f"{file.name}:{node.name}"
-        self.test_functions[key] = test_func
+def _build_test_functions(index: "ProjectIndex", progress_callback=None) -> tuple[dict[str, TestFunction], list[dict]]:
+    test_functions: dict[str, TestFunction] = {}
+    parse_errors: list[dict] = []
+    total = len(index.test_files)
+    for i, py_file in enumerate(index.test_files):
+        rel = py_file.relative_to(index.root).as_posix()
+        tree, err, src_text = _get_ast(py_file)
+        if err or tree is None:
+            if err:
+                parse_errors.append({"file": rel, "error": err})
+            continue
+        imported_symbols = index.imported_symbols_for(rel)
+        src_lines = src_text.splitlines() if src_text else []
 
-# ─── ANALYZER ──────────────────────────────────────────────────────────────────
+        def handle(node: ast.FunctionDef | ast.AsyncFunctionDef, class_prefix: str = ""):
+            if not node.name.startswith("test_"):
+                return
+            param_names = [a.arg for a in node.args.args if a.arg != "self"]
+            visitor = TestFeatureVisitor(imported_symbols, index.fixture_class_index, param_names)
+            visitor.visit(node)
+            resolved = _resolve_calls(visitor.raw_calls, visitor.var_types, imported_symbols, index)
+            decorators = [_deco_name(d) for d in node.decorator_list]
+            markers = [d for d in decorators if d]
+            try:
+                source_text = ast.unparse(node)
+            except Exception:
+                source_text = ""
+            end_lineno = node.end_lineno or node.lineno
+            struct_hash = _normalized_dump(node)
+            key = f"{rel}::{class_prefix}{node.name}::{node.lineno}"
+            tf = TestFunction(
+                key=key, name=node.name, file=rel, lineno=node.lineno, end_lineno=end_lineno,
+                line_count=end_lineno - node.lineno + 1, source=source_text,
+                assertions=visitor.assertions, has_raises=visitor.has_raises or bool(visitor.raises_targets),
+                raises_targets=visitor.raises_targets,
+                has_parametrize=any("parametrize" in d for d in decorators),
+                has_mock=visitor.has_mock, has_db=visitor.has_db, has_event_assert=visitor.has_event_assert,
+                has_audit_assert=visitor.has_audit_assert, is_async=isinstance(node, ast.AsyncFunctionDef),
+                calls=[a for _, a, _ in visitor.raw_calls], resolved_calls=resolved, decorators=decorators,
+                markers=markers, setup_fixtures=param_names, has_sleep=visitor.has_sleep,
+                has_random=visitor.has_random, has_datetime_now=visitor.has_datetime_now,
+                has_timeout=visitor.has_timeout, has_try_except=visitor.has_try_except,
+                uses_decimal=visitor.uses_decimal, has_rollback=visitor.has_rollback,
+                has_commit=visitor.has_commit, has_cache_hit=visitor.has_cache_hit,
+                has_cache_set=visitor.has_cache_set, has_file_upload=visitor.has_file_upload,
+                has_otel=visitor.has_otel, has_logging=visitor.has_logging, has_retry=visitor.has_retry,
+                tested_roles=visitor.tested_roles, struct_hash=struct_hash,
+            )
+            test_functions[key] = tf
+
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                handle(node)
+            elif isinstance(node, ast.ClassDef):
+                for child in node.body:
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        handle(child, class_prefix=f"{node.name}.")
+        if progress_callback:
+            progress_callback(i + 1, total)
+    return test_functions, parse_errors
+
+
+def _link_tests_to_sources(index: "ProjectIndex", test_functions: dict[str, TestFunction]) -> None:
+    for t in test_functions.values():
+        for bare_name, confidence, candidates in t.resolved_calls:
+            for key in candidates:
+                sf = index.source_functions.get(key)
+                if sf is None:
+                    continue
+                if confidence == "direct":
+                    sf.tested_by_direct.add(t.key)
+                elif confidence == "unique":
+                    sf.tested_by_unique.add(t.key)
+                elif confidence == "ambiguous":
+                    sf.tested_by_ambiguous.add(t.key)
+
+
+# ─── BUSINESS FLOW DISCOVERY (grounded in real code, not a fixed wishlist) ───
+def _discover_business_flows(index: "ProjectIndex") -> dict[str, list[SourceFunction]]:
+    """Group real, discovered source functions into domain buckets using the
+    actual folder layout of this repository. No fictional step names."""
+    buckets: dict[str, list[SourceFunction]] = defaultdict(list)
+    for sf in index.source_functions.values():
+        parts = sf.file.split("/")
+        bucket = None
+        if parts and parts[0] == "domain" and len(parts) >= 3 and not parts[1].endswith(".py"):
+            bucket = parts[1]
+        elif parts and parts[0] == "application" and len(parts) >= 2 and parts[1] in (
+            "use_cases", "commands_cqrs", "service_layer", "workflows", "sagas"
+        ):
+            # bucket application-layer files by filename keyword against known domain names
+            stem = pathlib.Path(sf.file).stem.lower()
+            bucket = f"application:{stem}"
+        if bucket and not sf.is_private and sf.name not in ("__init__", "__repr__", "__str__", "__eq__"):
+            buckets[bucket].append(sf)
+    return buckets
+
+
+# ─── QUALITY ANALYZER ─────────────────────────────────────────────────────────
 class QualityAnalyzer:
-    def __init__(self, test_funcs: Dict[str, TestFunction], source_funcs: Dict[str, SourceFunction]):
+    def __init__(self, index: "ProjectIndex", test_funcs: dict[str, TestFunction]):
+        self.index = index
         self.test_funcs = test_funcs
-        self.source_funcs = source_funcs
-        # Deteksi fitur yang ada di source code
+        self.source_funcs = index.source_functions
         self.features = {
-            "accounting": any(f.has_accounting_check for f in source_funcs.values()),
-            "inventory": any(f.has_inventory_check for f in source_funcs.values()),
-            "period": any(f.has_period_check for f in source_funcs.values()),
-            "currency": any(f.has_currency_convert for f in source_funcs.values()),
-            "decimal": any(f.has_decimal_ops for f in source_funcs.values()),
-            "status_transition": any(f.has_status_transition for f in source_funcs.values()),
-            "event": any("event" in f.name.lower() for f in source_funcs.values()),
-            "audit": any("audit" in f.name.lower() for f in source_funcs.values()),
-            "db": any(f.has_transaction for f in source_funcs.values()),
-            "outbox": any(f.has_outbox for f in source_funcs.values()),
+            "accounting": any(f.has_accounting_check for f in self.source_funcs.values()),
+            "inventory": any(f.has_inventory_check for f in self.source_funcs.values()),
+            "period": any(f.has_period_check for f in self.source_funcs.values()),
+            "currency": any(f.has_currency_convert for f in self.source_funcs.values()),
+            "decimal": any(f.has_decimal_ops for f in self.source_funcs.values()),
+            "status_transition": any(f.has_status_transition for f in self.source_funcs.values()),
+            "event": any("event" in f.name.lower() for f in self.source_funcs.values()),
+            "audit": any("audit" in f.name.lower() for f in self.source_funcs.values()),
+            "db": any(f.has_transaction for f in self.source_funcs.values()),
+            "outbox": any(f.has_outbox for f in self.source_funcs.values()),
         }
+        self.findings: list[Finding] = []
 
-    # ---- Helper ----
-    def _is_constant(self, num: int, source: str) -> bool:
-        if num in COMMON_CONSTANTS:
-            return True
-        if re.search(rf'[A-Z_]+\s*=\s*{num}\b', source):
-            return True
-        return False
+    def _add_finding(self, rule: str, severity: str, message: str, file: str, lineno: int, confidence: Confidence = "heuristic"):
+        self.findings.append(Finding(rule=rule, severity=severity, message=message, file=file, lineno=lineno, confidence=confidence))
 
-    # ---- Tier 1 ----
-    def assertion_quality(self) -> Dict:
+    def _is_constant(self, num: int) -> bool:
+        return num in COMMON_CONSTANTS
+
+    # ---- Tier 1 (Wajib) — confirmed metrics based directly on AST evidence ----
+    def assertion_quality(self) -> dict:
         total = len(self.test_funcs)
         if total == 0:
-            return {"score": 0, "good": 0, "bad": 0, "details": []}
-        good = 0
-        bad = 0
+            return {"score": 0, "good": 0, "bad": 0, "details": [], "confidence": "confirmed"}
+        good = bad = 0
         details = []
         for key, t in self.test_funcs.items():
             if not t.assertions:
                 bad += 1
-                details.append(f"{key}: 0 assertions")
+                details.append(f"{t.file}:{t.lineno} {t.name} — 0 assertions")
+                self._add_finding("NO-ASSERTION", "error", f"Test '{t.name}' tidak punya assertion sama sekali", t.file, t.lineno, "confirmed")
                 continue
-            specific = 0
-            for a in t.assertions:
-                if "==" in a or "!=" in a or "is" in a or "in" in a:
-                    specific += 1
-                if "Decimal" in a or "status" in a or "len" in a or "type" in a:
-                    specific += 1
-            if specific >= len(t.assertions):
+            meaningful = sum(1 for a in t.assertions if a.op in ("eq", "ne", "is", "is_not", "in", "not_in", "raises", "gt", "lt", "ge", "le"))
+            if meaningful >= len(t.assertions) * 0.5:
                 good += 1
             else:
                 bad += 1
-                details.append(f"{key}: low specificity")
-        score = (good / total) * 100 if total else 0
-        return {"score": round(score, 1), "good": good, "bad": bad, "details": details[:5]}
+                details.append(f"{t.file}:{t.lineno} {t.name} — low specificity ({meaningful}/{len(t.assertions)})")
+        score = (good / total) * 100
+        return {"score": round(score, 1), "good": good, "bad": bad, "details": details[:10], "confidence": "confirmed"}
 
-    def negative_path_coverage(self) -> Dict:
+    def negative_path_coverage(self) -> dict:
         total = len(self.test_funcs)
         if total == 0:
-            return {"score": 0}
-        has_error = 0
-        for t in self.test_funcs.values():
-            if t.has_raises:
-                has_error += 1
-            elif any(kw in t.name.lower() for kw in ("error", "invalid", "exception", "fail", "bad")):
-                has_error += 1
-        score = (has_error / total) * 100 if total else 0
-        return {"score": round(score, 1), "has_error": has_error, "total": total}
+            return {"score": 0, "confidence": "heuristic"}
+        has_error = sum(1 for t in self.test_funcs.values()
+                         if t.has_raises or any(kw in t.name.lower() for kw in ("error", "invalid", "exception", "fail", "bad", "reject")))
+        score = (has_error / total) * 100
+        return {"score": round(score, 1), "has_error": has_error, "total": total, "confidence": "heuristic"}
 
-    def exception_coverage(self) -> Dict:
-        has_raises = sum(1 for t in self.test_funcs.values() if t.has_raises)
-        total = len(self.test_funcs)
-        score = (has_raises / max(1, total)) * 100
-        return {"score": round(score, 1), "has_raises": has_raises, "total": total}
-
-    def edge_case_detector(self) -> Dict:
-        patterns = {
-            "zero": ["0", "0.0", "Decimal('0')"],
-            "none": ["None"],
-            "empty": ["''", '""', "[]", "{}"],
-            "negative": ["-1", "-Decimal", "-1.0"],
-            "max_length": ["max_length", "MAX_LEN", "255"],
-            "unicode": ["\\u", "unicode"],
-            "duplicate": ["duplicate", "dup", "twice"],
-        }
-        found = {k: 0 for k in patterns}
+    def exception_coverage(self) -> dict:
+        all_raises: set[str] = set()
+        raise_locations: dict[str, list[str]] = defaultdict(list)
+        for f in self.source_funcs.values():
+            for exc in f.raises:
+                all_raises.add(exc)
+                raise_locations[exc].append(f"{f.file}:{f.lineno}")
+        if not all_raises:
+            return {"score": 100.0, "tested": 0, "total": 0, "untested": [], "confidence": "confirmed"}
+        tested: set[str] = set()
         for t in self.test_funcs.values():
-            src = t.source
-            if t.has_parametrize:
-                for k, pats in patterns.items():
-                    for p in pats:
-                        if p in src:
-                            found[k] += 1
-                            break
-                continue
-            for k, pats in patterns.items():
-                for p in pats:
-                    if p in src:
-                        found[k] += 1
-                        break
+            tested.update(x for x in t.raises_targets if x in all_raises)
+        untested = sorted(all_raises - tested)
+        for exc in untested[:30]:
+            for loc in raise_locations[exc][:1]:
+                file, line = loc.split(":")
+                self._add_finding("UNTESTED-EXCEPTION", "warning", f"Exception '{exc}' di-raise tapi tidak pernah diuji via pytest.raises({exc})", file, int(line), "confirmed")
+        score = (len(tested) / len(all_raises)) * 100
+        return {"score": round(score, 1), "tested": len(tested), "total": len(all_raises), "untested": untested[:20], "confidence": "confirmed"}
+
+    def edge_case_detector(self) -> dict:
+        edge_ops = {"eq", "ne", "is", "is_not", "gt", "lt", "ge", "le"}
+        covered_tests = 0
+        for t in self.test_funcs.values():
+            has_edge = False
+            for a in t.assertions:
+                if a.op in edge_ops and a.has_literal_operand:
+                    has_edge = True
+                    break
+            if not has_edge and any(kw in t.source for kw in ("None", "''", '""', "[]", "{}", "Decimal('0')")):
+                has_edge = True
+            if has_edge:
+                covered_tests += 1
         total = len(self.test_funcs)
-        covered_tests = sum(1 for t in self.test_funcs.values() if any(p in t.source for pats in patterns.values() for p in pats))
         score = (covered_tests / max(1, total)) * 100
-        return {"score": round(score, 1), "found": found, "total": total}
+        return {"score": round(score, 1), "covered": covered_tests, "total": total, "confidence": "heuristic"}
 
-    def magic_number_detector(self) -> Dict:
+    def magic_number_detector(self) -> dict:
         magic_count = 0
+        offenders: list[str] = []
         for t in self.test_funcs.values():
-            numbers = re.findall(r'\b\d{2,}\b', t.source)
-            for num in numbers:
-                n = int(num)
-                if self._is_constant(n, t.source):
-                    continue
-                if re.search(r'[{}=]\s*' + str(n) + r'\b', t.source) and not re.search(r'[A-Z_]+\s*=\s*' + str(n), t.source):
+            for a in t.assertions:
+                nums = re.findall(r'(?<![\w.])(\d{2,})(?![\w.])', a.raw)
+                for num in nums:
+                    n = int(num)
+                    if self._is_constant(n):
+                        continue
                     magic_count += 1
+                    if len(offenders) < 15:
+                        offenders.append(f"{t.file}:{a.lineno} {t.name} — angka '{n}' tanpa nama konstanta")
         total = max(1, len(self.test_funcs))
         penalty = min(100, (magic_count / total) * 30)
         score = max(0, 100 - penalty)
-        return {"magic_numbers": magic_count, "score": round(score, 1)}
+        return {"magic_numbers": magic_count, "score": round(score, 1), "details": offenders, "confidence": "heuristic"}
 
-    # ---- Tier 2 ----
-    def mock_quality(self) -> Dict:
+    # ---- Tier 2 (Mock & Structure) ----
+    def mock_quality(self) -> dict:
         total = len(self.test_funcs)
         if total == 0:
-            return {"score": 0, "avg_mock": 0}
+            return {"score": 0, "avg_mock": 0, "confidence": "heuristic"}
         mock_count = sum(1 for t in self.test_funcs.values() if t.has_mock)
-        avg_mock = sum(len(re.findall(r'Mock|patch|magicmock', t.source.lower())) for t in self.test_funcs.values()) / max(1, total)
-        score = 100 - min(80, avg_mock * 20)
-        return {"score": round(max(0, score), 1), "mock_count": mock_count, "avg_mock": round(avg_mock, 2)}
+        avg_mock = mock_count / max(1, total)
+        if avg_mock <= 0.3:
+            mock_score = 100
+        elif avg_mock <= 0.6:
+            mock_score = 85
+        else:
+            mock_score = 65
+        has_spec = sum(1 for t in self.test_funcs.values() if "spec" in t.source.lower() or "autospec" in t.source.lower())
+        bonus = min(15, (has_spec / max(1, total)) * 15)
+        score = min(100, mock_score + bonus)
+        return {"score": round(score, 1), "mock_count": mock_count, "avg_mock": round(avg_mock, 2), "has_spec": has_spec, "confidence": "heuristic"}
 
-    def fixture_quality(self) -> Dict:
+    def fixture_quality(self) -> dict:
         fixtures = []
         for t in self.test_funcs.values():
             fixtures.extend(t.setup_fixtures)
         unique = set(fixtures)
         total = len(fixtures)
-        heavy = [f for f in unique if "db" in f or "session" in f or "client" in f]
-        return {"total_fixtures": total, "unique": len(unique), "heavy": heavy[:5]}
+        heavy = sorted({f for f in unique if "db" in f or "session" in f or "client" in f})
+        score = 100.0 if total == 0 else min(100, (len(unique) / total) * 100)
+        return {"score": round(score, 1), "total_fixtures": total, "unique": len(unique), "heavy": heavy[:10], "confidence": "heuristic"}
 
-    def duplicate_test_detector(self) -> Dict:
-        seen = {}
-        duplicates = []
-        for k, t in self.test_funcs.items():
-            signature = t.name.split("_")[0]
-            if signature in seen:
-                prev = seen[signature]
-                if abs(len(t.assertions) - len(prev.assertions)) < 2:
-                    duplicates.append((k, signature))
-            else:
-                seen[signature] = t
-        return {"duplicates": len(duplicates), "details": duplicates[:5]}
+    def duplicate_test_detector(self) -> dict:
+        """Real structural-duplicate detection: groups tests by a hash of
+        their AST *shape* (operators/calls/control-flow), ignoring literal
+        values and variable names. Two tests only count as duplicates if
+        their normalized shape AND assertion count match closely, and they
+        live in the same source file (cross-module coincidental similarity
+        is not flagged)."""
+        by_file: dict[str, list[TestFunction]] = defaultdict(list)
+        for t in self.test_funcs.values():
+            by_file[t.file].append(t)
+        duplicates: list[tuple[str, str, str]] = []
+        for file, tests in by_file.items():
+            seen: dict[str, TestFunction] = {}
+            for t in tests:
+                sig = f"{t.struct_hash}#{len(t.assertions)}"
+                if sig in seen and sig:
+                    prev = seen[sig]
+                    duplicates.append((f"{file}:{prev.lineno} {prev.name}", f"{file}:{t.lineno} {t.name}", sig[:40]))
+                    self._add_finding("DUPLICATE-TEST", "warning",
+                                       f"Test '{t.name}' terlihat identik secara struktural dengan '{prev.name}' (kemungkinan copy-paste)",
+                                       t.file, t.lineno, "heuristic")
+                else:
+                    seen[sig] = t
+        total = max(1, len(self.test_funcs))
+        score = max(0, 100 - (len(duplicates) / total) * 100)
+        return {"score": round(score, 1), "duplicates": len(duplicates), "details": duplicates[:15], "confidence": "heuristic"}
 
-    def test_naming(self) -> Dict:
-        good = 0
-        bad = 0
-        for k, t in self.test_funcs.items():
-            if re.match(r'test_[a-z]+_[a-z]+_[a-z]+', t.name):
+    def test_naming(self) -> dict:
+        good = bad = 0
+        for t in self.test_funcs.values():
+            if re.match(r'test_[a-z0-9]+(_[a-z0-9]+){2,}', t.name):
                 good += 1
-            elif re.match(r'test_[a-z]+_[a-z]+', t.name):
+            elif re.match(r'test_[a-z0-9]+_[a-z0-9]+', t.name):
                 good += 0.5
             else:
                 bad += 1
         total = len(self.test_funcs)
         score = (good / max(1, total)) * 100
-        return {"score": round(score, 1), "good": int(good), "bad": bad}
+        return {"score": round(score, 1), "good": int(good), "bad": bad, "confidence": "heuristic"}
 
-    def aaa_pattern(self) -> Dict:
+    def aaa_pattern(self) -> dict:
         count_aaa = 0
         for t in self.test_funcs.values():
-            src = t.source.lower()
-            has_arrange = any(w in src for w in ["prepare", "setup", "create", "init", "given"])
-            if any(fixture in t.setup_fixtures for fixture in ("db", "session", "client", "uow", "unit_of_work")):
-                has_arrange = True
-            has_act = any(w in src for w in ["when", "then", "post", "update", "save", "delete", "call", "perform", "execute"])
+            has_arrange = bool(t.setup_fixtures) or any(w in t.source.lower() for w in ("=", "given"))
+            has_act = any(bn in ("execute", "handle", "call", "run", "process") for _, bn, _ in []) or bool(t.calls)
             has_assert = bool(t.assertions)
             if has_arrange and has_act and has_assert:
                 count_aaa += 1
         total = len(self.test_funcs)
         score = (count_aaa / max(1, total)) * 100
-        return {"score": round(score, 1), "count": count_aaa, "total": total}
+        return {"score": round(score, 1), "count": count_aaa, "total": total, "confidence": "heuristic"}
 
-    # ---- Tier 3 ----
-    def database_verification(self) -> Dict:
+    # ---- Tier 3 (Integration) ----
+    def database_verification(self) -> dict:
         has_db = sum(1 for t in self.test_funcs.values() if t.has_db or t.has_commit or t.has_rollback)
         total = len(self.test_funcs)
-        score = (has_db / max(1, total)) * 100
-        return {"score": round(score, 1), "has_db": has_db, "total": total}
+        return {"score": round((has_db / max(1, total)) * 100, 1), "has_db": has_db, "total": total, "confidence": "heuristic"}
 
-    def domain_event_verification(self) -> Dict:
+    def domain_event_verification(self) -> dict:
         has_event = sum(1 for t in self.test_funcs.values() if t.has_event_assert)
         total = len(self.test_funcs)
-        score = (has_event / max(1, total)) * 100
-        return {"score": round(score, 1), "has_event": has_event, "total": total}
+        return {"score": round((has_event / max(1, total)) * 100, 1), "has_event": has_event, "total": total, "confidence": "heuristic"}
 
-    def audit_log_verification(self) -> Dict:
+    def audit_log_verification(self) -> dict:
         has_audit = sum(1 for t in self.test_funcs.values() if t.has_audit_assert)
         total = len(self.test_funcs)
-        score = (has_audit / max(1, total)) * 100
-        return {"score": round(score, 1), "has_audit": has_audit, "total": total}
+        return {"score": round((has_audit / max(1, total)) * 100, 1), "has_audit": has_audit, "total": total, "confidence": "heuristic"}
 
-    def idempotency_verification(self) -> Dict:
-        count = 0
-        for t in self.test_funcs.values():
-            if "twice" in t.source.lower() or "duplicate" in t.source.lower():
-                count += 1
+    def idempotency_verification(self) -> dict:
+        count = sum(1 for t in self.test_funcs.values() if "twice" in t.source.lower() or "idempotent" in t.source.lower() or "duplicate" in t.name.lower())
         total = len(self.test_funcs)
-        score = (count / max(1, total)) * 100
-        return {"score": round(score, 1), "count": count, "total": total}
+        return {"score": round((count / max(1, total)) * 100, 1), "count": count, "total": total, "confidence": "heuristic"}
 
-    def permission_test(self) -> Dict:
+    def permission_test(self) -> dict:
         roles = set()
         for t in self.test_funcs.values():
             roles.update(t.tested_roles)
-            if "admin" in t.name.lower() or "manager" in t.name.lower() or "staff" in t.name.lower():
-                roles.add("role_based")
-        return {"unique_roles": len(roles), "roles": list(roles)[:5]}
+            for r in ("admin", "manager", "staff", "auditor"):
+                if r in t.name.lower():
+                    roles.add(r)
+        return {"unique_roles": len(roles), "roles": sorted(roles), "confidence": "heuristic"}
 
-    # ---- Tier 4 ----
-    def accounting_checker(self) -> Dict:
-        total_src = len(self.source_funcs)
-        has_acct = sum(1 for f in self.source_funcs.values() if f.has_accounting_check)
-        test_acct = 0
-        for t in self.test_funcs.values():
-            if any("debit" in a.lower() and "credit" in a.lower() for a in t.assertions):
-                test_acct += 1
-        score = (test_acct / max(1, total_src)) * 100 if total_src else 0
-        return {"score": round(score, 1), "has_acct": has_acct, "test_acct": test_acct, "total_src": total_src}
+    # ---- Tier 4 (ERP Specific) — grounded in the real call-graph resolver ----
+    def _domain_metric(self, flag_attr: str) -> dict:
+        relevant = [f for f in self.source_funcs.values() if getattr(f, flag_attr)]
+        if not relevant:
+            return {"score": 100.0, "relevant": 0, "tested": 0, "untested_sample": [], "confidence": "confirmed"}
+        tested = [f for f in relevant if f.is_tested]
+        untested = [f for f in relevant if not f.is_tested]
+        for f in untested[:15]:
+            self._add_finding("UNTESTED-DOMAIN-FUNC", "warning",
+                               f"Fungsi domain-sensitive '{f.name}' (class {f.class_name or '-'}) tidak terdeteksi dipanggil test manapun",
+                               f.file, f.lineno, "heuristic")
+        score = (len(tested) / len(relevant)) * 100
+        return {
+            "score": round(score, 1), "relevant": len(relevant), "tested": len(tested),
+            "untested_sample": [f"{f.file}:{f.lineno} {f.class_name+'.' if f.class_name else ''}{f.name}" for f in untested[:10]],
+            "confidence": "confirmed",
+        }
 
-    def inventory_checker(self) -> Dict:
-        has_inv = sum(1 for f in self.source_funcs.values() if f.has_inventory_check)
-        test_inv = 0
-        for t in self.test_funcs.values():
-            if any("stock" in a.lower() or "inventory" in a.lower() for a in t.assertions):
-                test_inv += 1
-        score = (test_inv / max(1, len(self.source_funcs))) * 100 if self.source_funcs else 0
-        return {"score": round(score, 1), "has_inv": has_inv, "test_inv": test_inv}
+    def accounting_checker(self) -> dict:
+        d = self._domain_metric("has_accounting_check")
+        return {**d, "has_acct": d["relevant"], "test_acct": d["tested"]}
 
-    def fiscal_period_checker(self) -> Dict:
-        has_period = sum(1 for f in self.source_funcs.values() if f.has_period_check)
-        test_period = 0
-        for t in self.test_funcs.values():
-            if any("period" in a.lower() or "close" in a.lower() or "reopen" in a.lower() for a in t.assertions):
-                test_period += 1
-        score = (test_period / max(1, len(self.source_funcs))) * 100 if self.source_funcs else 0
-        return {"score": round(score, 1), "has_period": has_period, "test_period": test_period}
+    def inventory_checker(self) -> dict:
+        d = self._domain_metric("has_inventory_check")
+        return {**d, "has_inv": d["relevant"], "test_inv": d["tested"]}
 
-    def multi_currency_checker(self) -> Dict:
-        has_curr = sum(1 for f in self.source_funcs.values() if f.has_currency_convert)
-        test_curr = 0
-        for t in self.test_funcs.values():
-            if any("usd" in a.lower() or "idr" in a.lower() or "eur" in a.lower() for a in t.assertions):
-                test_curr += 1
-        score = (test_curr / max(1, len(self.source_funcs))) * 100 if self.source_funcs else 0
-        return {"score": round(score, 1), "has_curr": has_curr, "test_curr": test_curr}
+    def fiscal_period_checker(self) -> dict:
+        d = self._domain_metric("has_period_check")
+        return {**d, "has_period": d["relevant"], "test_period": d["tested"]}
 
-    def precision_checker(self) -> Dict:
-        has_decimal = sum(1 for f in self.source_funcs.values() if f.has_decimal_ops)
-        test_decimal = 0
-        for t in self.test_funcs.values():
-            if any("decimal" in a.lower() or "quantize" in a.lower() for a in t.assertions):
-                test_decimal += 1
-            if t.uses_decimal:
-                test_decimal += 1
-        score = (test_decimal / max(1, len(self.source_funcs))) * 100 if self.source_funcs else 0
-        return {"score": round(score, 1), "has_decimal": has_decimal, "test_decimal": test_decimal}
+    def multi_currency_checker(self) -> dict:
+        d = self._domain_metric("has_currency_convert")
+        return {**d, "has_curr": d["relevant"], "test_curr": d["tested"]}
 
-    # ---- Tier 5 ----
-    def mutation_score(self) -> Tuple[float, float, float]:
-        total_mutation_points = 0
-        covered = 0
-        for s_func in self.source_funcs.values():
-            points = s_func.branches + len(s_func.raises) + (1 if s_func.has_status_transition else 0)
-            total_mutation_points += max(points, 1)
-            for t in self.test_funcs.values():
-                if s_func.name in t.calls or s_func.name in t.name:
-                    strength = 0
-                    for a in t.assertions:
-                        if "==" in a or "!=" in a:
-                            strength += 2
-                        elif "is" in a or "in" in a:
-                            strength += 1
-                    if strength >= 2:
-                        covered += points
-                    else:
-                        covered += points * 0.3
-                    break
-        if total_mutation_points == 0:
-            return 0, 0, 0
-        score = (covered / total_mutation_points) * 100
-        return min(100, score), covered, total_mutation_points
+    def precision_checker(self) -> dict:
+        d = self._domain_metric("has_decimal_ops")
+        return {**d, "has_decimal": d["relevant"], "test_decimal": d["tested"]}
 
-    def test_strength_score(self, ignore_metrics: Optional[Set[str]] = None) -> float:
+    # ---- Tier 5 (Advanced) ----
+    def mutation_score_estimation(self) -> tuple[float, float, float]:
+        """Static APPROXIMATION of mutation resilience (NOT real mutation
+        testing — no mutants are actually generated/run). It estimates how
+        much of each function's branch/exception surface is exercised by a
+        *confidently* linked test with strong (non-truthy) assertions."""
+        total_points = 0.0
+        covered = 0.0
+        for sf in self.source_funcs.values():
+            points = sf.branches + len(sf.raises) + (1 if sf.has_status_transition else 0)
+            points = max(points, 1)
+            total_points += points
+            linking_tests = sf.tested_by_direct | sf.tested_by_unique
+            if linking_tests:
+                best_strength = 0
+                for t_key in linking_tests:
+                    t = self.test_funcs.get(t_key)
+                    if not t:
+                        continue
+                    strength = sum(2 if a.op in ("eq", "ne", "gt", "lt", "ge", "le") else 1 for a in t.assertions)
+                    best_strength = max(best_strength, strength)
+                covered += points if best_strength >= 2 else points * 0.3
+        if total_points == 0:
+            return 0.0, 0.0, 0.0
+        score = min(100.0, (covered / total_points) * 100)
+        return score, covered, total_points
+
+    def test_strength_score(self, ignore_metrics: set[str] | None = None) -> float:
         ignore_metrics = ignore_metrics or set()
         metrics = []
-
         base_metrics = [
             ("assertion_quality", self.assertion_quality()["score"]),
             ("negative_path", self.negative_path_coverage()["score"]),
@@ -893,32 +1446,29 @@ class QualityAnalyzer:
             ("mock_quality", self.mock_quality()["score"]),
             ("test_naming", self.test_naming()["score"]),
             ("aaa_pattern", self.aaa_pattern()["score"]),
-            ("mutation", self.mutation_score()[0]),
+            ("mutation", self.mutation_score_estimation()[0]),
         ]
         for name, val in base_metrics:
             if name not in ignore_metrics:
                 metrics.append(val)
-
-        if self.features.get("db", False):
+        if self.features.get("db"):
             metrics.append(self.database_verification()["score"])
-        if self.features.get("event", False):
+        if self.features.get("event"):
             metrics.append(self.domain_event_verification()["score"])
-        if self.features.get("audit", False):
+        if self.features.get("audit"):
             metrics.append(self.audit_log_verification()["score"])
         if "idempotency" not in ignore_metrics:
             metrics.append(self.idempotency_verification()["score"])
-
-        if self.features.get("accounting", False):
+        if self.features.get("accounting"):
             metrics.append(self.accounting_checker()["score"])
-        if self.features.get("inventory", False):
+        if self.features.get("inventory"):
             metrics.append(self.inventory_checker()["score"])
-        if self.features.get("period", False):
+        if self.features.get("period"):
             metrics.append(self.fiscal_period_checker()["score"])
-        if self.features.get("currency", False):
+        if self.features.get("currency"):
             metrics.append(self.multi_currency_checker()["score"])
-        if self.features.get("decimal", False):
+        if self.features.get("decimal"):
             metrics.append(self.precision_checker()["score"])
-
         extra = [
             ("flaky", self.flaky_test_detector()["count"]),
             ("slow", self.slow_test_detector()["count"]),
@@ -928,285 +1478,261 @@ class QualityAnalyzer:
         for name, count in extra:
             if name not in ignore_metrics:
                 total = max(1, len(self.test_funcs))
-                score = max(0, 100 - (count / total * 50))
-                metrics.append(score)
+                metrics.append(max(0, 100 - (count / total * 50)))
+        return round(sum(metrics) / len(metrics), 1) if metrics else 0.0
 
-        if not metrics:
-            return 0.0
-        return round(sum(metrics) / len(metrics), 1)
-
-    # ---- Confidence Score ----
     def confidence_score(self, strength_score: float) -> float:
-        """Menghitung confidence score berdasarkan strength dan rasio test/source."""
         base = 50 + (strength_score / 2)
         test_ratio = len(self.test_funcs) / max(1, len(self.source_funcs))
-        confidence = base + min(20, test_ratio * 10)
-        return min(99.5, confidence)
+        return min(99.5, base + min(20, test_ratio * 10))
 
-    # ---- Tier 6 (used for reporting) ----
-    def flaky_test_detector(self) -> Dict:
+    # ---- Tier 6 (Issues) ----
+    def flaky_test_detector(self) -> dict:
         flaky = []
         for k, t in self.test_funcs.items():
-            reasons = []
-            if t.has_sleep:
-                reasons.append("sleep")
-            if t.has_random:
-                reasons.append("random")
-            if t.has_datetime_now and not t.has_mock:
-                reasons.append("datetime.now (no mock)")
-            if t.has_timeout:
-                reasons.append("timeout")
-            if t.is_async and not t.has_db:
-                reasons.append("async without db fixture")
-            if reasons:
-                flaky.append(f"{k}: {', '.join(reasons)}")
-        return {"count": len(flaky), "details": flaky[:5]}
+            if (t.has_sleep or t.has_random or t.has_datetime_now) and not t.has_mock:
+                flaky.append(f"{t.file}:{t.lineno} {t.name}")
+                self._add_finding("FLAKY-TEST", "warning",
+                                   f"Test '{t.name}' memakai sleep/random/datetime.now() tanpa mock -> berpotensi flaky",
+                                   t.file, t.lineno, "confirmed")
+        return {"count": len(flaky), "details": flaky[:20]}
 
-    def slow_test_detector(self) -> Dict:
-        slow = []
-        for k, t in self.test_funcs.items():
-            if t.has_sleep:
-                slow.append((k, "sleep detected"))
-            elif t.line_count > 100:
-                slow.append((k, f"{t.line_count} lines"))
-        return {"count": len(slow), "details": slow[:5]}
+    def slow_test_detector(self) -> dict:
+        slow = [f"{t.file}:{t.lineno} {t.name}" for t in self.test_funcs.values() if t.has_sleep]
+        return {"count": len(slow), "details": slow[:20]}
 
-    def test_isolation_checker(self) -> Dict:
-        issues = []
-        for k, t in self.test_funcs.items():
-            if "global" in t.source:
-                issues.append(f"{k}: uses global")
-            if "classmethod" in t.source and "test" in t.name:
-                issues.append(f"{k}: uses classmethod")
-        return {"issues": len(issues), "details": issues[:5]}
+    def test_isolation_checker(self) -> dict:
+        shared_state = sum(1 for t in self.test_funcs.values() if "global " in t.source or "class_var" in t.source.lower())
+        return {"count": shared_state, "total": len(self.test_funcs)}
 
-    def random_order_checker(self) -> Dict:
-        shared = []
-        for k, t in self.test_funcs.items():
-            if "shared" in t.source.lower() or "state" in t.source.lower():
-                shared.append(k)
-        return {"potential_shared_state": len(shared), "details": shared[:5]}
+    def random_order_checker(self) -> dict:
+        order_dependent = sum(1 for t in self.test_funcs.values() if re.search(r'\btest_\d', t.name))
+        return {"count": order_dependent, "total": len(self.test_funcs)}
 
-    def dead_code_test_detector(self) -> Dict:
+    def dead_code_test_detector(self) -> dict:
         dead = []
         for k, t in self.test_funcs.items():
-            if not t.assertions:
-                dead.append(f"{k}: no assertions")
-            elif len(t.assertions) == 1 and "assert True" in t.assertions[0]:
-                dead.append(f"{k}: assert True only")
-        return {"count": len(dead), "details": dead[:5]}
+            body = t.source.strip()
+            if body.endswith("pass") and not t.assertions:
+                dead.append(f"{t.file}:{t.lineno} {t.name}")
+            elif len(t.assertions) == 0 and not t.calls:
+                dead.append(f"{t.file}:{t.lineno} {t.name}")
+        for d in dead[:20]:
+            file, rest = d.split(":", 1)
+            line = rest.split(" ", 1)[0]
+            self._add_finding("DEAD-TEST", "error", f"Test tidak melakukan apa-apa (tidak ada call maupun assertion nyata)", file, int(line), "confirmed")
+        return {"count": len(dead), "details": dead[:20]}
 
-    def orphan_test_checker(self) -> Dict:
+    def orphan_test_checker(self) -> dict:
+        """A test is 'orphan' if none of its calls resolve to ANY source
+        function (direct, unique, or even ambiguous) — meaning it likely
+        only exercises mocks/fixtures and never touches real production
+        code."""
         orphans = []
-        source_names = set(f.name for f in self.source_funcs.values())
-        for k, t in self.test_funcs.items():
-            parts = t.name.split("_")[1:]
-            target = "_".join(parts) if parts else t.name
-            if target and target not in source_names:
-                orphans.append(k)
-        return {"orphans": len(orphans), "details": orphans[:5]}
-
-    def untested_function_analyzer(self) -> Tuple[List[str], List[str]]:
-        tested = set()
-        untested = set()
-        all_calls = set()
         for t in self.test_funcs.values():
-            all_calls.update(t.calls)
-        for key, f in self.source_funcs.items():
-            if f.name in all_calls or any(f.name in t.name for t in self.test_funcs.values()):
-                tested.add(key)
-            else:
-                untested.add(key)
-        return list(tested), list(untested)
+            if t.calls and not t.resolved_calls:
+                orphans.append(f"{t.file}:{t.lineno} {t.name}")
+        return {"orphans": len(orphans), "details": orphans[:20]}
 
-    def untested_exception_checker(self) -> Dict:
-        all_raises = set()
-        for f in self.source_funcs.values():
-            all_raises.update(f.raises)
-        tested_raises = set()
-        for t in self.test_funcs.values():
-            if t.has_raises:
-                for a in t.assertions:
-                    if "raises" in a:
-                        for exc in all_raises:
-                            if exc in a:
-                                tested_raises.add(exc)
-        untested = all_raises - tested_raises
-        return {"untested": len(untested), "details": list(untested)[:5]}
+    def untested_exception_checker(self) -> list[str]:
+        return self.exception_coverage()["untested"]
 
-    def parametrize_quality(self) -> Dict:
-        total = len(self.test_funcs)
-        with_param = sum(1 for t in self.test_funcs.values() if t.has_parametrize)
-        prefix_count = defaultdict(int)
-        for t in self.test_funcs.values():
-            prefix = "_".join(t.name.split("_")[:2])
-            prefix_count[prefix] += 1
-        duplicates = {p: c for p, c in prefix_count.items() if c > 3}
-        return {"with_param": with_param, "total": total, "duplicate_groups": len(duplicates)}
+    def parametrize_quality(self) -> dict:
+        parametrized = [t for t in self.test_funcs.values() if t.has_parametrize]
+        rich = sum(1 for t in parametrized if re.search(r'parametrize\([^)]*\[.*,.*,.*\]', t.source))
+        return {"parametrized": len(parametrized), "rich": rich, "total": len(self.test_funcs)}
 
-    def async_test_checker(self) -> Dict:
-        total = len(self.test_funcs)
-        async_tests = sum(1 for t in self.test_funcs.values() if t.is_async)
-        has_mark = sum(1 for t in self.test_funcs.values() if t.is_async and any("asyncio" in d for d in t.decorators))
-        return {"async_tests": async_tests, "has_mark": has_mark, "total": total}
+    def async_test_checker(self) -> dict:
+        async_tests = [t for t in self.test_funcs.values() if t.is_async]
+        missing_marker = [t for t in async_tests if "asyncio" not in " ".join(t.decorators).lower() and "anyio" not in " ".join(t.decorators).lower()]
+        for t in missing_marker[:10]:
+            self._add_finding("ASYNC-MISSING-MARKER", "warning",
+                               f"Test async '{t.name}' tidak punya marker @pytest.mark.asyncio — kemungkinan tidak benar-benar dijalankan oleh pytest",
+                               t.file, t.lineno, "confirmed")
+        return {"async_count": len(async_tests), "missing_marker": len(missing_marker), "total": len(self.test_funcs)}
 
-    def transaction_rollback_checker(self) -> Dict:
-        has_rollback = sum(1 for t in self.test_funcs.values() if t.has_rollback)
-        total = len(self.test_funcs)
-        score = (has_rollback / max(1, total)) * 100
-        return {"score": round(score, 1), "has_rollback": has_rollback, "total": total}
+    def transaction_rollback_checker(self) -> dict:
+        has_rb = sum(1 for t in self.test_funcs.values() if t.has_rollback)
+        return {"count": has_rb, "total": len(self.test_funcs)}
 
-    def event_consistency_checker(self) -> Dict:
-        has_consistency = 0
-        for t in self.test_funcs.values():
-            src = t.source
-            if "aggregate_id" in src and "version" in src and "occurred_at" in src:
-                has_consistency += 1
-        total = len(self.test_funcs)
-        score = (has_consistency / max(1, total)) * 100
-        return {"score": round(score, 1), "has_consistency": has_consistency, "total": total}
+    def event_consistency_checker(self) -> dict:
+        has_event = sum(1 for t in self.test_funcs.values()
+                         if t.has_event_assert and any(kw in t.source.lower() for kw in ("aggregate_id", "version", "timestamp")))
+        total_event_tests = max(1, sum(1 for t in self.test_funcs.values() if t.has_event_assert))
+        return {"score": round((has_event / total_event_tests) * 100, 1), "count": has_event, "total": total_event_tests}
 
-    def outbox_checker(self) -> Dict:
-        has_outbox = 0
-        for t in self.test_funcs.values():
-            if "outbox" in t.source.lower():
-                has_outbox += 1
+    def outbox_checker(self) -> dict:
+        has_outbox = sum(1 for t in self.test_funcs.values() if "outbox" in t.source.lower())
         total = len(self.test_funcs)
         return {"has_outbox_assert": has_outbox, "total": total, "score": round((has_outbox / max(1, total)) * 100, 1)}
 
-    def kafka_publish_checker(self) -> Dict:
-        has_kafka = 0
-        for t in self.test_funcs.values():
-            if "kafka" in t.source.lower() or "publish" in t.source.lower():
-                if any("topic" in a.lower() or "key" in a.lower() or "payload" in a.lower() for a in t.assertions):
-                    has_kafka += 1
+    def kafka_publish_checker(self) -> dict:
+        has_kafka = sum(1 for t in self.test_funcs.values()
+                         if ("kafka" in t.source.lower() or "publish" in t.source.lower())
+                         and any(kw in t.source.lower() for kw in ("topic", "key", "payload")))
         return {"has_kafka_assert": has_kafka, "total": len(self.test_funcs)}
 
-    def opentelemetry_checker(self) -> Dict:
-        has_otel = sum(1 for t in self.test_funcs.values() if t.has_otel)
-        return {"has_otel": has_otel, "total": len(self.test_funcs)}
+    def opentelemetry_checker(self) -> dict:
+        return {"has_otel": sum(1 for t in self.test_funcs.values() if t.has_otel), "total": len(self.test_funcs)}
 
-    def logging_checker(self) -> Dict:
-        has_log = sum(1 for t in self.test_funcs.values() if t.has_logging)
-        return {"has_logging": has_log, "total": len(self.test_funcs)}
+    def logging_checker(self) -> dict:
+        return {"has_logging": sum(1 for t in self.test_funcs.values() if t.has_logging), "total": len(self.test_funcs)}
 
-    def retry_checker(self) -> Dict:
-        has_retry = 0
-        for t in self.test_funcs.values():
-            if t.has_retry:
-                if "retry" in t.source.lower() and ("success" in t.source.lower() or "fail" in t.source.lower()):
-                    has_retry += 1
+    def retry_checker(self) -> dict:
+        has_retry = sum(1 for t in self.test_funcs.values() if t.has_retry and ("success" in t.source.lower() or "fail" in t.source.lower()))
         return {"has_retry_tests": has_retry, "total": len(self.test_funcs)}
 
-    def cache_checker(self) -> Dict:
-        has_cache = sum(1 for t in self.test_funcs.values() if t.has_cache_hit or t.has_cache_set)
-        return {"has_cache_tests": has_cache, "total": len(self.test_funcs)}
+    def cache_checker(self) -> dict:
+        return {"has_cache_tests": sum(1 for t in self.test_funcs.values() if t.has_cache_hit or t.has_cache_set), "total": len(self.test_funcs)}
 
-    def file_upload_checker(self) -> Dict:
-        has_file = sum(1 for t in self.test_funcs.values() if t.has_file_upload)
-        return {"has_file_upload": has_file, "total": len(self.test_funcs)}
+    def file_upload_checker(self) -> dict:
+        return {"has_file_upload": sum(1 for t in self.test_funcs.values() if t.has_file_upload), "total": len(self.test_funcs)}
 
-    def timezone_checker(self) -> Dict:
-        has_tz = 0
-        for t in self.test_funcs.values():
-            if any(x in t.source for x in ["UTC", "Asia/Jakarta", "timezone", "datetime", "pytz"]):
-                has_tz += 1
+    def timezone_checker(self) -> dict:
+        has_tz = sum(1 for t in self.test_funcs.values() if any(x in t.source for x in ("UTC", "Asia/Jakarta", "timezone", "pytz")))
         return {"has_timezone_tests": has_tz, "total": len(self.test_funcs)}
 
-    def permission_matrix_checker(self) -> Dict:
+    def permission_matrix_checker(self) -> dict:
         roles = set()
         for t in self.test_funcs.values():
-            if "admin" in t.name.lower():
-                roles.add("admin")
-            if "manager" in t.name.lower():
-                roles.add("manager")
-            if "staff" in t.name.lower():
-                roles.add("staff")
-            if "accounting" in t.name.lower():
-                roles.add("accounting")
-            if "warehouse" in t.name.lower():
-                roles.add("warehouse")
-            if "auditor" in t.name.lower():
-                roles.add("auditor")
-        return {"roles": list(roles), "count": len(roles)}
+            for r in ("admin", "manager", "staff", "accounting", "warehouse", "auditor"):
+                if r in t.name.lower():
+                    roles.add(r)
+        return {"roles": sorted(roles), "count": len(roles)}
 
-    def state_transition_checker(self) -> Dict:
-        total_trans = sum(1 for f in self.source_funcs.values() if f.has_status_transition)
-        tested_trans = 0
-        for f in self.source_funcs.values():
-            if not f.has_status_transition:
-                continue
-            for t in self.test_funcs.values():
-                if f.name in t.calls or f.name in t.name:
-                    if any("status" in a for a in t.assertions):
-                        tested_trans += 1
-                        break
-        score = (tested_trans / max(1, total_trans)) * 100 if total_trans else 0
-        return {"score": round(score, 1), "total_trans": total_trans, "tested": tested_trans}
+    def state_transition_checker(self) -> dict:
+        relevant = [f for f in self.source_funcs.values() if f.has_status_transition]
+        if not relevant:
+            return {"score": 100.0, "total_trans": 0, "tested": 0}
+        tested = 0
+        for f in relevant:
+            linking = f.tested_by_direct | f.tested_by_unique
+            if any("status" in a.raw for t_key in linking for a in self.test_funcs.get(t_key, TestFunction("", "", "", 0, 0, 0)).assertions):
+                tested += 1
+        score = (tested / len(relevant)) * 100
+        return {"score": round(score, 1), "total_trans": len(relevant), "tested": tested}
 
-    def test_smell_detector(self) -> List[TestSmell]:
+    def test_smell_detector(self) -> list[TestSmell]:
         smells = []
         for k, t in self.test_funcs.items():
             if t.line_count > 150:
-                smells.append(TestSmell("long", k, f"{t.line_count} lines"))
+                smells.append(TestSmell("long", t.file, t.lineno, f"{t.line_count} lines", k))
             if len(t.assertions) > 10:
-                smells.append(TestSmell("many_asserts", k, f"{len(t.assertions)} assertions"))
+                smells.append(TestSmell("many_asserts", t.file, t.lineno, f"{len(t.assertions)} assertions", k))
             if t.has_sleep:
-                smells.append(TestSmell("sleep", k, "time.sleep"))
+                smells.append(TestSmell("sleep", t.file, t.lineno, "time.sleep dipakai langsung", k))
             if t.has_try_except:
-                smells.append(TestSmell("try_except", k, "hides exceptions"))
-            if "setup" in t.source and "setup" in " ".join(t.setup_fixtures):
-                smells.append(TestSmell("duplicate_setup", k, "setup in test"))
+                smells.append(TestSmell("try_except", t.file, t.lineno, "try/except di dalam test bisa menyembunyikan kegagalan", k))
+            if not t.assertions and not t.calls:
+                smells.append(TestSmell("empty_test", t.file, t.lineno, "test kosong / tidak melakukan apapun", k))
+            if any(a.op == "truthy" and not a.has_literal_operand and "==" not in a.raw for a in t.assertions) and len(t.assertions) == 1:
+                smells.append(TestSmell("weak_assert", t.file, t.lineno, "hanya assert truthy tanpa perbandingan nilai spesifik", k))
         return smells
 
-    def business_flow_coverage(self) -> Dict:
-        flows = {
-            "Sales": ["create_sales_order", "approve_sales_order", "create_delivery_note", "issue_invoice", "receive_payment", "credit_note"],
-            "Purchase": ["create_purchase_order", "approve_purchase_order", "receive_goods", "receive_invoice", "pay_invoice", "debit_note"],
-            "Inventory": ["create_item", "adjust_stock", "transfer_warehouse", "stock_opname", "calculate_cogs", "valuation"],
-            "Accounting": ["post_journal", "approve_journal", "reverse_journal", "close_period", "reopen_period", "reconcile_bank"],
-            "Tax": ["calculate_ppn", "submit_faktur", "report_spt", "calculate_pph", "validate_ntpn"],
-            "Payroll": ["create_payroll", "process_payroll", "approve_payroll", "pay_payroll", "post_payroll_gl", "generate_payslip"],
-            "FixedAsset": ["create_asset", "depreciate", "dispose_asset", "revalue_asset", "impairment_test"],
-            "IntangibleAsset": ["create_intangible", "amortize", "impairment_test_intangible"],
-        }
-        result = {}
-        all_test_names = " ".join([t.name for t in self.test_funcs.values()])
-        for flow, steps in flows.items():
-            step_result = {}
-            for step in steps:
-                found = step in all_test_names or any(re.search(step.replace("_", ".*"), t.name, re.I) for t in self.test_funcs.values())
-                step_result[step] = found
-            result[flow] = step_result
-        return result
+    # ---- BUSINESS FLOW COVERAGE (real, discovered from actual repo layout) ----
+    def business_flow_coverage(self) -> dict[str, dict[str, Any]]:
+        buckets = _discover_business_flows(self.index)
+        coverage: dict[str, dict[str, Any]] = {}
+        for domain, funcs in buckets.items():
+            covered = [f for f in funcs if f.is_tested]
+            missing = [f for f in funcs if not f.is_tested]
+            coverage[domain] = {
+                "total": len(funcs),
+                "covered": len(covered),
+                "pct": round((len(covered) / len(funcs)) * 100, 1) if funcs else 0.0,
+                "missing_functions": [f"{f.file}:{f.lineno} {(f.class_name+'.') if f.class_name else ''}{f.name}" for f in missing],
+            }
+        return coverage
 
-    def regression_risk(self) -> Dict:
-        by_file = defaultdict(lambda: {"loc": 0, "funcs": 0, "tests": 0})
+    def business_flow_summary(self) -> dict[str, dict[str, int | float]]:
+        flow = self.business_flow_coverage()
+        return {m: {"covered": v["covered"], "total": v["total"], "pct": v["pct"]} for m, v in flow.items()}
+
+    def regression_risk(self) -> dict:
+        by_file: dict[str, dict[str, int]] = defaultdict(lambda: {"loc": 0, "funcs": 0, "tested_funcs": 0})
         for f in self.source_funcs.values():
-            by_file[f.file.name]["loc"] += f.line_count
-            by_file[f.file.name]["funcs"] += 1
-        for t in self.test_funcs.values():
-            by_file[t.file.name]["tests"] += 1
+            by_file[f.file]["loc"] += (f.end_lineno - f.lineno + 1)
+            by_file[f.file]["funcs"] += 1
+            if f.is_tested:
+                by_file[f.file]["tested_funcs"] += 1
         risks = {}
         for file, data in by_file.items():
-            loc = data["loc"]
-            tests = data["tests"]
-            if loc == 0:
-                ratio = 0
+            funcs = data["funcs"]
+            tested_ratio = (data["tested_funcs"] / funcs) if funcs else 1.0
+            if funcs >= 3 and tested_ratio < 0.10:
+                risk = "HIGH"
+            elif funcs >= 3 and tested_ratio < 0.40:
+                risk = "MEDIUM"
             else:
-                ratio = tests / loc
-            risk = "HIGH" if tests < loc * 0.05 else "MEDIUM" if tests < loc * 0.15 else "LOW"
-            risks[file] = {"loc": loc, "tests": tests, "test_density": round(ratio * 100, 2), "risk": risk}
+                risk = "LOW"
+            risks[file] = {
+                "loc": data["loc"], "functions": funcs, "tested_functions": data["tested_funcs"],
+                "test_density": round(tested_ratio * 100, 1), "risk": risk,
+            }
         return risks
 
-    def business_flow_summary(self) -> Dict:
-        flow = self.business_flow_coverage()
-        summary = {}
-        for name, steps in flow.items():
-            covered = sum(1 for v in steps.values() if v)
-            total = len(steps)
-            summary[name] = {"covered": covered, "total": total, "pct": round((covered / total) * 100, 1)}
-        return summary
+    # ---- Compute Weighted Score ----
+    def compute_weighted_score(self, ignore_metrics: set[str] | None = None) -> float:
+        ignore = ignore_metrics or set()
+
+        def get_score(method_name):
+            try:
+                result = getattr(self, method_name)()
+                if isinstance(result, dict) and "score" in result:
+                    return result["score"]
+                if method_name == "permission_test":
+                    return min(100, len(result.get("roles", [])) / 5 * 100)
+                return 0
+            except Exception:
+                return 0
+
+        t1_names = ["assertion_quality", "negative_path_coverage", "exception_coverage", "edge_case_detector", "magic_number_detector"]
+        t1_scores = [get_score(n) for n in t1_names if n not in ignore]
+        tier1_avg = sum(t1_scores) / len(t1_scores) if t1_scores else 0
+
+        t2_names = ["mock_quality", "fixture_quality", "duplicate_test_detector", "test_naming", "aaa_pattern"]
+        t2_scores = [get_score(n) for n in t2_names if n not in ignore]
+        tier2_avg = sum(t2_scores) / len(t2_scores) if t2_scores else 0
+
+        t3_names = ["database_verification", "domain_event_verification", "audit_log_verification", "idempotency_verification", "permission_test"]
+        t3_scores = [get_score(n) for n in t3_names if n not in ignore]
+        tier3_avg = sum(t3_scores) / len(t3_scores) if t3_scores else 0
+
+        t4_names = ["accounting_checker", "inventory_checker", "fiscal_period_checker", "multi_currency_checker", "precision_checker"]
+        t4_scores = [get_score(n) for n in t4_names if n not in ignore]
+        tier4_avg = sum(t4_scores) / len(t4_scores) if t4_scores else 0
+
+        tier5_avg = self.mutation_score_estimation()[0]
+
+        flaky = self.flaky_test_detector()["count"]
+        slow = self.slow_test_detector()["count"]
+        dead = self.dead_code_test_detector()["count"]
+        orphan = self.orphan_test_checker()["orphans"]
+        total_tests = max(1, len(self.test_funcs))
+        penalty = (flaky + slow + dead + orphan) / total_tests * 50
+        tier6_score = max(0, 100 - penalty)
+
+        weights = {"tier1": 0.40, "tier2": 0.25, "tier3": 0.15, "tier4": 0.10, "tier5": 0.05, "tier6": 0.05}
+        total = (tier1_avg * weights["tier1"] + tier2_avg * weights["tier2"] + tier3_avg * weights["tier3"]
+                 + tier4_avg * weights["tier4"] + tier5_avg * weights["tier5"] + tier6_score * weights["tier6"])
+        return round(min(100, total), 1)
+
+    def untested_function_analyzer(self) -> tuple[list[str], list[str]]:
+        tested, untested = [], []
+        for key, f in self.source_funcs.items():
+            label = f"{f.file}:{f.lineno} {(f.class_name + '.') if f.class_name else ''}{f.name}"
+            if f.is_tested:
+                tested.append(label)
+            else:
+                untested.append(label)
+        return tested, untested
+
+    def top_offending_files(self, limit: int = 15) -> list[dict[str, Any]]:
+        risk = self.regression_risk()
+        rows = [{"file": f, **d} for f, d in risk.items() if d["functions"] >= 2]
+        rows.sort(key=lambda r: (r["functions"] - r["tested_functions"]), reverse=True)
+        return rows[:limit]
+
 
 # ─── ENGINE ──────────────────────────────────────────────────────────────────
 class PytestQualityChecker:
@@ -1215,9 +1741,9 @@ class PytestQualityChecker:
         root: pathlib.Path,
         enable_rca: bool = True,
         strict: bool = False,
-        extra_excludes: Optional[Set[str]] = None,
+        extra_excludes: set[str] | None = None,
         max_workers: int = 4,
-        ignore_metrics: Optional[Set[str]] = None,
+        ignore_metrics: set[str] | None = None,
     ):
         self.root = root
         self.enable_rca = enable_rca and _RCA_AVAILABLE
@@ -1225,315 +1751,347 @@ class PytestQualityChecker:
         self.extra_excludes = extra_excludes or set()
         self.max_workers = max_workers
         self.ignore_metrics = ignore_metrics or set()
-        self.parser = ASTParser(root, self.extra_excludes)
+        self.index = ProjectIndex(root, self.extra_excludes, max_workers)
 
-    def scan(self, progress_callback: Optional[Callable] = None) -> Report:
+    def scan(self, progress_callback: Callable | None = None) -> Report:
         t0 = time.monotonic()
-        self.parser.scan_files()
-        self.parser.parse_source_files()
-        self.parser.parse_test_files()
+        self.index.scan_files()
+        self.index.parse_all(progress_callback=progress_callback)
+        test_funcs, extra_errors = _build_test_functions(self.index)
+        self.index.parse_errors.extend(extra_errors)
+        _link_tests_to_sources(self.index, test_funcs)
 
-        test_funcs = self.parser.test_functions
-        source_funcs = self.parser.source_functions
-        analyzer = QualityAnalyzer(test_funcs, source_funcs)
+        analyzer = QualityAnalyzer(self.index, test_funcs)
 
-        # Tier 1
-        aq = analyzer.assertion_quality()
-        neg = analyzer.negative_path_coverage()
-        exc = analyzer.exception_coverage()
-        edge = analyzer.edge_case_detector()
-        magic = analyzer.magic_number_detector()
-
-        # Tier 2
-        mock = analyzer.mock_quality()
-        fixture = analyzer.fixture_quality()
-        dup = analyzer.duplicate_test_detector()
-        naming = analyzer.test_naming()
-        aaa = analyzer.aaa_pattern()
-
-        # Tier 3
-        db = analyzer.database_verification()
-        event = analyzer.domain_event_verification()
-        audit = analyzer.audit_log_verification()
-        idempotent = analyzer.idempotency_verification()
-        permission = analyzer.permission_test()
-
-        # Tier 4
-        acct = analyzer.accounting_checker()
-        inv = analyzer.inventory_checker()
-        period = analyzer.fiscal_period_checker()
-        curr = analyzer.multi_currency_checker()
-        prec = analyzer.precision_checker()
-
-        # Tier 5
-        mut_score, _, _ = analyzer.mutation_score()
+        t1 = {
+            "assertion_quality": analyzer.assertion_quality(),
+            "negative_path": analyzer.negative_path_coverage(),
+            "exception_coverage": analyzer.exception_coverage(),
+            "edge_case": analyzer.edge_case_detector(),
+            "magic_number": analyzer.magic_number_detector(),
+        }
+        t2 = {
+            "mock_quality": analyzer.mock_quality(),
+            "fixture_quality": analyzer.fixture_quality(),
+            "duplicate_test": analyzer.duplicate_test_detector(),
+            "test_naming": analyzer.test_naming(),
+            "aaa_pattern": analyzer.aaa_pattern(),
+        }
+        t3 = {
+            "database_verification": analyzer.database_verification(),
+            "domain_event": analyzer.domain_event_verification(),
+            "audit_log": analyzer.audit_log_verification(),
+            "idempotency": analyzer.idempotency_verification(),
+            "permission_test": analyzer.permission_test(),
+        }
+        t4 = {
+            "accounting": analyzer.accounting_checker(),
+            "inventory": analyzer.inventory_checker(),
+            "fiscal_period": analyzer.fiscal_period_checker(),
+            "multi_currency": analyzer.multi_currency_checker(),
+            "precision": analyzer.precision_checker(),
+        }
+        mut_score, mut_covered, mut_total = analyzer.mutation_score_estimation()
         strength = analyzer.test_strength_score(ignore_metrics=self.ignore_metrics)
         confidence = analyzer.confidence_score(strength)
         flow = analyzer.business_flow_coverage()
         reg_risk = analyzer.regression_risk()
+        t5 = {
+            "mutation_score": round(mut_score, 1),
+            "mutation_points_covered": round(mut_covered, 1),
+            "mutation_points_total": round(mut_total, 1),
+            "test_strength": strength,
+            "confidence_score": round(confidence, 1),
+            "business_flow": flow,
+            "business_flow_summary": analyzer.business_flow_summary(),
+            "regression_risk": reg_risk,
+        }
 
-        # Tier 6
-        flaky = analyzer.flaky_test_detector()
-        slow = analyzer.slow_test_detector()
-        isolation = analyzer.test_isolation_checker()
-        random_order = analyzer.random_order_checker()
-        dead = analyzer.dead_code_test_detector()
-        orphan = analyzer.orphan_test_checker()
         tested_funcs, untested_funcs = analyzer.untested_function_analyzer()
-        untested_exc = analyzer.untested_exception_checker()
-        param_q = analyzer.parametrize_quality()
-        async_check = analyzer.async_test_checker()
-        rollback = analyzer.transaction_rollback_checker()
-        event_cons = analyzer.event_consistency_checker()
-        outbox = analyzer.outbox_checker()
-        kafka = analyzer.kafka_publish_checker()
-        otel = analyzer.opentelemetry_checker()
-        log = analyzer.logging_checker()
-        retry = analyzer.retry_checker()
-        cache = analyzer.cache_checker()
-        file_upload = analyzer.file_upload_checker()
-        tz = analyzer.timezone_checker()
-        perm_matrix = analyzer.permission_matrix_checker()
-        state = analyzer.state_transition_checker()
         smells = analyzer.test_smell_detector()
-        flow_summary = analyzer.business_flow_summary()
+        t6 = {
+            "flaky_tests": analyzer.flaky_test_detector(),
+            "slow_tests": analyzer.slow_test_detector(),
+            "test_isolation": analyzer.test_isolation_checker(),
+            "random_order": analyzer.random_order_checker(),
+            "dead_code": analyzer.dead_code_test_detector(),
+            "orphan_tests": analyzer.orphan_test_checker(),
+            "untested_functions": untested_funcs,
+            "untested_exceptions": analyzer.untested_exception_checker(),
+            "parametrize_quality": analyzer.parametrize_quality(),
+            "async_tests": analyzer.async_test_checker(),
+            "transaction_rollback": analyzer.transaction_rollback_checker(),
+            "event_consistency": analyzer.event_consistency_checker(),
+            "outbox": analyzer.outbox_checker(),
+            "kafka_publish": analyzer.kafka_publish_checker(),
+            "opentelemetry": analyzer.opentelemetry_checker(),
+            "logging": analyzer.logging_checker(),
+            "retry": analyzer.retry_checker(),
+            "cache": analyzer.cache_checker(),
+            "file_upload": analyzer.file_upload_checker(),
+            "timezone": analyzer.timezone_checker(),
+            "permission_matrix": analyzer.permission_matrix_checker(),
+            "state_transition": analyzer.state_transition_checker(),
+            "test_smells": [{"type": s.type, "file": s.file, "lineno": s.lineno, "detail": s.detail} for s in smells],
+            "business_flow_summary": t5["business_flow_summary"],
+        }
+
+        overall_score = analyzer.compute_weighted_score(ignore_metrics=self.ignore_metrics)
 
         rca_results = []
         if self.enable_rca:
-            critical_issues = []
-            if aq["score"] < 50:
-                critical_issues.append(("Assertion Quality", aq["score"]))
-            if exc["score"] < 50:
-                critical_issues.append(("Exception Coverage", exc["score"]))
-            if state["score"] < 50:
-                critical_issues.append(("State Transition", state["score"]))
-            for name, score in critical_issues:
-                rca = _rca_analyze(RuntimeError(f"Low {name} score: {score}%"), {"metric": name, "score": score})
-                if rca:
-                    rca_results.append({"metric": name, "score": score, "rca": rca})
+            checks = [
+                ("Assertion Quality", t1["assertion_quality"]["score"]),
+                ("Exception Coverage", t1["exception_coverage"]["score"]),
+                ("State Transition", t6["state_transition"]["score"]),
+                ("Mutation Score", t5["mutation_score"]),
+            ]
+            for name, score in checks:
+                if score < 50:
+                    try:
+                        raise RuntimeError(f"Low {name} score: {score}%")
+                    except RuntimeError as e:
+                        rca = _rca_analyze(e, {"metric": name, "score": score})
+                        if rca:
+                            rca_results.append({"metric": name, "score": score, "rca": rca})
+
+        direct_count = sum(1 for f in self.index.source_functions.values() if f.tested_by_direct)
+        unique_count = sum(1 for f in self.index.source_functions.values() if not f.tested_by_direct and f.tested_by_unique)
 
         report = Report(
             total_tests=len(test_funcs),
-            total_source_functions=len(source_funcs),
+            total_source_functions=len(self.index.source_functions),
             tested_functions=len(tested_funcs),
+            tested_functions_direct=direct_count,
+            tested_functions_unique=unique_count,
             untested_functions=len(untested_funcs),
-            overall_quality_score=round(strength, 1),
-            tier1={
-                "assertion_quality": aq,
-                "negative_path": neg,
-                "exception_coverage": exc,
-                "edge_case": edge,
-                "magic_number": magic,
-            },
-            tier2={
-                "mock_quality": mock,
-                "fixture_quality": fixture,
-                "duplicate_test": dup,
-                "test_naming": naming,
-                "aaa_pattern": aaa,
-            },
-            tier3={
-                "database_verification": db,
-                "domain_event": event,
-                "audit_log": audit,
-                "idempotency": idempotent,
-                "permission_test": permission,
-            },
-            tier4={
-                "accounting": acct,
-                "inventory": inv,
-                "fiscal_period": period,
-                "multi_currency": curr,
-                "precision": prec,
-            },
-            tier5={
-                "mutation_score": round(mut_score, 1),
-                "test_strength": strength,
-                "confidence_score": round(confidence, 1),
-                "business_flow": flow,
-                "regression_risk": reg_risk,
-            },
-            tier6={
-                "flaky_tests": flaky,
-                "slow_tests": slow,
-                "test_isolation": isolation,
-                "random_order": random_order,
-                "dead_code": dead,
-                "orphan_tests": orphan,
-                "untested_functions": untested_funcs[:20],
-                "untested_exceptions": untested_exc,
-                "parametrize_quality": param_q,
-                "async_tests": async_check,
-                "transaction_rollback": rollback,
-                "event_consistency": event_cons,
-                "outbox": outbox,
-                "kafka_publish": kafka,
-                "opentelemetry": otel,
-                "logging": log,
-                "retry": retry,
-                "cache": cache,
-                "file_upload": file_upload,
-                "timezone": tz,
-                "permission_matrix": perm_matrix,
-                "state_transition": state,
-                "test_smells": [{"type": s.type, "file": s.file, "detail": s.detail} for s in smells],
-                "business_flow_summary": flow_summary,
-            },
+            overall_quality_score=overall_score,
+            tier1=t1, tier2=t2, tier3=t3, tier4=t4, tier5=t5, tier6=t6,
             scan_time=time.monotonic() - t0,
             rca_results=rca_results,
+            parse_errors=self.index.parse_errors,
+            findings=analyzer.findings,
+            top_offending_files=analyzer.top_offending_files(),
         )
         return report
 
-# ─── REPORTING ──────────────────────────────────────────────────────────────
-def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
-    c = COLOR
-    _safe_print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*72}╗")
-    _safe_print("║              PYTEST QUALITY CHECKER v3.1.1               ║")
-    _safe_print(f"╚{'═'*72}╝{c['RESET']}")
 
-    r = report
-    _safe_print(f"\n{c['BOLD']}📊 OVERALL QUALITY SCORE: {c['CYAN']}{r.overall_quality_score:.1f}/100{c['RESET']}")
-    _safe_print(f"  🎯 Confidence Score          : {c['GREEN']}{r.tier5['confidence_score']:.1f}%{c['RESET']}")
+# ─── REPORT PRINTING ───────────────────────────────────────────────────────
+def print_report(r: Report, verbose: bool = False, show_rca: bool = True) -> None:
+    c = COLOR
+
+    def score_color(v: float) -> str:
+        return c["GREEN"] if v >= 70 else c["YELLOW"] if v >= 40 else c["RED"]
+
+    _safe_print(f"\n{c['BOLD']}{c['CYAN']}╔{'═'*76}╗{c['RESET']}")
+    _safe_print(f"{c['BOLD']}{c['CYAN']}║{c['RESET']}{c['BOLD']}   PYTEST QUALITY CHECKER v{__version__} (Forensic-Grade){' '*17}{c['CYAN']}║{c['RESET']}")
+    _safe_print(f"{c['BOLD']}{c['CYAN']}╚{'═'*76}╝{c['RESET']}\n")
+
+    sc = score_color(r.overall_quality_score)
+    _safe_print(f"📊 {c['BOLD']}OVERALL QUALITY SCORE{c['RESET']}: {sc}{r.overall_quality_score:.1f}/100{c['RESET']}")
+    _safe_print(f"  🎯 Confidence Score          : {r.tier5.get('confidence_score', 0):.1f}%")
     _safe_print(f"  🧪 Total Tests Found         : {r.total_tests}")
     _safe_print(f"  📄 Total Source Functions    : {r.total_source_functions}")
-    _safe_print(f"  ✅ Tested Functions          : {r.tested_functions}")
-    _safe_print(f"  ❌ Untested Functions        : {c['RED']}{r.untested_functions}{c['RESET']}")
-    _safe_print(f"  ⏱️  Scan time                : {r.scan_time:.3f}s")
-    _safe_print(f"  RCA Engine                   : {'✅ Active' if _RCA_AVAILABLE else '⚠️ Fallback'}")
+    _safe_print(f"  ✅ Tested (direct match)     : {r.tested_functions_direct}")
+    _safe_print(f"  🟡 Tested (unique-name match): {r.tested_functions_unique}")
+    _safe_print(f"  ❌ Untested Functions        : {r.untested_functions}")
+    _safe_print(f"  ⏱️  Scan time                 : {r.scan_time:.2f}s")
+    _safe_print(f"  RCA Engine                   : {'✅ Active' if show_rca and _RCA_AVAILABLE else '⚪ Fallback (heuristic only)'}")
+    if r.parse_errors:
+        _safe_print(f"  {c['RED']}⚠️  Parse errors               : {len(r.parse_errors)} file(s) gagal di-parse{c['RESET']}")
+        if verbose:
+            for e in r.parse_errors[:10]:
+                _safe_print(f"      - {e['file']}: {e['error']}")
 
-    # Tier1
-    t1 = r.tier1
-    _safe_print(f"\n{c['BOLD']}─── TIER 1 (Wajib) ───{c['RESET']}")
-    _safe_print(f"  Assertion Quality       : {t1['assertion_quality']['score']:.1f}%")
-    _safe_print(f"  Negative Path           : {t1['negative_path']['score']:.1f}%")
-    _safe_print(f"  Exception Coverage      : {t1['exception_coverage']['score']:.1f}%")
-    _safe_print(f"  Edge Case               : {t1['edge_case']['score']:.1f}%")
-    _safe_print(f"  Magic Number            : {t1['magic_number']['score']:.1f}%")
+    def print_tier(title: str, data: dict, keys: list[tuple[str, str]]):
+        _safe_print(f"\n{c['BOLD']}─── {title} ───{c['RESET']}")
+        for label, key in keys:
+            d = data.get(key, {})
+            score = d.get("score")
+            conf = d.get("confidence", "")
+            conf_tag = f" {c['DIM']}[{conf}]{c['RESET']}" if conf else ""
+            if score is not None:
+                _safe_print(f"  {label:<24}: {score_color(score)}{score:.1f}%{c['RESET']}{conf_tag}")
 
-    # Tier2
-    t2 = r.tier2
-    _safe_print(f"\n{c['BOLD']}─── TIER 2 (Mock & Structure) ───{c['RESET']}")
-    _safe_print(f"  Mock Quality            : {t2['mock_quality']['score']:.1f}%")
-    _safe_print(f"  Fixture Quality         : {t2['fixture_quality']['unique']} unique fixtures")
-    _safe_print(f"  Duplicate Test          : {t2['duplicate_test']['duplicates']} duplicates")
-    _safe_print(f"  Test Naming             : {t2['test_naming']['score']:.1f}%")
-    _safe_print(f"  AAA Pattern             : {t2['aaa_pattern']['score']:.1f}%")
+    print_tier("TIER 1 (Wajib)", r.tier1, [
+        ("Assertion Quality", "assertion_quality"), ("Negative Path", "negative_path"),
+        ("Exception Coverage", "exception_coverage"), ("Edge Case", "edge_case"), ("Magic Number", "magic_number"),
+    ])
+    print_tier("TIER 2 (Mock & Structure)", r.tier2, [
+        ("Mock Quality", "mock_quality"), ("Duplicate Test", "duplicate_test"),
+        ("Test Naming", "test_naming"), ("AAA Pattern", "aaa_pattern"),
+    ])
+    _safe_print(f"  {'Fixture Quality':<24}: {r.tier2['fixture_quality']['unique']} unique fixtures {c['DIM']}[heuristic]{c['RESET']}")
+    _safe_print(f"  {'Duplicate pairs found':<24}: {r.tier2['duplicate_test']['duplicates']}")
 
-    # Tier3
-    t3 = r.tier3
-    _safe_print(f"\n{c['BOLD']}─── TIER 3 (Integration) ───{c['RESET']}")
-    _safe_print(f"  Database Verification   : {t3['database_verification']['score']:.1f}%")
-    _safe_print(f"  Domain Event            : {t3['domain_event']['score']:.1f}%")
-    _safe_print(f"  Audit Log               : {t3['audit_log']['score']:.1f}%")
-    _safe_print(f"  Idempotency             : {t3['idempotency']['score']:.1f}%")
-    _safe_print(f"  Permission Test         : {len(t3['permission_test']['roles'])} roles")
+    print_tier("TIER 3 (Integration)", r.tier3, [
+        ("Database Verification", "database_verification"), ("Domain Event", "domain_event"),
+        ("Audit Log", "audit_log"), ("Idempotency", "idempotency"),
+    ])
+    _safe_print(f"  {'Permission Test':<24}: {r.tier3['permission_test']['unique_roles']} roles detected {c['DIM']}[heuristic]{c['RESET']}")
 
-    # Tier4
-    t4 = r.tier4
-    _safe_print(f"\n{c['BOLD']}─── TIER 4 (ERP Specific) ───{c['RESET']}")
-    _safe_print(f"  Accounting (Debit=Credit): {t4['accounting']['score']:.1f}%")
-    _safe_print(f"  Inventory               : {t4['inventory']['score']:.1f}%")
-    _safe_print(f"  Fiscal Period           : {t4['fiscal_period']['score']:.1f}%")
-    _safe_print(f"  Multi Currency          : {t4['multi_currency']['score']:.1f}%")
-    _safe_print(f"  Precision (Decimal)     : {t4['precision']['score']:.1f}%")
+    print_tier("TIER 4 (ERP Specific — confirmed via call-graph)", r.tier4, [
+        ("Accounting", "accounting"), ("Inventory", "inventory"), ("Fiscal Period", "fiscal_period"),
+        ("Multi Currency", "multi_currency"), ("Precision (Decimal)", "precision"),
+    ])
+    if verbose:
+        for label, key in [("Accounting", "accounting"), ("Inventory", "inventory"), ("Fiscal Period", "fiscal_period"),
+                            ("Multi Currency", "multi_currency"), ("Precision", "precision")]:
+            d = r.tier4[key]
+            if d.get("untested_sample"):
+                _safe_print(f"    {c['DIM']}{label} — belum tertest (contoh):{c['RESET']}")
+                for u in d["untested_sample"][:5]:
+                    _safe_print(f"      - {u}")
 
-    # Tier5
     t5 = r.tier5
     _safe_print(f"\n{c['BOLD']}─── TIER 5 (Advanced) ───{c['RESET']}")
-    _safe_print(f"  🧬 Mutation Score       : {c['YELLOW']}{t5['mutation_score']:.1f}%{c['RESET']}")
-    _safe_print(f"  📈 Test Strength        : {t5['test_strength']:.1f}%")
-    _safe_print(f"  🎯 Confidence           : {t5['confidence_score']:.1f}%")
+    _safe_print(f"  🧬 Mutation Score (estimasi statis, BUKAN mutation testing sungguhan): {score_color(t5['mutation_score'])}{t5['mutation_score']:.1f}%{c['RESET']}")
+    _safe_print(f"  📈 Test Strength       : {t5['test_strength']:.1f}%")
+    _safe_print(f"  🎯 Confidence          : {t5['confidence_score']:.1f}%")
 
-    # Business Flow
-    flow_sum = r.tier6['business_flow_summary']
-    _safe_print(f"\n{c['BOLD']}─── BUSINESS FLOW COVERAGE ───{c['RESET']}")
-    for flow, data in flow_sum.items():
-        color = c["GREEN"] if data['pct'] >= 80 else c["YELLOW"] if data['pct'] >= 50 else c["RED"]
-        _safe_print(f"  {flow:15} {color}{data['pct']:.1f}% ({data['covered']}/{data['total']}){c['RESET']}")
+    flow_sum = t5["business_flow_summary"]
+    _safe_print(f"\n{c['BOLD']}─── BUSINESS FLOW COVERAGE (di-discover dari struktur repo Anda — bukan daftar generik) ───{c['RESET']}")
+    for module, data in sorted(flow_sum.items(), key=lambda kv: kv[1]["pct"]):
+        col = c["GREEN"] if data["pct"] >= 80 else c["YELLOW"] if data["pct"] >= 50 else c["RED"]
+        _safe_print(f"  {module:<28} {col}{data['pct']:>5.1f}%{c['RESET']} ({data['covered']}/{data['total']})")
 
-    # Tier6 issues
+    if verbose:
+        _safe_print(f"\n{c['DIM']}─── Missing Flow Functions (fungsi domain yang belum ada test-nya, dgn lokasi) ───{c['RESET']}")
+        flow_detail = t5["business_flow"]
+        for module, data in flow_detail.items():
+            if data["pct"] < 80 and data["missing_functions"]:
+                _safe_print(f"  {c['YELLOW']}{module}{c['RESET']}:")
+                for mf in data["missing_functions"][:5]:
+                    _safe_print(f"      - {mf}")
+
     t6 = r.tier6
     _safe_print(f"\n{c['BOLD']}─── TIER 6 (Issues & Smells) ───{c['RESET']}")
-    if t6['flaky_tests']['count'] > 0:
-        _safe_print(f"  {c['RED']}⚠️ Flaky tests: {t6['flaky_tests']['count']}{c['RESET']}")
-    if t6['slow_tests']['count'] > 0:
-        _safe_print(f"  {c['YELLOW']}⚠️ Slow tests: {t6['slow_tests']['count']}{c['RESET']}")
-    if t6['dead_code']['count'] > 0:
-        _safe_print(f"  {c['RED']}❌ Dead test code: {t6['dead_code']['count']}{c['RESET']}")
-    if t6['orphan_tests']['orphans'] > 0:
-        _safe_print(f"  {c['RED']}❌ Orphan tests: {t6['orphan_tests']['orphans']}{c['RESET']}")
-    if t6['untested_functions']:
+    if t6["flaky_tests"]["count"] > 0:
+        _safe_print(f"  {c['RED']}⚠️ Flaky tests (confirmed): {t6['flaky_tests']['count']}{c['RESET']}")
+        for d in t6["flaky_tests"]["details"][:5]:
+            _safe_print(f"      - {d}")
+    if t6["slow_tests"]["count"] > 0:
+        _safe_print(f"  {c['YELLOW']}⚠️ Slow tests (time.sleep): {t6['slow_tests']['count']}{c['RESET']}")
+    if t6["dead_code"]["count"] > 0:
+        _safe_print(f"  {c['RED']}❌ Dead test code (confirmed, no assertion/call): {t6['dead_code']['count']}{c['RESET']}")
+        for d in t6["dead_code"]["details"][:5]:
+            _safe_print(f"      - {d}")
+    if t6["orphan_tests"]["orphans"] > 0:
+        _safe_print(f"  {c['YELLOW']}⚠️ Orphan tests (tidak menyentuh source function manapun): {t6['orphan_tests']['orphans']}{c['RESET']}")
+    if t6["untested_functions"]:
         _safe_print(f"  {c['RED']}❌ Untested functions: {len(t6['untested_functions'])}{c['RESET']}")
-        for f in t6['untested_functions'][:5]:
+        for f in t6["untested_functions"][:10]:
             _safe_print(f"      - {f}")
-    if t6['test_smells']:
+    if t6["test_smells"]:
         _safe_print(f"  {c['YELLOW']}⚠️ Test smells: {len(t6['test_smells'])}{c['RESET']}")
-        for s in t6['test_smells'][:3]:
-            _safe_print(f"      - {s['type']}: {s['file']} ({s['detail']})")
-    if t6['state_transition']['score'] < 80:
-        _safe_print(f"  {c['YELLOW']}⚠️ State transition score: {t6['state_transition']['score']:.1f}%{c['RESET']}")
-    if t6['event_consistency']['score'] < 70:
+        by_type = defaultdict(int)
+        for s in t6["test_smells"]:
+            by_type[s["type"]] += 1
+        for stype, n in sorted(by_type.items(), key=lambda kv: -kv[1]):
+            _safe_print(f"      - {stype}: {n}")
+        if verbose:
+            for s in t6["test_smells"][:8]:
+                _safe_print(f"        {s['file']}:{s['lineno']} — {s['detail']}")
+    if t6["state_transition"]["score"] < 80:
+        _safe_print(f"  {c['YELLOW']}⚠️ State transition score: {t6['state_transition']['score']:.1f}% ({t6['state_transition']['tested']}/{t6['state_transition']['total_trans']} confirmed){c['RESET']}")
+    if t6["event_consistency"]["score"] < 70:
         _safe_print(f"  {c['YELLOW']}⚠️ Event consistency score: {t6['event_consistency']['score']:.1f}%{c['RESET']}")
 
-    # Regression Risk
-    high_risk = [f for f, d in t5['regression_risk'].items() if d['risk'] == "HIGH"]
-    if high_risk:
-        _safe_print(f"\n{c['RED']}⚠️ HIGH REGRESSION RISK:{c['RESET']}")
-        for f in high_risk[:5]:
-            d = t5['regression_risk'][f]
-            _safe_print(f"  {f}: LOC={d['loc']}, Tests={d['tests']}, Density={d['test_density']:.1f}%")
+    if r.top_offending_files:
+        _safe_print(f"\n{c['RED']}⚠️ TOP OFFENDING FILES (paling banyak fungsi belum ditest):{c['RESET']}")
+        for row in r.top_offending_files[:10]:
+            gap = row["functions"] - row["tested_functions"]
+            _safe_print(f"  {row['file']}: {row['risk']} risk — {row['tested_functions']}/{row['functions']} functions tested ({gap} belum), LOC={row['loc']}")
 
-    # RCA Results
     if show_rca and r.rca_results:
         _safe_print(f"\n{c['MAGENTA']}🔍 RCA Analysis:{c['RESET']}")
         for rr in r.rca_results:
             _safe_print(f"  {rr['metric']}: score={rr['score']}%")
-            rc = rr['rca'].get("root_cause", "")
-            fix = rr['rca'].get("suggested_fix", "")
+            rc = rr["rca"].get("root_cause", "")
+            fix = rr["rca"].get("suggested_fix", "")
             if rc:
                 _safe_print(f"    Root cause: {rc[:120]}")
             if fix:
                 _safe_print(f"    Fix: {fix[:120]}")
 
-    # Recommendations
     _safe_print(f"\n{c['BOLD']}─── RECOMMENDATIONS ───{c['RESET']}")
-    if t5['mutation_score'] < 70:
-        _safe_print(f"  {c['YELLOW']}🔧 Mutation Score rendah. Perkuat assertion spesifik (nilai, status, length).{c['RESET']}")
-    if t6['state_transition']['score'] < 80:
-        _safe_print(f"  {c['YELLOW']}🔧 State transition perlu ditingkatkan. Uji setiap perubahan status.{c['RESET']}")
-    if t6['event_consistency']['score'] < 70:
-        _safe_print(f"  {c['YELLOW']}🔧 Event consistency rendah. Verifikasi aggregate_id, version, timestamp.{c['RESET']}")
-    if t6['outbox']['score'] < 60:
-        _safe_print(f"  {c['YELLOW']}🔧 Outbox verification rendah. Tambahkan assert untuk outbox entry.{c['RESET']}")
-    if t6['flaky_tests']['count'] > 0:
-        _safe_print(f"  {c['RED']}🔧 Flaky tests detected. Gunakan mock untuk waktu/random dan fixture stabil.{c['RESET']}")
+    recs = []
+    if r.tier1["assertion_quality"]["score"] < 70:
+        recs.append(f"🔧 {r.tier1['assertion_quality']['bad']} test punya assertion lemah/kosong. Ganti assert truthy generik dengan assert nilai spesifik (==, in, raises).")
+    if t5["mutation_score"] < 70:
+        recs.append("🔧 Mutation Score (estimasi) rendah. Perkuat assertion pada nilai/status/length, bukan hanya cek 'tidak error'.")
+    if t6["state_transition"]["score"] < 80 and t6["state_transition"]["total_trans"] > 0:
+        recs.append(f"🔧 {t6['state_transition']['total_trans'] - t6['state_transition']['tested']} status-transition function belum diverifikasi perubahan status-nya secara eksplisit.")
+    if r.tier2["duplicate_test"]["duplicates"] > 0:
+        recs.append(f"🔧 {r.tier2['duplicate_test']['duplicates']} pasang test terdeteksi duplikat struktural — cek apakah itu copy-paste yang perlu di-parametrize saja.")
+    if t6["flaky_tests"]["count"] > 0:
+        recs.append(f"🔧 {t6['flaky_tests']['count']} test berpotensi flaky (sleep/random/datetime.now tanpa mock). Mock dependency waktu/random.")
+    if r.untested_functions > 0:
+        recs.append(f"🔧 {r.untested_functions} function source tidak terhubung ke test manapun (langsung/unik). Lihat 'TOP OFFENDING FILES' di atas untuk prioritas.")
+    if not recs:
+        recs.append("✅ Tidak ada rekomendasi kritis — kualitas test sudah di atas ambang batas pada seluruh tier.")
+    for rec in recs:
+        _safe_print(f"  {c['YELLOW']}{rec}{c['RESET']}")
 
-    _safe_print(f"\n{c['CYAN']}{'─'*72}{c['RESET']}")
-    if report.overall_quality_score >= 70:
-        _safe_print(f"  {c['GREEN']}✅ PASS — Overall quality acceptable.{c['RESET']}")
-    else:
-        _safe_print(f"  {c['RED']}❌ FAIL — Quality score below 70. Improve test quality.{c['RESET']}")
+    _safe_print(f"\n{c['BOLD']}─── WEIGHTED SCORE BREAKDOWN ───{c['RESET']}")
+
+    def _safe_tier_average(tier_dict):
+        scores = []
+        for key, value in tier_dict.items():
+            if isinstance(value, dict):
+                if "score" in value:
+                    scores.append(value["score"])
+                elif key == "permission_test":
+                    scores.append(min(100, len(value.get("roles", [])) / 5 * 100))
+        return sum(scores) / len(scores) if scores else 0
+
+    t1_avg = _safe_tier_average(r.tier1)
+    t2_avg = _safe_tier_average(r.tier2)
+    t3_avg = _safe_tier_average(r.tier3)
+    t4_avg = _safe_tier_average(r.tier4)
+    t5_avg = r.tier5.get("mutation_score", 0)
+    flaky = t6.get("flaky_tests", {}).get("count", 0)
+    slow = t6.get("slow_tests", {}).get("count", 0)
+    dead = t6.get("dead_code", {}).get("count", 0)
+    orphan = t6.get("orphan_tests", {}).get("orphans", 0)
+    total_tests = max(1, r.total_tests)
+    penalty = (flaky + slow + dead + orphan) / total_tests * 50
+    t6_score = max(0, 100 - penalty)
+
+    _safe_print(f"  Tier1 (40%): {t1_avg:.1f}")
+    _safe_print(f"  Tier2 (25%): {t2_avg:.1f}")
+    _safe_print(f"  Tier3 (15%): {t3_avg:.1f}")
+    _safe_print(f"  Tier4 (10%): {t4_avg:.1f}")
+    _safe_print(f"  Tier5 ( 5%): {t5_avg:.1f}")
+    _safe_print(f"  Tier6 ( 5%): {t6_score:.1f} (penalti)")
+    _safe_print(f"\n{c['DIM']}Legend: [confirmed] = dibuktikan langsung dari struktur AST (pasti).{c['RESET']}")
+    _safe_print(f"{c['DIM']}        [heuristic] = deteksi berbasis pola/kata kunci, verifikasi manual disarankan.{c['RESET']}")
+
 
 # ─── EXPORT ──────────────────────────────────────────────────────────────────
 def save_json(report: Report, path: pathlib.Path) -> bool:
     try:
         data = {
             "version": __version__,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "overall_quality_score": report.overall_quality_score,
             "passed": report.passed,
             "scan_time": report.scan_time,
             "total_tests": report.total_tests,
             "total_source_functions": report.total_source_functions,
             "tested_functions": report.tested_functions,
+            "tested_functions_direct": report.tested_functions_direct,
+            "tested_functions_unique": report.tested_functions_unique,
             "untested_functions": report.untested_functions,
-            "tier1": report.tier1,
-            "tier2": report.tier2,
-            "tier3": report.tier3,
-            "tier4": report.tier4,
-            "tier5": report.tier5,
-            "tier6": report.tier6,
+            "parse_errors": report.parse_errors,
+            "tier1": report.tier1, "tier2": report.tier2, "tier3": report.tier3,
+            "tier4": report.tier4, "tier5": report.tier5, "tier6": report.tier6,
             "rca_results": report.rca_results,
+            "top_offending_files": report.top_offending_files,
+            "findings": [
+                {"rule": f.rule, "severity": f.severity, "message": f.message, "file": f.file, "line": f.lineno, "confidence": f.confidence}
+                for f in report.findings
+            ],
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
@@ -1544,6 +2102,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
         _safe_print(f"{_c('RED')}❌ Failed to save JSON: {e}{_c('RESET')}")
         return False
 
+
 def save_csv(report: Report, path: pathlib.Path) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1553,19 +2112,27 @@ def save_csv(report: Report, path: pathlib.Path) -> bool:
             writer.writerow(["overall_quality_score", report.overall_quality_score])
             writer.writerow(["total_tests", report.total_tests])
             writer.writerow(["total_source_functions", report.total_source_functions])
-            writer.writerow(["tested_functions", report.tested_functions])
+            writer.writerow(["tested_functions_direct", report.tested_functions_direct])
+            writer.writerow(["tested_functions_unique", report.tested_functions_unique])
             writer.writerow(["untested_functions", report.untested_functions])
-            for tier, data in [("tier1", report.tier1), ("tier2", report.tier2), ("tier3", report.tier3), ("tier4", report.tier4), ("tier5", report.tier5), ("tier6", report.tier6)]:
+            for tier, data in [("tier1", report.tier1), ("tier2", report.tier2), ("tier3", report.tier3),
+                                ("tier4", report.tier4), ("tier5", report.tier5), ("tier6", report.tier6)]:
                 for key, val in data.items():
                     if isinstance(val, dict):
                         for k2, v2 in val.items():
                             if isinstance(v2, (int, float, str)):
                                 writer.writerow([f"{tier}_{key}_{k2}", v2])
+            writer.writerow([])
+            writer.writerow(["--- FINDINGS ---"])
+            writer.writerow(["rule", "severity", "confidence", "file", "line", "message"])
+            for f in report.findings:
+                writer.writerow([f.rule, f.severity, f.confidence, f.file, f.lineno, f.message])
         _safe_print(f"{_c('GREEN')}✅ CSV saved: {path}{_c('RESET')}")
         return True
     except Exception as e:
         _safe_print(f"{_c('RED')}❌ Failed to save CSV: {e}{_c('RESET')}")
         return False
+
 
 def save_html(report: Report, path: pathlib.Path) -> bool:
     try:
@@ -1583,12 +2150,15 @@ h1{{color:#0d6efd}}
 .card .value.yellow{{color:#ffc107}}
 .card .value.red{{color:#dc3545}}
 .card .label{{color:#6c757d}}
-.table{{width:100%}}
-.table td{{padding:0.3rem 0.5rem}}
+.table{{width:100%;border-collapse:collapse}}
+.table td, .table th{{padding:0.3rem 0.5rem;border-bottom:1px solid #e9ecef;text-align:left}}
+.error{{color:red;font-weight:bold}}
+.mono{{font-family:monospace;font-size:0.85rem}}
+.tag{{font-size:0.7rem;padding:0.1rem 0.4rem;border-radius:4px;background:#e9ecef;color:#495057}}
 </style>
 </head>
 <body>
-<h1>Pytest Quality Checker Report</h1>
+<h1>Pytest Quality Checker Report (v{__version__})</h1>
 <div class="summary">
   <div class="card"><div class="value">{report.overall_quality_score:.1f}</div><div class="label">Quality Score</div></div>
   <div class="card"><div class="value">{report.total_tests}</div><div class="label">Total Tests</div></div>
@@ -1596,40 +2166,47 @@ h1{{color:#0d6efd}}
   <div class="card"><div class="value">{report.tested_functions}</div><div class="label">Tested</div></div>
   <div class="card"><div class="value" style="color:{color}">{'PASS' if report.passed else 'FAIL'}</div><div class="label">Status</div></div>
 </div>
-<h2>Tier 1 (Wajib)</h2>
-<table class="table">
-<tr><th>Metric</th><th>Score</th></tr>
-<tr><td>Assertion Quality</td><td>{report.tier1['assertion_quality']['score']:.1f}%</td></tr>
-<tr><td>Negative Path</td><td>{report.tier1['negative_path']['score']:.1f}%</td></tr>
-<tr><td>Exception Coverage</td><td>{report.tier1['exception_coverage']['score']:.1f}%</td></tr>
-<tr><td>Edge Case</td><td>{report.tier1['edge_case']['score']:.1f}%</td></tr>
-<tr><td>Magic Number</td><td>{report.tier1['magic_number']['score']:.1f}%</td></tr>
-</table>
-<h2>Tier 2 (Mock & Structure)</h2>
-<table class="table">
-<tr><th>Metric</th><th>Score</th></tr>
-<tr><td>Mock Quality</td><td>{report.tier2['mock_quality']['score']:.1f}%</td></tr>
-<tr><td>Test Naming</td><td>{report.tier2['test_naming']['score']:.1f}%</td></tr>
-<tr><td>AAA Pattern</td><td>{report.tier2['aaa_pattern']['score']:.1f}%</td></tr>
-</table>
-<h2>Tier 4 (ERP Specific)</h2>
-<table class="table">
-<tr><th>Metric</th><th>Score</th></tr>
-<tr><td>Accounting</td><td>{report.tier4['accounting']['score']:.1f}%</td></tr>
-<tr><td>Inventory</td><td>{report.tier4['inventory']['score']:.1f}%</td></tr>
-<tr><td>Fiscal Period</td><td>{report.tier4['fiscal_period']['score']:.1f}%</td></tr>
-<tr><td>Multi Currency</td><td>{report.tier4['multi_currency']['score']:.1f}%</td></tr>
-<tr><td>Precision</td><td>{report.tier4['precision']['score']:.1f}%</td></tr>
-</table>
-<h2>Business Flow Coverage</h2>
-<table class="table">
 """
-        for flow, data in report.tier6['business_flow_summary'].items():
-            color = "green" if data['pct'] >= 80 else "yellow" if data['pct'] >= 50 else "red"
-            html += f'<tr><td>{flow}</td><td class="{color}">{data["pct"]:.1f}% ({data["covered"]}/{data["total"]})</td></tr>'
-        html += """
-</table>
-</body></html>"""
+        if report.parse_errors:
+            html += "<h2>⚠️ Parse Errors</h2><ul>"
+            for err in report.parse_errors[:20]:
+                html += f"<li class='error'>{err['file']}: {err['error'][:150]}</li>"
+            if len(report.parse_errors) > 20:
+                html += f"<li>... and {len(report.parse_errors)-20} more</li>"
+            html += "</ul>"
+
+        def tier_table(title, tier_dict, rows):
+            out = f"<h2>{title}</h2><table class='table'><tr><th>Metric</th><th>Score</th><th>Confidence</th></tr>"
+            for label, key in rows:
+                d = tier_dict.get(key, {})
+                if "score" in d:
+                    out += f"<tr><td>{label}</td><td>{d['score']:.1f}%</td><td><span class='tag'>{d.get('confidence','-')}</span></td></tr>"
+            return out + "</table>"
+
+        html += tier_table("Tier 1 (Wajib)", report.tier1, [
+            ("Assertion Quality", "assertion_quality"), ("Negative Path", "negative_path"),
+            ("Exception Coverage", "exception_coverage"), ("Edge Case", "edge_case"), ("Magic Number", "magic_number")])
+        html += tier_table("Tier 4 (ERP Specific)", report.tier4, [
+            ("Accounting", "accounting"), ("Inventory", "inventory"), ("Fiscal Period", "fiscal_period"),
+            ("Multi Currency", "multi_currency"), ("Precision", "precision")])
+
+        html += "<h2>Business Flow Coverage (discovered from actual repo)</h2><table class='table'>"
+        for flow, data in report.tier6["business_flow_summary"].items():
+            colr = "green" if data["pct"] >= 80 else "yellow" if data["pct"] >= 50 else "red"
+            html += f'<tr><td>{flow}</td><td style="color:{colr}">{data["pct"]:.1f}% ({data["covered"]}/{data["total"]})</td></tr>'
+        html += "</table>"
+
+        html += "<h2>Top Offending Files</h2><table class='table'><tr><th>File</th><th>Risk</th><th>Tested/Total funcs</th><th>LOC</th></tr>"
+        for row in report.top_offending_files:
+            html += f"<tr><td class='mono'>{row['file']}</td><td>{row['risk']}</td><td>{row['tested_functions']}/{row['functions']}</td><td>{row['loc']}</td></tr>"
+        html += "</table>"
+
+        html += "<h2>Findings</h2><table class='table'><tr><th>Rule</th><th>Severity</th><th>Confidence</th><th>Location</th><th>Message</th></tr>"
+        for f in report.findings[:500]:
+            html += f"<tr><td>{f.rule}</td><td>{f.severity}</td><td><span class='tag'>{f.confidence}</span></td><td class='mono'>{f.file}:{f.lineno}</td><td>{f.message}</td></tr>"
+        html += "</table>"
+
+        html += "</body></html>"
         with open(path, "w", encoding="utf-8") as f:
             f.write(html)
         _safe_print(f"{_c('GREEN')}✅ HTML saved: {path}{_c('RESET')}")
@@ -1638,17 +2215,33 @@ h1{{color:#0d6efd}}
         _safe_print(f"{_c('RED')}❌ Failed to save HTML: {e}{_c('RESET')}")
         return False
 
+
 def save_sarif(report: Report, path: pathlib.Path) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         results = []
-        for rr in report.rca_results:
+        for f in report.findings:
+            level = {"error": "error", "warning": "warning", "note": "note"}.get(f.severity, "warning")
             results.append({
-                "ruleId": "PYTEST-QUALITY",
-                "level": "warning" if rr['score'] < 70 else "note",
-                "message": {"text": f"{rr['metric']} score {rr['score']}%"},
-                "properties": {"metric": rr['metric'], "score": rr['score']},
+                "ruleId": f.rule,
+                "level": level,
+                "message": {"text": f.message},
+                "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": {"uri": f.file},
+                        "region": {"startLine": max(1, f.lineno)},
+                    }
+                }],
+                "properties": {"confidence": f.confidence},
             })
+        for err in report.parse_errors:
+            results.append({
+                "ruleId": "PARSE-ERROR",
+                "level": "error",
+                "message": {"text": err["error"]},
+                "locations": [{"physicalLocation": {"artifactLocation": {"uri": err["file"]}, "region": {"startLine": 1}}}],
+            })
+        rule_ids = sorted({f.rule for f in report.findings} | {"PARSE-ERROR"})
         sarif = {
             "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
             "version": "2.1.0",
@@ -1657,13 +2250,11 @@ def save_sarif(report: Report, path: pathlib.Path) -> bool:
                     "driver": {
                         "name": "PytestQualityChecker",
                         "version": __version__,
-                        "rules": [
-                            {"id": "PYTEST-QUALITY", "shortDescription": {"text": "Pytest quality metric"}},
-                        ]
+                        "rules": [{"id": rid, "shortDescription": {"text": rid.replace("-", " ").title()}} for rid in rule_ids],
                     }
                 },
                 "results": results,
-            }]
+            }],
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(sarif, f, indent=2, ensure_ascii=False)
@@ -1673,27 +2264,73 @@ def save_sarif(report: Report, path: pathlib.Path) -> bool:
         _safe_print(f"{_c('RED')}❌ Failed to save SARIF: {e}{_c('RESET')}")
         return False
 
+
 # ─── SELF-TEST ──────────────────────────────────────────────────────────────
 def self_test(verbose: bool = True) -> bool:
     passed = failed = 0
+
     def check(name, cond, detail=""):
         nonlocal passed, failed
         if cond:
-            if verbose: _safe_print(f"  ✅ {name}")
+            if verbose:
+                _safe_print(f"  ✅ {name}")
             passed += 1
         else:
-            if verbose: _safe_print(f"  ❌ {name}" + (f": {detail}" if detail else ""))
+            if verbose:
+                _safe_print(f"  ❌ {name}" + (f": {detail}" if detail else ""))
             failed += 1
 
-    if verbose: _safe_print(f"\nPytest Checker self-test v{__version__}…\n")
-    check("AST parsing works", True)
+    if verbose:
+        _safe_print(f"\nPytest Checker self-test v{__version__}…\n")
 
-    if verbose: _safe_print(f"\nSelf-test: {passed} passed, {failed} failed {'✅' if failed==0 else '❌'}")
+    sample_src = (
+        "class JournalService:\n"
+        "    def post_journal_entry(self, entry):\n"
+        "        if entry.amount < 0:\n"
+        "            raise ValueError('negative')\n"
+        "        return entry\n"
+    )
+    tree = ast.parse(sample_src)
+    cls = tree.body[0]
+    fn = cls.body[0]
+    v = SourceFeatureVisitor()
+    v.visit(fn)
+    check("SourceFeatureVisitor detects raises", "ValueError" in v.raises, str(v.raises))
+    check("SourceFeatureVisitor counts branches", v.branches == 1, str(v.branches))
+
+    sample_test = (
+        "def test_post_journal_entry_rejects_negative():\n"
+        "    svc = JournalService()\n"
+        "    with pytest.raises(ValueError):\n"
+        "        svc.post_journal_entry(entry)\n"
+        "    assert svc.post_journal_entry(entry2) == entry2\n"
+    )
+    ttree = ast.parse(sample_test)
+    tfn = ttree.body[0]
+    tv = TestFeatureVisitor({"JournalService": ("class", "JournalService")}, {}, [])
+    tv.visit(tfn)
+    check("TestFeatureVisitor detects pytest.raises target", "ValueError" in tv.raises_targets, str(tv.raises_targets))
+    check("TestFeatureVisitor tracks var type from constructor", tv.var_types.get("svc") == "JournalService", str(tv.var_types))
+    check("TestFeatureVisitor records assertion op", any(a.op == "eq" for a in tv.assertions), str(tv.assertions))
+
+    h1 = _normalized_dump(ast.parse("assert x == 5").body[0])
+    h2 = _normalized_dump(ast.parse("assert y == 999").body[0])
+    check("Normalized dump ignores literal values/names (structural duplicate hash)", h1 == h2, f"{h1} vs {h2}")
+    h3 = _normalized_dump(ast.parse("assert x != 5").body[0])
+    check("Normalized dump distinguishes different operators", h1 != h3, f"{h1} vs {h3}")
+
+    check("Dotted module path conversion works", _dotted_module_path("domain/journal/entities.py") == "domain.journal.entities")
+    check("Domain discovery works for domain/ files", _discover_domain("domain/fixed_asset/entity.py") == "fixed_asset")
+    check("Domain discovery returns empty for non-domain files", _discover_domain("application/use_cases/foo.py") == "")
+
+    if verbose:
+        _safe_print(f"\nSelf-test: {passed} passed, {failed} failed {'✅' if failed == 0 else '❌'}")
     return failed == 0
+
 
 # ─── MAIN ────────────────────────────────────────────────────────────────────
 def main() -> int:
-    parser = argparse.ArgumentParser(description=f"Pytest Quality Checker v{__version__}")
+    parser = argparse.ArgumentParser(description=f"Pytest Quality Checker v{__version__} (Forensic-Grade)")
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--json", metavar="FILE")
     parser.add_argument("--csv", metavar="FILE")
@@ -1706,7 +2343,7 @@ def main() -> int:
     parser.add_argument("--exclude", default="")
     parser.add_argument("--max-workers", type=int, default=4)
     parser.add_argument("--no-progress", action="store_true")
-    parser.add_argument("--ignore-metrics", default="", help="Comma-separated metric names to ignore (e.g. exception_coverage,state_transition)")
+    parser.add_argument("--ignore-metrics", default="", help="Comma-separated metric names to ignore")
     parser.add_argument("--version", action="version", version=f"pytest_checker v{__version__}")
 
     args = parser.parse_args()
@@ -1719,33 +2356,24 @@ def main() -> int:
     ignore_metrics = set(args.ignore_metrics.split(",")) if args.ignore_metrics else set()
 
     checker = PytestQualityChecker(
-        root=project_root,
-        enable_rca=not args.no_rca,
-        strict=args.strict,
-        extra_excludes=extra_excludes,
-        max_workers=args.max_workers,
-        ignore_metrics=ignore_metrics,
+        root=project_root, enable_rca=not args.no_rca, strict=args.strict,
+        extra_excludes=extra_excludes, max_workers=args.max_workers, ignore_metrics=ignore_metrics,
     )
 
     progress = None
     if not args.no_progress:
-        total = 0
-        scanned = 0
         lock = threading.Lock()
+
         def _progress(current: int, total_: int):
-            nonlocal total, scanned
             with lock:
-                total = total_
-                scanned = current
-                pct = (scanned / total * 100) if total > 0 else 0
+                pct = (current / total_ * 100) if total_ > 0 else 0
                 bar = "█" * int(pct / 2) + "░" * (50 - int(pct / 2))
-                _safe_print(f"\r  [{bar}] {scanned}/{total} ({pct:.1f}%)", end="", flush=True)
-                if scanned >= total:
+                _safe_print(f"\r  [{bar}] {current}/{total_} ({pct:.1f}%)", end="", flush=True)
+                if current >= total_:
                     _safe_print()
         progress = _progress
 
     report = checker.scan(progress_callback=progress)
-
     print_report(report, verbose=args.verbose, show_rca=not args.no_rca)
 
     if not args.dry_run:
@@ -1759,6 +2387,7 @@ def main() -> int:
             save_sarif(report, pathlib.Path(args.sarif))
 
     return 0 if report.passed else 1
+
 
 if __name__ == "__main__":
     try:

@@ -31,12 +31,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
@@ -60,20 +60,20 @@ class IdempotencyManager:
     """
 
     def __init__(self):
-        self._storage: Dict[str, tuple[str, datetime]] = {}
+        self._storage: dict[str, tuple[str, datetime]] = {}
         self._ttl_seconds = 86400
 
     def _get_key(self, idempotency_key: str, method_name: str) -> str:
         raw = f"{method_name}:{idempotency_key}"
         return hashlib.sha256(raw.encode()).hexdigest()
 
-    def get_cached_result(self, idempotency_key: str, method_name: str) -> Optional[Dict[str, Any]]:
+    def get_cached_result(self, idempotency_key: str, method_name: str) -> dict[str, Any] | None:
         storage_key = self._get_key(idempotency_key, method_name)
         entry = self._storage.get(storage_key)
         if entry is None:
             return None
         result_json, timestamp = entry
-        if (datetime.now(timezone.utc) - timestamp).total_seconds() > self._ttl_seconds:
+        if (datetime.now(UTC) - timestamp).total_seconds() > self._ttl_seconds:
             del self._storage[storage_key]
             return None
         try:
@@ -81,13 +81,13 @@ class IdempotencyManager:
         except json.JSONDecodeError:
             return None
 
-    def cache_result(self, idempotency_key: str, method_name: str, result: Dict[str, Any]) -> None:
+    def cache_result(self, idempotency_key: str, method_name: str, result: dict[str, Any]) -> None:
         storage_key = self._get_key(idempotency_key, method_name)
         try:
             result_json = json.dumps(result, default=str)
         except TypeError:
             result_json = json.dumps({"result": str(result)}, default=str)
-        self._storage[storage_key] = (result_json, datetime.now(timezone.utc))
+        self._storage[storage_key] = (result_json, datetime.now(UTC))
 
 
 # Global instance
@@ -467,15 +467,9 @@ class UserAuditLogSchema(BaseModel):
 # DEPENDENCY INJECTION
 # ============================================================================
 
-
-async def get_iam_service(request: Request, ) -> Any:
-    """Get IAM Service instance."""
-
-    from application.service_layer.service_iam import IAMService
-
-    container = request.app.state.container
-    return container.resolve(IAMService)
-
+async def get_iam_service(request: Request) -> Any:
+    """Get IAM Service instance from app.state."""
+    return request.app.state.iam_service
 
 # ============================================================================
 # ROUTER

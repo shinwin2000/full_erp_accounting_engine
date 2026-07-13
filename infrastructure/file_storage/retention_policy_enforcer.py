@@ -20,6 +20,7 @@ Audit: Setiap penghapusan file karena retensi dicatat.
 from __future__ import annotations
 
 import asyncio
+import io
 from datetime import UTC, datetime
 from typing import Any
 
@@ -367,6 +368,7 @@ class RetentionPolicyEnforcer:
                 await asyncio.sleep(interval_hours * 3600)
                 await self.scan_and_enforce()
             except asyncio.CancelledError:
+                logger.debug("Retention scan loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in retention scan: {e}")
@@ -381,7 +383,8 @@ class RetentionPolicyEnforcer:
             try:
                 await self._scan_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Retention scan task cancelled during stop")
+                # Expected cancellation; continue
             self._scan_task = None
         logger.info("Retention policy enforcer stopped")
 

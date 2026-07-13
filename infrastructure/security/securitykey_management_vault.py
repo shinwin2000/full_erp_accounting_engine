@@ -78,7 +78,8 @@ class KeyManagementVault:
         except Exception as e:
             # ConfigNotFoundError adalah kondisi normal – tidak perlu log
             if "ConfigNotFoundError" in str(type(e).__name__) or "ConfigNotFound" in str(e):
-                pass
+                # Still log at debug level to avoid silent swallow
+                logger.debug(f"Config not found, using default Vault config: {e}")
             else:
                 logger.debug(f"Vault config load error: {type(e).__name__}: {str(e)}")
             return {}
@@ -150,7 +151,9 @@ class KeyManagementVault:
             )
             await self._set_cached_key(key)
             return key
-        except hvac.exceptions.InvalidPath:
+        except hvac.exceptions.InvalidPath as e:
+            # Key not found in KV store; create it automatically
+            logger.debug(f"Key '{key_id}' not found in Vault KV, creating: {e}")
             return await self.create_key(key_id)
 
     async def create_key(self, key_id: str, key_bytes: bytes | None = None) -> EncryptionKey:
@@ -182,7 +185,9 @@ class KeyManagementVault:
             client.secrets.transit.rotate_key(name=key_id)
             logger.info(f"Transit key '{key_id}' rotated")
             return await self.get_key(key_id)
-        except hvac.exceptions.InvalidPath:
+        except hvac.exceptions.InvalidPath as e:
+            # Transit key not found; fallback to KV rotation
+            logger.debug(f"Transit key '{key_id}' not found, falling back to KV rotation: {e}")
             current = await self.get_key(key_id)
             new_version = current.version + 1
             new_bytes = os.urandom(32)
@@ -245,6 +250,7 @@ class KeyManagementVault:
                 "vault_available": True,
             }
         except Exception as e:
+            logger.debug(f"Vault health check failed: {e}")
             return {"status": "unhealthy", "error": str(e), "vault_available": False}
 
     def clear_cache(self):

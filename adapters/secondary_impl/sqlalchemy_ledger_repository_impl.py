@@ -443,6 +443,18 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
         compare_with_previous: bool = True,
     ) -> dict[str, Any]:
         tb = await self.get_trial_balance(legal_entity_id, as_of_date, include_zero_balance=False)
+
+        # Pre-fetch all accounts for this legal entity to avoid query in loop
+        acc_stmt = select(
+            AccountTable.account_code,
+            AccountTable.account_type
+        ).where(
+            AccountTable.legal_entity_id == legal_entity_id,
+            AccountTable.is_active == True,
+        )
+        acc_result = await self.session.execute(acc_stmt)
+        account_type_map = {row.account_code: row.account_type for row in acc_result.all()}
+
         assets = []
         liabilities = []
         equity = []
@@ -450,12 +462,7 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
         total_liabilities = Decimal(0)
         total_equity = Decimal(0)
         for row in tb:
-            acc_stmt = select(AccountTable.account_type).where(
-                AccountTable.account_code == row.account_code,
-                AccountTable.legal_entity_id == legal_entity_id,
-            )
-            acc_result = await self.session.execute(acc_stmt)
-            acc_type = acc_result.scalar_one_or_none()
+            acc_type = account_type_map.get(row.account_code)
             if not acc_type:
                 continue
             balance = row.debit_balance if row.debit_balance > 0 else row.credit_balance
@@ -533,23 +540,36 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
     ) -> list[AccountBalance]:
         try:
             tb = await self.get_trial_balance(legal_entity_id, as_of_date, include_zero_balance=False)
+
+            # Pre-fetch all accounts for this legal entity to avoid query in loop
+            acc_stmt = select(
+                AccountTable.account_code,
+                AccountTable.id,
+                AccountTable.account_type,
+                AccountTable.normal_balance,
+            ).where(
+                AccountTable.legal_entity_id == legal_entity_id,
+                AccountTable.is_active == True,
+            )
+            acc_result = await self.session.execute(acc_stmt)
+            account_info_map = {}
+            for row in acc_result.all():
+                account_info_map[row.account_code] = (row.id, row.account_type, row.normal_balance)
+
             result = []
             for row in tb:
-                acc_stmt = select(AccountTable.id, AccountTable.account_type, AccountTable.normal_balance).where(
-                    AccountTable.account_code == row.account_code,
-                    AccountTable.legal_entity_id == legal_entity_id,
-                )
-                acc = (await self.session.execute(acc_stmt)).first()
-                if not acc:
+                acc_info = account_info_map.get(row.account_code)
+                if not acc_info:
                     continue
+                acc_id, acc_type, normal_balance = acc_info
                 balance = row.debit_balance if row.debit_balance > 0 else row.credit_balance
                 result.append(
                     AccountBalance(
-                        account_id=acc[0],
+                        account_id=acc_id,
                         account_code=row.account_code,
                         account_name=row.account_name,
-                        account_type=AccountType(acc[1].lower()),
-                        normal_balance=NormalBalance(acc[2]),
+                        account_type=AccountType(acc_type.lower()),
+                        normal_balance=NormalBalance(normal_balance),
                         opening_balance=Decimal(0),
                         debit_movement=Decimal(0),
                         credit_movement=Decimal(0),
@@ -706,16 +726,33 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
     # ========================================================================
 
     async def _rows_to_domain_entries(self, rows) -> list[LedgerEntry]:
-        """Convert ORM rows to domain LedgerEntry."""
+        """
+        Convert ORM rows to domain LedgerEntry with a single query for account info.
+        """
+        if not rows:
+            return []
+
+        # Collect all unique account IDs
+        account_ids = list({row.account_id for row in rows})
+        # Query all needed account info in one go
+        stmt = select(
+            AccountTable.id,
+            AccountTable.account_name,
+            AccountTable.account_type,
+            AccountTable.normal_balance,
+        ).where(AccountTable.id.in_(account_ids))
+        result = await self.session.execute(stmt)
+        acc_rows = result.all()
+        account_map = {}
+        for acc in acc_rows:
+            account_map[acc.id] = (acc.account_name, acc.account_type, acc.normal_balance)
+
         domain_entries = []
         for row in rows:
-            acc_stmt = select(AccountTable.account_name, AccountTable.account_type, AccountTable.normal_balance).where(
-                AccountTable.id == row.account_id
-            )
-            acc = (await self.session.execute(acc_stmt)).first()
-            account_name = acc[0] if acc else ""
-            account_type = acc[1] if acc else "Asset"
-            normal_balance = acc[2] if acc else "debit"
+            acc_info = account_map.get(row.account_id)
+            account_name = acc_info[0] if acc_info else ""
+            account_type_str = acc_info[1] if acc_info else "Asset"
+            normal_balance_str = acc_info[2] if acc_info else "debit"
             domain_entries.append(
                 LedgerEntry(
                     id=row.id,
@@ -724,8 +761,8 @@ class SQLAlchemyLedgerRepository(LedgerRepositoryPort):
                     account_id=row.account_id,
                     account_code=row.account_code,
                     account_name=account_name,
-                    account_type=AccountType(account_type.lower()),
-                    normal_balance=NormalBalance(normal_balance),
+                    account_type=AccountType(account_type_str.lower()),
+                    normal_balance=NormalBalance(normal_balance_str),
                     legal_entity_id=row.legal_entity_id,
                     debit_amount=row.debit_amount,
                     credit_amount=row.credit_amount,

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Module: sqlalchemy_cqrs_query_handler_impl.py
 Layer: Adapters (Secondary Impl)
@@ -10,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
 from ports.secondary.cqrs_query_handler_port import (
     CQRSQueryHandlerPort,
@@ -32,8 +31,8 @@ class SQLAlchemyCQRSQueryHandler(CQRSQueryHandlerPort):
 
     def __init__(
         self,
-        session_factory: Optional[Any] = None,
-        cache: Optional[Any] = None,
+        session_factory: Any | None = None,
+        cache: Any | None = None,
     ):
         """
         Initialize with dependency injection.

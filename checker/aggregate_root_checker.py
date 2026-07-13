@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 aggregate_root_checker.py — Aggregate Event Contract & Forensic Checker v6.0
 ============================================================================
@@ -23,7 +22,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
 COLOR = {"RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "", "DIM": "", "RESET": ""}
@@ -68,9 +67,9 @@ class Violation:
     message: str
     suggestion: str
     line: int = 0
-    rca: Optional[Dict[str, Any]] = None
+    rca: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = {
             "rule_id": self.rule_id,
             "file": self.file_path,
@@ -98,12 +97,12 @@ class AggregateInfo:
     has_version: bool
     has_apply: bool
     has_factory: bool
-    violations: List[Violation] = field(default_factory=list)
+    violations: list[Violation] = field(default_factory=list)
 
 @dataclass
 class Report:
-    aggregates: List[AggregateInfo] = field(default_factory=list)
-    violations: List[Violation] = field(default_factory=list)
+    aggregates: list[AggregateInfo] = field(default_factory=list)
+    violations: list[Violation] = field(default_factory=list)
     score: int = 100
     rca_enabled: bool = False
     elapsed_seconds: float = 0.0
@@ -125,9 +124,9 @@ class AggregateChecker:
     def __init__(self, root: Path, enable_rca: bool = True):
         self.root = root
         self.enable_rca = enable_rca and RCA_AVAILABLE
-        self.aggregates: List[AggregateInfo] = []
+        self.aggregates: list[AggregateInfo] = []
 
-    def _get_python_files(self) -> List[Path]:
+    def _get_python_files(self) -> list[Path]:
         py_files = []
         scan_dirs = ['domain', 'application/aggregates']
         for dir_name in scan_dirs:
@@ -153,7 +152,7 @@ class AggregateChecker:
             return True
         return False
 
-    def _is_aggregate_root(self, node: ast.ClassDef, file_path: Path) -> Tuple[bool, str]:
+    def _is_aggregate_root(self, node: ast.ClassDef, file_path: Path) -> tuple[bool, str]:
         name = node.name
         rel_path = str(file_path.relative_to(self.root))
 
@@ -253,7 +252,7 @@ class AggregateChecker:
             return True, "event_sourced"
         return False, ""
 
-    def _get_fields_and_methods(self, node: ast.ClassDef) -> Tuple[Set[str], Set[str]]:
+    def _get_fields_and_methods(self, node: ast.ClassDef) -> tuple[set[str], set[str]]:
         fields, methods = set(), set()
         for item in node.body:
             if isinstance(item, (ast.Assign, ast.AnnAssign)):
@@ -268,7 +267,7 @@ class AggregateChecker:
                 methods.add(item.name)
         return fields, methods
 
-    def _generate_rca(self, rule_id: str, message: str, severity: str) -> Optional[Dict[str, Any]]:
+    def _generate_rca(self, rule_id: str, message: str, severity: str) -> dict[str, Any] | None:
         if not self.enable_rca or _analyze_exception is None:
             return None
         try:
@@ -523,7 +522,7 @@ class AggregateChecker:
 def print_report(report: Report, verbose: bool = False):
     c = COLOR
     print(f"\n{c['CYAN']}{'='*80}{c['RESET']}")
-    print(f"{c['CYAN']}AGGREGATE EVENT CONTRACT & FORENSIC CHECKER v6.0 — {report.rca_enabled and 'RCA ENABLED' or 'RCA DISABLED'}{c['RESET']}")
+    print(f"{c['CYAN']}AGGREGATE EVENT CONTRACT & FORENSIC CHECKER v6.0 — {(report.rca_enabled and 'RCA ENABLED') or 'RCA DISABLED'}{c['RESET']}")
     print(f"{c['CYAN']}{'='*80}{c['RESET']}")
 
     severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}

@@ -365,7 +365,12 @@ class SQLAlchemyOutboxRepository(OutboxRepositoryPort):
                 if ev.metadata:
                     try:
                         metadata_dict = json.loads(ev.metadata)
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as e:
+                        logger.warning(
+                            "Failed to decode metadata for event %s: %s",
+                            ev.id,
+                            e
+                        )
                         metadata_dict = {"raw": ev.metadata}
                 pending_list.append(
                     {
@@ -539,19 +544,40 @@ class SQLAlchemyOutboxRepository(OutboxRepositoryPort):
             logger.error("Failed to update checkpoint: %s", e)
             raise OutboxRepositoryError(f"Failed to update checkpoint: {e}") from e
 
+    # ========================================================================
+    # GET OUTBOX STATS — DIPERBAIKI (tanpa query dalam loop)
+    # ========================================================================
+
     async def get_outbox_stats(self) -> dict[str, int]:
-        stats = {}
-        for status in [
-            OUTBOX_STATUS_PENDING,
-            OUTBOX_STATUS_PROCESSING,
-            OUTBOX_STATUS_SENT,
-            OUTBOX_STATUS_FAILED,
-            OUTBOX_STATUS_DEAD_LETTER,
-        ]:
-            stmt = select(func.count()).select_from(OutboxTable).where(OutboxTable.status == status)
+        """
+        Mengambil statistik jumlah pesan per status menggunakan satu query agregasi.
+        """
+        try:
+            # Satu query dengan GROUP BY untuk semua status
+            stmt = (
+                select(OutboxTable.status, func.count())
+                .where(OutboxTable.deleted_at.is_(None))
+                .group_by(OutboxTable.status)
+            )
             result = await self.session.execute(stmt)
-            stats[status] = result.scalar() or 0
-        return stats
+            rows = result.all()
+
+            # Inisialisasi semua status dengan 0
+            stats = {
+                OUTBOX_STATUS_PENDING: 0,
+                OUTBOX_STATUS_PROCESSING: 0,
+                OUTBOX_STATUS_SENT: 0,
+                OUTBOX_STATUS_FAILED: 0,
+                OUTBOX_STATUS_DEAD_LETTER: 0,
+            }
+            # Isi dari hasil query
+            for status, count in rows:
+                if status in stats:
+                    stats[status] = count
+            return stats
+        except Exception as e:
+            logger.error("Failed to get outbox stats: %s", e)
+            raise OutboxRepositoryError(f"Failed to get stats: {e}") from e
 
     async def retry_dead_letter_event(self, event_id: UUID) -> bool:
         stmt = (

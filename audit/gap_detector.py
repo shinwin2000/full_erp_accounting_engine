@@ -321,6 +321,8 @@ class GapDetector:
                     await self.scan_all_streams()
                     await asyncio.sleep(self._scan_interval)
                 except asyncio.CancelledError:
+                    logger = _get_logger()
+                    logger.debug("Gap detector scan loop cancelled")
                     break
                 except Exception as e:
                     logger = _get_logger()
@@ -339,7 +341,9 @@ class GapDetector:
             try:
                 await self._scan_task
             except asyncio.CancelledError:
-                pass
+                logger = _get_logger()
+                logger.debug("Gap detector scan task cancelled during stop")
+                # Expected cancellation; swallow after logging
             self._scan_task = None
         logger = _get_logger()
         logger.info("Gap detector stopped")

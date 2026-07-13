@@ -280,7 +280,9 @@ class EventSourceAuthenticator:
                     permissions=payload.get("perms", []),
                     metadata={"jwt_payload": payload},
                 )
-            except jwt.InvalidTokenError:
+            except jwt.InvalidTokenError as e:
+                # Log the error before continuing to next key
+                logger.debug(f"JWT validation failed for key {source_id}: {e}")
                 continue
         self._record_audit("AUTH_JWT_FAILURE", "system", {})
         raise EventAuthenticationError("Invalid JWT")

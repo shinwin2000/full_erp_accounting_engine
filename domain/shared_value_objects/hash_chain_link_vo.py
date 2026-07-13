@@ -638,7 +638,7 @@ def combine_hashes(hash1: str, hash2: str) -> str:
 
 __all__ = [
     "HashChainError",
-    "HashChainLink",  
+    "HashChainLink",
     "HashChainLinkVO",
     "HashVerificationError",
     "InvalidHashError",

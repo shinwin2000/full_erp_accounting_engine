@@ -218,16 +218,35 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
             await self.session.rollback()
             raise LegalEntityRepositoryError(f"Failed to add legal entity: {e}") from e
 
+    # ============================================================================
+    # PERBAIKAN: Tambahkan pessimistic lock (SELECT FOR UPDATE) pada metode update
+    # ============================================================================
     async def update(self, entity: LegalEntity) -> None:
         try:
+            # Lock the row with SELECT FOR UPDATE to prevent race conditions
+            stmt = select(LegalEntityTable).where(LegalEntityTable.id == entity.id).with_for_update()
+            result = await self.session.execute(stmt)
+            existing = result.scalar_one_or_none()
+            if existing is None:
+                raise LegalEntityNotFoundError(f"Entity {entity.id} not found")
+
+            # Check version for optimistic lock (double-check)
+            if existing.version != entity.version:
+                raise OptimisticLockError(f"Version mismatch: expected {entity.version}, got {existing.version}")
+
             aggregate = self._to_domain(entity)
             table = await self._aggregate_to_orm(aggregate)
             table.version = entity.version + 1
             table.updated_at = datetime.utcnow()
+            # Since we have lock, we can merge or update directly
             await self.session.merge(table)
             await self.session.flush()
             await self._log_audit("UPDATE", entity.id, {"legal_name": entity.legal_name})
             logger.info("Legal entity updated: %s", entity.legal_name)
+        except OptimisticLockError:
+            raise
+        except LegalEntityNotFoundError:
+            raise
         except Exception as e:
             await self.session.rollback()
             raise LegalEntityRepositoryError(f"Failed to update legal entity: {e}") from e
@@ -514,7 +533,7 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
             raise LegalEntityRepositoryError(f"Failed to get branches: {e}") from e
 
     # ========================================================================
-    # CONSOLIDATION
+    # CONSOLIDATION — DIPERBAIKI (tanpa query dalam loop)
     # ========================================================================
 
     async def create_consolidation_group(self, group_name: str, description: str | None = None, created_by: UUID | None = None) -> UUID:
@@ -561,24 +580,43 @@ class SQLAlchemyLegalEntityRepository(LegalEntityRepositoryPort):
             raise LegalEntityRepositoryError(f"Failed to add to group: {e}") from e
 
     async def get_consolidation_groups(self, is_active: bool = True) -> list[dict[str, Any]]:
+        """
+        Ambil semua group konsolidasi beserta jumlah anggota masing-masing.
+        Menggunakan satu query agregasi (LEFT JOIN + GROUP BY) untuk menghindari N+1.
+        """
         try:
-            stmt = select(ConsolidationGroupTable).where(ConsolidationGroupTable.is_active == is_active)
-            result = await self.session.execute(stmt)
-            tables = result.scalars().all()
-            groups = []
-            for table in tables:
-                member_stmt = select(func.count()).select_from(ConsolidationGroupMemberTable).where(
-                    ConsolidationGroupMemberTable.group_id == table.id,
-                    ConsolidationGroupMemberTable.deleted_at.is_(None),
+            # Satu query: LEFT JOIN dengan member, group by group id, count member id
+            stmt = (
+                select(
+                    ConsolidationGroupTable.id,
+                    ConsolidationGroupTable.group_name,
+                    ConsolidationGroupTable.description,
+                    ConsolidationGroupTable.is_active,
+                    ConsolidationGroupTable.created_at,
+                    func.count(ConsolidationGroupMemberTable.id).label("member_count"),
                 )
-                member_result = await self.session.execute(member_stmt)
+                .outerjoin(
+                    ConsolidationGroupMemberTable,
+                    and_(
+                        ConsolidationGroupMemberTable.group_id == ConsolidationGroupTable.id,
+                        ConsolidationGroupMemberTable.deleted_at.is_(None),
+                    )
+                )
+                .where(ConsolidationGroupTable.is_active == is_active)
+                .group_by(ConsolidationGroupTable.id)
+                .order_by(ConsolidationGroupTable.group_name)
+            )
+            result = await self.session.execute(stmt)
+            rows = result.all()
+            groups = []
+            for row in rows:
                 groups.append({
-                    "id": table.id,
-                    "group_name": table.group_name,
-                    "description": table.description,
-                    "member_count": member_result.scalar() or 0,
-                    "is_active": table.is_active,
-                    "created_at": table.created_at,
+                    "id": row.id,
+                    "group_name": row.group_name,
+                    "description": row.description,
+                    "member_count": row.member_count or 0,
+                    "is_active": row.is_active,
+                    "created_at": row.created_at,
                 })
             return groups
         except Exception as e:

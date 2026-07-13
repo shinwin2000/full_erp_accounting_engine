@@ -12,15 +12,15 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select, text, update
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence_orm.report_definition_table import ReportDefinitionTable
 from infrastructure.persistence_orm.report_output_table import ReportOutputTable
 from infrastructure.persistence_orm.report_schedule_table import ReportScheduleTable
 from ports.primary.report_repository_port import (
-    ReportRepositoryPort,
     AgingReportRepositoryPort,
+    ReportRepositoryPort,
 )
 
 

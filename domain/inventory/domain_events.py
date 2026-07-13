@@ -595,7 +595,7 @@ __all__ = [
     "InterWarehouseTransferCreated",
     "InterWarehouseTransferCreatedEvent",
     "InventoryValuationUpdated",
-    "InventoryValuationUpdatedEvent", 
+    "InventoryValuationUpdatedEvent",
     "ItemCreated",
     "ItemCreatedEvent",
     "ItemDeactivated",

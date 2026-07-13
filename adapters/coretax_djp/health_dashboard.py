@@ -19,6 +19,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 
 try:
     from prometheus_client import REGISTRY, Counter, Gauge, Info, generate_latest
@@ -195,7 +196,8 @@ class CoretaxHealthChecker:
             try:
                 await self._background_task
             except asyncio.CancelledError:
-                pass
+                # Log expected cancellation during shutdown
+                logger.debug("Background health check task cancelled during stop")
 
     async def _background_health_check_loop(self):
         interval = self._load_config().get("coretax_djp", {}).get("health", {}).get("health_check_interval", HEALTH_CHECK_INTERVAL)
@@ -304,7 +306,7 @@ class CoretaxHealthChecker:
             # Gunakan session factory yang sudah tersedia
             session_factory = await get_session_factory()
             async with session_factory.get_session() as session:
-                await session.execute("SELECT 1")
+                await session.execute(text("SELECT 1"))
             latency = (time.time() - start) * 1000
             return ComponentHealth(status=HealthStatus.HEALTHY, message="Database connected", latency_ms=latency)
         except Exception as e:

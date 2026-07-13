@@ -350,7 +350,7 @@ GoodsReceiptNote = GoodsReceiptNoteEntity
 __all__ = [
     "GRNItem",
     "GRNStatus",
+    "GoodsReceiptNote",
     "GoodsReceiptNoteEntity",
     "GoodsReceiptNoteRepository",
-    "GoodsReceiptNote",  
 ]

@@ -214,7 +214,7 @@ class PasswordHashedVO:
     algorithm: str = "bcrypt" if BCRYPT_AVAILABLE else "pbkdf2_sha256"
     salt: str | None = None
     iterations: int = DEFAULT_PBKDF2_ITERATIONS
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))  # Fixed: timezone-aware
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     _policy: ClassVar[PasswordPolicy] = PasswordPolicy()
     _cache: ClassVar[dict[str, PasswordHashedVO]] = {}
@@ -326,7 +326,7 @@ class PasswordHashedVO:
             iterations=data.get("iterations", DEFAULT_PBKDF2_ITERATIONS),
             created_at=datetime.fromisoformat(data["created_at"])
             if data.get("created_at")
-            else datetime.now(UTC),  # Fixed: timezone-aware
+            else datetime.now(UTC),
         )
 
     # ==================== VERIFICATION METHODS ====================
@@ -362,9 +362,9 @@ class PasswordHashedVO:
                 logger.warning(f"Unknown hash algorithm: {self.algorithm}")
                 return False
         except (ValueError, TypeError, UnicodeDecodeError) as e:
-            # FIX: Jangan log kata "password" dan jangan tampilkan detail error
-            logger.error(f"Verification error: {type(e).__name__}")
-            return False
+            # Log error details without exposing the password, then return False as business result
+            logger.error(f"Verification error: {type(e).__name__}", exc_info=True)
+            return False  # explicit business result for failure
 
     def _verify_pbkdf2(self, plain_password: str) -> bool:
         """Verify password against PBKDF2 hash."""
@@ -386,8 +386,9 @@ class PasswordHashedVO:
             )
             return hmac.compare_digest(computed.hex(), expected_hash)
         except (ValueError, TypeError) as e:
-            logger.error(f"Verification error: {type(e).__name__}")
-            return False
+            # Log error without exposing the password, then return False as business result
+            logger.error(f"PBKDF2 verification error: {type(e).__name__}", exc_info=True)
+            return False  # explicit business result for failure
 
     # ==================== PASSWORD STRENGTH METHODS ====================
 

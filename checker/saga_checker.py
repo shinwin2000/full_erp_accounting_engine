@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/saga_checker.py – Saga Pattern Compliance Checker (v3.4.0)
 ==================================================================
@@ -21,14 +20,13 @@ import concurrent.futures
 import csv
 import json
 import logging
-import os
 import pathlib
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
+from datetime import UTC, datetime
 
 # ─── RCA INTEGRATION ──────────────────────────────────────────────────────────
 _RCA_ENGINE = None
@@ -59,7 +57,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE or _RCA_ENGINE is None:
         return {
             "severity": "WARNING",
@@ -94,7 +92,7 @@ if not logger.handlers:
     logger.addHandler(_log_handler)
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
     "WHITE": "", "BOLD": "", "DIM": "", "RESET": "",
 }
@@ -161,9 +159,9 @@ class SagaViolation:
     line: int
     message: str
     suggestion: str
-    rca: Optional[Dict] = None
+    rca: dict | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "severity": self.severity,
             "file": self.file,
@@ -187,12 +185,12 @@ class SagaInfo:
     calls_compensate_in_finally: bool
     is_async_execute: bool
     is_async_compensate: bool
-    violations: List[SagaViolation] = field(default_factory=list)
+    violations: list[SagaViolation] = field(default_factory=list)
 
 @dataclass
 class Report:
-    sagas: List[SagaInfo] = field(default_factory=list)
-    violations: List[SagaViolation] = field(default_factory=list)
+    sagas: list[SagaInfo] = field(default_factory=list)
+    violations: list[SagaViolation] = field(default_factory=list)
     total_files_scanned: int = 0
     total_sagas: int = 0
     score: float = 100.0
@@ -216,10 +214,10 @@ class Report:
         return self.error_count == 0
 
 # ─── AST UTILITIES ──────────────────────────────────────────────────────────
-_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_AST_CACHE: dict[str, tuple[ast.AST | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
 
-def _read_source(py_file: pathlib.Path) -> Optional[str]:
+def _read_source(py_file: pathlib.Path) -> str | None:
     encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
     for enc in encodings:
         try:
@@ -231,7 +229,7 @@ def _read_source(py_file: pathlib.Path) -> Optional[str]:
     except OSError:
         return None
 
-def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     key = str(py_file.resolve())
     with _CACHE_LOCK:
         if key in _AST_CACHE:
@@ -253,23 +251,23 @@ def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
         _AST_CACHE[key] = (None, err)
         return None, err
 
-def _get_method_names(node: ast.ClassDef) -> Set[str]:
+def _get_method_names(node: ast.ClassDef) -> set[str]:
     return {item.name for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
-def _get_method_defs(node: ast.ClassDef) -> List[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
+def _get_method_defs(node: ast.ClassDef) -> list[ast.FunctionDef | ast.AsyncFunctionDef]:
     return [item for item in node.body if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
-def _is_async_method(method: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> bool:
+def _is_async_method(method: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     return isinstance(method, ast.AsyncFunctionDef)
 
-def _find_method_by_name(node: ast.ClassDef, names: Set[str]) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
+def _find_method_by_name(node: ast.ClassDef, names: set[str]) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
     for item in node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if item.name in names:
                 return item
     return None
 
-def _has_method_call_in_block(node: ast.AST, method_names: Set[str]) -> bool:
+def _has_method_call_in_block(node: ast.AST, method_names: set[str]) -> bool:
     for sub in ast.walk(node):
         if isinstance(sub, ast.Call):
             if isinstance(sub.func, ast.Name) and sub.func.id in method_names:
@@ -281,7 +279,7 @@ def _has_method_call_in_block(node: ast.AST, method_names: Set[str]) -> bool:
                     return True
     return False
 
-def _generate_rca(msg: str, severity: str, context: Optional[Dict] = None) -> Optional[Dict]:
+def _generate_rca(msg: str, severity: str, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -301,14 +299,14 @@ class SagaChecker:
     def __init__(
         self,
         root: pathlib.Path,
-        saga_dirs: List[str],
+        saga_dirs: list[str],
         enable_rca: bool = True,
         strict: bool = False,
         relaxed: bool = False,
         ignore_idempotency: bool = False,
         ignore_state: bool = False,
-        exclude_classes: Optional[Set[str]] = None,
-        extra_excludes: Optional[Set[str]] = None,
+        exclude_classes: set[str] | None = None,
+        extra_excludes: set[str] | None = None,
         max_workers: int = 4,
     ):
         self.root = root
@@ -440,13 +438,13 @@ class SagaChecker:
             return _is_async_method(method)
         return False
 
-    def _get_execute_method(self, node: ast.ClassDef) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
+    def _get_execute_method(self, node: ast.ClassDef) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
         return _find_method_by_name(node, set(EXECUTE_METHODS))
 
-    def _get_compensate_method(self, node: ast.ClassDef) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
+    def _get_compensate_method(self, node: ast.ClassDef) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
         return _find_method_by_name(node, set(COMPENSATE_METHODS))
 
-    def _analyze_class(self, node: ast.ClassDef, rel_path: str, file_path: pathlib.Path) -> Optional[SagaInfo]:
+    def _analyze_class(self, node: ast.ClassDef, rel_path: str, file_path: pathlib.Path) -> SagaInfo | None:
         if not self._is_saga_class(node, file_path):
             self._skipped_fp_count += 1
             return None
@@ -461,7 +459,7 @@ class SagaChecker:
         is_async_exec = self._is_async_execute(node)
         is_async_comp = self._is_async_compensate(node)
 
-        violations: List[SagaViolation] = []
+        violations: list[SagaViolation] = []
         execute_method = self._get_execute_method(node)
         compensate_method = self._get_compensate_method(node)
         line = node.lineno
@@ -568,7 +566,7 @@ class SagaChecker:
             violations=violations,
         )
 
-    def scan(self, progress_callback: Optional[Callable] = None) -> Report:
+    def scan(self, progress_callback: Callable | None = None) -> Report:
         t0 = time.monotonic()
         report = Report()
         py_files = []
@@ -586,10 +584,10 @@ class SagaChecker:
         report.total_files_scanned = len(py_files)
         self._skipped_fp_count = 0
 
-        results: List[SagaInfo] = []
+        results: list[SagaInfo] = []
         total = len(py_files)
 
-        def _scan_one(idx: int, py_file: pathlib.Path) -> List[SagaInfo]:
+        def _scan_one(idx: int, py_file: pathlib.Path) -> list[SagaInfo]:
             if progress_callback:
                 progress_callback(idx + 1, total)
             tree, err = _get_ast(py_file)
@@ -650,7 +648,7 @@ def print_report(report: Report, verbose: bool = False, show_rca: bool = False):
     _safe_print("    ✅ compensate() in except block   — automatic rollback")
     _safe_print("    ✅ async consistency              — execute & compensate both async/sync")
 
-    _safe_print(f"\n  📊 Summary:")
+    _safe_print("\n  📊 Summary:")
     _safe_print(f"    Files scanned    : {report.total_files_scanned}")
     _safe_print(f"    Saga found       : {report.total_sagas}")
     _safe_print(f"    False positives skipped: {report.skipped_false_positives}")
@@ -705,7 +703,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
     try:
         data = {
             "version": __version__,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "score": report.score,
             "passed": report.passed,
             "scan_time": report.scan_time,

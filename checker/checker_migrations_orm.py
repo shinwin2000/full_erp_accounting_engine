@@ -17,12 +17,10 @@ import os
 import re
 import subprocess
 import sys
-import textwrap
 import time
 import traceback
 import uuid
 from pathlib import Path
-from typing import Optional, List, Tuple, Set, Dict, Any
 
 # ============================================================
 # Pastikan checker/core bisa diimport
@@ -35,11 +33,18 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 try:
-    from rca import RCAEngine, Severity, RCAResult, analyze_exception, Category, ErrorCode
+    from rca import Category, ErrorCode, RCAEngine, RCAResult, Severity, analyze_exception
     RCA_AVAILABLE = True
 except ImportError:
     try:
-        from checker.core.rca import RCAEngine, Severity, RCAResult, analyze_exception, Category, ErrorCode
+        from checker.core.rca import (
+            Category,
+            ErrorCode,
+            RCAEngine,
+            RCAResult,
+            Severity,
+            analyze_exception,
+        )
         RCA_AVAILABLE = True
     except ImportError:
         RCA_AVAILABLE = False
@@ -121,7 +126,7 @@ IGNORE_TABLES = {
 # ============================================================
 # 1. ALEMBIC GRAPH INTROSPECTION
 # ============================================================
-def audit_alembic_graph() -> Tuple[List[str], List[str], List[str]]:
+def audit_alembic_graph() -> tuple[list[str], list[str], list[str]]:
     heads: list[str] = []
     errors: list[str] = []
     revisions_log: list[str] = []
@@ -149,7 +154,7 @@ def audit_alembic_graph() -> Tuple[List[str], List[str], List[str]]:
 # ============================================================
 # 2. IMPORT ORM MODULES
 # ============================================================
-def import_all_orm_modules() -> List[str]:
+def import_all_orm_modules() -> list[str]:
     errors: list[str] = []
 
     if not INFRA_ORM_DIR.exists():
@@ -171,7 +176,7 @@ def import_all_orm_modules() -> List[str]:
 # ============================================================
 # 3. ENUM AUDIT
 # ============================================================
-def audit_runtime_and_ast_enums() -> List[str]:
+def audit_runtime_and_ast_enums() -> list[str]:
     violations: list[str] = []
 
     try:
@@ -270,7 +275,7 @@ class AlembicTableExtractor(ast.NodeVisitor):
 # ============================================================
 # 5. RCA KUSTOM
 # ============================================================
-def create_custom_rca_result(errors: List[str]) -> Optional[RCAResult]:
+def create_custom_rca_result(errors: list[str]) -> RCAResult | None:
     if not RCA_AVAILABLE or not errors:
         return None
 
@@ -280,8 +285,8 @@ def create_custom_rca_result(errors: List[str]) -> Optional[RCAResult]:
         tables_str = ", ".join(table_names[:5])
         root_cause = f"Tabel berikut terdefinisi di ORM tetapi tidak ada di migrasi: {tables_str}. Ini menyebabkan skema database tidak sinkron dengan model."
         suggested_fix = (
-            f"Jalankan 'alembic revision --autogenerate -m \"add missing tables\"' untuk membuat migration otomatis, "
-            f"atau gunakan opsi --fix pada auditor ini untuk membuat draft migration, lalu jalankan 'alembic upgrade head'."
+            "Jalankan 'alembic revision --autogenerate -m \"add missing tables\"' untuk membuat migration otomatis, "
+            "atau gunakan opsi --fix pada auditor ini untuk membuat draft migration, lalu jalankan 'alembic upgrade head'."
         )
         evidence = table_errors[:5]
 
@@ -307,7 +312,7 @@ def create_custom_rca_result(errors: List[str]) -> Optional[RCAResult]:
         confidence=0.7,
     )
 
-def generate_rca_report(errors: List[str]) -> str:
+def generate_rca_report(errors: list[str]) -> str:
     if not RCA_AVAILABLE:
         return "RCA not available."
 
@@ -328,7 +333,7 @@ def generate_rca_report(errors: List[str]) -> str:
 # ============================================================
 # 6. DRAFT MIGRATION DAN EKSEKUSI
 # ============================================================
-def get_alembic_head() -> Optional[str]:
+def get_alembic_head() -> str | None:
     try:
         from alembic.config import Config
         from alembic.script import ScriptDirectory
@@ -380,7 +385,7 @@ def get_column_type_string(col) -> str:
     else:
         return "sa.String(255)"
 
-def create_intelligent_migration_draft(tables: List[str], metadata) -> str:
+def create_intelligent_migration_draft(tables: list[str], metadata) -> str:
     if not tables:
         return ""
 
@@ -389,7 +394,7 @@ def create_intelligent_migration_draft(tables: List[str], metadata) -> str:
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
 
     lines = [
-        f'"""auto_fix_missing_tables',
+        '"""auto_fix_missing_tables',
         '',
         f'Revision ID: {revision_id}',
         f'Revises: {head if head else "None"}',
@@ -400,7 +405,7 @@ def create_intelligent_migration_draft(tables: List[str], metadata) -> str:
         '',
         '# revision identifiers, used by Alembic.',
         f"revision = '{revision_id}'",
-        f"down_revision = {repr(head)}",
+        f"down_revision = {head!r}",
         "depends_on = None",
         '',
         "def upgrade():",
@@ -437,7 +442,7 @@ def create_intelligent_migration_draft(tables: List[str], metadata) -> str:
 
     return "\n".join(lines)
 
-def run_alembic_upgrade(verbose: bool = False) -> Tuple[bool, str]:
+def run_alembic_upgrade(verbose: bool = False) -> tuple[bool, str]:
     """Jalankan alembic upgrade head dan kembalikan (success, output)."""
     if not ALEMBIC_INI.exists():
         return False, "alembic.ini not found"
@@ -570,7 +575,7 @@ def main(enable_rca: bool = True, auto_fix: bool = False, apply: bool = False, v
         print(f"  {GREEN}✔ Extracted {len(migration_tables)} tables from migrations.{RESET}")
 
     # ---- Phase 5: Schema alignment ----
-    missing_tables: List[str] = []
+    missing_tables: list[str] = []
     if metadata is not None:
         print("\nExecuting Phase 5: Schema Alignment (ORM vs Migrations)...")
         filtered_orm = orm_tables - IGNORE_TABLES

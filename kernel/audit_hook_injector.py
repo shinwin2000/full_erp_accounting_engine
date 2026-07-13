@@ -251,6 +251,8 @@ class AuditHookInjector(BaseAuditHookInjector):
                     await self._flush_context(context)
                     self._async_queue.task_done()
                 except asyncio.CancelledError:
+                    # Worker cancellation is expected during shutdown; log and exit cleanly
+                    logger.debug("Audit worker cancelled, exiting")
                     break
                 except Exception as e:
                     logger.error(f"Audit worker error: {e}")
@@ -554,7 +556,8 @@ class AuditHookInjector(BaseAuditHookInjector):
             try:
                 await self._worker_task
             except asyncio.CancelledError:
-                pass
+                # Worker task cancellation is expected during shutdown; log and continue
+                logger.debug("Worker task cancelled during shutdown")
             self._worker_task = None
 
         # Process remaining items in queue
@@ -564,6 +567,8 @@ class AuditHookInjector(BaseAuditHookInjector):
                 await self._flush_context(context)
                 self._async_queue.task_done()
             except asyncio.QueueEmpty:
+                # Queue became empty while processing; exit the loop
+                logger.debug("Queue empty during shutdown")
                 break
             except Exception as e:
                 logger.error(f"Error flushing queue item during shutdown: {e}")

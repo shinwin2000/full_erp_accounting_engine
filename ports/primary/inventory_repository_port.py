@@ -8,14 +8,13 @@ Responsibility: Port interface untuk Inventory Management.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 # Import domain aggregates (sesuai dengan yang digunakan implementasi)
 from domain.inventory.aggregate_root import InventoryItemAggregate, StockMovement
-from domain.inventory.stock_opname_entity import StockOpname
 from domain.inventory.valuation_method import FIFOLayer
 
 

@@ -218,7 +218,9 @@ class FileAuditStorage(BaseAuditStorage):
                         event = json.loads(line.strip())
                         if self._matches(event, filters):
                             events.append(event)
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as e:
+                        # Log the error instead of silently swallowing
+                        logger.warning(f"Failed to parse audit log line: {e}")
                         continue
         except FileNotFoundError:
             pass

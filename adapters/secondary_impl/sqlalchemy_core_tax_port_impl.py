@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -19,10 +19,8 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import declarative_base
 
-from ports.primary.core_tax_port import CoreTaxPort
-
 # Import domain value objects (if needed)
-from domain.tax_transaction.value_objects import TaxStatus
+from ports.primary.core_tax_port import CoreTaxPort
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +39,8 @@ class CoreTaxSubmissionTable(Base):
     status = Column(String(50), nullable=False, default="PENDING")
     response = Column(Text, nullable=True)
     submitted_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=lambda: datetime.now(UTC))
 
 
 class SQLAlchemyCoreTaxAdapter(CoreTaxPort):
@@ -60,7 +58,9 @@ class SQLAlchemyCoreTaxAdapter(CoreTaxPort):
         self._authority_adapter = authority_adapter
         if self._authority_adapter is None:
             try:
-                from adapters.secondary_impl.coretax_authority_adapter import CoretaxAuthorityAdapter
+                from adapters.secondary_impl.coretax_authority_adapter import (
+                    CoretaxAuthorityAdapter,
+                )
                 self._authority_adapter = CoretaxAuthorityAdapter()
                 logger.info("CoretaxAuthorityAdapter loaded successfully")
             except ImportError:
@@ -101,7 +101,7 @@ class SQLAlchemyCoreTaxAdapter(CoreTaxPort):
             period=period,
             submission_data=json.dumps(submission_data, default=str, ensure_ascii=False),
             status="PENDING",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         session.add(submission)
         await session.flush()
@@ -116,7 +116,7 @@ class SQLAlchemyCoreTaxAdapter(CoreTaxPort):
                 response_data = await self._authority_adapter.submit(data)
                 status = "SUBMITTED"
                 submission.status = "SUBMITTED"
-                submission.submitted_at = datetime.now(timezone.utc)
+                submission.submitted_at = datetime.now(UTC)
                 submission.response = json.dumps(response_data, default=str, ensure_ascii=False)
                 logger.info("CoreTax submission successful for %s period %s", tax_type, period)
             except Exception as e:
@@ -267,6 +267,6 @@ class SQLAlchemyCoreTaxAdapter(CoreTaxPort):
 
 # Alias untuk backward compatibility
 __all__ = [
-    "SQLAlchemyCoreTaxAdapter",
     "CoreTaxSubmissionTable",
+    "SQLAlchemyCoreTaxAdapter",
 ]

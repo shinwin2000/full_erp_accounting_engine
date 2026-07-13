@@ -15,6 +15,7 @@ Metode yang ditambahkan:
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # Layer Enum (dengan method tambahan)
@@ -177,6 +179,8 @@ class LayerDefinition:
             try:
                 re.compile(pattern)
             except re.error as e:
+                # Log the error for audit trail
+                logger.debug("Invalid regex pattern '%s': %s", pattern, e)
                 errors.append(f"Invalid regex pattern '{pattern}': {e}")
         return {"is_valid": len(errors) == 0, "errors": errors}
 
@@ -340,7 +344,10 @@ def validate_layer_consistency() -> list[str]:
                         f"Potential overlap between {layer1.name} pattern '{pat1}' and {layer2.name} pattern '{pat2}'"
                     )
             except re.error:
-                pass
+                # Log regex errors; they indicate problematic patterns but we continue
+                logger.debug("Regex error comparing patterns '%s' and '%s'", pat1, pat2)
+                # Optionally we could add an issue but we skip to avoid false positives
+                continue
     _record_cache_audit("VALIDATE_LAYER_CONSISTENCY", {"issues_count": len(issues)})
     return issues
 

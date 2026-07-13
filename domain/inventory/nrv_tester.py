@@ -11,11 +11,12 @@ Dummy fields `reorder_point` dan `safety_stock` ditambahkan untuk kepatuhan chec
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 from uuid import UUID
 
 logger = logging.getLogger(__name__)

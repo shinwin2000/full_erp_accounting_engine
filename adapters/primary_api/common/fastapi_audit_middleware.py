@@ -18,13 +18,12 @@ Audit: SEMUA akses API WAJIB tercatat. Tidak ada pengecualian.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
 import time
-from datetime import datetime, timezone
-from typing import Any, TYPE_CHECKING
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -34,10 +33,7 @@ from starlette.types import ASGIApp
 
 if TYPE_CHECKING:
     # Hanya digunakan untuk tipe, tidak diimpor saat runtime
-    from infrastructure.event_store.append_only_store import AppendOnlyStore
-    from kernel.immutable_laws.audit_trail_completeness_enforcer import (
-        AuditTrailCompletenessEnforcer,
-    )
+    pass
 
 from infrastructure.telemetry.structured_json_logging import get_logger
 
@@ -370,7 +366,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
             audit_record = AuditRecord(
                 id=uuid4(),
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 event_type=AuditEventType.API_RESPONSE if not error else AuditEventType.API_ERROR,
                 severity=AuditSeverity.INFO
                 if status_code < 400

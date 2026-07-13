@@ -299,6 +299,8 @@ class TamperAlertTrigger:
                     await self.check_all_streams()
                     await asyncio.sleep(self._check_interval)
                 except asyncio.CancelledError:
+                    logger = _get_logger()
+                    logger.debug("Tamper monitoring loop cancelled")
                     break
                 except Exception as e:
                     logger = _get_logger()
@@ -317,7 +319,9 @@ class TamperAlertTrigger:
             try:
                 await self._monitor_task
             except asyncio.CancelledError:
-                pass
+                logger = _get_logger()
+                logger.debug("Tamper monitoring task cancelled during stop")
+                # Expected cancellation; swallow after logging
             self._monitor_task = None
         logger = _get_logger()
         logger.info("Tamper alert trigger stopped")

@@ -23,25 +23,22 @@ from application.dto_objects.intangible_asset_request import (
     DisposeAssetRequest,
     ImpairmentTestRequest,
 )
+
+# Import domain events (sesuai dengan yang terdaftar di registry)
+from application.events import (
+    AssetAcquiredEvent,
+    AssetDepreciationPostedEvent,  # untuk amortisasi
+    AssetDisposedEvent,
+    AssetFullyDepreciatedEvent,
+    AssetImpairedEvent,
+    AssetRevaluatedEvent,
+)
 from domain.intangible_asset.amortization_schedule_engine import AmortizationScheduleEngine
 from domain.intangible_asset.asset_entity import IntangibleAssetEntity, IntangibleAssetStatus
 from ports.primary.cache_port import CachePort
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.intangible_asset_repository_port import IntangibleAssetRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
-
-# Import domain events (sesuai dengan yang terdaftar di registry)
-from application.events import (
-    AssetAcquiredEvent,
-    AssetUpdatedEvent,
-    AssetDepreciationPostedEvent,   # untuk amortisasi
-    AssetImpairedEvent,
-    AssetImpairmentReversedEvent,
-    AssetDisposedEvent,
-    AssetFullyDepreciatedEvent,
-    AssetRevaluatedEvent,
-    AssetTransferredEvent,
-)
 
 logger = logging.getLogger(__name__)
 

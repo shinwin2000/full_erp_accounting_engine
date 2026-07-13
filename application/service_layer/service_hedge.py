@@ -28,12 +28,6 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from domain.hedge.aggregate_root import HedgeRelationship, HedgeStatus, HedgeType
-from domain.hedge.hedge_effectiveness_tester import HedgeEffectivenessTester
-from domain.hedge.hedged_item import HedgedItemType
-from ports.primary.event_publisher_port import EventPublisherPort
-from ports.primary.hedge_repository_port import HedgeRepositoryPort
-from ports.primary.ledger_repository_port import LedgerRepositoryPort
-from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 # Import domain events
 from domain.hedge.domain_events import (
@@ -44,6 +38,12 @@ from domain.hedge.domain_events import (
     HedgeEffectivenessTestedEvent,
     HedgeFairValueAdjustedEvent,
 )
+from domain.hedge.hedge_effectiveness_tester import HedgeEffectivenessTester
+from domain.hedge.hedged_item import HedgedItemType
+from ports.primary.event_publisher_port import EventPublisherPort
+from ports.primary.hedge_repository_port import HedgeRepositoryPort
+from ports.primary.ledger_repository_port import LedgerRepositoryPort
+from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)
 

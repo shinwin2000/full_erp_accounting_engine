@@ -16,7 +16,7 @@ import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 from dotenv import load_dotenv
 
@@ -24,6 +24,7 @@ load_dotenv()
 
 # ─── FIX #1: Pastikan DATABASE_URL menggunakan async driver ──────────────
 import os
+
 _db_url = os.environ.get("DATABASE_URL", "")
 if _db_url and "postgresql://" in _db_url and "+asyncpg" not in _db_url:
     _fixed_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
@@ -68,7 +69,7 @@ from bootstrap.dependency_container.ioc_container import get_container
 # RCA ENGINE — via kernel.error_analysis (tidak langsung dari checker)
 # ============================================================
 try:
-    from kernel.error_analysis import analyze_error, log_rca_result, RCAResult
+    from kernel.error_analysis import RCAResult, analyze_error, log_rca_result
     RCA_KERNEL_AVAILABLE = True
 except ImportError:
     # Fallback: definisikan sendiri agar app tetap jalan
@@ -76,7 +77,7 @@ except ImportError:
     logger = logging.getLogger("erp_engine")
     logger.warning("kernel.error_analysis not found; using fallback RCA.")
 
-    def analyze_error(exc: Exception, context: Optional[Dict] = None) -> Any:
+    def analyze_error(exc: Exception, context: dict | None = None) -> Any:
         """Fallback: return dict sederhana."""
         return {
             "severity": "ERROR",
@@ -116,6 +117,7 @@ except ImportError:
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
+
     from redis.asyncio import Redis
 
 

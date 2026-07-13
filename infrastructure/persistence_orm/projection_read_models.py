@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from sqlalchemy import Column, Date, DateTime, Integer, Numeric, String, Text, JSON
+from sqlalchemy import JSON, Column, Date, DateTime, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID as SQLUUID
 
 from infrastructure.persistence_orm.base_model import Base

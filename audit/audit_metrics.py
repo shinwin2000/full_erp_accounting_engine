@@ -248,6 +248,8 @@ class AuditMetricsCollector:
                 await self.collect_metrics()
                 await asyncio.sleep(interval_seconds)
             except asyncio.CancelledError:
+                logger = _get_logger()
+                logger.debug("Periodic audit metrics collection loop cancelled")
                 break
             except Exception as e:
                 logger = _get_logger()
@@ -262,7 +264,9 @@ class AuditMetricsCollector:
             try:
                 await self._collection_task
             except asyncio.CancelledError:
-                pass
+                logger = _get_logger()
+                logger.debug("Audit metrics collection task cancelled during stop")
+                # Expected cancellation during shutdown; swallow after logging
             self._collection_task = None
         logger = _get_logger()
         logger.info("Stopped periodic audit metrics collection")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker_event_handler.py — Sovereign Event Handler & Event Sourcing Forensic Checker v2.4
 ========================================================================================
@@ -20,7 +19,7 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # =============================================================================
 # Path & RCA Integration
@@ -38,13 +37,21 @@ try:
     if str(_checker_core) not in sys.path:
         sys.path.insert(0, str(_checker_core))
     from rca import (
+        Category as RCACategory,
+    )
+    from rca import (
+        ErrorCode as RCAErrorCode,
+    )
+    from rca import (
         RCAEngine,
         RCAResult,
-        Severity as RCASeverity,
-        Category as RCACategory,
-        ErrorCode as RCAErrorCode,
-        get_engine as rca_get_engine,
         analyze_exception,
+    )
+    from rca import (
+        Severity as RCASeverity,
+    )
+    from rca import (
+        get_engine as rca_get_engine,
     )
     _rca_engine = rca_get_engine()
     _analyze_exception = analyze_exception
@@ -55,13 +62,21 @@ except ImportError:
         if str(_this_dir) not in sys.path:
             sys.path.insert(0, str(_this_dir))
         from rca import (
+            Category as RCACategory,
+        )
+        from rca import (
+            ErrorCode as RCAErrorCode,
+        )
+        from rca import (
             RCAEngine,
             RCAResult,
-            Severity as RCASeverity,
-            Category as RCACategory,
-            ErrorCode as RCAErrorCode,
-            get_engine as rca_get_engine,
             analyze_exception,
+        )
+        from rca import (
+            Severity as RCASeverity,
+        )
+        from rca import (
+            get_engine as rca_get_engine,
         )
         _rca_engine = rca_get_engine()
         _analyze_exception = analyze_exception
@@ -211,9 +226,9 @@ class EventViolation:
     message: str
     suggestion: str
     line: int = 0
-    rca_result: Optional[Dict[str, Any]] = None
+    rca_result: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = {
             "rule_id": self.rule_id,
             "file": self.file_path,
@@ -233,7 +248,7 @@ class EventInfo:
     name: str
     file_path: str
     module_path: str
-    base_classes: List[str] = field(default_factory=list)
+    base_classes: list[str] = field(default_factory=list)
     is_domain_event: bool = False
     is_integration_event: bool = False
     has_timestamp: bool = False
@@ -243,12 +258,12 @@ class EventInfo:
     is_frozen: bool = False
     is_serializable: bool = False
     has_docstring: bool = False
-    fields: List[str] = field(default_factory=list)
+    fields: list[str] = field(default_factory=list)
     in_registry: bool = False
     used_outside_domain: bool = False
     has_publisher: bool = False
     has_handler: bool = False
-    violations: List[EventViolation] = field(default_factory=list)
+    violations: list[EventViolation] = field(default_factory=list)
 
 
 @dataclass
@@ -261,14 +276,14 @@ class HandlerInfo:
     is_async: bool = False
     is_transactional: bool = False
     has_idempotency: bool = False
-    violations: List[EventViolation] = field(default_factory=list)
+    violations: list[EventViolation] = field(default_factory=list)
 
 
 @dataclass
 class CheckerResult:
-    events: List[EventInfo]
-    handlers: List[HandlerInfo]
-    registry_events: List[str]
+    events: list[EventInfo]
+    handlers: list[HandlerInfo]
+    registry_events: list[str]
     total_events: int
     total_handlers: int
     total_violations: int
@@ -289,12 +304,12 @@ class SovereignEventHandlerVerifier:
         self.root_dir = root_dir
         self.enable_rca = enable_rca and RCA_AVAILABLE
         self.strict = strict
-        self.registry_events: Set[str] = set()
-        self.handlers: Dict[str, HandlerInfo] = {}
-        self.events: Dict[str, EventInfo] = {}
+        self.registry_events: set[str] = set()
+        self.handlers: dict[str, HandlerInfo] = {}
+        self.events: dict[str, EventInfo] = {}
         self.handler_count: int = 0
 
-    def _generate_rca(self, rule_id: str, message: str, severity: str, context: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+    def _generate_rca(self, rule_id: str, message: str, severity: str, context: dict[str, Any] = None) -> dict[str, Any] | None:
         if not self.enable_rca or _analyze_exception is None:
             return None
         try:
@@ -320,7 +335,7 @@ class SovereignEventHandlerVerifier:
             rca_result=rca,
         ))
 
-    def _get_python_files(self, base_dir: Optional[pathlib.Path] = None) -> List[pathlib.Path]:
+    def _get_python_files(self, base_dir: pathlib.Path | None = None) -> list[pathlib.Path]:
         target = base_dir or self.root_dir
         py_files = []
         for p in target.rglob("*.py"):
@@ -335,7 +350,7 @@ class SovereignEventHandlerVerifier:
         rel = path.relative_to(self.root_dir)
         return str(rel.with_suffix("")).replace("/", ".").replace("\\", ".")
 
-    def _extract_base_classes(self, node: ast.ClassDef) -> List[str]:
+    def _extract_base_classes(self, node: ast.ClassDef) -> list[str]:
         bases = []
         for base in node.bases:
             if isinstance(base, ast.Name):
@@ -578,7 +593,7 @@ class SovereignEventHandlerVerifier:
                 except Exception:
                     pass
 
-    def _extract_annotation_string(self, node: ast.AST) -> Optional[str]:
+    def _extract_annotation_string(self, node: ast.AST) -> str | None:
         if isinstance(node, ast.Name):
             return node.id
         if isinstance(node, ast.Attribute):
@@ -765,7 +780,7 @@ class SovereignEventHandlerVerifier:
 # =============================================================================
 # Reporting
 # =============================================================================
-def group_violations_by_file(result: CheckerResult) -> Dict[str, List[EventViolation]]:
+def group_violations_by_file(result: CheckerResult) -> dict[str, list[EventViolation]]:
     groups = defaultdict(list)
     for ev in result.events:
         for v in ev.violations:

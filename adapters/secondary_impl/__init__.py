@@ -127,7 +127,7 @@ def __getattr__(name: str) -> Any:
         return _cache[name]
     if name not in _LAZY_MAP:
         raise AttributeError(f"module {__name__} has no attribute {name}")
-    
+
     module_path, attr_name = _LAZY_MAP[name]
     try:
         module = importlib.import_module(module_path)

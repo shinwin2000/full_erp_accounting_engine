@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/mapper_checker.py
 ==========================
@@ -24,11 +23,10 @@ import ast
 import json
 import sys
 import time
-import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # =============================================================================
 # ROOT PATH
@@ -63,7 +61,7 @@ def _supports_ansi() -> bool:
     return True
 
 _USE_COLOR = _supports_ansi()
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "\033[91m" if _USE_COLOR else "",
     "GREEN": "\033[92m" if _USE_COLOR else "",
     "YELLOW": "\033[93m" if _USE_COLOR else "",
@@ -181,10 +179,10 @@ class MapperViolation:
     message: str
     suggestion: str
     line: int = 0
-    rca_result: Optional[Dict[str, Any]] = None
-    risky_ops: List[Tuple[str, int, str]] = field(default_factory=list)
+    rca_result: dict[str, Any] | None = None
+    risky_ops: list[tuple[str, int, str]] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = {
             "rule_id": self.rule_id,
             "file": self.file_path,
@@ -211,15 +209,15 @@ class MapperInfo:
     has_type_hints: bool = False
     has_docstring: bool = False
     bidrectional: bool = False
-    risky_ops: List[Tuple[str, int, str]] = field(default_factory=list)
+    risky_ops: list[tuple[str, int, str]] = field(default_factory=list)
     # Semantic mapping fields
-    mapped_fields: Set[str] = field(default_factory=set)
-    source_fields: Set[str] = field(default_factory=set)
-    violations: List[MapperViolation] = field(default_factory=list)
+    mapped_fields: set[str] = field(default_factory=set)
+    source_fields: set[str] = field(default_factory=set)
+    violations: list[MapperViolation] = field(default_factory=list)
 
 @dataclass
 class CheckerResult:
-    mappers: List[MapperInfo]
+    mappers: list[MapperInfo]
     total_mappers: int
     total_violations: int
     critical_count: int
@@ -240,9 +238,9 @@ class MapperChecker:
         self.root_dir = root_dir
         self.enable_rca = enable_rca and RCA_AVAILABLE
         self.strict = strict
-        self.mappers: List[MapperInfo] = []
+        self.mappers: list[MapperInfo] = []
 
-    def _get_python_files(self) -> List[Path]:
+    def _get_python_files(self) -> list[Path]:
         py_files = []
         scan_dirs = ["application", "domain", "adapters", "infrastructure", "ports"]
         for dir_name in scan_dirs:
@@ -268,7 +266,7 @@ class MapperChecker:
                 return True
         return False
 
-    def _generate_rca(self, rule_id: str, message: str, severity: str, context: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+    def _generate_rca(self, rule_id: str, message: str, severity: str, context: dict[str, Any] = None) -> dict[str, Any] | None:
         if not self.enable_rca or _analyze_exception is None:
             return None
         try:
@@ -280,10 +278,10 @@ class MapperChecker:
         except Exception:
             return {"root_cause": message, "suggested_fix": "Periksa implementasi mapper."}
 
-    def _add_violation(self, violations: List[MapperViolation], rule_id: str, file_path: str,
+    def _add_violation(self, violations: list[MapperViolation], rule_id: str, file_path: str,
                        mapper_name: str, severity: str, message: str, suggestion: str,
-                       line: int = 0, rca_result: Optional[Dict[str, Any]] = None,
-                       risky_ops: Optional[List[Tuple[str, int, str]]] = None) -> None:
+                       line: int = 0, rca_result: dict[str, Any] | None = None,
+                       risky_ops: list[tuple[str, int, str]] | None = None) -> None:
         violations.append(MapperViolation(
             rule_id=rule_id,
             file_path=file_path,
@@ -306,7 +304,7 @@ class MapperChecker:
         name = node.name
         return any(name.startswith(ind) or ind in name for ind in MAPPER_FUNC_INDICATORS)
 
-    def _detect_risky_ops(self, node: ast.AST) -> List[Tuple[str, int, str]]:
+    def _detect_risky_ops(self, node: ast.AST) -> list[tuple[str, int, str]]:
         found = []
         for sub in ast.walk(node):
             if isinstance(sub, ast.Call):
@@ -346,7 +344,7 @@ class MapperChecker:
                 return True
         return False
 
-    def _get_max_severity(self, risky_ops: List[Tuple[str, int, str]]) -> str:
+    def _get_max_severity(self, risky_ops: list[tuple[str, int, str]]) -> str:
         sev_order = {"CRITICAL": 5, "HIGH": 4, "MEDIUM": 3, "LOW": 2, "INFO": 1}
         max_sev = "LOW"
         for op, _, _ in risky_ops:
@@ -359,7 +357,7 @@ class MapperChecker:
                 max_sev = sev
         return max_sev
 
-    def _format_risky_ops(self, risky_ops: List[Tuple[str, int, str]]) -> str:
+    def _format_risky_ops(self, risky_ops: list[tuple[str, int, str]]) -> str:
         parts = []
         for op, line, exc in risky_ops[:3]:
             parts.append(f"{op} (line {line}, possible: {exc})")
@@ -367,7 +365,7 @@ class MapperChecker:
             parts.append(f"and {len(risky_ops)-3} more")
         return ", ".join(parts)
 
-    def _extract_fields_from_dict_assign(self, node: ast.AST) -> Set[str]:
+    def _extract_fields_from_dict_assign(self, node: ast.AST) -> set[str]:
         """Extract field names from dict assignments in a function body."""
         fields = set()
         for sub in ast.walk(node):
@@ -460,7 +458,7 @@ class MapperChecker:
     def _analyze_mapper_class(self, file_path: Path, node: ast.ClassDef) -> MapperInfo:
         rel_path = str(file_path.relative_to(self.root_dir))
         name = node.name
-        violations: List[MapperViolation] = []
+        violations: list[MapperViolation] = []
 
         has_to_dict = False
         has_from_dict = False
@@ -651,7 +649,7 @@ class MapperChecker:
     def _analyze_mapper_function(self, file_path: Path, node: ast.FunctionDef) -> MapperInfo:
         rel_path = str(file_path.relative_to(self.root_dir))
         name = node.name
-        violations: List[MapperViolation] = []
+        violations: list[MapperViolation] = []
 
         risky_ops = self._detect_risky_ops(node)
         has_error_handling = self._has_try_except(node)
@@ -702,7 +700,7 @@ class MapperChecker:
             violations=violations,
         )
 
-    def scan(self) -> List[MapperInfo]:
+    def scan(self) -> list[MapperInfo]:
         self.mappers = []
         for file_path in self._get_python_files():
             if not self._is_mapper_module(file_path):
@@ -728,7 +726,7 @@ class MapperChecker:
 # REPORTING
 # =============================================================================
 
-def generate_report(mappers: List[MapperInfo], rca_enabled: bool, elapsed: float) -> CheckerResult:
+def generate_report(mappers: list[MapperInfo], rca_enabled: bool, elapsed: float) -> CheckerResult:
     total = len(mappers)
     critical = high = medium = low = info_count = 0
     for m in mappers:
@@ -841,7 +839,7 @@ def save_json(result: CheckerResult, filepath: str) -> None:
         out = Path(filepath)
         out.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "score": result.score,
             "rca_enabled": result.rca_enabled,
             "total_mappers": result.total_mappers,

@@ -239,7 +239,7 @@ class CustomerCard:
             description=f"Invoice {invoice.invoice_number}",
             created_at=datetime.now(UTC),
         )
-        return cls(
+        card = cls(
             customer_id=invoice.customer_id,
             customer_name=invoice.customer_name,
             legal_entity_id=invoice.customer_id,  # Placeholder, perlu diganti dengan legal_entity yang benar
@@ -247,6 +247,18 @@ class CustomerCard:
             currency=invoice.currency,
             mutations=[mutation],
         )
+        # ── AUDIT TRAIL ──
+        card._record_audit(
+            "CREATE_FROM_INVOICE",
+            "system",
+            {
+                "invoice_id": str(invoice.invoice_id),
+                "invoice_number": invoice.invoice_number,
+                "amount": str(invoice.amount),
+                "customer_id": str(invoice.customer_id),
+            }
+        )
+        return card
 
     # ==================== BUSINESS METHODS ====================
     def add_invoice(self, invoice: InvoiceEntity) -> CustomerCard:
@@ -264,7 +276,7 @@ class CustomerCard:
             created_at=datetime.now(UTC),
         )
         new_mutations = self.mutations + [mutation]
-        return CustomerCard(
+        new_card = CustomerCard(
             customer_id=self.customer_id,
             customer_name=self.customer_name,
             legal_entity_id=self.legal_entity_id,
@@ -278,6 +290,12 @@ class CustomerCard:
             updated_at=datetime.now(UTC),
             version=self.version + 1,
         )
+        new_card._record_audit("ADD_INVOICE", "system", {
+            "invoice_id": str(invoice.invoice_id),
+            "invoice_number": invoice.invoice_number,
+            "amount": str(invoice.amount),
+        })
+        return new_card
 
     def add_payment(self, payment: PaymentEntity) -> CustomerCard:
         new_balance = self.outstanding_balance - payment.amount
@@ -296,7 +314,7 @@ class CustomerCard:
             created_at=datetime.now(UTC),
         )
         new_mutations = self.mutations + [mutation]
-        return CustomerCard(
+        new_card = CustomerCard(
             customer_id=self.customer_id,
             customer_name=self.customer_name,
             legal_entity_id=self.legal_entity_id,
@@ -310,6 +328,12 @@ class CustomerCard:
             updated_at=datetime.now(UTC),
             version=self.version + 1,
         )
+        new_card._record_audit("ADD_PAYMENT", "system", {
+            "payment_id": str(payment.payment_id),
+            "payment_number": payment.payment_number,
+            "amount": str(payment.amount),
+        })
+        return new_card
 
     def apply_credit_note(self, amount: Decimal) -> CustomerCard:
         new_balance = self.outstanding_balance - amount
@@ -328,7 +352,7 @@ class CustomerCard:
             created_at=datetime.now(UTC),
         )
         new_mutations = self.mutations + [mutation]
-        return CustomerCard(
+        new_card = CustomerCard(
             customer_id=self.customer_id,
             customer_name=self.customer_name,
             legal_entity_id=self.legal_entity_id,
@@ -342,6 +366,8 @@ class CustomerCard:
             updated_at=datetime.now(UTC),
             version=self.version + 1,
         )
+        new_card._record_audit("APPLY_CREDIT_NOTE", "system", {"amount": str(amount)})
+        return new_card
 
     def get_aging_bucket(self, as_of: datetime) -> AgingBucketVO:
         # Simplified: in production, iterate through invoices

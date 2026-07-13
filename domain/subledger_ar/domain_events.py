@@ -880,6 +880,7 @@ __all__ = [
     "ARPaymentApplied",
     "ARPaymentReceived",
     "ARPaymentVoided",
+    "BadDebtProvisionRecordedEvent",
     "CreditNoteAppliedEvent",
     "CreditNoteIssuedEvent",
     "DebitNoteIssuedEvent",
@@ -894,6 +895,5 @@ __all__ = [
     "InvoiceWrittenOffEvent",
     "PaymentAllocatedEvent",
     "PaymentReceivedEvent",
-    "BadDebtProvisionRecordedEvent",
     "PaymentVoidedEvent",
 ]

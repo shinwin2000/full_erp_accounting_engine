@@ -545,10 +545,10 @@ SalesInvoice = SalesInvoiceEntity
 # ============================================================================
 
 __all__ = [
+    "SalesInvoice",
     "SalesInvoiceEntity",
     "SalesInvoiceItem",
     "SalesInvoiceRepository",
     "SalesInvoiceStatus",
     "SalesInvoiceType",
-    "SalesInvoice",  
 ]

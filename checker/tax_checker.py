@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 tax_checker.py – Tax Implementation Validator (Forensic)
 ========================================================
@@ -26,14 +25,13 @@ import ast
 import csv
 import json
 import logging
-import os
 import pathlib
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
+from datetime import UTC, datetime
 
 # ─── RCA INTEGRATION (via checker.core.rca) ──────────────────────────────────
 _RCA_ENGINE = None
@@ -44,7 +42,7 @@ def _init_rca() -> bool:
     if _RCA_AVAILABLE:
         return True
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -54,7 +52,7 @@ def _init_rca() -> bool:
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -64,7 +62,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -99,7 +97,7 @@ if not logger.handlers:
     logger.addHandler(_log_handler)
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
     "WHITE": "", "BOLD": "", "DIM": "", "RESET": "",
 }
@@ -169,8 +167,8 @@ class CalculatorInfo:
     has_validate: bool
     has_get_rate: bool
     uses_decimal: bool
-    hardcoded_rates: List[str]
-    methods: List[str]
+    hardcoded_rates: list[str]
+    methods: list[str]
     is_calculator_class: bool
     has_correct_signature: bool
     has_decimal_return: bool
@@ -182,9 +180,9 @@ class Violation:
     line: int
     message: str
     detail: str = ""
-    rca: Optional[Dict] = None
+    rca: dict | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "severity": self.severity,
             "file": self.file,
@@ -196,8 +194,8 @@ class Violation:
 
 @dataclass
 class Report:
-    calculators: List[CalculatorInfo] = field(default_factory=list)
-    violations: List[Violation] = field(default_factory=list)
+    calculators: list[CalculatorInfo] = field(default_factory=list)
+    violations: list[Violation] = field(default_factory=list)
     score: int = 100
     total_files_scanned: int = 0
     total_calculators_found: int = 0
@@ -220,10 +218,10 @@ class Report:
         return self.error_count == 0
 
 # ─── AST UTILITIES ──────────────────────────────────────────────────────────
-_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_AST_CACHE: dict[str, tuple[ast.AST | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
 
-def _read_source(py_file: pathlib.Path) -> Optional[str]:
+def _read_source(py_file: pathlib.Path) -> str | None:
     encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
     for enc in encodings:
         try:
@@ -235,7 +233,7 @@ def _read_source(py_file: pathlib.Path) -> Optional[str]:
     except OSError:
         return None
 
-def _get_ast(py_file: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     key = str(py_file.resolve())
     with _CACHE_LOCK:
         if key in _AST_CACHE:
@@ -282,7 +280,7 @@ def _is_calculator_class(cls_node: ast.ClassDef) -> bool:
             return False
     return True
 
-def _find_calculator_class(tree: ast.AST) -> Optional[ast.ClassDef]:
+def _find_calculator_class(tree: ast.AST) -> ast.ClassDef | None:
     candidates = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and _is_calculator_class(node):
@@ -295,7 +293,7 @@ def _find_calculator_class(tree: ast.AST) -> Optional[ast.ClassDef]:
             return node
     return candidates[0][0] if candidates else None
 
-def _extract_methods(cls_node: ast.ClassDef) -> List[str]:
+def _extract_methods(cls_node: ast.ClassDef) -> list[str]:
     methods = []
     for item in cls_node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -309,14 +307,14 @@ def _has_method(cls_node: ast.ClassDef, method_name: str) -> bool:
                 return True
     return False
 
-def _get_method_node(cls_node: ast.ClassDef, method_name: str) -> Optional[Union[ast.FunctionDef, ast.AsyncFunctionDef]]:
+def _get_method_node(cls_node: ast.ClassDef, method_name: str) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
     for item in cls_node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if item.name == method_name:
                 return item
     return None
 
-def _count_required_params(method_node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> int:
+def _count_required_params(method_node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
     args = method_node.args
     total = len(args.args)
     defaults = len(args.defaults)
@@ -337,7 +335,7 @@ def _has_decimal_import(tree: ast.AST) -> bool:
                     return True
     return False
 
-def _is_decimal_return(method_node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> bool:
+def _is_decimal_return(method_node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     # Check return annotation
     if method_node.returns:
         # Simple check: 'Decimal' or 'decimal.Decimal'
@@ -370,7 +368,7 @@ def _is_decimal_return(method_node: Union[ast.FunctionDef, ast.AsyncFunctionDef]
                                         return True
     return False
 
-def _extract_hardcoded_rates(cls_node: ast.ClassDef) -> List[str]:
+def _extract_hardcoded_rates(cls_node: ast.ClassDef) -> list[str]:
     rates = []
     for node in ast.walk(cls_node):
         if isinstance(node, ast.Assign):
@@ -392,7 +390,7 @@ def _extract_hardcoded_rates(cls_node: ast.ClassDef) -> List[str]:
     return rates
 
 # ─── PARSER ──────────────────────────────────────────────────────────────────
-def parse_calculator_file(file_path: pathlib.Path) -> Optional[CalculatorInfo]:
+def parse_calculator_file(file_path: pathlib.Path) -> CalculatorInfo | None:
     tree, err = _get_ast(file_path)
     if err or tree is None:
         return None
@@ -444,7 +442,7 @@ def parse_calculator_file(file_path: pathlib.Path) -> Optional[CalculatorInfo]:
     )
 
 # ─── VALIDATOR ──────────────────────────────────────────────────────────────
-def validate_calculator(info: CalculatorInfo, strict: bool = False) -> List[Violation]:
+def validate_calculator(info: CalculatorInfo, strict: bool = False) -> list[Violation]:
     violations = []
     exc_context = {"calculator": info.name, "class": info.class_name, "file": info.file}
 
@@ -531,10 +529,10 @@ def validate_calculator(info: CalculatorInfo, strict: bool = False) -> List[Viol
 # ─── SCAN ────────────────────────────────────────────────────────────────────
 def scan_tax_implementations(
     project_root: pathlib.Path,
-    extra_excludes: Set[str],
+    extra_excludes: set[str],
     strict: bool = False,
     run_rca: bool = True,
-    progress_callback: Optional[Callable] = None,
+    progress_callback: Callable | None = None,
 ) -> Report:
     t0 = time.monotonic()
     report = Report()
@@ -547,7 +545,7 @@ def scan_tax_implementations(
         project_root / "application" / "service_layer" / "tax",
     ]
 
-    candidate_files: List[pathlib.Path] = []
+    candidate_files: list[pathlib.Path] = []
     for search_dir in search_dirs:
         if not search_dir.exists():
             continue
@@ -670,7 +668,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
     try:
         data = {
             "version": __version__,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "score": report.score,
             "passed": report.passed,
             "scan_time": report.scan_time,

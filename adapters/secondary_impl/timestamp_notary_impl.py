@@ -18,10 +18,10 @@ from uuid import UUID
 
 # Import port dan tipe yang diperlukan
 from ports.primary.timestamp_notary_port import (
+    TimestampCertificate,
     TimestampNotaryPort,
     TimestampRequest,
     TimestampToken,
-    TimestampCertificate,
 )
 
 logger = logging.getLogger(__name__)

@@ -153,8 +153,21 @@ class NotificationPort:
         self._rate_limiters: dict[NotificationChannel, dict[str, list[datetime]]] = {}
         self._default_templates_loaded = False
 
-        asyncio.create_task(self._init_default_configs())
-        asyncio.create_task(self._init_default_templates())
+        # ===== PERBAIKAN: Simpan referensi task =====
+        self._pending_tasks: list[asyncio.Task] = []
+
+        # Task inisialisasi juga disimpan
+        init_task1 = asyncio.create_task(self._init_default_configs())
+        init_task2 = asyncio.create_task(self._init_default_templates())
+        self._add_pending_task(init_task1)
+        self._add_pending_task(init_task2)
+
+    def _add_pending_task(self, task: asyncio.Task) -> None:
+        """Tambahkan task ke daftar pending dan daftarkan callback untuk menghapusnya."""
+        self._pending_tasks.append(task)
+        task.add_done_callback(
+            lambda t: self._pending_tasks.remove(t) if t in self._pending_tasks else None
+        )
 
     # ==================== INITIALIZATION ====================
 
@@ -390,6 +403,7 @@ class NotificationPort:
             return
         self._running = True
         self._worker_task = asyncio.create_task(self._worker_loop(concurrency))
+        self._add_pending_task(self._worker_task)
         logger.info("Notification worker started")
 
     async def _worker_loop(self, concurrency: int):
@@ -399,8 +413,11 @@ class NotificationPort:
             try:
                 notification = await self._queue.get()
                 async with semaphore:
-                    asyncio.create_task(self._process_notification(notification))
+                    # ===== PERBAIKAN: Simpan task =====
+                    task = asyncio.create_task(self._process_notification(notification))
+                    self._add_pending_task(task)
             except asyncio.CancelledError:
+                logger.debug("Notification worker loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"Worker error: {e}")
@@ -451,7 +468,9 @@ class NotificationPort:
                 notification.scheduled_at = datetime.now(UTC) + timedelta(seconds=delay)
                 await self._update_notification(notification)
                 # Re-queue after delay
-                asyncio.create_task(self._schedule_retry(notification, delay))
+                # ===== PERBAIKAN: Simpan task =====
+                task = asyncio.create_task(self._schedule_retry(notification, delay))
+                self._add_pending_task(task)
                 await self._log_audit(
                     "RETRY_SCHEDULED",
                     notification.id,
@@ -468,14 +487,23 @@ class NotificationPort:
         async with self._lock:
             self._notifications[notification.id] = notification
 
+    # ========================================================================
+    # PERBAIKAN: stop_worker membatalkan semua task pending
+    # ========================================================================
+
     async def stop_worker(self):
         self._running = False
+        # Batalkan semua task pending
+        if self._pending_tasks:
+            for task in self._pending_tasks:
+                if not task.done():
+                    task.cancel()
+            # Tunggu hingga semua task selesai
+            if self._pending_tasks:
+                await asyncio.gather(*self._pending_tasks, return_exceptions=True)
+                self._pending_tasks.clear()
         if self._worker_task:
-            self._worker_task.cancel()
-            try:
-                await self._worker_task
-            except asyncio.CancelledError:
-                pass
+            self._worker_task = None
         logger.info("Notification worker stopped")
 
     # ==================== SEND API ====================

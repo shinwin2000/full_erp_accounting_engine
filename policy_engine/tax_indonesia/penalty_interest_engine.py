@@ -16,8 +16,8 @@ from enum import Enum
 from typing import Any
 
 from policy_engine.tax_indonesia.rate_registry_dynamic import (
-    get_dynamic_rate_registry,
     TaxType,
+    get_dynamic_rate_registry,
 )
 
 logger = logging.getLogger(__name__)

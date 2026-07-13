@@ -1,0 +1,112 @@
+================================================================================
+  SovereignImportValidator v3.0.0
+  Audit Standard : ISO/IEC 25010 | SOC 2 Type II | ISAE 3402
+  Scan ID        : 5D3822EF
+  Timestamp (UTC): 2026-07-12T01:30:24.515013Z
+  Host           : LAPTOP-88FVUOBB
+  Python         : 3.12.7
+  Platform       : Windows-11-10.0.26200-SP0
+  Git Commit     : unknown (unknown)
+  Project Root   : E:\full_erp_accounting_engine
+================================================================================
+
+── RINGKASAN ──────────────────────────────────────────────────────────────────
+  Total Modul    : 1079
+  Berhasil       : 1065
+  Gagal          : 14
+  Warning        : 0
+  Durasi         : 40511.41 detik
+  Pass Rate      : 98.7%
+  Status         : ❌ GAGAL
+
+── RINGKASAN PER LAYER ─────────────────────────────────────────────────────────
+  ❌ Core Domain                     300/314 (95.5%)
+  ✅ Port Interface                  63/63 (100.0%)
+  ✅ Application Service             251/251 (100.0%)
+  ✅ Infrastructure                  425/425 (100.0%)
+  ✅ Composition Root                26/26 (100.0%)
+
+── ❌ MODUL GAGAL (14) ───────────────────────────────────────────────
+  [FATAL] kernel/immutable_laws
+         Module : kernel.immutable_laws
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/asset_existence_enforcer
+         Module : kernel.immutable_laws.asset_existence_enforcer
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/audit_trail_completeness_enforcer
+         Module : kernel.immutable_laws.audit_trail_completeness_enforcer
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/dual_approval_enforcer
+         Module : kernel.immutable_laws.dual_approval_enforcer
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/evidence_mandate_enforcer
+         Module : kernel.immutable_laws.evidence_mandate_enforcer
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/fair_value_measurement_enforcer
+         Module : kernel.immutable_laws.fair_value_measurement_enforcer
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/gl_supremacy_enforcer
+         Module : kernel.immutable_laws.gl_supremacy_enforcer
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/immutability_enforcer
+         Module : kernel.immutable_laws.immutability_enforcer
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/law_violation_exceptions
+         Module : kernel.immutable_laws.law_violation_exceptions
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/no_retroactive_policy_enforcer
+         Module : kernel.immutable_laws.no_retroactive_policy_enforcer
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/period_closure_enforcer
+         Module : kernel.immutable_laws.period_closure_enforcer
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/reversal_constraint_enforcer
+         Module : kernel.immutable_laws.reversal_constraint_enforcer
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/segregation_of_duties_enforcer
+         Module : kernel.immutable_laws.segregation_of_duties_enforcer
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us
+
+  [FATAL] kernel/immutable_laws/traceability_enforcer
+         Module : kernel.immutable_laws.traceability_enforcer
+         Error  : ImportError: No module named 'kernel.immutable_laws.immutable_laws'
+         RCA     : Pelanggaran aksioma Immutability: journal yang sudah diposting tidak boleh diubah.
+         💡 Fix   : Gunakan reversal journal (reverse_journal use-case) bukan edit langsung. Lihat axioms/immutability.py dan application/us

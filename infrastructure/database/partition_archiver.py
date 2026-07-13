@@ -26,13 +26,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-# PERBAIKAN: import DropTable dari sqlalchemy.schema
-from sqlalchemy import DDL, MetaData, Table
-from sqlalchemy.schema import DropTable
-
-from config.loader_yaml import load_yaml_config
+import aiofiles
+from sqlalchemy import DDL
 
 # Internal dependencies
+from config.loader_yaml import load_yaml_config
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
@@ -171,7 +169,6 @@ class PartitionArchiver:
 
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session:
-            # Get partitions from pg_inherits - menggunakan parameter binding (aman)
             query = """
             SELECT 
                 inhrelid::regclass::text as partition_name,
@@ -185,12 +182,10 @@ class PartitionArchiver:
             for row in result:
                 part_name = row[0]
                 part_range = row[1]
-                # Extract date from partition name or range
                 try:
-                    # Assume partition name format: table_YYYY_MM
                     if "_" in part_name:
-                        part_date_str = part_name.split("_")[-1]  # YYYY_MM or YYYY_MM_DD
-                        if len(part_date_str) == 7:  # YYYY_MM
+                        part_date_str = part_name.split("_")[-1]
+                        if len(part_date_str) == 7:
                             part_date = datetime.strptime(part_date_str, "%Y_%m")
                         else:
                             part_date = datetime.strptime(part_date_str, "%Y_%m_%d")
@@ -203,20 +198,13 @@ class PartitionArchiver:
             return partitions
 
     async def _detach_partition(self, table_name: str, partition_name: str) -> None:
-        """
-        Detach partition from parent table (convert to standalone).
-        """
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session, session.begin():
-            # Menggunakan DDL dengan placeholder untuk menghindari concatenation
             stmt = DDL("ALTER TABLE %(table)s DETACH PARTITION %(partition)s")
             await session.execute(stmt, {"table": table_name, "partition": partition_name})
             logger.info(f"Detached partition {partition_name} from {table_name}")
 
     async def _export_partition(self, partition_name: str, output_path: Path) -> None:
-        """
-        Export partition data using pg_dump.
-        """
         db_info = await self._get_db_connection_info()
         cmd = [
             "pg_dump",
@@ -231,7 +219,7 @@ class PartitionArchiver:
             "-t",
             partition_name,
             "-F",
-            "c",  # custom format
+            "c",
             "-f",
             str(output_path),
             "--no-owner",
@@ -252,71 +240,101 @@ class PartitionArchiver:
 
         logger.info(f"Exported partition {partition_name} to {output_path}")
 
+    # ========================================================================
+    # PERBAIKAN: _compress_file menggunakan aiofiles + asyncio.to_thread
+    # ========================================================================
+
     async def _compress_file(self, file_path: Path) -> Path:
         """
         Compress file using gzip.
         """
         compressed_path = file_path.with_suffix(file_path.suffix + ".gz")
-        with open(file_path, "rb") as f_in, gzip.open(compressed_path, "wb") as f_out:
-            shutil.copyfileobj(f_in, f_out)
+
+        # Baca file secara async
+        async with aiofiles.open(file_path, "rb") as f:
+            file_content = await f.read()
+
+        # Kompresi di thread pool
+        def _compress_sync(data: bytes) -> bytes:
+            return gzip.compress(data, compresslevel=6)
+
+        compressed_data = await asyncio.to_thread(_compress_sync, file_content)
+
+        # Tulis file secara async
+        async with aiofiles.open(compressed_path, "wb") as f:
+            await f.write(compressed_data)
+
         logger.info(f"Compressed {file_path} to {compressed_path}")
         return compressed_path
 
-    async def _upload_to_storage(self, file_path: Path, archive_key: str) -> str:
-        """
-        Upload file to configured cold storage.
+    # ========================================================================
+    # _upload_to_storage menggunakan aiofiles
+    # ========================================================================
 
-        Returns:
-            Storage URI
-        """
+    async def _upload_to_storage(self, file_path: Path, archive_key: str) -> str:
         if not FILE_STORAGE_AVAILABLE:
-            # Fallback: keep local file
             logger.warning("File storage not available, keeping local copy")
             return f"local://{file_path}"
 
         uri = None
+        async with aiofiles.open(file_path, "rb") as f:
+            file_content = await f.read()
+
         if self._archive_storage == "glacier":
             storage = await get_glacier_cold_storage_adapter()
             uri = await storage.upload(
-                file_content=open(file_path, "rb"),
+                file_content=file_content,
                 file_name=file_path.name,
                 metadata={"archive_key": archive_key},
             )
         elif self._archive_storage == "s3":
             storage = await get_s3_storage_adapter()
             uri = await storage.upload(
-                file_content=open(file_path, "rb"),
+                file_content=file_content,
                 file_name=file_path.name,
                 bucket=self._archive_bucket,
             )
         else:
-            # Local storage
-            archive_dir = Path("/var/archives")
-            archive_dir.mkdir(parents=True, exist_ok=True)
-            dest = archive_dir / file_path.name
-            shutil.copy(file_path, dest)
-            uri = f"local://{dest}"
+            def _local_copy():
+                archive_dir = Path("/var/archives")
+                archive_dir.mkdir(parents=True, exist_ok=True)
+                dest = archive_dir / file_path.name
+                shutil.copy(file_path, dest)
+                return f"local://{dest}"
+            uri = await asyncio.to_thread(_local_copy)
 
         logger.info(f"Uploaded archive to {uri}")
         return uri
 
     async def _drop_partition(self, partition_name: str) -> None:
-        """
-        Drop partition after successful archiving.
-        """
         session_factory = await get_session_factory()
         async with session_factory.get_session() as session, session.begin():
-            # PERBAIKAN: Gunakan DDL untuk DROP TABLE IF EXISTS karena DropTable tidak selalu punya if_exists
             await session.execute(DDL(f"DROP TABLE IF EXISTS {partition_name}"))
             logger.info(f"Dropped partition {partition_name}")
 
-    async def archive_partition(self, table_config: dict, partition: dict) -> dict[str, Any]:
-        """
-        Archive a single partition.
+    # ========================================================================
+    # Helper untuk temporary file dan unlink di thread pool
+    # ========================================================================
 
-        Returns:
-            Archive metadata
-        """
+    async def _create_temp_file(self, suffix: str = ".dump") -> Path:
+        def _create():
+            fd, path = tempfile.mkstemp(suffix=suffix)
+            return Path(path)
+        return await asyncio.to_thread(_create)
+
+    async def _delete_file(self, path: Path, ignore_missing: bool = True) -> None:
+        def _delete():
+            if ignore_missing:
+                path.unlink(missing_ok=True)
+            else:
+                path.unlink()
+        await asyncio.to_thread(_delete)
+
+    # ========================================================================
+    # Archive partition
+    # ========================================================================
+
+    async def archive_partition(self, table_config: dict, partition: dict) -> dict[str, Any]:
         table_name = table_config["name"]
         partition_name = partition["name"]
         archive_key = f"{self._archive_prefix}{table_name}/{partition_name}.dump"
@@ -330,35 +348,26 @@ class PartitionArchiver:
         }
 
         try:
-            # Detach partition
             await self._detach_partition(table_name, partition_name)
 
-            # Export data
-            with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tmp:
-                dump_path = Path(tmp.name)
+            dump_path = await self._create_temp_file(suffix=".dump")
             await self._export_partition(partition_name, dump_path)
 
-            # Compress if enabled
             file_to_upload = dump_path
             if self._compress:
                 file_to_upload = await self._compress_file(dump_path)
-                dump_path.unlink()  # Remove original uncompressed
+                await self._delete_file(dump_path, ignore_missing=True)
 
-            # Upload to storage
             uri = await self._upload_to_storage(file_to_upload, archive_key)
             result["archive_uri"] = uri
 
-            # Drop partition from database
             await self._drop_partition(partition_name)
-
-            # Clean up temp file
-            file_to_upload.unlink()
+            await self._delete_file(file_to_upload, ignore_missing=True)
 
             result["status"] = "archived"
             result["archived_at"] = datetime.now(UTC).isoformat()
             logger.info(f"Successfully archived partition {partition_name}")
 
-            # Store metadata
             self._archive_metadata[archive_key] = result
 
         except Exception as e:
@@ -375,15 +384,6 @@ class PartitionArchiver:
         return result
 
     async def archive_old_partitions(self, dry_run: bool = False) -> dict[str, Any]:
-        """
-        Archive all old partitions for all configured tables.
-
-        Args:
-            dry_run: If True, only report what would be archived
-
-        Returns:
-            Summary of archive operations
-        """
         if not self._enabled:
             logger.info("Partition archiving is disabled")
             return {"enabled": False}
@@ -415,43 +415,36 @@ class PartitionArchiver:
 
         return results
 
+    # ========================================================================
+    # PERBAIKAN: restore_partition dengan async I/O
+    # ========================================================================
+
     async def restore_partition(self, archive_key: str, target_table: str) -> bool:
-        """
-        Restore a partition from archive.
-
-        Args:
-            archive_key: Archive key from previous archive operation
-            target_table: Table to restore partition to (must be parent table)
-
-        Returns:
-            True if restore successful
-        """
         try:
-            # Download from storage
+            content = None
             if self._archive_storage == "glacier":
                 storage = await get_glacier_cold_storage_adapter()
-                # For Glacier, need to initiate retrieval first
-                # This is simplified; in production, handle async retrieval
                 content = await storage.download(archive_key)
             elif self._archive_storage == "s3":
                 storage = await get_s3_storage_adapter()
                 content = await storage.download(archive_key)
             else:
-                # Local file
                 local_path = Path(archive_key.replace("local://", ""))
-                with open(local_path, "rb") as f:
-                    content = f.read()
+                async with aiofiles.open(local_path, "rb") as f:
+                    content = await f.read()
 
-            # Decompress if needed
+            if content is None:
+                raise ArchiveRestoreError("Failed to download archive content")
+
             if archive_key.endswith(".gz"):
-                content = gzip.decompress(content)
+                def _decompress_sync(data):
+                    return gzip.decompress(data)
+                content = await asyncio.to_thread(_decompress_sync, content)
 
-            # Save to temporary file
-            with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tmp:
-                tmp.write(content)
-                dump_path = Path(tmp.name)
+            dump_path = await self._create_temp_file(suffix=".dump")
+            async with aiofiles.open(dump_path, "wb") as f:
+                await f.write(content)
 
-            # Restore using pg_restore
             db_info = await self._get_db_connection_info()
             cmd = [
                 "pg_restore",
@@ -482,7 +475,8 @@ class PartitionArchiver:
             if process.returncode != 0:
                 raise ArchiveRestoreError(f"pg_restore failed: {stderr.decode()}")
 
-            dump_path.unlink()
+            await self._delete_file(dump_path, ignore_missing=True)
+
             logger.info(f"Successfully restored partition from {archive_key}")
             return True
 
@@ -497,9 +491,6 @@ class PartitionArchiver:
             return False
 
     async def list_archives(self, table_name: str | None = None) -> list[dict]:
-        """
-        List archived partitions.
-        """
         archives = []
         for key, metadata in self._archive_metadata.items():
             if table_name and metadata.get("table") != table_name:
@@ -508,9 +499,6 @@ class PartitionArchiver:
         return archives
 
     async def get_archive_stats(self) -> dict[str, Any]:
-        """
-        Get archive statistics.
-        """
         total_archived = sum(
             1 for m in self._archive_metadata.values() if m.get("status") == "archived"
         )
@@ -532,7 +520,6 @@ _partition_archiver: PartitionArchiver | None = None
 
 
 async def get_partition_archiver() -> PartitionArchiver:
-    """Get singleton instance of PartitionArchiver."""
     global _partition_archiver
     if _partition_archiver is None:
         _partition_archiver = PartitionArchiver()
@@ -545,7 +532,6 @@ async def get_partition_archiver() -> PartitionArchiver:
 
 
 def cli():
-    """CLI entry point for partition archiver."""
     import argparse
     import asyncio
 

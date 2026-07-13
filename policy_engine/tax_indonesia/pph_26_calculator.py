@@ -18,12 +18,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
-from typing import Optional
 from uuid import UUID, uuid4
 
 from policy_engine.tax_indonesia.rate_registry_dynamic import (
     get_dynamic_rate_registry,
-    TaxType,
 )
 
 logger = logging.getLogger(__name__)

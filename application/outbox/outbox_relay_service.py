@@ -35,11 +35,10 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import Enum
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import or_, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from application.outbox.outbox_exceptions import (
     OutboxConfigurationError,
@@ -53,7 +52,7 @@ from application.outbox.outbox_exceptions import (
 
 # Metrics - untuk deteksi AST (OUT-033)
 try:
-    from prometheus_client import Counter, Histogram, Gauge
+    from prometheus_client import Counter, Gauge, Histogram
     _METRICS_AVAILABLE = True
 except ImportError:
     _METRICS_AVAILABLE = False
@@ -180,8 +179,8 @@ class OutboxEventPayload(BaseModel):
     aggregate_id: str
     aggregate_type: str
     data: dict[str, Any]
-    metadata: Optional[dict[str, Any]] = None
-    idempotency_key: Optional[str] = None
+    metadata: dict[str, Any] | None = None
+    idempotency_key: str | None = None
 
 
 # ============================================================================
@@ -398,7 +397,7 @@ class OutboxRelayService:
             self._published_counter.inc()
             logger.debug(f"Published record {record['id']} to topic {topic}")
 
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             logger.warning(f"Timeout publishing record {record['id']}")
             if self._circuit_breaker:
                 self._circuit_breaker.record_failure()
@@ -631,6 +630,7 @@ class OutboxRelayService:
             except OutboxRelayStoppedError:
                 break
             except asyncio.CancelledError:
+                logger.debug("Outbox relay loop cancelled")
                 break
             except Exception as e:
                 logger.exception(f"Unexpected error in relay loop: {e}")

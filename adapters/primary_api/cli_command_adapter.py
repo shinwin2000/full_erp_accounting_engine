@@ -24,11 +24,11 @@ import hashlib
 import json
 import logging
 import sys
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
-from typing import Any, Dict, Optional
 
 import typer
 from rich.console import Console
@@ -78,20 +78,20 @@ class IdempotencyManager:
     """
 
     def __init__(self):
-        self._storage: Dict[str, tuple[str, datetime]] = {}
+        self._storage: dict[str, tuple[str, datetime]] = {}
         self._ttl_seconds = 86400  # 24 jam
 
     def _get_storage_key(self, idempotency_key: str, command_type: str) -> str:
         raw = f"{command_type}:{idempotency_key}"
         return hashlib.sha256(raw.encode()).hexdigest()
 
-    def get_cached_result(self, idempotency_key: str, command_type: str) -> Optional[Dict[str, Any]]:
+    def get_cached_result(self, idempotency_key: str, command_type: str) -> dict[str, Any] | None:
         storage_key = self._get_storage_key(idempotency_key, command_type)
         entry = self._storage.get(storage_key)
         if entry is None:
             return None
         result_json, timestamp = entry
-        if (datetime.now(timezone.utc) - timestamp).total_seconds() > self._ttl_seconds:
+        if (datetime.now(UTC) - timestamp).total_seconds() > self._ttl_seconds:
             del self._storage[storage_key]
             return None
         try:
@@ -99,13 +99,13 @@ class IdempotencyManager:
         except json.JSONDecodeError:
             return None
 
-    def cache_result(self, idempotency_key: str, command_type: str, result: Dict[str, Any]) -> None:
+    def cache_result(self, idempotency_key: str, command_type: str, result: dict[str, Any]) -> None:
         storage_key = self._get_storage_key(idempotency_key, command_type)
         try:
             result_json = json.dumps(result, default=str)
         except TypeError:
             result_json = json.dumps({"success": True, "result": str(result)}, default=str)
-        self._storage[storage_key] = (result_json, datetime.now(timezone.utc))
+        self._storage[storage_key] = (result_json, datetime.now(UTC))
 
 
 # Global idempotency manager
@@ -171,10 +171,10 @@ def get_user_id_from_env_or_input() -> UUID:
 
 def _execute_command(
     command_type: str,
-    command_data: Dict[str, Any],
-    idempotency_key: Optional[str],
+    command_data: dict[str, Any],
+    idempotency_key: str | None,
     progress_description: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Menjalankan command dengan idempotensi.
     Jika idempotency_key diberikan dan sudah ada di cache, kembalikan hasil cached.
@@ -183,7 +183,7 @@ def _execute_command(
     # Generate internal idempotency key jika tidak diberikan
     if not idempotency_key:
         # Generate dari command data dan timestamp (agar unik per eksekusi)
-        raw = f"{command_type}:{json.dumps(command_data, default=str)}:{datetime.now(timezone.utc).isoformat()}"
+        raw = f"{command_type}:{json.dumps(command_data, default=str)}:{datetime.now(UTC).isoformat()}"
         idempotency_key = hashlib.sha256(raw.encode()).hexdigest()[:16]
         logger.debug(f"Auto-generated idempotency key: {idempotency_key}")
 
@@ -195,7 +195,7 @@ def _execute_command(
 
     # Eksekusi command
     with Progress(
-        SpinnerColumn(), TextColumn(f"[progress.description]{{task.description}}"), transient=True
+        SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True
     ) as progress:
         progress.add_task(description=progress_description, total=None)
         result = _run_async(command_bus.dispatch({"type": command_type, "data": command_data}))

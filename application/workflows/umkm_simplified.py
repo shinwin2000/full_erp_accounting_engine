@@ -31,6 +31,7 @@ Perbaikan presisi:
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import logging
@@ -38,6 +39,8 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import Enum
 from typing import TYPE_CHECKING, Any
+
+import aiofiles  # <-- Tambahan untuk async file I/O
 
 from application.commands_cqrs.command_bus_unified import Command, CommandResult
 
@@ -129,7 +132,7 @@ class UMKMWorkflowCommand(Command):
                 "transaction_date": (
                     self.transaction_date.isoformat() if self.transaction_date else None
                 ),
-                "amount": str(self.amount) if self.amount is not None else None,  # ganti float -> str
+                "amount": str(self.amount) if self.amount is not None else None,
                 "category": self.category,
                 "description": self.description,
                 "payment_method": self.payment_method,
@@ -302,7 +305,7 @@ class UMKMWorkflow:
         report_data = {
             "period_start": command.period_start.isoformat(),
             "period_end": command.period_end.isoformat(),
-            "total_income": income_total,   # Decimal, not float
+            "total_income": income_total,
             "total_expense": expense_total,
             "net_profit": net_profit,
             "transactions": [
@@ -310,7 +313,7 @@ class UMKMWorkflow:
                     "date": t.transaction_date.isoformat(),
                     "type": t.transaction_type,
                     "category": t.category,
-                    "amount": t.amount,      # Decimal, not float
+                    "amount": t.amount,
                     "description": t.description,
                 }
                 for t in transactions
@@ -355,7 +358,7 @@ class UMKMWorkflow:
 
         tax_data = {
             "period": f"{command.period_start.year}-{command.period_start.month:02d}",
-            "gross_revenue": total_income,   # Decimal, not float
+            "gross_revenue": total_income,
             "tax_rate": Decimal("0.5"),
             "tax_due": tax_due,
             "tax_paid": total_paid,
@@ -374,60 +377,73 @@ class UMKMWorkflow:
             message=f"Tax for {command.period_start.year}-{command.period_start.month:02d}: due {tax_due}, payable {tax_payable}",
         )
 
+    # ========================================================================
+    # PERBAIKAN: _export_to_excel menggunakan asyncio.to_thread
+    # ========================================================================
     async def _export_to_excel(
         self, report_data: dict[str, Any], command: UMKMWorkflowCommand
     ) -> str:
         try:
             import openpyxl
+            import openpyxl.utils
             from openpyxl.styles import Alignment, Font, PatternFill
 
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "UMKM Report"
+            def _create_excel_sync():
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.title = "UMKM Report"
 
-            ws["A1"] = "LAPORATAN UMKM"
-            ws["A1"].font = Font(bold=True, size=14)
-            ws.merge_cells("A1:F1")
+                ws["A1"] = "LAPORATAN UMKM"
+                ws["A1"].font = Font(bold=True, size=14)
+                ws.merge_cells("A1:F1")
 
-            ws["A2"] = f"Periode: {report_data['period_start']} s/d {report_data['period_end']}"
-            ws.merge_cells("A2:F2")
+                ws["A2"] = f"Periode: {report_data['period_start']} s/d {report_data['period_end']}"
+                ws.merge_cells("A2:F2")
 
-            ws["A4"] = "Ringkasan"
-            ws["A4"].font = Font(bold=True)
-            ws["A5"] = "Total Pendapatan"
-            ws["B5"] = report_data["total_income"]   # Decimal accepted
-            ws["A6"] = "Total Beban"
-            ws["B6"] = report_data["total_expense"]
-            ws["A7"] = "Laba Bersih"
-            ws["B7"] = report_data["net_profit"]
+                ws["A4"] = "Ringkasan"
+                ws["A4"].font = Font(bold=True)
+                ws["A5"] = "Total Pendapatan"
+                ws["B5"] = report_data["total_income"]
+                ws["A6"] = "Total Beban"
+                ws["B6"] = report_data["total_expense"]
+                ws["A7"] = "Laba Bersih"
+                ws["B7"] = report_data["net_profit"]
 
-            ws["A9"] = "Detail Transaksi"
-            ws["A9"].font = Font(bold=True)
-            headers = ["Tanggal", "Jenis", "Kategori", "Jumlah", "Deskripsi"]
-            for col, header in enumerate(headers, 1):
-                cell = ws.cell(row=10, column=col, value=header)
-                cell.font = Font(bold=True)
-                cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+                ws["A9"] = "Detail Transaksi"
+                ws["A9"].font = Font(bold=True)
+                headers = ["Tanggal", "Jenis", "Kategori", "Jumlah", "Deskripsi"]
+                for col, header in enumerate(headers, 1):
+                    cell = ws.cell(row=10, column=col, value=header)
+                    cell.font = Font(bold=True)
+                    cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
 
-            for row_idx, tx in enumerate(report_data["transactions"], start=11):
-                ws.cell(row=row_idx, column=1, value=tx["date"])
-                ws.cell(row=row_idx, column=2, value=tx["type"])
-                ws.cell(row=row_idx, column=3, value=tx["category"])
-                ws.cell(row=row_idx, column=4, value=tx["amount"])   # Decimal
-                ws.cell(row=row_idx, column=5, value=tx["description"])
+                for row_idx, tx in enumerate(report_data["transactions"], start=11):
+                    ws.cell(row=row_idx, column=1, value=tx["date"])
+                    ws.cell(row=row_idx, column=2, value=tx["type"])
+                    ws.cell(row=row_idx, column=3, value=tx["category"])
+                    ws.cell(row=row_idx, column=4, value=tx["amount"])
+                    ws.cell(row=row_idx, column=5, value=tx["description"])
 
-            for col in range(1, 6):
-                ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 15
+                for col in range(1, 6):
+                    ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 15
 
-            file_path = (
-                f"/tmp/umkm_report_{command.legal_entity_id}_{datetime.utcnow().timestamp()}.xlsx"
-            )
-            wb.save(file_path)
+                file_path = (
+                    f"/tmp/umkm_report_{command.legal_entity_id}_{datetime.utcnow().timestamp()}.xlsx"
+                )
+                wb.save(file_path)
+                return file_path
+
+            # Jalankan pembuatan Excel di thread pool (blocking)
+            file_path = await asyncio.to_thread(_create_excel_sync)
             return file_path
 
         except ImportError:
+            # Fallback ke CSV
             return await self._export_to_csv(report_data, command)
 
+    # ========================================================================
+    # PERBAIKAN: _export_to_csv menggunakan aiofiles
+    # ========================================================================
     async def _export_to_csv(
         self, report_data: dict[str, Any], command: UMKMWorkflowCommand
     ) -> str:
@@ -437,7 +453,7 @@ class UMKMWorkflow:
         writer.writerow([f"Period: {report_data['period_start']} to {report_data['period_end']}"])
         writer.writerow([])
         writer.writerow(["Summary"])
-        writer.writerow(["Total Income", str(report_data["total_income"])])   # konversi ke str
+        writer.writerow(["Total Income", str(report_data["total_income"])])
         writer.writerow(["Total Expense", str(report_data["total_expense"])])
         writer.writerow(["Net Profit", str(report_data["net_profit"])])
         writer.writerow([])
@@ -451,10 +467,16 @@ class UMKMWorkflow:
         file_path = (
             f"/tmp/umkm_report_{command.legal_entity_id}_{datetime.utcnow().timestamp()}.csv"
         )
-        with open(file_path, "w") as f:
-            f.write(output.getvalue())
+
+        # Tulis file secara async
+        async with aiofiles.open(file_path, "w") as f:
+            await f.write(output.getvalue())
+
         return file_path
 
+    # ========================================================================
+    # PERBAIKAN: _export_tax_to_excel menggunakan aiofiles
+    # ========================================================================
     async def _export_tax_to_excel(
         self, tax_data: dict[str, Any], command: UMKMWorkflowCommand
     ) -> str:
@@ -470,8 +492,11 @@ class UMKMWorkflow:
         writer.writerow(["Tax Payable", str(tax_data["tax_payable"])])
 
         file_path = f"/tmp/umkm_tax_{command.legal_entity_id}_{tax_data['period']}.csv"
-        with open(file_path, "w") as f:
-            f.write(output.getvalue())
+
+        # Tulis file secara async
+        async with aiofiles.open(file_path, "w") as f:
+            await f.write(output.getvalue())
+
         return file_path
 
     def get_stats(self) -> dict[str, int]:

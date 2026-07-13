@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 coa_checker.py – Chart of Accounts Validator (Enhanced)
 ========================================================
@@ -25,14 +24,14 @@ import argparse
 import csv
 import json
 import logging
-import os
 import pathlib
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 # ─── RCA INTEGRATION (via checker.core.rca) ──────────────────────────────────
 _RCA_ENGINE = None
@@ -43,7 +42,7 @@ def _init_rca() -> bool:
     if _RCA_AVAILABLE:
         return True
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -53,7 +52,7 @@ def _init_rca() -> bool:
     if str(_root) not in sys.path:
         sys.path.insert(0, str(_root))
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         return True
@@ -63,7 +62,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Dict]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE:
         return {
             "severity": "WARNING",
@@ -98,7 +97,7 @@ if not logger.handlers:
     logger.addHandler(_log_handler)
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "MAGENTA": "",
     "WHITE": "", "BOLD": "", "DIM": "", "RESET": "",
 }
@@ -113,7 +112,7 @@ try:
         "MAGENTA": colorama.Fore.MAGENTA,
         "WHITE" : colorama.Fore.WHITE,
         "BOLD"  : colorama.Style.BRIGHT,
-        "DIM"   : colorama.Style.DIM,      
+        "DIM"   : colorama.Style.DIM,
         "RESET" : colorama.Style.RESET_ALL,
     })
 except ImportError:
@@ -144,12 +143,12 @@ class Account:
     name: str
     type: str
     normal_balance: str
-    parent: Optional[str] = None
-    description: Optional[str] = None
+    parent: str | None = None
+    description: str | None = None
     level: int = 0
     active: bool = True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "code": self.code,
             "name": self.name,
@@ -165,11 +164,11 @@ class Account:
 class Violation:
     severity: str  # "ERROR", "WARNING", "INFO"
     message: str
-    account_code: Optional[str] = None
+    account_code: str | None = None
     detail: str = ""
-    rca: Optional[Dict] = None
+    rca: dict | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "severity": self.severity,
             "message": self.message,
@@ -180,9 +179,9 @@ class Violation:
 
 @dataclass
 class Report:
-    accounts: List[Account] = field(default_factory=list)
-    violations: List[Violation] = field(default_factory=list)
-    source_file: Optional[str] = None
+    accounts: list[Account] = field(default_factory=list)
+    violations: list[Violation] = field(default_factory=list)
+    source_file: str | None = None
     score: int = 100
     scan_time: float = 0.0
 
@@ -204,10 +203,10 @@ class Report:
 
 # ─── FILE UTILITIES ──────────────────────────────────────────────────────────
 _ENCODINGS = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
-_FILE_CACHE: Dict[str, Tuple[Optional[Any], Optional[str]]] = {}
+_FILE_CACHE: dict[str, tuple[Any | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
 
-def _read_file_with_fallback(path: pathlib.Path) -> Tuple[Optional[str], Optional[str]]:
+def _read_file_with_fallback(path: pathlib.Path) -> tuple[str | None, str | None]:
     """Read file with multiple encoding fallback. Return (content, error)."""
     for enc in _ENCODINGS:
         try:
@@ -218,7 +217,7 @@ def _read_file_with_fallback(path: pathlib.Path) -> Tuple[Optional[str], Optiona
             return None, f"OSError: {e}"
     return None, f"UnicodeDecodeError with encodings {_ENCODINGS}"
 
-def _load_data_from_file(path: pathlib.Path) -> Tuple[Optional[Any], Optional[str]]:
+def _load_data_from_file(path: pathlib.Path) -> tuple[Any | None, str | None]:
     """Load YAML or JSON data from file with caching."""
     key = str(path.resolve())
     with _CACHE_LOCK:
@@ -267,7 +266,7 @@ def is_coa_data(data: Any) -> bool:
             return True
     return False
 
-def parse_accounts_from_dict(items: List[Dict]) -> List[Account]:
+def parse_accounts_from_dict(items: list[dict]) -> list[Account]:
     accounts = []
     for item in items:
         if not isinstance(item, dict):
@@ -288,7 +287,7 @@ def parse_accounts_from_dict(items: List[Dict]) -> List[Account]:
         accounts.append(acc)
     return accounts
 
-def parse_coa_file(path: pathlib.Path) -> Tuple[List[Account], Optional[str]]:
+def parse_coa_file(path: pathlib.Path) -> tuple[list[Account], str | None]:
     """Parse COA file, return (accounts, error)."""
     if not path.exists():
         return [], f"File not found: {path}"
@@ -315,7 +314,7 @@ def parse_coa_file(path: pathlib.Path) -> Tuple[List[Account], Optional[str]]:
         return [], "No valid accounts found"
     return accounts, None
 
-def load_coa_from_module(module_name: str) -> List[Account]:
+def load_coa_from_module(module_name: str) -> list[Account]:
     """Try to load COA from Python module."""
     try:
         mod = __import__(module_name, fromlist=["COA"])
@@ -326,7 +325,7 @@ def load_coa_from_module(module_name: str) -> List[Account]:
     return []
 
 # ─── FIND COA FILES ──────────────────────────────────────────────────────────
-def find_coa_files(project_root: pathlib.Path) -> List[pathlib.Path]:
+def find_coa_files(project_root: pathlib.Path) -> list[pathlib.Path]:
     """Search for COA files in various locations."""
     search_dirs = [
         project_root / "config",
@@ -365,10 +364,10 @@ def normalize_code(code: str) -> str:
     """Normalize account code (strip, uppercase)."""
     return code.strip().upper()
 
-def validate_accounts(accounts: List[Account], strict: bool = False) -> List[Violation]:
-    violations: List[Violation] = []
-    code_map: Dict[str, Account] = {}
-    seen_codes: Set[str] = set()
+def validate_accounts(accounts: list[Account], strict: bool = False) -> list[Violation]:
+    violations: list[Violation] = []
+    code_map: dict[str, Account] = {}
+    seen_codes: set[str] = set()
 
     # Build code map
     for acc in accounts:
@@ -480,7 +479,7 @@ def validate_accounts(accounts: List[Account], strict: bool = False) -> List[Vio
     return violations
 
 # ─── RCA ENRICHMENT ──────────────────────────────────────────────────────────
-def enrich_violations(violations: List[Violation], context: Optional[Dict] = None) -> List[Violation]:
+def enrich_violations(violations: list[Violation], context: dict | None = None) -> list[Violation]:
     """Add RCA analysis to each violation."""
     if not _RCA_AVAILABLE:
         return violations
@@ -503,10 +502,10 @@ def enrich_violations(violations: List[Violation], context: Optional[Dict] = Non
 # ─── SCAN ────────────────────────────────────────────────────────────────────
 def scan_coa(
     project_root: pathlib.Path,
-    coa_file: Optional[pathlib.Path] = None,
+    coa_file: pathlib.Path | None = None,
     strict: bool = False,
     run_rca: bool = True,
-    progress_callback: Optional[Callable] = None,
+    progress_callback: Callable | None = None,
 ) -> Report:
     t0 = time.monotonic()
     report = Report()
@@ -625,7 +624,7 @@ def save_json(report: Report, path: pathlib.Path) -> bool:
     try:
         data = {
             "version": __version__,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "source": report.source_file,
             "accounts": [a.to_dict() for a in report.accounts],
             "violations": [v.to_dict() for v in report.violations],

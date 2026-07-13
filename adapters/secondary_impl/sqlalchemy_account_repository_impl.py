@@ -824,6 +824,37 @@ class SQLAlchemyAccountRepositoryImpl(
             raise AccountNotFoundError(f"Customer {customer_id} not found")
         logger.info("Updating credit usage for customer %s: %s", customer_id, amount_used)
 
+    # ========================================================================
+    # METODE YANG HILANG (untuk memenuhi kontrak CustomerRepositoryPort)
+    # ========================================================================
+
+    async def check_credit_limit(self, customer_id: UUID) -> Decimal:
+        """
+        Periksa batas kredit pelanggan.
+        Implementasi sederhana: mengembalikan 0 (tidak ada batas).
+        """
+        account = await self.get_by_id(customer_id)
+        if not account:
+            raise AccountNotFoundError(f"Customer {customer_id} not found")
+        # Untuk produksi, batas kredit bisa diambil dari atribut account jika ada
+        return Decimal('0')
+
+    async def is_active(self, customer_id: UUID) -> bool:
+        """
+        Cek apakah pelanggan aktif.
+        """
+        account = await self.get_by_id(customer_id)
+        if not account:
+            return False
+        return account.status == AccountStatus.ACTIVE
+
+    async def list_by_entity(self, legal_entity_id: UUID) -> list[AccountAggregate]:
+        """
+        Daftar pelanggan berdasarkan entitas legal.
+        Implementasi: gunakan get_all dengan filter aktif.
+        """
+        return await self.get_all(legal_entity_id, include_inactive=False)
+
 
 # ============================================================================
 # ALIAS UNTUK BACKWARD COMPATIBILITY

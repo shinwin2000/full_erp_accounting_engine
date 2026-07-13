@@ -82,16 +82,6 @@ from .psak_14_inventories import (
     PSAK14Validator,
     get_psak14_validator,
 )
-from .psak_16_property_plant_equipment import (
-    AssetValuation,
-    DepreciationMethodPSAK,
-    DepreciationSchedule,
-    PSAK16Rules,
-    PSAK16ValidationResult,
-    PSAK16Validator,
-    RevaluationModel,
-    get_psak16_validator,
-)
 from .psak_19_intangible_assets import (
     AmortizationMethod,
     IntangibleAsset,

@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -292,7 +292,8 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
             try:
                 await self._worker_task
             except asyncio.CancelledError:
-                pass
+                # Log cancellation during shutdown
+                logger.debug("Worker task cancelled during stop")
             self._worker_task = None
         await self._log_audit("STOP_WORKER", {})
         logger.info("Worker stopped")
@@ -308,6 +309,7 @@ class SQLAlchemyReadModelProjection(ReadModelProjectionPort):
                     else:
                         await asyncio.sleep(0.1)
             except asyncio.CancelledError:
+                logger.debug("Worker loop cancelled")
                 break
             except Exception as e:
                 logger.error("Worker error: %s", e)

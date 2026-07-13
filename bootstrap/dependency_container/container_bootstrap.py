@@ -11,8 +11,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from bootstrap.dependency_container.ioc_container import get_container, IoCContainer
-from bootstrap.dependency_container.adapter_registry import AdapterRegistry, set_adapter_registry_instance
+from bootstrap.dependency_container.adapter_registry import (
+    AdapterRegistry,
+    set_adapter_registry_instance,
+)
+from bootstrap.dependency_container.ioc_container import IoCContainer, get_container
 from bootstrap.dependency_container.service_registry import ServiceRegistrar
 
 logger = logging.getLogger(__name__)
@@ -75,6 +78,6 @@ def build_container() -> IoCContainer:
 
 
 __all__ = [
-    "initialize_container",
     "build_container",
+    "initialize_container",
 ]

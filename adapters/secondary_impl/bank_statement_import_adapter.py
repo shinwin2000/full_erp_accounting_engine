@@ -152,30 +152,43 @@ class BankStatementImportAdapter(BankStatementImportPort):
         limit: int = 100,
         offset: int = 0,
     ) -> list[BankStatementImport]:
+        """
+        Ambil semua import dengan jumlah transaksi masing-masing.
+        Menggunakan LEFT JOIN + GROUP BY untuk menghindari N+1.
+        """
         session = await self._get_session()
-        query = select(BankReconciliationTable)
+        # Satu query dengan LEFT JOIN dan GROUP BY
+        stmt = (
+            select(
+                BankReconciliationTable,
+                func.count(BankTransactionTable.id).label("tx_count")
+            )
+            .outerjoin(
+                BankTransactionTable,
+                BankTransactionTable.import_id == BankReconciliationTable.id
+            )
+        )
         if bank_account_id:
-            query = query.where(BankReconciliationTable.bank_account_id == bank_account_id)
-        query = query.order_by(BankReconciliationTable.created_at.desc()).offset(offset).limit(limit)
-        result = await session.execute(query)
-        rows = result.scalars().all()
+            stmt = stmt.where(BankReconciliationTable.bank_account_id == bank_account_id)
+        stmt = stmt.group_by(BankReconciliationTable.id)
+        stmt = stmt.order_by(BankReconciliationTable.created_at.desc()).offset(offset).limit(limit)
+        result = await session.execute(stmt)
+        rows = result.all()
 
         imports = []
         for row in rows:
-            tx_count_stmt = select(func.count()).where(BankTransactionTable.import_id == row.id)
-            tx_count = (await session.execute(tx_count_stmt)).scalar() or 0
-
+            recon, tx_count = row  # row is a tuple (BankReconciliationTable, count)
             imp = BankStatementImport(
-                id=row.id,
-                bank_account_id=row.bank_account_id,
-                statement_date=row.statement_date,
-                statement_balance=row.ending_balance,
+                id=recon.id,
+                bank_account_id=recon.bank_account_id,
+                statement_date=recon.statement_date,
+                statement_balance=recon.ending_balance,
                 imported_transactions=tx_count,
                 duplicates_skipped=0,
                 errors=[],
-                status=ImportStatus(row.status),
-                created_at=row.created_at,
-                completed_at=row.completed_at,
+                status=ImportStatus(recon.status),
+                created_at=recon.created_at,
+                completed_at=recon.completed_at,
             )
             imports.append(imp)
         return imports

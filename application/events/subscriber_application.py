@@ -14,7 +14,6 @@ Responsibility:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import time
@@ -238,8 +237,11 @@ class EventProcessorWorker:
         self._running = False
         if self._task:
             self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await self._task
+            except asyncio.CancelledError:
+                # Log cancellation during shutdown
+                logger.debug(f"EventProcessorWorker-{self.worker_id} task cancelled during stop")
         logger.info(f"EventProcessorWorker-{self.worker_id} stopped")
 
     async def _run(self) -> None:
@@ -249,6 +251,7 @@ class EventProcessorWorker:
             except TimeoutError:
                 continue
             except asyncio.CancelledError:
+                logger.debug(f"EventProcessorWorker-{self.worker_id} run loop cancelled")
                 break
 
             try:
@@ -423,8 +426,10 @@ class ApplicationEventSubscriber:
         self._running = False
         if self._consumer_task:
             self._consumer_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await self._consumer_task
+            except asyncio.CancelledError:
+                logger.debug("Consumer task cancelled during stop")
         if self._queue:
             try:
                 await asyncio.wait_for(self._queue.join(), timeout=drain_timeout)
@@ -447,6 +452,7 @@ class ApplicationEventSubscriber:
                     await self._process_kafka_message(msg)
                 await self._maybe_commit(force=True)
             except asyncio.CancelledError:
+                logger.debug("Kafka consumer loop cancelled")
                 break
             except Exception as e:
                 logger.exception(f"Kafka consumer error: {e}")

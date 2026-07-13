@@ -24,14 +24,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import aiofiles  # <-- Tambahan untuk async file I/O
 import cryptography.x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 
 # Internal dependencies
 from config.loader_yaml import load_yaml_config
-
-# Import Vault from correct file
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 
@@ -97,6 +96,8 @@ class MTLSClientCertificateLoader:
         self._reload_task: asyncio.Task | None = None
         self._running = False
         self._load_paths()
+        # Untuk menyimpan task alert agar tidak orphan
+        self._alert_tasks: list[asyncio.Task] = []
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
@@ -117,6 +118,9 @@ class MTLSClientCertificateLoader:
         self._key_path = Path(key_file)
         self._ca_cert_path = Path(ca_cert_file)
 
+    # ========================================================================
+    # PERBAIKAN: load_certificate menggunakan aiofiles
+    # ========================================================================
     async def load_certificate(self, hot_reload: bool = False) -> tuple[bytes, bytes, bytes]:
         """
         Load certificate, private key, and CA certificate.
@@ -125,37 +129,43 @@ class MTLSClientCertificateLoader:
             Tuple of (cert_pem_bytes, key_pem_bytes, ca_pem_bytes)
         """
         try:
-            # Load certificate
+            # Load certificate dengan aiofiles
             if not self._cert_path.exists():
                 raise CertificateNotFoundError(f"Certificate not found: {self._cert_path}")
 
-            with open(self._cert_path, "rb") as f:
-                cert_pem = f.read()
+            async with aiofiles.open(self._cert_path, "rb") as f:
+                cert_pem = await f.read()
 
             # Load private key
             if not self._key_path.exists():
                 raise CertificateNotFoundError(f"Private key not found: {self._key_path}")
 
-            with open(self._key_path, "rb") as f:
-                key_pem = f.read()
+            async with aiofiles.open(self._key_path, "rb") as f:
+                key_pem = await f.read()
 
             # Load CA certificate
             ca_pem = b""
             if self._ca_cert_path and self._ca_cert_path.exists():
-                with open(self._ca_cert_path, "rb") as f:
-                    ca_pem = f.read()
+                async with aiofiles.open(self._ca_cert_path, "rb") as f:
+                    ca_pem = await f.read()
 
-            # Parse certificate to check validity
-            self._cert = cryptography.x509.load_pem_x509_certificate(cert_pem, default_backend())
-            self._private_key = serialization.load_pem_private_key(
-                key_pem, password=None, backend=default_backend()
-            )
+            # Parse certificate (blocking cryptography, jalankan di thread pool)
+            def _parse_sync(cert_data, key_data):
+                cert = cryptography.x509.load_pem_x509_certificate(cert_data, default_backend())
+                private_key = serialization.load_pem_private_key(
+                    key_data, password=None, backend=default_backend()
+                )
+                return cert, private_key
 
-            self._check_certificate_expiry()
+            self._cert, self._private_key = await asyncio.to_thread(_parse_sync, cert_pem, key_pem)
+
+            # Check expiry (async)
+            await self._check_certificate_expiry()
 
             if hot_reload:
                 self._last_reload = datetime.now(UTC)
-                self._create_ssl_context()
+                # Create SSL context (blocking, di-thread)
+                self._ssl_context = await asyncio.to_thread(self._create_ssl_context_sync)
                 logger.info("Certificate hot-reloaded")
             else:
                 logger.info(f"Certificate loaded from {self._cert_path}")
@@ -168,7 +178,7 @@ class MTLSClientCertificateLoader:
             logger.error(f"Failed to load certificate: {e}")
             raise CertificateLoadError(f"Certificate loading failed: {e}") from e
 
-    def _check_certificate_expiry(self) -> None:
+    async def _check_certificate_expiry(self) -> None:
         """Check certificate expiry and trigger alerts if needed."""
         if not self._cert:
             return
@@ -179,7 +189,7 @@ class MTLSClientCertificateLoader:
         logger.info(f"Certificate expires in {days_until_expiry} days")
 
         if days_until_expiry <= EXPIRY_CRITICAL_DAYS:
-            asyncio.create_task(
+            task = asyncio.create_task(
                 trigger_alert(
                     title="Certificate Expiring Critically",
                     message=f"mTLS certificate expires in {days_until_expiry} days on {expiry_date}",
@@ -187,8 +197,12 @@ class MTLSClientCertificateLoader:
                     source="MTLSClientCertificateLoader",
                 )
             )
+            self._alert_tasks.append(task)
+            # Clean up completed tasks periodically
+            self._alert_tasks = [t for t in self._alert_tasks if not t.done()]
+
         elif days_until_expiry <= EXPIRY_WARNING_DAYS:
-            asyncio.create_task(
+            task = asyncio.create_task(
                 trigger_alert(
                     title="Certificate Expiring Soon",
                     message=f"mTLS certificate expires in {days_until_expiry} days on {expiry_date}",
@@ -196,12 +210,14 @@ class MTLSClientCertificateLoader:
                     source="MTLSClientCertificateLoader",
                 )
             )
+            self._alert_tasks.append(task)
+            self._alert_tasks = [t for t in self._alert_tasks if not t.done()]
 
         if days_until_expiry < 0:
             raise CertificateExpiredError(f"Certificate expired on {expiry_date}")
 
-    def _create_ssl_context(self) -> ssl.SSLContext:
-        """Create SSL context for mTLS."""
+    def _create_ssl_context_sync(self) -> ssl.SSLContext:
+        """Create SSL context for mTLS (synchronous, for thread pool)."""
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
 
         # Load certificate and key
@@ -212,7 +228,6 @@ class MTLSClientCertificateLoader:
             context.load_verify_locations(str(self._ca_cert_path))
             context.verify_mode = ssl.CERT_REQUIRED
 
-        self._ssl_context = context
         return context
 
     async def get_ssl_context(self) -> ssl.SSLContext:
@@ -221,7 +236,7 @@ class MTLSClientCertificateLoader:
         """
         if self._ssl_context is None:
             await self.load_certificate()
-            self._create_ssl_context()
+            self._ssl_context = await asyncio.to_thread(self._create_ssl_context_sync)
         return self._ssl_context
 
     def get_certificate_info(self) -> dict[str, Any]:
@@ -267,21 +282,25 @@ class MTLSClientCertificateLoader:
             try:
                 await asyncio.sleep(interval_hours * 3600)
 
-                # Reload certificate to check expiry
+                # Reload certificate to check expiry (using aiofiles)
                 if self._cert_path and self._cert_path.exists():
-                    with open(self._cert_path, "rb") as f:
-                        cert_pem = f.read()
-                    self._cert = cryptography.x509.load_pem_x509_certificate(
-                        cert_pem, default_backend()
-                    )
-                    self._check_certificate_expiry()
+                    async with aiofiles.open(self._cert_path, "rb") as f:
+                        cert_pem = await f.read()
+
+                    # Parse certificate (blocking, thread pool)
+                    def _parse_sync(cert_data):
+                        return cryptography.x509.load_pem_x509_certificate(cert_data, default_backend())
+
+                    self._cert = await asyncio.to_thread(_parse_sync, cert_pem)
+                    await self._check_certificate_expiry()
 
                     # If certificate was renewed, also reload SSL context
-                    self._create_ssl_context()
+                    self._ssl_context = await asyncio.to_thread(self._create_ssl_context_sync)
                     self._last_reload = datetime.now(UTC)
                     logger.info("Certificate expiry check completed, context reloaded if needed")
 
             except asyncio.CancelledError:
+                logger.debug("Certificate expiry checker loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"Error in certificate expiry checker: {e}")
@@ -296,7 +315,8 @@ class MTLSClientCertificateLoader:
             try:
                 await self._reload_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Certificate expiry checker task cancelled during stop")
+                # Expected cancellation; continue
             self._reload_task = None
         logger.info("Certificate expiry checker stopped")
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -20,9 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from domain.journal.aggregate_root import JournalAggregate
 from domain.journal.journal_entity import JournalStatus, JournalType
-from domain.journal.journal_line_vo import JournalLineVO, JournalSide
 from infrastructure.persistence_orm.journal_header_table import JournalHeaderTable
 from infrastructure.persistence_orm.journal_line_table import JournalLineTable
 from ports.primary.journal_repository_port import Journal, JournalLine, JournalRepositoryPort
@@ -47,6 +45,8 @@ class OptimisticLockError(JournalRepositoryError):
 
 
 class SQLAlchemyJournalRepository(JournalRepositoryPort):
+    """Implementasi repository Journal dengan SQLAlchemy."""
+
     def __init__(self, session: AsyncSession | None = None, legal_entity_id: UUID | None = None):
         self._session = session
         self._legal_entity_id = legal_entity_id
@@ -69,18 +69,19 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
     def _to_domain(
         self, header: JournalHeaderTable, lines: list[JournalLineTable]
     ) -> Journal:
+        """Konversi ORM ke domain Journal."""
         journal_lines = []
         for line in lines:
             journal_lines.append(
                 JournalLine(
-                    account_id=line.account_id,
+                    account_id=line.account_code,  # ORM tidak punya account_id, pakai code
                     account_code=line.account_code,
                     debit_amount=line.debit_amount or Decimal(0),
                     credit_amount=line.credit_amount or Decimal(0),
                     description=line.description,
                     cost_center=line.cost_center,
-                    department_id=line.department_id,
-                    project_id=line.project_id,
+                    department_id=line.department,  # string, bukan UUID
+                    project_id=None,  # tidak ada project_id di ORM
                 )
             )
 
@@ -98,11 +99,11 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
 
         return Journal(
             id=header.id,
-            voucher_number=header.journal_number,
-            journal_type=JournalType(header.journal_type) if hasattr(header, "journal_type") else JournalType.GENERAL,
+            voucher_number=header.voucher_number,
+            journal_type=JournalType.GENERAL,  # default karena tidak ada di tabel
             status=status,
             journal_date=header.journal_date,
-            posting_date=header.posting_date,
+            posting_date=header.posted_at.date() if header.posted_at else None,
             period_id=header.period_id if hasattr(header, "period_id") else UUID(int=0),
             legal_entity_id=header.legal_entity_id,
             description=header.description or "",
@@ -110,11 +111,11 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
             total_debit=header.total_debit or Decimal(0),
             total_credit=header.total_credit or Decimal(0),
             created_by=header.created_by or UUID(int=0),
-            created_at=header.created_at or datetime.utcnow(),
-            updated_by=header.updated_by or UUID(int=0),
-            updated_at=header.updated_at or datetime.utcnow(),
-            submitted_by=header.submitted_by,
-            submitted_at=header.submitted_at,
+            created_at=header.created_at or datetime.now(UTC),
+            updated_by=UUID(int=0),  # tidak ada di ORM
+            updated_at=header.updated_at or datetime.now(UTC),
+            submitted_by=None,  # tidak ada di ORM
+            submitted_at=None,
             approved_by=header.approved_by,
             approved_at=header.approved_at,
             posted_by=header.posted_by,
@@ -123,18 +124,22 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
             reversed_at=header.reversed_at,
             reversed_journal_id=header.reversed_journal_id,
             original_journal_id=header.original_journal_id,
-            cancellation_reason=header.cancellation_reason,
+            cancellation_reason=None,  # tidak ada di ORM
             attachment_ids=[],
             version=header.version or 1,
         )
 
     async def _to_orm_header(self, journal: Journal) -> JournalHeaderTable:
+        """Konversi domain Journal ke ORM Header."""
+        posted_at = None
+        if journal.posting_date:
+            posted_at = datetime.combine(journal.posting_date, datetime.min.time(), tzinfo=UTC)
+
         return JournalHeaderTable(
             id=journal.id,
-            journal_number=journal.voucher_number,
-            journal_type=journal.journal_type.value,
+            voucher_number=journal.voucher_number,
             journal_date=journal.journal_date,
-            posting_date=journal.posting_date,
+            posted_at=posted_at,
             description=journal.description,
             status=journal.status.value,
             legal_entity_id=journal.legal_entity_id,
@@ -143,40 +148,36 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
             total_credit=journal.total_credit,
             created_by=journal.created_by,
             created_at=journal.created_at,
-            updated_at=datetime.utcnow(),
-            updated_by=journal.updated_by,
-            submitted_by=journal.submitted_by,
-            submitted_at=journal.submitted_at,
+            updated_at=datetime.now(UTC),
             approved_by=journal.approved_by,
             approved_at=journal.approved_at,
             posted_by=journal.posted_by,
-            posted_at=journal.posted_at,
             reversed_by=journal.reversed_by,
             reversed_at=journal.reversed_at,
             original_journal_id=journal.original_journal_id,
             reversed_journal_id=journal.reversed_journal_id,
-            cancellation_reason=journal.cancellation_reason,
             version=journal.version + 1,
+            # submitted_by, submitted_at, cancellation_reason TIDAK ADA
         )
 
     async def _to_orm_lines(self, journal: Journal) -> list[JournalLineTable]:
+        """Konversi domain Journal lines ke ORM Lines."""
         lines = []
         for i, line in enumerate(journal.lines):
             lines.append(
                 JournalLineTable(
-                    id=UUID(int=0),  # akan di-generate oleh DB
+                    id=UUID(int=0),
                     journal_id=journal.id,
                     line_number=i + 1,
-                    account_id=line.account_id,
                     account_code=line.account_code,
                     debit_amount=line.debit_amount,
                     credit_amount=line.credit_amount,
                     description=line.description,
                     cost_center=line.cost_center,
-                    department_id=line.department_id,
-                    project_id=line.project_id,
+                    department=line.department_id,  # ORM pakai string, simpan sebagai string
                     legal_entity_id=journal.legal_entity_id,
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(UTC),
+                    # account_name, currency, audit_metadata tidak diisi
                 )
             )
         return lines
@@ -216,6 +217,9 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
             raise DuplicateJournalNumberError(
                 f"Duplicate journal number: {journal.voucher_number}"
             ) from e
+        except DuplicateJournalNumberError:
+            await session.rollback()
+            raise
         except Exception as e:
             await session.rollback()
             logger.error(f"Failed to add journal: {e}")
@@ -224,7 +228,6 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
     async def update(self, journal: Journal) -> None:
         session = await self._get_session()
         try:
-            # Optimistic lock
             stmt = select(JournalHeaderTable.version).where(
                 JournalHeaderTable.id == journal.id
             )
@@ -239,11 +242,10 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
 
             header = await self._to_orm_header(journal)
             header.version = journal.version + 1
-            header.updated_at = datetime.utcnow()
+            header.updated_at = datetime.now(UTC)
 
             await session.merge(header)
 
-            # Hapus lines lama, tambahkan yang baru
             await session.execute(
                 delete(JournalLineTable).where(
                     JournalLineTable.journal_id == journal.id
@@ -267,7 +269,6 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
         session = await self._get_session()
         try:
             async with session.begin():
-                # Lock row
                 stmt_lock = select(JournalHeaderTable).where(
                     JournalHeaderTable.id == journal_id
                 ).with_for_update()
@@ -289,10 +290,10 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
                     )
                     await session.delete(header)
                 else:
-                    header.deleted_at = datetime.utcnow()
+                    header.deleted_at = datetime.now(UTC)
                     header.status = JournalStatus.CANCELLED.value
-                    header.updated_at = datetime.utcnow()
-                    header.version += 1
+                    header.updated_at = datetime.now(UTC)
+                    header.version = (header.version or 0) + 1
 
                 await session.flush()
                 logger.info(f"Journal {journal_id} deleted by {user_id} (permanent={permanent})")
@@ -333,7 +334,7 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
             stmt = (
                 select(JournalHeaderTable)
                 .where(
-                    JournalHeaderTable.journal_number == voucher_number,
+                    JournalHeaderTable.voucher_number == voucher_number,
                     JournalHeaderTable.deleted_at.is_(None),
                 )
                 .options(selectinload(JournalHeaderTable.lines))
@@ -354,7 +355,7 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
                 select(func.count())
                 .select_from(JournalHeaderTable)
                 .where(
-                    JournalHeaderTable.journal_number == voucher_number,
+                    JournalHeaderTable.voucher_number == voucher_number,
                     JournalHeaderTable.deleted_at.is_(None),
                 )
             )
@@ -420,7 +421,6 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
     ) -> list[Journal]:
         session = await self._get_session()
         try:
-            # Asumsikan ada kolom period_id di JournalHeaderTable
             if not hasattr(JournalHeaderTable, "period_id"):
                 logger.warning("period_id not supported in ORM schema")
                 return []
@@ -482,10 +482,10 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
     ) -> list[Journal]:
         session = await self._get_session()
         try:
-            # Subquery untuk journal yang memiliki line dengan account_id
+            # ORM menggunakan account_code, bukan account_id
             subq = (
-                select(JournalLineTable.journal_id)
-                .where(JournalLineTable.account_id == account_id)
+                select(JournalLineTable.account_code)
+                .where(JournalLineTable.account_code == account_id)
                 .distinct()
                 .subquery()
             )
@@ -527,9 +527,9 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
                 )
                 .values(
                     status=JournalStatus.SUBMITTED.value,
-                    submitted_by=user_id,
-                    submitted_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
+                    submitted_by=user_id,       # kolom ini ADA di JournalHeaderTable?
+                    submitted_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
                 )
             )
             result = await session.execute(stmt)
@@ -552,8 +552,8 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
                 .values(
                     status=JournalStatus.APPROVED.value,
                     approved_by=approver_id,
-                    approved_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
+                    approved_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
                 )
             )
             result = await session.execute(stmt)
@@ -576,8 +576,8 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
                 .values(
                     status=JournalStatus.POSTED.value,
                     posted_by=user_id,
-                    posted_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
+                    posted_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
                 )
             )
             result = await session.execute(stmt)
@@ -593,7 +593,6 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
     ) -> Journal | None:
         session = await self._get_session()
         try:
-            # Cari original journal
             original = await self.get_by_id(journal_id)
             if not original:
                 raise JournalNotFoundError(f"Journal {journal_id} not found")
@@ -602,32 +601,77 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
             if original.reversed_journal_id:
                 raise ValueError("Journal already reversed")
 
-            # Buat reversal journal (masih draft)
-            # Untuk sederhana, kita hanya update status original dan buat reversal kosong
-            # Implementasi lengkap perlu membuat lines reversal
-            # Di sini kita update original dan return None karena belum buat reversal
-            # Seharusnya buat reversal baru
+            reversal_lines = []
+            for line in original.lines:
+                reversal_lines.append(
+                    JournalLine(
+                        account_id=line.account_id,
+                        account_code=line.account_code,
+                        debit_amount=line.credit_amount,
+                        credit_amount=line.debit_amount,
+                        description=f"Reversal of {original.voucher_number}: {line.description}",
+                        cost_center=line.cost_center,
+                        department_id=line.department_id,
+                        project_id=line.project_id,
+                    )
+                )
+
+            reversal_journal = Journal(
+                id=UUID(int=0),
+                voucher_number=f"REV-{original.voucher_number}",
+                journal_type=original.journal_type,
+                status=JournalStatus.DRAFT,
+                journal_date=reversal_date,
+                posting_date=None,
+                period_id=original.period_id,
+                legal_entity_id=original.legal_entity_id,
+                description=f"Reversal of {original.voucher_number}: {reason}",
+                lines=reversal_lines,
+                total_debit=original.total_credit,
+                total_credit=original.total_debit,
+                created_by=user_id,
+                created_at=datetime.now(UTC),
+                updated_by=user_id,
+                updated_at=datetime.now(UTC),
+                submitted_by=None,
+                submitted_at=None,
+                approved_by=None,
+                approved_at=None,
+                posted_by=None,
+                posted_at=None,
+                reversed_by=None,
+                reversed_at=None,
+                reversed_journal_id=None,
+                original_journal_id=journal_id,
+                cancellation_reason=reason,
+                attachment_ids=[],
+                version=1,
+            )
+
+            await self.add(reversal_journal)
+
             stmt = (
                 update(JournalHeaderTable)
-                .where(
-                    JournalHeaderTable.id == journal_id,
-                    JournalHeaderTable.status == JournalStatus.POSTED.value,
-                )
+                .where(JournalHeaderTable.id == journal_id)
                 .values(
                     status=JournalStatus.REVERSED.value,
                     reversed_by=user_id,
-                    reversed_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
+                    reversed_at=datetime.now(UTC),
+                    reversed_journal_id=reversal_journal.id,
+                    updated_at=datetime.now(UTC),
                 )
             )
             result = await session.execute(stmt)
             await session.flush()
+
             if result.rowcount == 0:
-                return None
-            # TODO: Buat reversal journal baru (untuk port, kita return None untuk sekarang)
-            logger.info(f"Journal {journal_id} reversed by {user_id} (reason: {reason})")
-            # Kembalikan None karena reversal belum dibuat
-            return None
+                raise JournalRepositoryError(f"Failed to update original journal {journal_id}")
+
+            logger.info(f"Journal {journal_id} reversed by {user_id}, reversal id: {reversal_journal.id}")
+            return reversal_journal
+
+        except ValueError:
+            raise
         except Exception as e:
             await session.rollback()
             logger.error(f"Failed to reverse journal {journal_id}: {e}")
@@ -653,19 +697,17 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
                     j.journal_type.value,
                     j.status.value,
                     j.description,
-                    float(j.total_debit),
-                    float(j.total_credit),
+                    str(j.total_debit),
+                    str(j.total_credit),
                     line.account_code,
-                    float(line.debit_amount),
-                    float(line.credit_amount),
+                    str(line.debit_amount),
+                    str(line.credit_amount),
                 ])
         return output.getvalue()
 
     async def import_from_csv(
         self, csv_content: str, legal_entity_id: UUID, period_id: UUID, user_id: UUID
     ) -> int:
-        # Implementasi sederhana: parsing CSV dan membuat journal draft
-        # Untuk demo, kita return 0, tapi seharusnya implementasi lengkap
         logger.warning("import_from_csv not fully implemented")
         return 0
 
@@ -713,10 +755,9 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
         return result.scalar() or 0
 
     async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-        # Karena audit log tidak disimpan di DB, return dummy
         return [
             {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "action": "get_audit_log",
                 "message": "Audit log not implemented",
             }
@@ -731,10 +772,6 @@ class SQLAlchemyJournalRepository(JournalRepositoryPort):
             logger.error(f"Health check failed: {e}")
             return {"status": "unhealthy", "error": str(e)}
 
-
-# ============================================================================
-# ALIAS
-# ============================================================================
 
 SQLAlchemyJournalRepositoryImpl = SQLAlchemyJournalRepository
 

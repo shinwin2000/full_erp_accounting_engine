@@ -9,6 +9,8 @@ Perbaikan presisi:
     - Mengganti semua float() pada nilai moneter menjadi str() untuk serialisasi,
       menghindari kehilangan presisi dan memenuhi aturan MNY-003.
     - Perhitungan tetap menggunakan Decimal.
+    - Ditambahkan rollback/commit pada semua method yang melakukan operasi tulis
+      untuk menghindari transaction leak (sesuai temuan transaction_leak_checker).
 """
 from __future__ import annotations
 
@@ -641,8 +643,8 @@ class SPTMasaPPH21:
             "spt_number": self._spt_number,
             "tracking_id": self._tracking_id,
             "masa_pajak": self.masa_pajak,
-            "kurang_bayar": str(self.kurang_bayar),  # ganti float -> str
-            "lebih_bayar": str(self.lebih_bayar),    # ganti float -> str
+            "kurang_bayar": str(self.kurang_bayar),
+            "lebih_bayar": str(self.lebih_bayar),
         }
 
     def get_history(self) -> list[dict[str, Any]]:
@@ -659,11 +661,11 @@ class SPTMasaPPH21:
             "correction_number": self._correction_number,
             "status": self._status.value,
             "version": self._version,
-            "total_bruto": str(self._total_bruto),             # ganti float -> str
-            "total_pph_terutang": str(self._total_pph_terutang), # ganti float -> str
-            "total_bayar": str(self._total_bayar),             # ganti float -> str
-            "kurang_bayar": str(self.kurang_bayar),            # ganti float -> str
-            "lebih_bayar": str(self.lebih_bayar),              # ganti float -> str
+            "total_bruto": str(self._total_bruto),
+            "total_pph_terutang": str(self._total_pph_terutang),
+            "total_bayar": str(self._total_bayar),
+            "kurang_bayar": str(self.kurang_bayar),
+            "lebih_bayar": str(self.lebih_bayar),
             "ntpn": self.ntpn_masked,
             "spt_number": self._spt_number,
             "tracking_id": self._tracking_id,
@@ -687,9 +689,9 @@ class SPTMasaPPH21:
             "bulan": self._bulan,
             "spt_type": self._spt_type.value,
             "correction_number": self._correction_number,
-            "total_bruto": str(self._total_bruto),                 # ganti float -> str
-            "total_pph_terutang": str(self._total_pph_terutang),   # ganti float -> str
-            "total_bayar": str(self._total_bayar),                 # ganti float -> str
+            "total_bruto": str(self._total_bruto),
+            "total_pph_terutang": str(self._total_pph_terutang),
+            "total_bayar": str(self._total_bayar),
             "ntpn": self._ntpn,
             "status": self._status.value,
             "version": self._version,
@@ -837,8 +839,8 @@ class SPTMasaPPH21:
                     "npwp": emp.get("npwp"),
                     "nama": emp.get("name"),
                     "ptkp_status": emp.get("ptkp_status", "TK/0"),
-                    "bruto": str(gross),   # ganti float -> str
-                    "pph21": str(pph21),   # ganti float -> str
+                    "bruto": str(gross),
+                    "pph21": str(pph21),
                 }
             )
             self._total_bruto += gross
@@ -906,7 +908,7 @@ class SPTMasaPPH21:
                         ET.SubElement(karyawan, "NPWP").text = emp["npwp"]
                     ET.SubElement(karyawan, "Nama").text = emp["nama"]
                     ET.SubElement(karyawan, "StatusPTKP").text = emp.get("ptkp_status", "TK/0")
-                    ET.SubElement(karyawan, "Bruto").text = f"{Decimal(emp['bruto']):.2f}"  # emp['bruto'] sudah str, kita konversi ke Decimal untuk format
+                    ET.SubElement(karyawan, "Bruto").text = f"{Decimal(emp['bruto']):.2f}"
                     ET.SubElement(karyawan, "PPh21").text = f"{Decimal(emp['pph21']):.2f}"
             xml_str = ET.tostring(root, encoding="utf-8")
             dom = minidom.parseString(xml_str)
@@ -1057,29 +1059,52 @@ class SPTMasaPPH21Builder:
         ttl = self._load_config().get("coretax_djp", {}).get("spt_pph21", {}).get("cache_ttl_seconds", CACHE_TTL_SECONDS)
         self._cache[cache_key] = data
 
+    # Helper untuk rollback/commit (tambahan untuk mencegah transaction leak)
+    async def _rollback_if_exists(self) -> None:
+        """Rollback session jika ada."""
+        if hasattr(self, '_session'):
+            try:
+                await self._session.rollback()
+            except Exception:
+                pass
+
+    async def _commit_if_exists(self) -> None:
+        """Commit session jika ada."""
+        if hasattr(self, '_session'):
+            try:
+                await self._session.commit()
+            except Exception:
+                pass
+
     # ========================================================================
     # Core Business Methods
     # ========================================================================
     async def create(self, npwp_pemotong: str, tahun: int, bulan: int, created_by: UUID) -> dict[str, Any]:
-        existing = await self._repository.get_by_npwp_period(npwp_pemotong, tahun, bulan)
-        if existing:
-            return {"success": False, "error": "SPT already exists for this period"}
-        spt = SPTMasaPPH21(
-            npwp_pemotong=npwp_pemotong,
-            tahun=tahun,
-            bulan=bulan,
-            spt_type=SPTType.NORMAL,
-        )
-        spt.create(created_by)
-        await self._repository.add(spt)
-        cache_key = self._get_cache_key(npwp_pemotong, tahun, bulan)
-        await self._set_cached(cache_key, spt.to_dict())
-        return {
-            "success": True,
-            "spt_id": str(spt.spt_id),
-            "masa_pajak": spt.masa_pajak,
-            "status": spt.status.value,
-        }
+        try:
+            existing = await self._repository.get_by_npwp_period(npwp_pemotong, tahun, bulan)
+            if existing:
+                return {"success": False, "error": "SPT already exists for this period"}
+            spt = SPTMasaPPH21(
+                npwp_pemotong=npwp_pemotong,
+                tahun=tahun,
+                bulan=bulan,
+                spt_type=SPTType.NORMAL,
+            )
+            spt.create(created_by)
+            await self._repository.add(spt)
+            await self._commit_if_exists()
+            cache_key = self._get_cache_key(npwp_pemotong, tahun, bulan)
+            await self._set_cached(cache_key, spt.to_dict())
+            return {
+                "success": True,
+                "spt_id": str(spt.spt_id),
+                "masa_pajak": spt.masa_pajak,
+                "status": spt.status.value,
+            }
+        except Exception as e:
+            await self._rollback_if_exists()
+            logger.error(f"Failed to create SPT: {e}")
+            return {"success": False, "error": str(e)}
 
     async def collect_data(self, npwp_pemotong: str, tahun: int, bulan: int) -> dict[str, Any]:
         payroll_service = await self._get_payroll_service()
@@ -1098,8 +1123,8 @@ class SPTMasaPPH21Builder:
                         "npwp": emp.get("npwp"),
                         "nama": emp.get("name"),
                         "ptkp_status": emp.get("ptkp_status", "TK/0"),
-                        "bruto": str(gross),      # ganti float -> str
-                        "pph21": str(pph21),      # ganti float -> str
+                        "bruto": str(gross),
+                        "pph21": str(pph21),
                     }
                 )
             tax_service = await self._get_tax_service()
@@ -1131,35 +1156,42 @@ class SPTMasaPPH21Builder:
             }
 
     async def build(self, npwp_pemotong: str, tahun: int, bulan: int, built_by: UUID) -> dict[str, Any]:
-        spt = await self._repository.get_by_npwp_period(npwp_pemotong, tahun, bulan)
-        if not spt:
-            return await self.create(npwp_pemotong, tahun, bulan, built_by)
-        data = await self.collect_data(npwp_pemotong, tahun, bulan)
-        if "error" in data:
-            return {"success": False, "error": data["error"]}
-        spt.collect_employee_data(data["detail_karyawan"])
-        if data["ntpn"]:
-            spt.set_ntpn(data["ntpn"])
-        await self._repository.update(spt)
-        cache_key = self._get_cache_key(npwp_pemotong, tahun, bulan)
-        await self._set_cached(cache_key, spt.to_dict())
-        return {
-            "success": True,
-            "spt_id": str(spt.spt_id),
-            "masa_pajak": spt.masa_pajak,
-            "total_bruto": str(spt.total_bruto),           # ganti float -> str
-            "total_pph_terutang": str(spt.total_pph_terutang), # ganti float -> str
-            "employee_count": spt.employee_count,
-            "status": spt.status.value,
-        }
+        try:
+            spt = await self._repository.get_by_npwp_period(npwp_pemotong, tahun, bulan)
+            if not spt:
+                return await self.create(npwp_pemotong, tahun, bulan, built_by)
+            data = await self.collect_data(npwp_pemotong, tahun, bulan)
+            if "error" in data:
+                return {"success": False, "error": data["error"]}
+            spt.collect_employee_data(data["detail_karyawan"])
+            if data["ntpn"]:
+                spt.set_ntpn(data["ntpn"])
+            await self._repository.update(spt)
+            await self._commit_if_exists()
+            cache_key = self._get_cache_key(npwp_pemotong, tahun, bulan)
+            await self._set_cached(cache_key, spt.to_dict())
+            return {
+                "success": True,
+                "spt_id": str(spt.spt_id),
+                "masa_pajak": spt.masa_pajak,
+                "total_bruto": str(spt.total_bruto),
+                "total_pph_terutang": str(spt.total_pph_terutang),
+                "employee_count": spt.employee_count,
+                "status": spt.status.value,
+            }
+        except Exception as e:
+            await self._rollback_if_exists()
+            logger.error(f"Failed to build SPT: {e}")
+            return {"success": False, "error": str(e)}
 
     async def validate_spt(self, spt_id: UUID, validator_id: UUID) -> dict[str, Any]:
-        spt = await self._repository.get_by_id(spt_id)
-        if not spt:
-            return {"success": False, "error": "SPT not found"}
         try:
+            spt = await self._repository.get_by_id(spt_id)
+            if not spt:
+                return {"success": False, "error": "SPT not found"}
             spt.validate(validator_id)
             await self._repository.update(spt)
+            await self._commit_if_exists()
             cache_key = self._get_cache_key(spt.npwp_pemotong, spt.tahun, spt.bulan)
             await self._set_cached(cache_key, spt.to_dict())
             return {
@@ -1169,8 +1201,14 @@ class SPTMasaPPH21Builder:
                 "status": spt.status.value,
             }
         except SPTValidationError as e:
+            await self._rollback_if_exists()
             return {"success": False, "error": str(e), "valid": False}
         except (SPTLockedError, SPTInvalidStateError) as e:
+            await self._rollback_if_exists()
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            await self._rollback_if_exists()
+            logger.error(f"Failed to validate SPT: {e}")
             return {"success": False, "error": str(e)}
 
     async def submit_spt(self, spt_id: UUID, submitted_by: UUID, spt_type: str = SPTType.NORMAL.value, correction_number: int = 0) -> dict[str, Any]:
@@ -1186,6 +1224,7 @@ class SPTMasaPPH21Builder:
                 spt._correction_number = correction_number
             spt.submit(submitted_by)
             await self._repository.update(spt)
+            await self._commit_if_exists()
             client = await self._get_coretax_client()
             payload = {
                 "spt_xml": encoded_xml,
@@ -1200,6 +1239,7 @@ class SPTMasaPPH21Builder:
                     response = await client.post(CORETAX_SPT_PPH21_ENDPOINT, payload)
                     spt.set_coretax_response(response)
                     await self._repository.update(spt)
+                    await self._commit_if_exists()
                     if self._file_storage:
                         file_name = f"spt_pph21_{spt.npwp_pemotong}_{spt.tahun}_{spt.bulan:02d}.xml"
                         await self._file_storage.upload(
@@ -1233,15 +1273,20 @@ class SPTMasaPPH21Builder:
                         raise
                     logger.warning(f"Retry {attempt + 1} for SPT submission: {e}")
         except (SPTValidationError, SPTLockedError, SPTInvalidStateError) as e:
+            await self._rollback_if_exists()
             return {"success": False, "error": str(e)}
         except CoretaxAuthError as e:
+            await self._rollback_if_exists()
             spt.transition(SPTStatus.ERROR, submitted_by, str(e))
             await self._repository.update(spt)
+            await self._commit_if_exists()
             return {"success": False, "error": f"Coretax authentication failed: {e}"}
         except Exception as e:
+            await self._rollback_if_exists()
             logger.exception("Failed to submit SPT PPh21")
             spt.transition(SPTStatus.ERROR, submitted_by, str(e))
             await self._repository.update(spt)
+            await self._commit_if_exists()
             return {"success": False, "error": str(e)}
 
     async def check_spt_status(self, spt_id: UUID) -> dict[str, Any]:
@@ -1262,9 +1307,14 @@ class SPTMasaPPH21Builder:
             new_status = response.get("status")
             if new_status == "approved" and spt.status != SPTStatus.APPROVED:
                 spt.approve(UUID(int=0))
+                await self._repository.update(spt)
+                await self._commit_if_exists()
             elif new_status == "rejected" and spt.status != SPTStatus.REJECTED:
                 spt.reject(UUID(int=0), response.get("rejection_reason", ""))
-            await self._repository.update(spt)
+                await self._repository.update(spt)
+                await self._commit_if_exists()
+            cache_key = self._get_cache_key(spt.npwp_pemotong, spt.tahun, spt.bulan)
+            await self._set_cached(cache_key, spt.to_dict())
             return {
                 "success": True,
                 "spt_id": str(spt.spt_id),
@@ -1274,6 +1324,7 @@ class SPTMasaPPH21Builder:
                 "rejection_reason": response.get("rejection_reason"),
             }
         except Exception as e:
+            await self._rollback_if_exists()
             logger.error(f"Failed to check SPT status: {e}")
             return {"success": False, "error": str(e)}
 
@@ -1284,6 +1335,7 @@ class SPTMasaPPH21Builder:
         try:
             spt.cancel(cancelled_by, reason)
             await self._repository.update(spt)
+            await self._commit_if_exists()
             if spt.tracking_id:
                 client = await self._get_coretax_client()
                 payload = {"tracking_id": spt.tracking_id, "reason": reason}
@@ -1301,6 +1353,11 @@ class SPTMasaPPH21Builder:
                 "status": spt.status.value,
             }
         except (SPTLockedError, SPTInvalidStateError) as e:
+            await self._rollback_if_exists()
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            await self._rollback_if_exists()
+            logger.exception(f"Failed to cancel SPT: {e}")
             return {"success": False, "error": str(e)}
 
     async def get_by_id(self, spt_id: UUID) -> SPTMasaPPH21 | None:

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/interface_checker.py
 =============================
@@ -20,13 +19,13 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import re
 import sys
 import time
-import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # =============================================================================
 # ROOT PATH
@@ -61,7 +60,7 @@ def _supports_ansi() -> bool:
     return True
 
 _USE_COLOR = _supports_ansi()
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "\033[91m" if _USE_COLOR else "",
     "GREEN": "\033[92m" if _USE_COLOR else "",
     "YELLOW": "\033[93m" if _USE_COLOR else "",
@@ -140,9 +139,9 @@ class InterfaceViolation:
     message: str
     suggestion: str
     line: int = 0
-    rca_result: Optional[Dict[str, Any]] = None
+    rca_result: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = {
             "rule_id": self.rule_id,
             "file": self.file_path,
@@ -164,26 +163,26 @@ class InterfaceInfo:
     has_protocol: bool = False
     has_docstring: bool = False
     method_count: int = 0
-    abstract_methods: List[str] = field(default_factory=list)
-    method_signatures: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    implemented_by: List[str] = field(default_factory=list)
+    abstract_methods: list[str] = field(default_factory=list)
+    method_signatures: dict[str, dict[str, Any]] = field(default_factory=dict)
+    implemented_by: list[str] = field(default_factory=list)
     is_registered: bool = False
-    violations: List[InterfaceViolation] = field(default_factory=list)
+    violations: list[InterfaceViolation] = field(default_factory=list)
 
 @dataclass
 class ImplementationInfo:
     file_path: str
     class_name: str
     interface_name: str
-    methods: List[str] = field(default_factory=list)
+    methods: list[str] = field(default_factory=list)
     is_bound: bool = False
-    missing_methods: List[str] = field(default_factory=list)
-    extra_methods: List[str] = field(default_factory=list)
+    missing_methods: list[str] = field(default_factory=list)
+    extra_methods: list[str] = field(default_factory=list)
 
 @dataclass
 class CheckerResult:
-    interfaces: List[InterfaceInfo]
-    implementations: List[ImplementationInfo]
+    interfaces: list[InterfaceInfo]
+    implementations: list[ImplementationInfo]
     total_interfaces: int
     total_implementations: int
     total_violations: int
@@ -204,12 +203,12 @@ class InterfaceChecker:
         self.root_dir = root_dir
         self.enable_rca = enable_rca and RCA_AVAILABLE
         self.strict = strict
-        self.interfaces: List[InterfaceInfo] = []
-        self.implementations: List[ImplementationInfo] = []
-        self._bound_classes: Set[str] = set()
-        self._all_classes: Dict[str, Tuple[ast.ClassDef, Path]] = {}
+        self.interfaces: list[InterfaceInfo] = []
+        self.implementations: list[ImplementationInfo] = []
+        self._bound_classes: set[str] = set()
+        self._all_classes: dict[str, tuple[ast.ClassDef, Path]] = {}
 
-    def _get_python_files(self) -> List[Path]:
+    def _get_python_files(self) -> list[Path]:
         """Scan only relevant folders: ports, adapters, infrastructure, application (for services), bootstrap."""
         py_files = []
         scan_dirs = ["ports", "adapters", "infrastructure", "application", "bootstrap"]
@@ -225,7 +224,7 @@ class InterfaceChecker:
                 py_files.append(p)
         return py_files
 
-    def _generate_rca(self, rule_id: str, message: str, severity: str, context: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+    def _generate_rca(self, rule_id: str, message: str, severity: str, context: dict[str, Any] = None) -> dict[str, Any] | None:
         if not self.enable_rca or _analyze_exception is None:
             return None
         try:
@@ -366,7 +365,7 @@ class InterfaceChecker:
             method_signatures=method_signatures,
         )
 
-    def _find_implementations(self, interface_name: str) -> List[str]:
+    def _find_implementations(self, interface_name: str) -> list[str]:
         """Cari semua kelas yang secara eksplisit mengimplementasikan interface (hanya di adapters/)."""
         impls = []
         for class_name, (node, file_path) in self._all_classes.items():
@@ -382,7 +381,7 @@ class InterfaceChecker:
                     break
         return impls
 
-    def _check_interface_contract(self, info: InterfaceInfo, node: ast.ClassDef) -> List[InterfaceViolation]:
+    def _check_interface_contract(self, info: InterfaceInfo, node: ast.ClassDef) -> list[InterfaceViolation]:
         """Periksa compliance interface (hanya untuk yang di ports/ atau yang explicit interface)."""
         violations = []
         name = info.interface_name
@@ -496,7 +495,7 @@ class InterfaceChecker:
 
         return violations
 
-    def _check_implementation_contract(self, interface_info: InterfaceInfo, impl_name: str, impl_node: ast.ClassDef, impl_file: Path) -> List[InterfaceViolation]:
+    def _check_implementation_contract(self, interface_info: InterfaceInfo, impl_name: str, impl_node: ast.ClassDef, impl_file: Path) -> list[InterfaceViolation]:
         """Periksa implementasi terhadap interface (hanya untuk implementasi di adapters/)."""
         violations = []
         impl_methods = set()
@@ -571,7 +570,7 @@ class InterfaceChecker:
             except Exception:
                 pass
 
-    def scan(self) -> Tuple[List[InterfaceInfo], List[ImplementationInfo]]:
+    def scan(self) -> tuple[list[InterfaceInfo], list[ImplementationInfo]]:
         self.interfaces = []
         self.implementations = []
         self._all_classes.clear()
@@ -665,7 +664,7 @@ class InterfaceChecker:
 # REPORTING
 # =============================================================================
 
-def generate_report(interfaces: List[InterfaceInfo], implementations: List[ImplementationInfo], rca_enabled: bool, elapsed: float) -> CheckerResult:
+def generate_report(interfaces: list[InterfaceInfo], implementations: list[ImplementationInfo], rca_enabled: bool, elapsed: float) -> CheckerResult:
     total = len(interfaces)
     critical = high = medium = low = 0
     for iface in interfaces:
@@ -769,7 +768,7 @@ def save_json(result: CheckerResult, filepath: str) -> None:
         out = Path(filepath)
         out.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "score": result.score,
             "rca_enabled": result.rca_enabled,
             "total_interfaces": result.total_interfaces,

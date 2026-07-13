@@ -91,16 +91,16 @@ def _safe_import(module_name, attr_name, fallback_attr_name=None):
 # --- Journal events ---
 try:
     from domain.journal.domain_events import (
-        JournalPostedEvent,
-        JournalApprovedEvent,
-        JournalRejectedEvent,
-        JournalSubmittedEvent,
-        JournalReversedEvent,
-        JournalVoidedEvent,
         JournalAdjustedEvent,
+        JournalApprovedEvent,
         JournalArchivedEvent,
-        JournalUnarchivedEvent,
         JournalCancelledEvent,
+        JournalPostedEvent,
+        JournalRejectedEvent,
+        JournalReversedEvent,
+        JournalSubmittedEvent,
+        JournalUnarchivedEvent,
+        JournalVoidedEvent,
     )
 except ImportError:
     # Fallback: gunakan nama alternatif atau dummy
@@ -118,20 +118,20 @@ except ImportError:
 # --- AP/AR events ---
 try:
     from domain.subledger_ap.domain_events import (
-        ThreeWayMatchResultEvent,
-        InvoiceReceivedEvent,
-        InvoiceVerifiedEvent,
-        InvoiceApprovedEvent,
-        InvoicePaidEvent,
-        InvoiceCancelledEvent,
-        InvoiceDisputedEvent,
-        PaymentSentEvent,
-        PaymentApprovedEvent,
-        PaymentProcessedEvent,
-        PaymentConfirmedEvent,
-        PaymentCancelledEvent,
         CreditNoteReceivedEvent,
         DebitNoteIssuedEvent,
+        InvoiceApprovedEvent,
+        InvoiceCancelledEvent,
+        InvoiceDisputedEvent,
+        InvoicePaidEvent,
+        InvoiceReceivedEvent,
+        InvoiceVerifiedEvent,
+        PaymentApprovedEvent,
+        PaymentCancelledEvent,
+        PaymentConfirmedEvent,
+        PaymentProcessedEvent,
+        PaymentSentEvent,
+        ThreeWayMatchResultEvent,
     )
 except ImportError:
     # Jika tidak ada, coba import dari domain.purchase_sales atau buat dummy
@@ -152,131 +152,131 @@ except ImportError:
 
 # --- Bank Cash events ---
 from domain.bank_cash.domain_events import (
-    BankAccountCreatedEvent,
-    BankAccountUpdatedEvent,
     BankAccountBlockedEvent,
     BankAccountClosedEvent,
-    BankTransactionRecordedEvent,
+    BankAccountCreatedEvent,
+    BankAccountUpdatedEvent,
+    BankReconciliationCompletedEvent,
     BankTransactionClearedEvent,
     BankTransactionReconciledEvent,
-    BankTransferInitiatedEvent,
+    BankTransactionRecordedEvent,
+    BankTransferCancelledEvent,
     BankTransferCompletedEvent,
     BankTransferFailedEvent,
-    BankTransferCancelledEvent,
-    CashReceiptConfirmedEvent,
-    CashReceiptCancelledEvent,
+    BankTransferInitiatedEvent,
+    CashBookClosedEvent,
+    CashBookUpdatedEvent,
     CashDisbursementApprovedEvent,
-    CashDisbursementPaidEvent,
     CashDisbursementCancelledEvent,
+    CashDisbursementPaidEvent,
+    CashReceiptCancelledEvent,
+    CashReceiptConfirmedEvent,
+    PettyCashActivatedEvent,
+    PettyCashAdjustedEvent,
+    PettyCashClosedEvent,
     PettyCashDisbursementEvent,
     PettyCashReplenishedEvent,
-    PettyCashAdjustedEvent,
     PettyCashSuspendedEvent,
-    PettyCashActivatedEvent,
-    PettyCashClosedEvent,
-    BankReconciliationCompletedEvent,
-    CashBookUpdatedEvent,
-    CashBookClosedEvent,
 )
 
 # --- Budget events ---
 from domain.budget.domain_events import (
-    BudgetCreated,
     BudgetApproved,
-    BudgetRejected,
-    BudgetRevised,
+    BudgetArchived,
     BudgetCancelled,
     BudgetClosed,
-    BudgetArchived,
+    BudgetCreated,
     BudgetLineAdded,
-    BudgetLineRemoved,
     BudgetLineAdjusted,
+    BudgetLineRemoved,
+    BudgetRejected,
+    BudgetRevised,
     BudgetStatusChanged,
 )
 
 # --- COA events ---
 from domain.coa.domain_events import (
     AccountCreatedEvent,
-    AccountUpdatedEvent,
     AccountDeactivatedEvent,
-    AccountReactivatedEvent,
     AccountLockedEvent,
-    AccountUnlockedEvent,
     AccountMergedEvent,
+    AccountReactivatedEvent,
     AccountSplitEvent,
-    HierarchyChangedEvent,
+    AccountUnlockedEvent,
+    AccountUpdatedEvent,
+    COAArchivedEvent,
     COACreatedEvent,
     COALockedEvent,
     COAUnlockedEvent,
-    COAArchivedEvent,
+    HierarchyChangedEvent,
 )
 
 # --- Fixed Asset events ---
 from domain.fixed_asset.domain_events import (
     AssetAcquiredEvent,
-    AssetUpdatedEvent,
     AssetDepreciationPostedEvent,
-    AssetRevaluatedEvent,
     AssetDisposedEvent,
-    AssetTransferredEvent,
-    AssetImpairedEvent,
-    AssetImpairmentReversedEvent,
     AssetFullyDepreciatedEvent,
     AssetGroupCreatedEvent,
     AssetGroupUpdatedEvent,
+    AssetImpairedEvent,
+    AssetImpairmentReversedEvent,
+    AssetRevaluatedEvent,
+    AssetTransferredEvent,
+    AssetUpdatedEvent,
 )
 
 # --- Inventory events ---
 from domain.inventory.domain_events import (
-    ItemCreatedEvent,
-    ItemUpdatedEvent,
-    ItemDeactivatedEvent,
-    StockMovementCreatedEvent,
-    StockAdjustedEvent,
-    StockOpnameCreatedEvent,
-    StockOpnameApprovedEvent,
-    InterWarehouseTransferCreatedEvent,
-    TransferCompletedEvent,
     COGSCalculatedEvent,
+    InterWarehouseTransferCreatedEvent,
     InventoryValuationUpdatedEvent,
+    ItemCreatedEvent,
+    ItemDeactivatedEvent,
+    ItemUpdatedEvent,
+    StockAdjustedEvent,
     StockLevelAlertEvent,
+    StockMovementCreatedEvent,
+    StockOpnameApprovedEvent,
+    StockOpnameCreatedEvent,
+    TransferCompletedEvent,
 )
 
 # --- Manufacturing events ---
 from domain.manufacturing.domain_events import (
-    BOMCreatedEvent,
-    BOMUpdatedEvent,
     BOMActivatedEvent,
-    BOMObsoletedEvent,
+    BOMCreatedEvent,
     BOMItemAddedEvent,
-    WorkOrderCreatedEvent,
-    WorkOrderApprovedEvent,
-    WorkOrderStartedEvent,
-    WorkOrderCompletedEvent,
-    WorkOrderCancelledEvent,
-    MaterialIssuedEvent,
-    LaborPostedEvent,
-    OverheadAppliedEvent,
-    ProductionCompletedEvent,
+    BOMObsoletedEvent,
+    BOMUpdatedEvent,
     CostCardUpdatedEvent,
     HPPCalculatedEvent,
-    StandardCostCreatedEvent,
+    LaborPostedEvent,
+    MaterialIssuedEvent,
+    OverheadAppliedEvent,
+    ProductionCompletedEvent,
     StandardCostActivatedEvent,
+    StandardCostCreatedEvent,
     VarianceAnalyzedEvent,
+    WorkOrderApprovedEvent,
+    WorkOrderCancelledEvent,
+    WorkOrderCompletedEvent,
+    WorkOrderCreatedEvent,
+    WorkOrderStartedEvent,
 )
 
 # --- Payroll events ---
 try:
     from domain.payroll.domain_events import (
-        PayrollRunCreatedEvent,
-        PayrollRunCalculatedEvent,
+        EmployeeStructureUpdatedEvent,
         PayrollRunApprovedEvent,
+        PayrollRunCalculatedEvent,
+        PayrollRunCancelledEvent,
+        PayrollRunCreatedEvent,
         PayrollRunPaidEvent,
         PayrollRunPostedEvent,
-        PayrollRunCancelledEvent,
         PayslipGeneratedEvent,
         PayslipSentToEmployeeEvent,
-        EmployeeStructureUpdatedEvent,
         SalaryComponentAddedEvent,
     )
 except ImportError:
@@ -293,67 +293,66 @@ except ImportError:
     SalaryComponentAddedEvent = _safe_import("domain.payroll.domain_events", "SalaryComponentAddedEvent", "SalaryComponentAdded")
 
 # --- IAM events ---
+# --- Fiscal Period events ---
+from domain.fiscal_period.domain_events import (
+    PeriodClosedEvent,
+    PeriodCreatedEvent,
+    PeriodLockedEvent,
+    PeriodOpenedEvent,
+    PeriodReopenedEvent,
+    PeriodStatusChangedEvent,
+    PeriodUpdatedEvent,
+)
 from domain.iam.domain_events import (
-    UserCreatedEvent,
-    UserUpdatedEvent,
-    UserActivatedEvent,
-    UserDeactivatedEvent,
-    UserSuspendedEvent,
-    UserUnlockedEvent,
-    UserPasswordChangedEvent,
-    UserDeletedEvent,
-    RoleCreatedEvent,
-    RoleUpdatedEvent,
-    RoleDeletedEvent,
+    LoginFailureEvent,
+    LoginSuccessEvent,
+    PermissionGrantedEvent,
+    PermissionRevokedEvent,
     RoleAssignedEvent,
+    RoleCreatedEvent,
+    RoleDeletedEvent,
     RoleRevokedEvent,
+    RoleUpdatedEvent,
+    SessionCompromisedEvent,
     SessionCreatedEvent,
     SessionRefreshedEvent,
     SessionTerminatedEvent,
-    SessionCompromisedEvent,
-    LoginSuccessEvent,
-    LoginFailureEvent,
-    PermissionGrantedEvent,
-    PermissionRevokedEvent,
+    UserActivatedEvent,
+    UserCreatedEvent,
+    UserDeactivatedEvent,
+    UserDeletedEvent,
+    UserPasswordChangedEvent,
+    UserSuspendedEvent,
+    UserUnlockedEvent,
+    UserUpdatedEvent,
 )
 
 # --- Tax events ---
 from domain.tax_transaction.domain_events import (
-    FakturSubmittedEvent,
+    BupotApprovedEvent,
+    BupotSubmittedEvent,
     FakturApprovedEvent,
     FakturRejectedEvent,
-    SPTSubmittedEvent,
-    SPTApprovedEvent,
-    BupotSubmittedEvent,
-    BupotApprovedEvent,
+    FakturSubmittedEvent,
     MeteraiUsedEvent,
-)
-
-# --- Fiscal Period events ---
-from domain.fiscal_period.domain_events import (
-    PeriodCreatedEvent,
-    PeriodOpenedEvent,
-    PeriodLockedEvent,
-    PeriodClosedEvent,
-    PeriodReopenedEvent,
-    PeriodUpdatedEvent,
-    PeriodStatusChangedEvent,
+    SPTApprovedEvent,
+    SPTSubmittedEvent,
 )
 
 # --- Legal Entity events ---
 try:
     from domain.legal_entity.domain_events import (
-        CompanyRegisteredEvent,
-        CompanySuspendedEvent,
-        CompanyReactivatedEvent,
-        CompanyDissolvedEvent,
-        TaxProfileUpdatedEvent,
         CompanyAddressUpdatedEvent,
         CompanyContactUpdatedEvent,
-        PKPStatusChangedEvent,
+        CompanyDissolvedEvent,
+        CompanyReactivatedEvent,
+        CompanyRegisteredEvent,
+        CompanySuspendedEvent,
         LegalEntityCreatedEvent,
         LegalEntityDeactivatedEvent,
         LegalEntityUpdatedEvent,
+        PKPStatusChangedEvent,
+        TaxProfileUpdatedEvent,
     )
 except ImportError:
     LegalEntityCreatedEvent = _safe_import("domain.legal_entity.domain_events", "LegalEntityCreatedEvent", "LegalEntityCreated")
@@ -369,62 +368,61 @@ except ImportError:
     PKPStatusChangedEvent = _safe_import("domain.legal_entity.domain_events", "PKPStatusChangedEvent", "PKPStatusChanged")
 
 # --- Goodwill events ---
-from domain.goodwill.domain_events import (
-    GoodwillRecognizedEvent,
-    GoodwillImpairedEvent,
-    GoodwillAmortizedEvent,
-    GoodwillImpairmentReversedEvent,
-    GoodwillDisposedEvent,
-)
-
-# --- Hedge events ---
-from domain.hedge.domain_events import (
-    HedgeDesignatedEvent,
-    HedgeDiscontinuedEvent,
-    HedgeEffectivenessTestedEvent,
-    HedgeFairValueAdjustedEvent,
-    HedgeAmountReclassifiedEvent,
-    HedgeCancelledEvent,
-)
-
 # --- Consolidation events ---
 from domain.consolidation.domain_events import (
+    ConsolidationArchived,
+    ConsolidationCancelled,
+    ConsolidationCompleted,
     ConsolidationCreated,
     ConsolidationStarted,
-    ConsolidationCompleted,
-    ConsolidationCancelled,
-    ConsolidationArchived,
-    IntercompanyTransactionDetected,
     EliminationEntryCreated,
+    IntercompanyTransactionDetected,
     NCICalculated,
 )
 
 # --- Customer/Supplier/Employee events ---
 from domain.customer_supplier_employee.domain_events import (
-    CustomerCreatedEvent,
-    CustomerStatusChangedEvent,
-    CustomerCreditLimitChangedEvent,
     CustomerBalanceUpdatedEvent,
+    CustomerCreatedEvent,
+    CustomerCreditLimitChangedEvent,
+    CustomerStatusChangedEvent,
+    EmployeeBPJSUpdatedEvent,
+    EmployeeCreatedEvent,
+    EmployeePTKPUpdatedEvent,
+    EmployeeResignedEvent,
     SupplierCreatedEvent,
     SupplierPaymentTermsChangedEvent,
     SupplierWithholdingCategoryChangedEvent,
-    EmployeeCreatedEvent,
-    EmployeeResignedEvent,
-    EmployeePTKPUpdatedEvent,
-    EmployeeBPJSUpdatedEvent,
+)
+from domain.goodwill.domain_events import (
+    GoodwillAmortizedEvent,
+    GoodwillDisposedEvent,
+    GoodwillImpairedEvent,
+    GoodwillImpairmentReversedEvent,
+    GoodwillRecognizedEvent,
+)
+
+# --- Hedge events ---
+from domain.hedge.domain_events import (
+    HedgeAmountReclassifiedEvent,
+    HedgeCancelledEvent,
+    HedgeDesignatedEvent,
+    HedgeDiscontinuedEvent,
+    HedgeEffectivenessTestedEvent,
+    HedgeFairValueAdjustedEvent,
 )
 
 # --- AR/AP additional events ---
 try:
     from domain.subledger_ar.domain_events import (
+        CreditNoteAppliedEvent,
+        CreditNoteIssuedEvent,
+        DebitNoteIssuedEvent,
         InvoiceIssuedEvent,
         InvoicePartiallyPaidEvent,
         InvoiceWrittenOffEvent,
-        PaymentReceivedEvent,
         PaymentAllocatedEvent,
-        CreditNoteIssuedEvent,
-        CreditNoteAppliedEvent,
-        DebitNoteIssuedEvent,
+        PaymentReceivedEvent,
     )
 except ImportError:
     InvoiceIssuedEvent = _safe_import("domain.subledger_ar.domain_events", "InvoiceIssuedEvent", "InvoiceIssued")
@@ -437,58 +435,57 @@ except ImportError:
     DebitNoteIssuedEvent = _safe_import("domain.subledger_ar.domain_events", "DebitNoteIssuedEvent", "DebitNoteIssued")
 
 # --- System Settings events ---
-from domain.system_settings.domain_events import (
-    SettingChangedEvent,
-    SettingResetEvent,
-    SettingAddedEvent,
-    SettingRemovedEvent,
-    SettingsLockedEvent,
-    SettingsUnlockedEvent,
-    SettingsBulkUpdatedEvent,
-)
-
 # --- Project events ---
 from domain.project_services.domain_events import (
-    ProjectCreatedEvent,
-    ProjectActivatedEvent,
-    ProjectCompletedEvent,
-    RevenueRecognizedEvent,
-    ProjectBillingGeneratedEvent,
-    MilestoneReadyEvent,
     MilestoneBilledEvent,
-    TimeEntrySubmittedEvent,
-    TimeEntryApprovedEvent,
+    MilestoneReadyEvent,
+    ProjectActivatedEvent,
+    ProjectBillingGeneratedEvent,
+    ProjectCompletedEvent,
+    ProjectCreatedEvent,
     RetainerContractActivatedEvent,
+    RevenueRecognizedEvent,
+    TimeEntryApprovedEvent,
+    TimeEntrySubmittedEvent,
+)
+from domain.system_settings.domain_events import (
+    SettingAddedEvent,
+    SettingChangedEvent,
+    SettingRemovedEvent,
+    SettingResetEvent,
+    SettingsBulkUpdatedEvent,
+    SettingsLockedEvent,
+    SettingsUnlockedEvent,
 )
 
 # --- Purchase & Sales events ---
 try:
     from domain.purchase_sales.domain_events import (
-        PurchaseOrderCreatedEvent,
-        PurchaseOrderApprovedEvent,
-        SalesOrderCreatedEvent,
-        SalesOrderApprovedEvent,
-        GoodsReceiptCreatedEvent,
-        DeliveryNoteShippedEvent,
-        SalesInvoiceIssuedEvent,
-        SalesInvoicePaidEvent,
-        PurchaseInvoiceReceivedEvent,
-        InvoiceCreatedEvent,
-        InvoiceIssuedEvent,
-        InvoiceApprovedEvent,
-        InvoiceCancelledEvent,
-        InvoicePaidEvent,
-        InvoicePartiallyPaidEvent,
-        InvoiceDisputedEvent,
-        InvoiceVerifiedEvent,
-        InvoiceReceivedEvent,
-        InvoiceWrittenOffEvent,
+        CreditNoteAppliedEvent,
         CreditNoteIssuedEvent,
         CreditNoteReceivedEvent,
-        CreditNoteAppliedEvent,
-        DebitNoteIssuedEvent,
         DebitNoteAppliedEvent,
+        DebitNoteIssuedEvent,
         DebitNoteIssuedServiceEvent,
+        DeliveryNoteShippedEvent,
+        GoodsReceiptCreatedEvent,
+        InvoiceApprovedEvent,
+        InvoiceCancelledEvent,
+        InvoiceCreatedEvent,
+        InvoiceDisputedEvent,
+        InvoiceIssuedEvent,
+        InvoicePaidEvent,
+        InvoicePartiallyPaidEvent,
+        InvoiceReceivedEvent,
+        InvoiceVerifiedEvent,
+        InvoiceWrittenOffEvent,
+        PurchaseInvoiceReceivedEvent,
+        PurchaseOrderApprovedEvent,
+        PurchaseOrderCreatedEvent,
+        SalesInvoiceIssuedEvent,
+        SalesInvoicePaidEvent,
+        SalesOrderApprovedEvent,
+        SalesOrderCreatedEvent,
     )
 except ImportError:
     PurchaseOrderCreatedEvent = _safe_import("domain.purchase_sales.domain_events", "PurchaseOrderCreatedEvent", "PurchaseOrderCreated")
@@ -518,57 +515,60 @@ except ImportError:
     DebitNoteIssuedServiceEvent = _safe_import("domain.purchase_sales.domain_events", "DebitNoteIssuedServiceEvent", "DebitNoteIssuedService")
 
 # --- UMKM events ---
-from domain.umkm_simplified.domain_events import (
-    TransactionCreatedEvent,
-    TransactionUpdatedEvent,
-    TransactionDeletedEvent,
-    TaxCalculatedEvent,
-    TransactionRecordedEvent,
-)
-
 # --- Equity events ---
 from domain.equity_retained.domain_events import (
-    CapitalContributionRecordedEvent,
     CapitalContributionApprovedEvent,
-    CapitalContributionPostedEvent,
     CapitalContributionCancelledEvent,
-    CapitalWithdrawalRecordedEvent,
+    CapitalContributionPostedEvent,
+    CapitalContributionRecordedEvent,
     CapitalWithdrawalApprovedEvent,
-    CapitalWithdrawalPostedEvent,
     CapitalWithdrawalCancelledEvent,
-    RetainedEarningsUpdatedEvent,
-    RetainedEarningsAdjustedEvent,
-    RetainedEarningsTransferEvent,
-    DividendDeclaredEvent,
+    CapitalWithdrawalPostedEvent,
+    CapitalWithdrawalRecordedEvent,
     DividendApprovedEvent,
+    DividendCancelledEvent,
+    DividendDeclaredEvent,
     DividendPaidEvent,
     DividendPartiallyPaidEvent,
-    DividendCancelledEvent,
+    RetainedEarningsAdjustedEvent,
+    RetainedEarningsTransferEvent,
+    RetainedEarningsUpdatedEvent,
 )
 
 # --- Forex events ---
 from domain.forex.domain_events import (
     ForexRateUpdatedEvent,
-    ForexTransactionRecordedEvent,
     ForexRevaluationCompletedEvent,
+    ForexTransactionRecordedEvent,
 )
 
 # --- Intangible Asset events ---
 from domain.intangible_asset.domain_events import (
     IntangibleAssetAcquiredEvent,
-    IntangibleAssetUpdatedEvent,
     IntangibleAssetAmortizationPostedEvent,
-    IntangibleAssetImpairedEvent,
-    IntangibleAssetImpairmentReversedEvent,
     IntangibleAssetDisposedEvent,
     IntangibleAssetFullyAmortizedEvent,
+    IntangibleAssetImpairedEvent,
+    IntangibleAssetImpairmentReversedEvent,
     IntangibleAssetRevaluatedEvent,
     IntangibleAssetTransferredEvent,
+    IntangibleAssetUpdatedEvent,
+)
+from domain.umkm_simplified.domain_events import (
+    TaxCalculatedEvent,
+    TransactionCreatedEvent,
+    TransactionDeletedEvent,
+    TransactionRecordedEvent,
+    TransactionUpdatedEvent,
 )
 
 # --- Payment events (AP/AR payment) ---
 try:
-    from domain.subledger_ap.domain_events import PaymentMadeEvent, PaymentVoidedEvent, PaymentAppliedEvent
+    from domain.subledger_ap.domain_events import (
+        PaymentAppliedEvent,
+        PaymentMadeEvent,
+        PaymentVoidedEvent,
+    )
 except ImportError:
     PaymentMadeEvent = _safe_import("domain.subledger_ap.domain_events", "PaymentMadeEvent", "PaymentMade")
     PaymentVoidedEvent = _safe_import("domain.subledger_ap.domain_events", "PaymentVoidedEvent", "PaymentVoided")

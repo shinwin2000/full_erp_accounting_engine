@@ -103,6 +103,15 @@ class GlacierColdStorageAdapter(BaseFileStorageAdapter):
         self._jobs_cache: dict[str, dict] = {}
         self._inventory_cache: dict[str, Any] = {}
         self._last_inventory_refresh: datetime | None = None
+        # ===== PERBAIKAN: Simpan referensi background tasks =====
+        self._background_tasks: list[asyncio.Task] = []
+
+    def _add_background_task(self, task: asyncio.Task) -> None:
+        """Tambahkan task ke daftar background dan daftarkan callback untuk menghapusnya."""
+        self._background_tasks.append(task)
+        task.add_done_callback(
+            lambda t: self._background_tasks.remove(t) if t in self._background_tasks else None
+        )
 
     def _load_config(self, config_path: str) -> dict[str, Any]:
         try:
@@ -141,6 +150,10 @@ class GlacierColdStorageAdapter(BaseFileStorageAdapter):
         if self._session:
             await self._session.__aexit__(None, None, None)
             self._session = None
+
+    # ========================================================================
+    # Upload
+    # ========================================================================
 
     async def upload(
         self,
@@ -190,6 +203,10 @@ class GlacierColdStorageAdapter(BaseFileStorageAdapter):
         # In production, store in database
         logger.debug(f"Archive metadata stored for {archive_id}: {file_name}")
 
+    # ========================================================================
+    # Download
+    # ========================================================================
+
     async def download(self, file_uri: str) -> BinaryIO:
         """
         Download archive from Glacier (initiates retrieval if needed).
@@ -212,8 +229,9 @@ class GlacierColdStorageAdapter(BaseFileStorageAdapter):
         # Initiate new retrieval job
         job_id = await self._initiate_retrieval(vault_name, archive_id)
 
-        # Wait for job completion (asynchronously)
-        asyncio.create_task(self._poll_job_status(job_id, vault_name, archive_id))
+        # Wait for job completion (asynchronously) - simpan task
+        task = asyncio.create_task(self._poll_job_status(job_id, vault_name, archive_id))
+        self._add_background_task(task)
 
         raise FileDownloadError(
             f"Retrieval initiated for {archive_id}. Please check back later. "
@@ -281,6 +299,10 @@ class GlacierColdStorageAdapter(BaseFileStorageAdapter):
         content = await response["body"].read()
         return io.BytesIO(content)
 
+    # ========================================================================
+    # Delete
+    # ========================================================================
+
     async def delete(self, file_uri: str) -> bool:
         """
         Delete archive from Glacier.
@@ -295,6 +317,10 @@ class GlacierColdStorageAdapter(BaseFileStorageAdapter):
         except ClientError as e:
             logger.error(f"Glacier delete failed: {e}")
             return False
+
+    # ========================================================================
+    # Metadata & Inventory
+    # ========================================================================
 
     async def get_metadata(self, file_uri: str) -> dict[str, Any]:
         """
@@ -369,6 +395,10 @@ class GlacierColdStorageAdapter(BaseFileStorageAdapter):
         )
 
         logger.info(f"Initiated inventory retrieval job: {response['jobId']}")
+
+    # ========================================================================
+    # Other methods
+    # ========================================================================
 
     async def exists(self, file_uri: str) -> bool:
         """Check if archive exists."""
@@ -446,8 +476,22 @@ class GlacierColdStorageAdapter(BaseFileStorageAdapter):
         key = f"{self._vault_name}:{archive_id}"
         return self._jobs_cache.get(key)
 
+    # ========================================================================
+    # PERBAIKAN: close membatalkan semua background tasks
+    # ========================================================================
+
     async def close(self) -> None:
-        """Close Glacier client."""
+        """Close Glacier client and cancel background tasks."""
+        # Batalkan semua background tasks
+        if self._background_tasks:
+            for task in self._background_tasks:
+                if not task.done():
+                    task.cancel()
+            # Tunggu hingga semua task selesai (dengan timeout)
+            if self._background_tasks:
+                await asyncio.gather(*self._background_tasks, return_exceptions=True)
+                self._background_tasks.clear()
+
         await self._close_client()
 
 

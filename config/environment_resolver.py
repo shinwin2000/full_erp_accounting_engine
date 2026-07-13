@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from config.exceptions import ConfigError, ConfigEnvResolveError, ConfigErrorCode
+from config.exceptions import ConfigEnvResolveError, ConfigError, ConfigErrorCode
 
 logger = logging.getLogger(__name__)
 

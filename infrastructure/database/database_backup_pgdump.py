@@ -21,11 +21,12 @@ import asyncio
 import gzip
 import hashlib
 import json
-import shutil
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+import aiofiles
 
 # Internal dependencies
 from config.loader_yaml import load_yaml_config
@@ -150,13 +151,97 @@ class DatabaseBackupPgDump:
             "password": db_config.get("password"),
         }
 
+    # ========================================================================
+    # Helper untuk delete file secara async
+    # ========================================================================
+
+    async def _delete_file(self, file_path: Path, ignore_missing: bool = True) -> None:
+        """Delete file secara async di thread pool."""
+        def _delete_sync():
+            if ignore_missing:
+                file_path.unlink(missing_ok=True)
+            else:
+                file_path.unlink()
+        await asyncio.to_thread(_delete_sync)
+
+    # ========================================================================
+    # PERBAIKAN: _compute_checksum menggunakan aiofiles
+    # ========================================================================
+
     async def _compute_checksum(self, file_path: Path) -> str:
-        """Compute SHA-256 checksum of file."""
+        """Compute SHA-256 checksum of file using async I/O."""
         sha256 = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""):
+        async with aiofiles.open(file_path, "rb") as f:
+            while True:
+                chunk = await f.read(65536)
+                if not chunk:
+                    break
                 sha256.update(chunk)
         return sha256.hexdigest()
+
+    # ========================================================================
+    # PERBAIKAN: _compress_backup menggunakan aiofiles + asyncio.to_thread
+    # ========================================================================
+
+    async def _compress_backup(self, backup_file: Path) -> Path:
+        """Compress backup file using gzip dengan async I/O."""
+        compressed_file = backup_file.with_suffix(backup_file.suffix + ".gz")
+        logger.info(f"Compressing backup: {backup_file} -> {compressed_file}")
+
+        # Baca file secara async
+        async with aiofiles.open(backup_file, "rb") as f:
+            file_content = await f.read()
+
+        # Kompresi di thread pool
+        def _compress_sync(data: bytes) -> bytes:
+            return gzip.compress(data, compresslevel=6)
+
+        compressed_data = await asyncio.to_thread(_compress_sync, file_content)
+
+        # Tulis file secara async
+        async with aiofiles.open(compressed_file, "wb") as f:
+            await f.write(compressed_data)
+
+        return compressed_file
+
+    # ========================================================================
+    # PERBAIKAN: _upload_to_s3 menggunakan aiofiles
+    # ========================================================================
+
+    async def _upload_to_s3(self, backup_file: Path, backup_name: str) -> str:
+        """Upload backup to S3."""
+        s3 = await get_s3_storage_adapter()
+        s3_key = f"{self.config.get('s3_prefix', 'backups/')}{backup_name}.dump.gz"
+        async with aiofiles.open(backup_file, "rb") as f:
+            file_content = await f.read()
+        uri = await s3.upload(
+            file_content=file_content,
+            file_name=backup_file.name,
+            bucket=self.config.get("s3_bucket", "erp-database-backup"),
+        )
+        logger.info(f"Backup uploaded to S3: {uri}")
+        return uri
+
+    # ========================================================================
+    # PERBAIKAN: _upload_to_glacier menggunakan aiofiles
+    # ========================================================================
+
+    async def _upload_to_glacier(self, backup_file: Path, backup_name: str) -> str:
+        """Upload backup to Glacier."""
+        glacier = await get_glacier_cold_storage_adapter()
+        async with aiofiles.open(backup_file, "rb") as f:
+            file_content = await f.read()
+        uri = await glacier.upload(
+            file_content=file_content,
+            file_name=backup_file.name,
+            description=f"Database backup: {backup_name}",
+        )
+        logger.info(f"Backup uploaded to Glacier: {uri}")
+        return uri
+
+    # ========================================================================
+    # create_backup dengan async delete
+    # ========================================================================
 
     async def create_backup(
         self, backup_name: str | None = None, description: str | None = None
@@ -228,7 +313,7 @@ class DatabaseBackupPgDump:
             if self.config.get("compress", True):
                 compressed_path = await self._compress_backup(backup_file)
                 if compressed_path != backup_file:
-                    backup_file.unlink()
+                    await self._delete_file(backup_file, ignore_missing=True)
                     backup_file = compressed_path
                     file_size = backup_file.stat().st_size
 
@@ -253,10 +338,10 @@ class DatabaseBackupPgDump:
                 "description": description,
             }
 
-            # Save metadata
+            # Save metadata using async file I/O
             metadata_file = backup_file.with_suffix(".metadata.json")
-            with open(metadata_file, "w") as f:
-                json.dump(metadata, f, indent=2)
+            async with aiofiles.open(metadata_file, "w") as f:
+                await f.write(json.dumps(metadata, indent=2))
 
             logger.info(f"Backup completed: {backup_name} ({file_size / 1024 / 1024:.2f} MB)")
 
@@ -275,39 +360,9 @@ class DatabaseBackupPgDump:
             )
             raise BackupCreateError(f"Backup failed: {e}") from e
 
-    async def _compress_backup(self, backup_file: Path) -> Path:
-        """Compress backup file using gzip."""
-        compressed_file = backup_file.with_suffix(backup_file.suffix + ".gz")
-        logger.info(f"Compressing backup: {backup_file} -> {compressed_file}")
-
-        with open(backup_file, "rb") as f_in:
-            with gzip.open(compressed_file, "wb", compresslevel=6) as f_out:
-                shutil.copyfileobj(f_in, f_out)
-
-        return compressed_file
-
-    async def _upload_to_s3(self, backup_file: Path, backup_name: str) -> str:
-        """Upload backup to S3."""
-        s3 = await get_s3_storage_adapter()
-        s3_key = f"{self.config.get('s3_prefix', 'backups/')}{backup_name}.dump.gz"
-        uri = await s3.upload(
-            file_content=open(backup_file, "rb"),
-            file_name=backup_file.name,
-            bucket=self.config.get("s3_bucket", "erp-database-backup"),
-        )
-        logger.info(f"Backup uploaded to S3: {uri}")
-        return uri
-
-    async def _upload_to_glacier(self, backup_file: Path, backup_name: str) -> str:
-        """Upload backup to Glacier."""
-        glacier = await get_glacier_cold_storage_adapter()
-        uri = await glacier.upload(
-            file_content=open(backup_file, "rb"),
-            file_name=backup_file.name,
-            description=f"Database backup: {backup_name}",
-        )
-        logger.info(f"Backup uploaded to Glacier: {uri}")
-        return uri
+    # ========================================================================
+    # PERBAIKAN: restore_backup dengan async I/O dan decompress di thread pool
+    # ========================================================================
 
     async def restore_backup(self, backup_name: str, target_database: str | None = None) -> bool:
         """Restore database from backup."""
@@ -326,9 +381,16 @@ class DatabaseBackupPgDump:
 
         if backup_file.suffix == ".gz":
             decompressed_file = backup_file.with_suffix("")
-            with gzip.open(backup_file, "rb") as f_in:
-                with open(decompressed_file, "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
+            # Baca file compressed secara async
+            async with aiofiles.open(backup_file, "rb") as f:
+                compressed_data = await f.read()
+            # Decompress di thread pool
+            def _decompress_sync(data: bytes) -> bytes:
+                return gzip.decompress(data)
+            decompressed_data = await asyncio.to_thread(_decompress_sync, compressed_data)
+            # Tulis file decompressed secara async
+            async with aiofiles.open(decompressed_file, "wb") as f:
+                await f.write(decompressed_data)
             backup_file = decompressed_file
 
         logger.info(f"Restoring database from {backup_file}")
@@ -365,8 +427,9 @@ class DatabaseBackupPgDump:
 
             logger.info(f"Database restored successfully from {backup_name}")
 
+            # Hapus file temporary jika ada
             if backup_file != self._backup_dir / f"{backup_name}.dump":
-                backup_file.unlink()
+                await self._delete_file(backup_file, ignore_missing=True)
 
             return True
 
@@ -380,13 +443,24 @@ class DatabaseBackupPgDump:
             )
             raise BackupRestoreError(f"Restore failed: {e}") from e
 
+    # ========================================================================
+    # _download_from_s3 menggunakan aiofiles
+    # ========================================================================
+
     async def _download_from_s3(self, backup_name: str) -> Path:
         """Download backup from S3."""
         s3 = await get_s3_storage_adapter()
         s3_key = f"{self.config.get('s3_prefix', 'backups/')}{backup_name}.dump.gz"
         local_path = self._backup_dir / f"{backup_name}.dump.gz"
         logger.info(f"Downloading backup from S3: {s3_key}")
+        content = await s3.download(s3_key)  # misal mengembalikan bytes
+        async with aiofiles.open(local_path, "wb") as f:
+            await f.write(content)
         return local_path
+
+    # ========================================================================
+    # list_backups menggunakan aiofiles
+    # ========================================================================
 
     async def list_backups(self) -> list[dict[str, Any]]:
         """List all available backups."""
@@ -394,8 +468,9 @@ class DatabaseBackupPgDump:
         for file_path in self._backup_dir.glob("*.dump*"):
             metadata_file = file_path.with_suffix(".metadata.json")
             if metadata_file.exists():
-                with open(metadata_file) as f:
-                    metadata = json.load(f)
+                async with aiofiles.open(metadata_file) as f:
+                    content = await f.read()
+                    metadata = json.loads(content)
                 backups.append(metadata)
             else:
                 backups.append(
@@ -410,6 +485,10 @@ class DatabaseBackupPgDump:
         backups.sort(key=lambda x: x.get("created_at", ""), reverse=True)
         return backups
 
+    # ========================================================================
+    # cleanup_old_backups dengan async delete
+    # ========================================================================
+
     async def cleanup_old_backups(self) -> int:
         """Delete backups older than retention period."""
         cutoff = datetime.now(UTC) - timedelta(days=self._retention_days)
@@ -418,19 +497,24 @@ class DatabaseBackupPgDump:
         for file_path in self._backup_dir.glob("*.dump*"):
             metadata_file = file_path.with_suffix(".metadata.json")
             if metadata_file.exists():
-                with open(metadata_file) as f:
-                    metadata = json.load(f)
+                async with aiofiles.open(metadata_file) as f:
+                    content = await f.read()
+                    metadata = json.loads(content)
                 created_at = datetime.fromisoformat(metadata.get("created_at", "2000-01-01"))
             else:
                 created_at = datetime.fromtimestamp(file_path.stat().st_ctime)
 
             if created_at < cutoff:
-                file_path.unlink(missing_ok=True)
-                metadata_file.unlink(missing_ok=True)
+                await self._delete_file(file_path, ignore_missing=True)
+                await self._delete_file(metadata_file, ignore_missing=True)
                 deleted += 1
                 logger.info(f"Deleted old backup: {file_path.name}")
 
         return deleted
+
+    # ========================================================================
+    # verify_backup menggunakan aiofiles
+    # ========================================================================
 
     async def verify_backup(self, backup_name: str) -> bool:
         """Verify backup integrity."""
@@ -444,8 +528,9 @@ class DatabaseBackupPgDump:
 
             metadata_file = backup_file.with_suffix(".metadata.json")
             if metadata_file.exists():
-                with open(metadata_file) as f:
-                    metadata = json.load(f)
+                async with aiofiles.open(metadata_file) as f:
+                    content = await f.read()
+                    metadata = json.loads(content)
                 expected_checksum = metadata.get("checksum")
                 if expected_checksum:
                     actual_checksum = await self._compute_checksum(backup_file)
@@ -471,6 +556,10 @@ class DatabaseBackupPgDump:
             logger.error(f"Backup verification failed: {e}")
             return False
 
+    # ========================================================================
+    # SCHEDULED BACKUP
+    # ========================================================================
+
     async def start_scheduled_backup(self) -> None:
         """Start scheduled backup based on cron schedule."""
         if self._backup_task is not None:
@@ -483,6 +572,7 @@ class DatabaseBackupPgDump:
                     await self.create_backup(description="Scheduled daily backup")
                     await asyncio.sleep(86400)
                 except asyncio.CancelledError:
+                    logger.debug("Scheduled backup loop cancelled")
                     break
                 except Exception as e:
                     logger.error(f"Scheduled backup error: {e}")
@@ -495,8 +585,16 @@ class DatabaseBackupPgDump:
         """Stop scheduled backup."""
         if self._backup_task:
             self._backup_task.cancel()
+            try:
+                await self._backup_task
+            except asyncio.CancelledError:
+                logger.debug("Scheduled backup task cancelled during stop")
             self._backup_task = None
             logger.info("Scheduled database backup stopped")
+
+    # ========================================================================
+    # STATISTICS
+    # ========================================================================
 
     async def get_stats(self) -> dict[str, Any]:
         """Get backup statistics."""

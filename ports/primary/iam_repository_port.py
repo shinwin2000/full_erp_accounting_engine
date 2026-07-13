@@ -8,7 +8,6 @@ Responsibility: Port interface untuk IAM aggregate repository.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
 from uuid import UUID
 
 # Import domain entities (sesuai dengan yang digunakan di implementasi)
@@ -21,7 +20,7 @@ class IAMRepositoryPort(ABC):
     """Port interface untuk IAM aggregate repository."""
 
     @abstractmethod
-    async def get(self) -> Optional[IAM]:
+    async def get(self) -> IAM | None:
         """Mendapatkan aggregate IAM."""
         pass
 
@@ -32,22 +31,22 @@ class IAMRepositoryPort(ABC):
 
     # ---------- User ----------
     @abstractmethod
-    async def get_user_by_id(self, user_id: UUID) -> Optional[UserEntity]:
+    async def get_user_by_id(self, user_id: UUID) -> UserEntity | None:
         pass
 
     @abstractmethod
-    async def get_user_by_username(self, username: str) -> Optional[UserEntity]:
+    async def get_user_by_username(self, username: str) -> UserEntity | None:
         pass
 
     @abstractmethod
-    async def get_user_by_email(self, email: str) -> Optional[UserEntity]:
+    async def get_user_by_email(self, email: str) -> UserEntity | None:
         pass
 
     @abstractmethod
     async def list_users(
         self,
-        legal_entity_id: Optional[UUID] = None,
-        status: Optional[UserStatus] = None,
+        legal_entity_id: UUID | None = None,
+        status: UserStatus | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[UserEntity]:
@@ -67,11 +66,11 @@ class IAMRepositoryPort(ABC):
 
     # ---------- Role ----------
     @abstractmethod
-    async def get_role_by_id(self, role_id: UUID) -> Optional[RoleEntity]:
+    async def get_role_by_id(self, role_id: UUID) -> RoleEntity | None:
         pass
 
     @abstractmethod
-    async def get_role_by_name(self, role_name: str) -> Optional[RoleEntity]:
+    async def get_role_by_name(self, role_name: str) -> RoleEntity | None:
         pass
 
     @abstractmethod
@@ -110,4 +109,4 @@ class IAMRepositoryPort(ABC):
         pass
 
 
-__all__ = ["IAMRepositoryPort", "IAM", "IAMStatus", "RoleEntity", "UserEntity", "UserStatus"]
+__all__ = ["IAM", "IAMRepositoryPort", "IAMStatus", "RoleEntity", "UserEntity", "UserStatus"]

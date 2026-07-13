@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from config.exceptions import ConfigEncryptionError, ConfigError, ConfigErrorCode
+from config.exceptions import ConfigEncryptionError
 
 try:
     from cryptography.hazmat.primitives import hashes

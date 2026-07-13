@@ -597,90 +597,134 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             raise ARRepositoryError(f"Failed to add debit note: {e}") from e
 
     # ========================================================================
-    # QUERY METHODS
+    # BATCH FETCH HELPER (untuk query methods)
+    # ========================================================================
+
+    async def _fetch_invoices(
+        self,
+        where_conditions: list,
+        order_by=None,
+        limit: int = None,
+        offset: int = None,
+    ) -> list[ARInvoiceAggregate]:
+        """Helper untuk mengambil invoice dengan lines, payments, credit notes, debit notes dalam batch."""
+        session = await self._get_session()
+        stmt = select(ARInvoiceTable).where(and_(*where_conditions))
+        if order_by:
+            stmt = stmt.order_by(order_by)
+        if limit:
+            stmt = stmt.limit(limit)
+        if offset:
+            stmt = stmt.offset(offset)
+        result = await session.execute(stmt)
+        headers = result.scalars().all()
+        if not headers:
+            return []
+        invoice_ids = [h.id for h in headers]
+
+        # Batch fetch all related data
+        lines_stmt = select(ARInvoiceLineTable).where(ARInvoiceLineTable.invoice_id.in_(invoice_ids)).order_by(ARInvoiceLineTable.line_number)
+        payments_stmt = select(ARPaymentTable).where(ARPaymentTable.invoice_id.in_(invoice_ids)).order_by(ARPaymentTable.payment_date)
+        credit_stmt = select(ARCreditNoteTable).where(ARCreditNoteTable.invoice_id.in_(invoice_ids))
+        debit_stmt = select(ARDebitNoteTable).where(ARDebitNoteTable.invoice_id.in_(invoice_ids))
+
+        lines_result = await session.execute(lines_stmt)
+        payments_result = await session.execute(payments_stmt)
+        credit_result = await session.execute(credit_stmt)
+        debit_result = await session.execute(debit_stmt)
+
+        lines_by_invoice = {}
+        payments_by_invoice = {}
+        credits_by_invoice = {}
+        debits_by_invoice = {}
+
+        for line in lines_result.scalars().all():
+            lines_by_invoice.setdefault(line.invoice_id, []).append(line)
+        for payment in payments_result.scalars().all():
+            payments_by_invoice.setdefault(payment.invoice_id, []).append(payment)
+        for credit in credit_result.scalars().all():
+            credits_by_invoice.setdefault(credit.invoice_id, []).append(credit)
+        for debit in debit_result.scalars().all():
+            debits_by_invoice.setdefault(debit.invoice_id, []).append(debit)
+
+        invoices = []
+        for header in headers:
+            lines = lines_by_invoice.get(header.id, [])
+            payments = payments_by_invoice.get(header.id, [])
+            credits = credits_by_invoice.get(header.id, [])
+            debits = debits_by_invoice.get(header.id, [])
+            invoices.append(self._to_domain(header, lines, payments, credits, debits))
+        return invoices
+
+    # ========================================================================
+    # QUERY METHODS — DIPERBAIKI (tanpa query dalam loop)
     # ========================================================================
 
     async def find_by_customer(
         self, customer_id: UUID, legal_entity_id: UUID, limit: int = 100, offset: int = 0
     ) -> list[ARInvoiceAggregate]:
-        session = await self._get_session()
-        try:
-            stmt = select(ARInvoiceTable).where(
-                ARInvoiceTable.customer_id == customer_id,
-                ARInvoiceTable.legal_entity_id == legal_entity_id,
-                ARInvoiceTable.deleted_at.is_(None),
-            ).order_by(ARInvoiceTable.invoice_date.desc()).limit(limit).offset(offset)
-            result = await session.execute(stmt)
-            headers = result.scalars().all()
-            invoices = []
-            for header in headers:
-                invoice = await self.get_by_id(header.id)
-                if invoice:
-                    invoices.append(invoice)
-            return invoices
-        except Exception as e:
-            raise ARRepositoryError(f"Failed to find invoices by customer: {e}") from e
+        conditions = [
+            ARInvoiceTable.customer_id == customer_id,
+            ARInvoiceTable.legal_entity_id == legal_entity_id,
+            ARInvoiceTable.deleted_at.is_(None),
+        ]
+        return await self._fetch_invoices(
+            conditions,
+            order_by=ARInvoiceTable.invoice_date.desc(),
+            limit=limit,
+            offset=offset
+        )
 
-    async def find_by_status(self, status: str, legal_entity_id: UUID, limit: int = 100, offset: int = 0) -> list[ARInvoiceAggregate]:
-        session = await self._get_session()
-        try:
-            stmt = select(ARInvoiceTable).where(
-                ARInvoiceTable.status == status,
-                ARInvoiceTable.legal_entity_id == legal_entity_id,
-                ARInvoiceTable.deleted_at.is_(None),
-            ).order_by(ARInvoiceTable.invoice_date.desc()).limit(limit).offset(offset)
-            result = await session.execute(stmt)
-            headers = result.scalars().all()
-            invoices = []
-            for header in headers:
-                invoice = await self.get_by_id(header.id)
-                if invoice:
-                    invoices.append(invoice)
-            return invoices
-        except Exception as e:
-            logger.error("Failed to find invoices by status %s: %s", status, e)
-            raise ARRepositoryError(f"Failed to find invoices by status: {e}") from e
+    async def find_by_status(
+        self, status: str, legal_entity_id: UUID, limit: int = 100, offset: int = 0
+    ) -> list[ARInvoiceAggregate]:
+        conditions = [
+            ARInvoiceTable.status == status,
+            ARInvoiceTable.legal_entity_id == legal_entity_id,
+            ARInvoiceTable.deleted_at.is_(None),
+        ]
+        return await self._fetch_invoices(
+            conditions,
+            order_by=ARInvoiceTable.invoice_date.desc(),
+            limit=limit,
+            offset=offset
+        )
 
-    async def find_by_date_range(self, start_date: date, end_date: date, legal_entity_id: UUID) -> list[ARInvoiceAggregate]:
-        session = await self._get_session()
-        try:
-            stmt = select(ARInvoiceTable).where(
-                ARInvoiceTable.invoice_date >= start_date,
-                ARInvoiceTable.invoice_date <= end_date,
-                ARInvoiceTable.legal_entity_id == legal_entity_id,
-                ARInvoiceTable.deleted_at.is_(None),
-            ).order_by(ARInvoiceTable.invoice_date)
-            result = await session.execute(stmt)
-            headers = result.scalars().all()
-            invoices = []
-            for header in headers:
-                invoice = await self.get_by_id(header.id)
-                if invoice:
-                    invoices.append(invoice)
-            return invoices
-        except Exception as e:
-            logger.error("Failed to find invoices by date range: %s", e)
-            raise ARRepositoryError(f"Failed to find invoices by date range: {e}") from e
+    async def find_by_date_range(
+        self, start_date: date, end_date: date, legal_entity_id: UUID
+    ) -> list[ARInvoiceAggregate]:
+        conditions = [
+            ARInvoiceTable.invoice_date >= start_date,
+            ARInvoiceTable.invoice_date <= end_date,
+            ARInvoiceTable.legal_entity_id == legal_entity_id,
+            ARInvoiceTable.deleted_at.is_(None),
+        ]
+        return await self._fetch_invoices(conditions, order_by=ARInvoiceTable.invoice_date)
 
     async def find_overdue_invoices(self, as_of_date: date, legal_entity_id: UUID) -> list[ARInvoiceAggregate]:
-        session = await self._get_session()
-        try:
-            stmt = select(ARInvoiceTable).where(
-                ARInvoiceTable.due_date < as_of_date,
-                ARInvoiceTable.status.in_(["approved", "partially_paid"]),
-                ARInvoiceTable.legal_entity_id == legal_entity_id,
-                ARInvoiceTable.deleted_at.is_(None),
-            ).order_by(ARInvoiceTable.due_date)
-            result = await session.execute(stmt)
-            headers = result.scalars().all()
-            invoices = []
-            for header in headers:
-                invoice = await self.get_by_id(header.id)
-                if invoice:
-                    invoices.append(invoice)
-            return invoices
-        except Exception as e:
-            raise ARRepositoryError(f"Failed to find overdue invoices: {e}") from e
+        conditions = [
+            ARInvoiceTable.due_date < as_of_date,
+            ARInvoiceTable.status.in_(["approved", "partially_paid"]),
+            ARInvoiceTable.legal_entity_id == legal_entity_id,
+            ARInvoiceTable.deleted_at.is_(None),
+        ]
+        return await self._fetch_invoices(conditions, order_by=ARInvoiceTable.due_date)
+
+    async def get_dunning_candidates(
+        self, legal_entity_id: UUID, min_overdue_days: int = 30
+    ) -> list[ARInvoiceAggregate]:
+        as_of_date = date.today()
+        conditions = [
+            ARInvoiceTable.due_date <= as_of_date - timedelta(days=min_overdue_days),
+            ARInvoiceTable.status.in_(["approved", "partially_paid", "overdue"]),
+            ARInvoiceTable.legal_entity_id == legal_entity_id,
+            ARInvoiceTable.deleted_at.is_(None),
+        ]
+        return await self._fetch_invoices(conditions, order_by=ARInvoiceTable.due_date)
+
+    # ========================================================================
+    # OTHER QUERY METHODS
+    # ========================================================================
 
     async def get_outstanding_balance(self, customer_id: UUID, as_of_date: date) -> Decimal:
         legal_entity_id = self._get_legal_entity_id()
@@ -699,58 +743,47 @@ class SQLAlchemyARRepository(ARRepositoryPort):
         except Exception as e:
             raise ARRepositoryError(f"Failed to get outstanding balance: {e}") from e
 
-    async def get_aging_buckets(self, legal_entity_id: UUID, as_of_date: date) -> dict[str, Decimal]:
-        session = await self._get_session()
-        try:
-            buckets = [
-                ("0-30 days", as_of_date - timedelta(days=30), as_of_date),
-                ("31-60 days", as_of_date - timedelta(days=60), as_of_date - timedelta(days=31)),
-                ("61-90 days", as_of_date - timedelta(days=90), as_of_date - timedelta(days=61)),
-                ("91-120 days", as_of_date - timedelta(days=120), as_of_date - timedelta(days=91)),
-                ("120+ days", None, as_of_date - timedelta(days=121)),
-            ]
-            result = {}
-            for bucket_name, start, end in buckets:
-                conditions = [
-                    ARInvoiceTable.status.in_(["approved", "partially_paid", "overdue"]),
-                    ARInvoiceTable.legal_entity_id == legal_entity_id,
-                    ARInvoiceTable.deleted_at.is_(None),
-                ]
-                if bucket_name == "120+ days":
-                    conditions.append(ARInvoiceTable.due_date <= as_of_date - timedelta(days=120))
-                else:
-                    if start:
-                        conditions.append(ARInvoiceTable.due_date <= start)
-                    if end:
-                        conditions.append(ARInvoiceTable.due_date >= end)
-                stmt = select(func.coalesce(func.sum(ARInvoiceTable.total_amount - ARInvoiceTable.paid_amount), 0)).where(and_(*conditions))
-                result_exec = await session.execute(stmt)
-                total = result_exec.scalar() or 0
-                result[bucket_name] = Decimal(str(total))
-            return result
-        except Exception as e:
-            raise ARRepositoryError(f"Failed to get aging buckets: {e}") from e
+    # ========================================================================
+    # AGING BUCKETS — DIPERBAIKI (satu query agregasi, tanpa loop)
+    # ========================================================================
 
-    async def get_dunning_candidates(self, legal_entity_id: UUID, min_overdue_days: int = 30) -> list[ARInvoiceAggregate]:
-        as_of_date = date.today()
+    async def get_aging_buckets(self, legal_entity_id: UUID, as_of_date: date) -> dict[str, Decimal]:
+        """Return aging buckets as dict: bucket_name -> Decimal amount."""
         session = await self._get_session()
         try:
-            stmt = select(ARInvoiceTable).where(
-                ARInvoiceTable.due_date <= as_of_date - timedelta(days=min_overdue_days),
+            # Definisikan bucket dengan CASE WHEN berdasarkan selisih hari
+            bucket_expr = func.case(
+                (ARInvoiceTable.due_date <= as_of_date - timedelta(days=120), "'120+ days'"),
+                (ARInvoiceTable.due_date <= as_of_date - timedelta(days=90), "'91-120 days'"),
+                (ARInvoiceTable.due_date <= as_of_date - timedelta(days=60), "'61-90 days'"),
+                (ARInvoiceTable.due_date <= as_of_date - timedelta(days=30), "'31-60 days'"),
+                else_="'0-30 days'"
+            )
+            stmt = select(
+                bucket_expr.label("bucket"),
+                func.coalesce(func.sum(ARInvoiceTable.total_amount - ARInvoiceTable.paid_amount), 0).label("total")
+            ).where(
                 ARInvoiceTable.status.in_(["approved", "partially_paid", "overdue"]),
                 ARInvoiceTable.legal_entity_id == legal_entity_id,
                 ARInvoiceTable.deleted_at.is_(None),
-            ).order_by(ARInvoiceTable.due_date)
+            ).group_by(bucket_expr)
             result = await session.execute(stmt)
-            headers = result.scalars().all()
-            invoices = []
-            for header in headers:
-                invoice = await self.get_by_id(header.id)
-                if invoice:
-                    invoices.append(invoice)
-            return invoices
+            rows = result.all()
+
+            buckets = {
+                "0-30 days": Decimal(0),
+                "31-60 days": Decimal(0),
+                "61-90 days": Decimal(0),
+                "91-120 days": Decimal(0),
+                "120+ days": Decimal(0),
+            }
+            for row in rows:
+                buckets[row.bucket] = Decimal(str(row.total))
+            return buckets
         except Exception as e:
-            raise ARRepositoryError(f"Failed to get dunning candidates: {e}") from e
+            raise ARRepositoryError(f"Failed to get aging buckets: {e}") from e
+
+    # ========================================================================
 
     async def increment_dunning_level(self, invoice_id: UUID, user_id: UUID) -> int:
         session = await self._get_session()
@@ -933,9 +966,7 @@ class SQLAlchemyARRepository(ARRepositoryPort):
             raise ARRepositoryError(f"Failed to get statistics: {e}") from e
 
     async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-        # Ambil dari log lokal, atau bisa juga dari database jika disimpan
         logs = self._audit_log
-        # return sesuai dengan signature port (limit, offset)
         return logs[offset:offset + limit]
 
     async def export_to_csv(self, legal_entity_id: UUID) -> str:
@@ -1026,13 +1057,6 @@ class SQLAlchemyARRepository(ARRepositoryPort):
     async def find_invoice_by_id(self, invoice_id: UUID) -> ARInvoiceAggregate | None:
         return await self.get_by_id(invoice_id)
 
-
-# ========================================================================
-# ADDITIONAL METHOD REQUIRED BY CONTRACT (find_invoices_by_customer)
-# ========================================================================
-
-    
-
     async def find_invoices_by_customer(
         self,
         customer_id: UUID,
@@ -1040,10 +1064,9 @@ class SQLAlchemyARRepository(ARRepositoryPort):
         limit: int = 100,
         offset: int = 0,
     ) -> list[ARInvoiceAggregate]:
-        """
-        Alias for find_by_customer — required by ARRepositoryPort contract.
-        """
+        """Alias for find_by_customer — required by ARRepositoryPort contract."""
         return await self.find_by_customer(customer_id, legal_entity_id, limit, offset)
+
 
 # ============================================================================
 # ALIAS UNTUK KOMPATIBILITAS

@@ -24,15 +24,14 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
+# Import domain events
+from application.events import JournalPostedEvent, TransactionRecordedEvent
 from domain.shared_value_objects.exchange_rate_vo import ExchangeRateVO
 from domain.shared_value_objects.money_vo import MoneyVO
 from ports.primary.cache_port import CachePort
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.forex_repository_port import ForexRepositoryPort
 from ports.primary.unit_of_work_port import UnitOfWorkPort
-
-# Import domain events
-from application.events import JournalPostedEvent, TransactionRecordedEvent
 
 logger = logging.getLogger(__name__)
 

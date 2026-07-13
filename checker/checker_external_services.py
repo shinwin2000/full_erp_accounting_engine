@@ -1,39 +1,38 @@
+#!/usr/bin/env python3
 """
-E:\\full_erp_accounting_engine\\checker\\checker_external_services.py
-
-Real External Services Connectivity Checker
-Strict Mode: All exceptions are captured and their full tracebacks are printed.
+checker_external_services.py - Real External Services Connectivity Checker
+===========================================================================
+Versi: 2.0.0
+Fitur: JSON output, scoring berdasarkan persentase online, RCA-ready,
+       exit code 0 jika ada layanan offline (hanya peringatan).
 """
 
+import argparse
 import asyncio
-import socket
-import urllib.request
-import urllib.error
-import traceback
+import json
 import sys
-from enum import Enum
+import traceback
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
+from enum import Enum
+from typing import Any
 
 
 class ServiceStatus(Enum):
-    ONLINE = "\033[92m✓\033[0m"           # Green check
-    OFFLINE = "\033[91m✗\033[0m"          # Red cross
-    NOT_CONFIGURED = "\033[93m⚠\033[0m"   # Yellow warning
-
+    ONLINE = "online"
+    OFFLINE = "offline"
+    NOT_CONFIGURED = "not_configured"
 
 @dataclass(frozen=True)
 class ServiceConfig:
     name: str
     host: str
     port: int
-    check_type: str = "tcp"  # 'tcp' or 'http'
+    check_type: str = "tcp"
     http_path: str = "/"
     timeout: float = 3.0
 
-
-# Konfigurasi layanan eksternal sesuai dengan arsitektur enterprise Anda
-# Konfigurasi layanan eksternal yang disesuaikan dengan real docker-compose.yaml
 SERVICES_TO_CHECK = [
     ServiceConfig(name="PostgreSQL", host="localhost", port=5432, check_type="tcp"),
     ServiceConfig(name="Redis", host="localhost", port=6379, check_type="tcp"),
@@ -41,12 +40,11 @@ SERVICES_TO_CHECK = [
     ServiceConfig(name="MinIO (API)", host="localhost", port=9000, check_type="tcp"),
     ServiceConfig(name="OpenTelemetry (gRPC)", host="localhost", port=4317, check_type="tcp"),
     ServiceConfig(name="OpenTelemetry (HTTP)", host="localhost", port=4318, check_type="tcp"),
-    ServiceConfig(name="SMTP Server (MailHog)", host="localhost", port=1025, check_type="tcp"), # Diubah ke 1025
+    ServiceConfig(name="SMTP Server (MailHog)", host="localhost", port=1025, check_type="tcp"),
     ServiceConfig(name="HashiCorp Vault", host="localhost", port=8200, check_type="http", http_path="/v1/sys/health"),
 ]
 
-async def check_tcp(host: str, port: int, timeout: float) -> Tuple[ServiceStatus, Optional[Exception]]:
-    """Melakukan real TCP handshake ke port target."""
+async def check_tcp(host: str, port: int, timeout: float) -> tuple[ServiceStatus, Exception | None]:
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port), timeout=timeout
@@ -57,19 +55,14 @@ async def check_tcp(host: str, port: int, timeout: float) -> Tuple[ServiceStatus
     except Exception as e:
         return ServiceStatus.OFFLINE, e
 
-
-async def check_http(host: str, port: int, path: str, timeout: float) -> Tuple[ServiceStatus, Optional[Exception]]:
-    """Melakukan real HTTP GET request ke endpoint target."""
+async def check_http(host: str, port: int, path: str, timeout: float) -> tuple[ServiceStatus, Exception | None]:
     url = f"http://{host}:{port}{path}"
-    
     def _sync_http_req():
         req = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as response:
             return response.status
-
     try:
         status_code = await asyncio.to_thread(_sync_http_req)
-        # 200-399 dianggap OK untuk healthcheck
         if 200 <= status_code < 400:
             return ServiceStatus.ONLINE, None
         else:
@@ -77,65 +70,119 @@ async def check_http(host: str, port: int, path: str, timeout: float) -> Tuple[S
     except Exception as e:
         return ServiceStatus.OFFLINE, e
 
-
-async def probe_service(service: ServiceConfig) -> Tuple[ServiceConfig, ServiceStatus, Optional[Exception]]:
-    """Fungsi delegasi untuk memilih metode probe."""
+async def probe_service(service: ServiceConfig) -> tuple[ServiceConfig, ServiceStatus, Exception | None]:
     if service.host in ("NOT_CONFIGURED", "", None):
         return service, ServiceStatus.NOT_CONFIGURED, None
-
     if service.check_type == "tcp":
         status, err = await check_tcp(service.host, service.port, service.timeout)
     elif service.check_type == "http":
         status, err = await check_http(service.host, service.port, service.http_path, service.timeout)
     else:
         status, err = ServiceStatus.OFFLINE, ValueError(f"Unknown check_type: {service.check_type}")
-        
     return service, status, err
 
-
-async def main():
-    print("\n\033[1m=== External Services Health Dashboard ===\033[0m\n")
-    
-    # Eksekusi pengecekan secara paralel (Concurrent)
+async def run_checks(verbose: bool = False) -> dict[str, Any]:
     tasks = [probe_service(svc) for svc in SERVICES_TO_CHECK]
     results = await asyncio.gather(*tasks, return_exceptions=False)
-    
-    failed_services = []
 
-    # Print Dashboard
+    online = 0
+    total = len(results)
+    details = []
+    offline_errors = []
+
+    for service, status, error in results:
+        details.append({
+            "name": service.name,
+            "host": service.host,
+            "port": service.port,
+            "status": status.value,
+            "error": str(error) if error else None,
+            "traceback": traceback.format_exc() if error else None
+        })
+        if status == ServiceStatus.ONLINE:
+            online += 1
+        elif status == ServiceStatus.OFFLINE:
+            offline_errors.append((service, error))
+
+    score = (online / total) * 100 if total > 0 else 0
+
+    return {
+        "score": round(score, 2),
+        "online": online,
+        "total": total,
+        "details": details,
+        "offline_count": len(offline_errors),
+        "offline_services": [
+            {"name": s.name, "host": s.host, "port": s.port, "error": str(e) if e else None}
+            for s, e in offline_errors
+        ],
+        "offline_tracebacks": [
+            {"name": s.name, "traceback": traceback.format_exception(type(e), e, e.__traceback__) if e else None}
+            for s, e in offline_errors
+        ]
+    }
+
+def print_dashboard(data: dict[str, Any], verbose: bool = False):
+    print("\n\033[1m=== External Services Health Dashboard ===\033[0m\n")
     print(f"{'Status':<10} | {'Service Name':<25} | {'Target':<25}")
     print("-" * 65)
-    for service, status, error in results:
-        target_info = f"{service.host}:{service.port}"
-        print(f"  {status.value:<16} | {service.name:<25} | {target_info:<25}")
-        
-        if status == ServiceStatus.OFFLINE and error:
-            failed_services.append((service, error))
 
-    # Print Full Traceback untuk layanan yang gagal (Sesuai Strict Debugging Rule)
-    if failed_services:
-        print("\n\033[91m\033[1m=== DETAILED ERROR LOGS (STRICT MODE) ===\033[0m")
-        for service, error in failed_services:
-            print(f"\n\033[93m[!] Error Traceback for {service.name} ({service.host}:{service.port}):\033[0m")
-            
-            # Mencetak full exception dengan traceback aslinya tanpa ditutupi
-            if hasattr(error, '__traceback__'):
-                traceback.print_exception(type(error), error, error.__traceback__)
-            else:
-                print(f"{type(error).__name__}: {error}")
-                
-        sys.exit(1) # Exit dengan code 1 jika ada indikasi infrastruktur mati
-    else:
-        print("\n\033[92mAll required external services are ONLINE.\033[0m\n")
-        sys.exit(0)
+    for item in data["details"]:
+        status = item["status"]
+        if status == "online":
+            display = "\033[92m✓\033[0m"
+        elif status == "offline":
+            display = "\033[91m✗\033[0m"
+        else:
+            display = "\033[93m⚠\033[0m"
+        target = f"{item['host']}:{item['port']}"
+        print(f"  {display:<16} | {item['name']:<25} | {target:<25}")
 
-if __name__ == "__main__":
-    # Workaround untuk mencegah error pada Windows Event Loop saat exit
+    print(f"\n\033[1mScore: {data['score']:.1f}% ({data['online']}/{data['total']} online)\033[0m")
+
+    if data["offline_count"] > 0 and verbose:
+        print("\n\033[93m\033[1m=== Offline Services Details ===\033[0m")
+        for idx, svc in enumerate(data["offline_services"]):
+            print(f"\n  [{idx+1}] {svc['name']} ({svc['host']}:{svc['port']})")
+            if svc['error']:
+                print(f"      Error: {svc['error']}")
+            # Optionally show traceback if verbose and available
+            if verbose and data["offline_tracebacks"] and idx < len(data["offline_tracebacks"]):
+                tb_data = data["offline_tracebacks"][idx]
+                if tb_data.get("traceback"):
+                    print("      Traceback (most recent call last):")
+                    for line in tb_data["traceback"]:
+                        print(f"        {line.rstrip()}")
+
+def main():
+    parser = argparse.ArgumentParser(description="External Services Health Checker")
+    parser.add_argument("--json", metavar="FILE", help="Save JSON report")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show details")
+    args = parser.parse_args()
+
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        
+
     try:
-        asyncio.run(main())
+        data = asyncio.run(run_checks(verbose=args.verbose))
     except KeyboardInterrupt:
-        print("\n[!] Health check aborted by user.")
+        print("\n[!] Health check aborted.")
         sys.exit(130)
+
+    print_dashboard(data, verbose=args.verbose)
+
+    if args.json:
+        with open(args.json, "w", encoding="utf-8") as f:
+            # Hapus tracebacks dari JSON agar tidak terlalu besar (kecuali verbose)
+            export_data = data.copy()
+            if not args.verbose:
+                export_data.pop("offline_tracebacks", None)
+            json.dump(export_data, f, indent=2, ensure_ascii=False)
+        print(f"\nJSON report saved to {args.json}")
+
+    # Exit code: 0 selalu (tidak gagal karena offline services, hanya peringatan)
+    # Ini penting agar master_checker tetap bisa mendapatkan skor granular.
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()

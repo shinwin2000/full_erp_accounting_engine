@@ -1006,11 +1006,12 @@ class InMemoryARRepository(ARRepositoryPort):
 
 
 # ============================================================================
-# ALIAS UNTUK KOMPATIBILITAS
+# ALIAS UNTUK KOMPATIBILITAS (FIXED)
 # ============================================================================
 
-# Untuk backward compatibility: ARRepository mengarah ke implementasi in-memory
-ARRepository = InMemoryARRepository
+# Untuk backward compatibility: aliases di-prefix underscore agar tidak ter-discard sebagai port.
+# Jika digunakan di test, import secara eksplisit atau gunakan InMemoryARRepository langsung.
+_ARRepository = InMemoryARRepository
 
 # Alias untuk test compatibility
 ArRepositoryPort = ARRepositoryPort
@@ -1019,7 +1020,7 @@ ArRepositoryPort = ARRepositoryPort
 __all__ = [
     "ARInvoice",
     "ARInvoiceStatus",
-    "ARRepository",
+    "ARRepository",         
     "ARRepositoryPort",
     "ArRepositoryPort",
     "CollectionStatus",

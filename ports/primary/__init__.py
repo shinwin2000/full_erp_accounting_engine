@@ -13,7 +13,6 @@ from .ar_repository_port import ARRepositoryPort
 from .bank_cash_repository_port import BankAccountRepositoryPort, CashBookRepositoryPort
 from .bank_statement_import_port import BankStatementImportPort
 from .customer_repository_port import CustomerRepositoryPort
-from .supplier_repository_port import SupplierRepositoryPort
 from .employee_repository_port import EmployeeRepositoryPort
 from .encryption_key_vault_port import EncryptionKeyVaultPort
 from .event_publisher_port import EventPublisherPort
@@ -26,6 +25,7 @@ from .journal_repository_port import JournalRepositoryPort
 from .ledger_repository_port import LedgerRepositoryPort
 from .legal_entity_repository_port import LegalEntityRepositoryPort
 from .notification_port import NotificationPort
+from .supplier_repository_port import SupplierRepositoryPort
 from .system_setting_repository_port import SystemSettingRepositoryPort
 from .tax_authority_coretax_port import TaxAuthorityCoretaxPort as CoreTaxPort
 from .tax_transaction_repository_port import TaxTransactionRepositoryPort

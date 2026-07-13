@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import smtplib
+from collections import defaultdict
 from datetime import UTC, datetime
 from email import encoders
 from email.mime.base import MIMEBase
@@ -87,9 +88,12 @@ class EmailSMTPNotification(NotificationPort):
             if attachments:
                 for att in attachments:
                     part = MIMEBase("application", "octet-stream")
-                    part.set_payload(att.get("content", b""))
+                    # Use direct access with fallback for safety, but avoid .get in loop
+                    content = att["content"] if "content" in att else b""
+                    part.set_payload(content)
                     encoders.encode_base64(part)
-                    part.add_header("Content-Disposition", f"attachment; filename={att.get('filename', 'attachment.bin')}")
+                    filename = att["filename"] if "filename" in att else "attachment.bin"
+                    part.add_header("Content-Disposition", f"attachment; filename={filename}")
                     msg.attach(part)
             with smtplib.SMTP(self._smtp_host, self._smtp_port) as server:
                 server.starttls()
@@ -192,10 +196,12 @@ class EmailSMTPNotification(NotificationPort):
         async with self._lock:
             result = self._history.copy()
         if user_id:
-            result = [n for n in result if n.get("user_id") == str(user_id)]
+            user_str = str(user_id)
+            result = [n for n in result if "user_id" in n and n["user_id"] == user_str]
         if channel:
-            result = [n for n in result if n.get("channel") == channel]
-        result.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+            result = [n for n in result if "channel" in n and n["channel"] == channel]
+        # Sort by timestamp (always present)
+        result.sort(key=lambda x: x["timestamp"] if "timestamp" in x else "", reverse=True)
         return result[offset:offset+limit]
 
     async def mark_as_read(self, notification_id: str) -> bool:
@@ -209,8 +215,13 @@ class EmailSMTPNotification(NotificationPort):
 
     async def get_unread_count(self, user_id: UUID) -> int:
         """Mendapatkan jumlah notifikasi belum dibaca."""
+        user_str = str(user_id)
         async with self._lock:
-            return sum(1 for n in self._history if n.get("user_id") == str(user_id) and not n.get("read", False))
+            count = 0
+            for n in self._history:
+                if "user_id" in n and n["user_id"] == user_str and not n.get("read", False):
+                    count += 1
+            return count
 
     async def health_check(self) -> dict:
         """Cek kesehatan service."""
@@ -244,24 +255,24 @@ class EmailSMTPNotification(NotificationPort):
         async with self._lock:
             result = self._history.copy()
         if channel:
-            result = [n for n in result if n.get("channel") == channel]
+            result = [n for n in result if "channel" in n and n["channel"] == channel]
         if status:
-            result = [n for n in result if n.get("status") == status]
-        result.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+            result = [n for n in result if "status" in n and n["status"] == status]
+        result.sort(key=lambda x: x["timestamp"] if "timestamp" in x else "", reverse=True)
         return result[offset:offset+limit]
 
     async def get_failed_notifications(self, limit: int = 100) -> list[dict]:
         """Dapatkan notifikasi yang gagal."""
         async with self._lock:
-            failed = [n for n in self._history if n.get("status") == "failed"]
-        failed.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+            failed = [n for n in self._history if "status" in n and n["status"] == "failed"]
+        failed.sort(key=lambda x: x["timestamp"] if "timestamp" in x else "", reverse=True)
         return failed[:limit]
 
     async def get_notification(self, notification_id: str) -> dict | None:
         """Dapatkan notifikasi berdasarkan ID."""
         async with self._lock:
             for n in self._history:
-                if n.get("id") == notification_id:
+                if "id" in n and n["id"] == notification_id:
                     return n
         return None
 
@@ -274,29 +285,28 @@ class EmailSMTPNotification(NotificationPort):
         offset: int = 0,
     ) -> list[dict]:
         """Dapatkan daftar notifikasi dengan filter."""
-        # Reuse get_audit_log with similar signature
         return await self.get_audit_log(limit=limit, offset=offset, channel=channel, status=status)
 
     async def get_pending_count(self) -> int:
         """Dapatkan jumlah notifikasi yang pending (belum terkirim)."""
-        # In this implementation we never have pending, only logged/sent/failed.
         return 0
 
     async def get_statistics(self) -> dict[str, Any]:
         """Dapatkan statistik notifikasi."""
         async with self._lock:
             total = len(self._history)
-            by_channel = {}
-            by_status = {}
+            by_channel = defaultdict(int)
+            by_status = defaultdict(int)
             for n in self._history:
-                ch = n.get("channel", "unknown")
-                st = n.get("status", "unknown")
-                by_channel[ch] = by_channel.get(ch, 0) + 1
-                by_status[st] = by_status.get(st, 0) + 1
+                # Semua entry memiliki key 'channel' dan 'status'
+                ch = n["channel"] if "channel" in n else "unknown"
+                st = n["status"] if "status" in n else "unknown"
+                by_channel[ch] += 1
+                by_status[st] += 1
         return {
             "total": total,
-            "by_channel": by_channel,
-            "by_status": by_status,
+            "by_channel": dict(by_channel),
+            "by_status": dict(by_status),
             "templates": len(self._templates),
             "smtp_enabled": self._enabled,
         }
@@ -306,7 +316,6 @@ class EmailSMTPNotification(NotificationPort):
         template = await self.get_template(template_id)
         if not template:
             raise ValueError(f"Template {template_id} not found")
-        # Simple string formatting
         try:
             subject = template["subject"].format(**context)
             body = template["body"].format(**context)
@@ -377,7 +386,6 @@ class EmailSMTPNotification(NotificationPort):
     ) -> dict:
         """Kirim notifikasi menggunakan template."""
         rendered = await self.render_template(template_id, context)
-        # Kirim sebagai email
         return await self.send_email(
             to=to,
             subject=rendered["subject"],

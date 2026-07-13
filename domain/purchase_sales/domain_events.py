@@ -26,7 +26,6 @@ from domain.purchase_sales.sales_delivery_note_entity import SalesDeliveryNoteEn
 from domain.purchase_sales.sales_invoice_entity import SalesInvoiceEntity
 from domain.purchase_sales.sales_order_entity import SalesOrderEntity
 
-
 # === 1. DOMAIN EVENT TYPE ===
 
 class DomainEventType(Enum):

@@ -819,7 +819,7 @@ __all__ = [
     "ARInvoiceRequestFactory",
     # Aliases
     "ARInvoiceCreateRequest",
-    "ARInvoiceUpdateRequest",  
+    "ARInvoiceUpdateRequest",
     "ARPaymentCreateRequest",
     "ARCreditNoteCreateRequest",
     "ARInvoiceRequestDTO",

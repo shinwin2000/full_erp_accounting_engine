@@ -36,17 +36,16 @@ from application.events import (
     TaxCalculatedEvent,
     TaxProfileUpdatedEvent,
 )
-
-# Static imports for tax calculators
-from policy_engine.tax_indonesia.ppn_calculator import PPNCalculator
+from policy_engine.tax_indonesia.penalty_interest_engine import PenaltyInterestEngine
+from policy_engine.tax_indonesia.pph_4_ayat_2_calculator import PPh4Ayat2Calculator
 from policy_engine.tax_indonesia.pph_21_calculator import PPh21Calculator
 from policy_engine.tax_indonesia.pph_22_calculator import PPh22Calculator
 from policy_engine.tax_indonesia.pph_23_calculator import PPh23Calculator
-from policy_engine.tax_indonesia.pph_4_ayat_2_calculator import PPh4Ayat2Calculator
-from policy_engine.tax_indonesia.withholding_engine import WithholdingEngine
-from policy_engine.tax_indonesia.rate_registry_dynamic import TaxRateRegistry
-from policy_engine.tax_indonesia.penalty_interest_engine import PenaltyInterestEngine
 
+# Static imports for tax calculators
+from policy_engine.tax_indonesia.ppn_calculator import PPNCalculator
+from policy_engine.tax_indonesia.rate_registry_dynamic import TaxRateRegistry
+from policy_engine.tax_indonesia.withholding_engine import WithholdingEngine
 from ports.primary.event_publisher_port import EventPublisherPort
 from ports.primary.tax_authority_coretax_port import CoretaxPort
 from ports.primary.tax_repository_port import TaxRepositoryPort

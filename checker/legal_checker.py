@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/legal_checker.py
 ========================
@@ -25,7 +24,7 @@ import ast
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 # ---- Project root ----
 _THIS_FILE = Path(__file__).resolve()
@@ -119,17 +118,17 @@ MODULE_EXPECTATIONS = {
 
 
 class LegalChecker:
-    def __init__(self, legal_path: Optional[Path] = None):
+    def __init__(self, legal_path: Path | None = None):
         if legal_path is None:
             legal_path = ROOT / "compliance" / "legal"
         self.legal_path = Path(legal_path)
-        self.errors: List[Dict[str, Any]] = []
-        self.warnings: List[Dict[str, Any]] = []
-        self.infos: List[Dict[str, Any]] = []
-        self.modules_found: Set[str] = set()
-        self.init_imports: Dict[str, Set[str]] = {}  # module -> imported names
+        self.errors: list[dict[str, Any]] = []
+        self.warnings: list[dict[str, Any]] = []
+        self.infos: list[dict[str, Any]] = []
+        self.modules_found: set[str] = set()
+        self.init_imports: dict[str, set[str]] = {}  # module -> imported names
 
-    def check_all(self) -> Dict[str, Any]:
+    def check_all(self) -> dict[str, Any]:
         if not self.legal_path.exists():
             self.errors.append({
                 "file": str(self.legal_path),
@@ -175,9 +174,7 @@ class LegalChecker:
 
         definitions = set()
         for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                definitions.add(node.name)
-            elif isinstance(node, ast.FunctionDef):
+            if isinstance(node, ast.ClassDef) or isinstance(node, ast.FunctionDef):
                 definitions.add(node.name)
             elif isinstance(node, ast.Assign):
                 for target in node.targets:
@@ -234,7 +231,7 @@ class LegalChecker:
             return
 
         # Kumpulkan impor modul lokal
-        imports: Dict[str, Set[str]] = {}
+        imports: dict[str, set[str]] = {}
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 if node.level > 0:
@@ -265,7 +262,7 @@ class LegalChecker:
 
         # Tidak memeriksa __all__ agar tidak terlalu banyak warning
 
-    def _result(self) -> Dict[str, Any]:
+    def _result(self) -> dict[str, Any]:
         return {
             "errors": self.errors,
             "warnings": self.warnings,
@@ -279,7 +276,7 @@ class LegalChecker:
         }
 
 
-def check_legal(legal_path: Optional[Path] = None) -> Dict[str, Any]:
+def check_legal(legal_path: Path | None = None) -> dict[str, Any]:
     checker = LegalChecker(legal_path)
     return checker.check_all()
 
@@ -288,7 +285,7 @@ def check_legal(legal_path: Optional[Path] = None) -> Dict[str, Any]:
 
 def integrate_with_rca(engine=None):
     try:
-        from checker.core.rca import get_engine, RCARule, Severity, ErrorCode, Category, RCAResult
+        from checker.core.rca import Category, ErrorCode, RCAResult, RCARule, Severity, get_engine
     except ImportError:
         print("⚠️ RCA engine tidak ditemukan, integrasi dilewati")
         return None
@@ -301,7 +298,7 @@ def integrate_with_rca(engine=None):
         def match(self, exc, frames, context) -> bool:
             return "Legal" in type(exc).__name__ or "legal" in str(exc).lower()
 
-        def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        def analyze(self, exc, frames, context) -> RCAResult | None:
             result = self._checker.check_all()
             if result["errors"]:
                 error_msgs = [f"{e.get('module','')}: {e.get('error','')}" for e in result["errors"]]
@@ -326,7 +323,7 @@ def integrate_with_rca(engine=None):
 
 # ==================== REPORTING ====================
 
-def print_report(result: Dict[str, Any], verbose: bool = False):
+def print_report(result: dict[str, Any], verbose: bool = False):
     c = COLOR
     summary = result["summary"]
     errors = result["errors"]
@@ -360,7 +357,7 @@ def print_report(result: Dict[str, Any], verbose: bool = False):
             print(f"  {c['CYAN']}ℹ{c['RESET']} {file_or_mod}: {info.get('info', '')}")
 
 
-def save_json(result: Dict[str, Any], path: str):
+def save_json(result: dict[str, Any], path: str):
     Path(path).write_text(json.dumps(result, indent=2, ensure_ascii=False))
     print(f"{COLOR['GREEN']}✅ JSON exported to {path}{COLOR['RESET']}")
 

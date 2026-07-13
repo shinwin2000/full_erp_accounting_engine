@@ -774,7 +774,7 @@ __all__ = [
     "Query",
     "QueryBus",
     "QueryBusError",
-    "QueryBusUnified",        
+    "QueryBusUnified",
     "QueryExecutionError",
     "QueryMiddleware",
     "QueryNotFoundError",

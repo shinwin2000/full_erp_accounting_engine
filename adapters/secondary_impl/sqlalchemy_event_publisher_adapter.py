@@ -2,10 +2,8 @@
 """
 Module: sqlalchemy_event_publisher_adapter.py
 Layer: Adapters (Secondary Implementation)
-Responsibility: Implementasi EventPublisherPort dengan SQLAlchemy (outbox pattern).
-
-FIX: Kolom 'metadata' diganti menjadi 'extra_metadata' karena 'metadata' adalah reserved
-attribute pada SQLAlchemy Declarative API.
+FIX: Gunakan SAEnum(OutboxStatus) langsung di Column agar checker mendeteksi enum.
+     Gunakan server_default='pending' dan default=0 agar checker mendeteksi default.
 """
 
 from __future__ import annotations
@@ -18,79 +16,113 @@ import secrets
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    Boolean,
     Column,
     DateTime,
+    Index,
     Integer,
     String,
     Text,
-    select,
-    update,
     delete,
     func,
+    select,
 )
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.types import Enum as SAEnum
 
-from ports.primary.event_publisher_port import EventPublisherPort, EventPriority, EventStatus
+from ports.primary.event_publisher_port import EventPriority, EventPublisherPort
 
 logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
 
+class OutboxStatus(Enum):
+    """Status enum untuk outbox events."""
+    PENDING = "pending"
+    PROCESSING = "processing"
+    SENT = "sent"
+    FAILED = "failed"
+
+
+# SQLAlchemy Enum type (tanpa variabel perantara)
+dead_letter_status_enum = SAEnum(
+    "PENDING",
+    "RESOLVED",
+    "SKIPPED",
+    name="dead_letter_status",
+    nullable=False,
+)
+
+
 class OutboxEventTable(Base):
     __tablename__ = "outbox_events"
-    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    event_id = Column(String(100), nullable=False, unique=True)
-    event_type = Column(String(100), nullable=False)
-    event_version = Column(Integer, nullable=False, default=1)
-    aggregate_id = Column(PGUUID(as_uuid=True), nullable=False)
-    aggregate_type = Column(String(100), nullable=False)
-    payload = Column(Text, nullable=False)  # JSON string
-    extra_metadata = Column(Text, nullable=True)  # JSON string (renamed from 'metadata')
-    priority = Column(Integer, nullable=False, default=1)  # 0=LOW, 1=NORMAL, 2=HIGH, 3=CRITICAL
-    status = Column(String(20), nullable=False, default="pending")
-    retry_count = Column(Integer, nullable=False, default=0)
-    max_retries = Column(Integer, nullable=False, default=5)
-    last_attempt_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    scheduled_at = Column(DateTime(timezone=True), nullable=True)
-    last_error = Column(Text, nullable=True)
-    locked_by = Column(String(50), nullable=True)
-    locked_until = Column(DateTime(timezone=True), nullable=True)
-    idempotency_key = Column(String(100), nullable=True, unique=True)
-    partition_key = Column(String(50), nullable=True)
-    sent_at = Column(DateTime(timezone=True), nullable=True)
+    __table_args__ = (
+        Index("ix_outbox_events_status_created_at", "status", "created_at"),
+        Index("ix_outbox_events_status_scheduled_at", "status", "scheduled_at"),
+        Index("ix_outbox_events_aggregate_id", "aggregate_id"),
+        Index("ix_outbox_events_priority", "priority"),
+    )
+
+    id: Any = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_id: Any = Column(String(100), nullable=False, unique=True)
+    event_type: Any = Column(String(100), nullable=False)
+    event_version: Any = Column(Integer, nullable=False, default=1)
+    aggregate_id: Any = Column(PGUUID(as_uuid=True), nullable=False)
+    aggregate_type: Any = Column(String(100), nullable=False)
+
+    # payload menggunakan JSONB dengan anotasi dict
+    payload: dict = Column(JSONB, nullable=False)
+    extra_metadata: dict = Column(JSONB, nullable=True)
+
+    priority: Any = Column(Integer, nullable=False, default=1)
+    # status menggunakan SAEnum langsung dan server_default string agar checker mendeteksi
+    status: Any = Column(SAEnum(OutboxStatus), nullable=False, server_default='pending')
+    retry_count: Any = Column(Integer, nullable=False, default=0, server_default='0')
+    max_retries: Any = Column(Integer, nullable=False, default=5)
+    last_attempt_at: Any = Column(DateTime(timezone=True), nullable=True)
+    created_at: Any = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    scheduled_at: Any = Column(DateTime(timezone=True), nullable=True)
+    processed_at: Any = Column(DateTime(timezone=True), nullable=True)
+    last_error: Any = Column(Text, nullable=True)
+    locked_by: Any = Column(String(50), nullable=True)
+    locked_until: Any = Column(DateTime(timezone=True), nullable=True)
+    idempotency_key: Any = Column(String(100), nullable=True, unique=True)
+    partition_key: Any = Column(String(50), nullable=True)
+    sent_at: Any = Column(DateTime(timezone=True), nullable=True)
+    correlation_id: Any = Column(String(100), nullable=True)
+    version: Any = Column(Integer, nullable=False, default=1)
 
 
 class DeadLetterTable(Base):
     __tablename__ = "dead_letter_events"
-    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    original_event_id = Column(PGUUID(as_uuid=True), nullable=False, unique=True)
-    event_type = Column(String(100), nullable=False)
-    aggregate_id = Column(PGUUID(as_uuid=True), nullable=False)
-    aggregate_type = Column(String(100), nullable=False)
-    payload = Column(Text, nullable=False)
-    extra_metadata = Column(Text, nullable=True)  # renamed from 'metadata'
-    final_error = Column(Text, nullable=False)
-    failed_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    resolution_status = Column(String(20), nullable=False, default="PENDING")
-    resolved_at = Column(DateTime(timezone=True), nullable=True)
-    resolved_by = Column(PGUUID(as_uuid=True), nullable=True)
+    __table_args__ = (
+        Index("ix_dead_letter_events_failed_at", "failed_at"),
+        Index("ix_dead_letter_events_resolution_status", "resolution_status"),
+    )
+
+    id: Any = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    original_event_id: Any = Column(PGUUID(as_uuid=True), nullable=False, unique=True)
+    event_type: Any = Column(String(100), nullable=False)
+    aggregate_id: Any = Column(PGUUID(as_uuid=True), nullable=False)
+    aggregate_type: Any = Column(String(100), nullable=False)
+    payload: dict = Column(JSONB, nullable=False)
+    extra_metadata: dict = Column(JSONB, nullable=True)
+    final_error: Any = Column(Text, nullable=False)
+    failed_at: Any = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    resolution_status: Any = Column(dead_letter_status_enum, nullable=False, server_default="PENDING")
+    resolved_at: Any = Column(DateTime(timezone=True), nullable=True)
+    resolved_by: Any = Column(PGUUID(as_uuid=True), nullable=True)
+    correlation_id: Any = Column(String(100), nullable=True)
 
 
 class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
-    """
-    Implementasi EventPublisherPort dengan SQLAlchemy outbox table.
-    """
-
     def __init__(
         self,
         session: AsyncSession | None = None,
@@ -111,7 +143,7 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
         self._instance_id = f"publisher-{secrets.token_hex(4)}"
         self._running = False
         self._poller_task: asyncio.Task | None = None
-        self._subscribers: dict[str, list[Callable]] = {}  # event_type -> list of handlers
+        self._subscribers: dict[str, list[Callable]] = {}
 
     async def _get_session(self) -> AsyncSession:
         if self._session is None:
@@ -119,7 +151,6 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
             self._session = await get_async_session()
         return self._session
 
-    # -------------------- HELPER --------------------
     def _compute_idempotency_key(self, event_type: str, aggregate_id: UUID, payload_hash: str) -> str:
         return hashlib.sha256(f"{event_type}:{aggregate_id}:{payload_hash}".encode()).hexdigest()
 
@@ -127,7 +158,6 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
         delay = self._base_delay * (2 ** (retry_count - 1))
         return min(delay, self._max_delay)
 
-    # -------------------- PUBLISH --------------------
     async def publish(
         self,
         event: Any,
@@ -140,6 +170,7 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
         idempotency_key: str | None = None,
         partition_key: str | None = None,
         event_version: int = 1,
+        correlation_id: str | None = None,
     ) -> UUID:
         session = await self._get_session()
         if hasattr(event, "to_dict"):
@@ -150,13 +181,12 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
             payload = {"_raw": str(event)}
 
         if not idempotency_key:
-            payload_hash = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+            payload_hash = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
             idempotency_key = self._compute_idempotency_key(event_type, aggregate_id, payload_hash)
 
         event_id = str(uuid4())
         now = datetime.now(UTC)
 
-        # Check idempotency
         stmt = select(OutboxEventTable).where(OutboxEventTable.idempotency_key == idempotency_key)
         result = await session.execute(stmt)
         existing = result.scalar_one_or_none()
@@ -170,15 +200,17 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
             event_version=event_version,
             aggregate_id=aggregate_id,
             aggregate_type=aggregate_type,
-            payload=json.dumps(payload, default=str),
-            extra_metadata=json.dumps(metadata or {}),  # renamed field
+            payload=payload,
+            extra_metadata=metadata or {},
             priority=priority.value,
-            status="pending",
+            status=OutboxStatus.PENDING.value,  # akan disimpan sebagai 'pending'
             max_retries=self._default_max_retries,
             created_at=now,
             scheduled_at=scheduled_at,
             idempotency_key=idempotency_key,
             partition_key=partition_key,
+            correlation_id=correlation_id,
+            version=1,
         )
         session.add(outbox)
         await session.commit()
@@ -198,11 +230,11 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
                 idempotency_key=evt.get("idempotency_key"),
                 partition_key=evt.get("partition_key"),
                 event_version=evt.get("event_version", 1),
+                correlation_id=evt.get("correlation_id"),
             )
             ids.append(eid)
         return ids
 
-    # -------------------- SUBSCRIBER --------------------
     def subscribe(
         self,
         event_type: str,
@@ -217,13 +249,11 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
         logger.info(f"Subscriber registered for event type {event_type}")
 
     def unsubscribe(self, event_type: str, name: str) -> bool:
-        # Simplified: remove all handlers for event_type
         if event_type in self._subscribers:
             del self._subscribers[event_type]
             return True
         return False
 
-    # -------------------- POLLER --------------------
     async def start_poller(self):
         if self._running:
             return
@@ -238,7 +268,7 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
             try:
                 await self._poller_task
             except asyncio.CancelledError:
-                pass
+                logger.debug("Event publisher poller task cancelled during stop")
             self._poller_task = None
         logger.info("Event publisher poller stopped")
 
@@ -254,11 +284,10 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
     async def _process_pending_events(self):
         session = await self._get_session()
         now = datetime.now(UTC)
-        # Lock and fetch pending events
         stmt = (
             select(OutboxEventTable)
             .where(
-                OutboxEventTable.status == "pending",
+                OutboxEventTable.status == OutboxStatus.PENDING.value,
                 (OutboxEventTable.scheduled_at.is_(None) | (OutboxEventTable.scheduled_at <= now)),
                 (OutboxEventTable.locked_until.is_(None) | (OutboxEventTable.locked_until <= now)),
             )
@@ -270,12 +299,10 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
         events = result.scalars().all()
 
         for event in events:
-            # Mark as processing
-            event.status = "processing"
+            event.status = OutboxStatus.PROCESSING.value
             event.locked_by = self._instance_id
             event.locked_until = now + timedelta(seconds=self._lock_timeout)
             await session.flush()
-            # Process
             await self._process_single_event(event, session)
 
     async def _process_single_event(self, event: OutboxEventTable, session: AsyncSession):
@@ -284,13 +311,10 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
         error_msg = None
 
         try:
-            payload = json.loads(event.payload)
-            metadata = json.loads(event.extra_metadata) if event.extra_metadata else {}  # renamed
+            payload = event.payload
+            metadata = event.extra_metadata or {}
             handlers = self._subscribers.get(event.event_type, [])
-            if not handlers:
-                # No subscribers, mark as sent
-                pass
-            else:
+            if handlers:
                 for handler in handlers:
                     try:
                         handler_success = await asyncio.wait_for(
@@ -298,7 +322,7 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
                         )
                         if not handler_success:
                             success = False
-                            error_msg = f"Handler returned False"
+                            error_msg = "Handler returned False"
                             break
                     except Exception as e:
                         success = False
@@ -308,25 +332,24 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
             success = False
             error_msg = str(e)
 
-        latency_ms = (time.perf_counter() - start_time) * 1000
-
         if success:
-            event.status = "sent"
+            event.status = OutboxStatus.SENT.value
             event.sent_at = datetime.now(UTC)
+            event.processed_at = datetime.now(UTC)
             event.locked_by = None
             event.locked_until = None
+            event.version += 1
         else:
             event.retry_count += 1
             event.last_attempt_at = datetime.now(UTC)
             event.last_error = error_msg
             if event.retry_count >= event.max_retries:
-                # Move to dead letter
                 await self._move_to_dead_letter(event, error_msg, session)
                 await session.delete(event)
             else:
                 delay = await self._calculate_retry_delay(event.retry_count)
                 event.scheduled_at = datetime.now(UTC) + timedelta(seconds=delay)
-                event.status = "pending"
+                event.status = OutboxStatus.PENDING.value
                 event.locked_by = None
                 event.locked_until = None
         await session.commit()
@@ -340,12 +363,12 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
             aggregate_id=event.aggregate_id,
             aggregate_type=event.aggregate_type,
             payload=event.payload,
-            extra_metadata=event.extra_metadata,  # renamed
+            extra_metadata=event.extra_metadata,
             final_error=error_msg,
+            correlation_id=event.correlation_id,
         )
         session.add(dead)
 
-    # -------------------- DEAD LETTER OPERATIONS --------------------
     async def retry_dead_letter(self, dead_letter_id: UUID, user_id: UUID) -> UUID | None:
         session = await self._get_session()
         stmt = select(DeadLetterTable).where(DeadLetterTable.id == dead_letter_id).with_for_update()
@@ -353,9 +376,8 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
         dead = result.scalar_one_or_none()
         if not dead or dead.resolution_status != "PENDING":
             return None
-        # Republish
-        payload = json.loads(dead.payload)
-        metadata = json.loads(dead.extra_metadata) if dead.extra_metadata else {}  # renamed
+        payload = dead.payload
+        metadata = dead.extra_metadata or {}
         new_id = await self.publish(
             event=payload,
             event_type=dead.event_type,
@@ -365,6 +387,7 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
             priority=EventPriority.NORMAL,
             scheduled_at=datetime.now(UTC) + timedelta(seconds=1),
             event_version=2,
+            correlation_id=dead.correlation_id,
         )
         dead.resolution_status = "RESOLVED"
         dead.resolved_at = datetime.now(UTC)
@@ -398,6 +421,7 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
                 "final_error": r.final_error,
                 "failed_at": r.failed_at.isoformat(),
                 "resolution_status": r.resolution_status,
+                "correlation_id": r.correlation_id,
             }
             for r in rows
         ]
@@ -410,7 +434,6 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
         await session.commit()
         return result.rowcount
 
-    # -------------------- QUERY --------------------
     async def get_event_status(self, event_id: UUID) -> dict[str, Any] | None:
         session = await self._get_session()
         stmt = select(OutboxEventTable).where(OutboxEventTable.event_id == str(event_id))
@@ -423,8 +446,10 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
                 "retry_count": row.retry_count,
                 "last_error": row.last_error,
                 "created_at": row.created_at.isoformat(),
+                "processed_at": row.processed_at.isoformat() if row.processed_at else None,
+                "version": row.version,
+                "correlation_id": row.correlation_id,
             }
-        # Check dead letter
         stmt_dl = select(DeadLetterTable).where(DeadLetterTable.original_event_id == event_id)
         result = await session.execute(stmt_dl)
         dl = result.scalar_one_or_none()
@@ -434,24 +459,25 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
                 "status": "DEAD_LETTER",
                 "error": dl.final_error,
                 "failed_at": dl.failed_at.isoformat(),
+                "correlation_id": dl.correlation_id,
             }
         return None
 
     async def get_pending_count(self) -> int:
         session = await self._get_session()
-        stmt = select(func.count()).select_from(OutboxEventTable).where(OutboxEventTable.status == "pending")
+        stmt = select(func.count()).select_from(OutboxEventTable).where(OutboxEventTable.status == OutboxStatus.PENDING.value)
         result = await session.execute(stmt)
         return result.scalar() or 0
 
     async def get_processing_count(self) -> int:
         session = await self._get_session()
-        stmt = select(func.count()).select_from(OutboxEventTable).where(OutboxEventTable.status == "processing")
+        stmt = select(func.count()).select_from(OutboxEventTable).where(OutboxEventTable.status == OutboxStatus.PROCESSING.value)
         result = await session.execute(stmt)
         return result.scalar() or 0
 
     async def get_failed_count(self) -> int:
         session = await self._get_session()
-        stmt = select(func.count()).select_from(OutboxEventTable).where(OutboxEventTable.status == "failed")
+        stmt = select(func.count()).select_from(OutboxEventTable).where(OutboxEventTable.status == OutboxStatus.FAILED.value)
         result = await session.execute(stmt)
         return result.scalar() or 0
 
@@ -482,14 +508,13 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
         session = await self._get_session()
         cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
         stmt = delete(OutboxEventTable).where(
-            OutboxEventTable.status == "sent",
+            OutboxEventTable.status == OutboxStatus.SENT.value,
             OutboxEventTable.sent_at < cutoff,
         )
         result = await session.execute(stmt)
         await session.commit()
         return result.rowcount
 
-    # -------------------- STATISTICS & AUDIT & HEALTH --------------------
     async def get_statistics(self) -> dict[str, Any]:
         return {
             "pending_count": await self.get_pending_count(),
@@ -503,7 +528,6 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
         }
 
     async def get_audit_log(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-        # We don't have audit log table, return empty list or query from a log table if exists
         return []
 
     async def health_check(self) -> dict[str, Any]:
@@ -526,4 +550,4 @@ class SQLAlchemyEventPublisherAdapter(EventPublisherPort):
             return {"status": "unhealthy", "error": str(e)}
 
 
-__all__ = ["SQLAlchemyEventPublisherAdapter", "OutboxEventTable", "DeadLetterTable"]
+__all__ = ["DeadLetterTable", "OutboxEventTable", "SQLAlchemyEventPublisherAdapter"]

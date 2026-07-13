@@ -5,10 +5,9 @@ Menangani berbagai encoding dan memberikan laporan lengkap.
 """
 
 import ast
-import sys
 import logging
+import sys
 from pathlib import Path
-from typing import Dict, Set, List, Optional, Tuple
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -37,7 +36,7 @@ EXCLUDE_ADAPTERS = {"Error", "Exception", "Factory", "Dummy", "Fallback", "Mock"
 # ============================================================================
 # ENCODING HELPER
 # ============================================================================
-def read_file_with_fallback(file_path: Path) -> Optional[str]:
+def read_file_with_fallback(file_path: Path) -> str | None:
     """Read file with multiple encoding attempts."""
     encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252', 'windows-1252']
     for enc in encodings:
@@ -55,15 +54,15 @@ def read_file_with_fallback(file_path: Path) -> Optional[str]:
 # DATA STRUCTURES
 # ============================================================================
 class ClassInfo:
-    __slots__ = ("name", "file", "layer", "bases", "methods", "resolved_methods")
+    __slots__ = ("bases", "file", "layer", "methods", "name", "resolved_methods")
 
-    def __init__(self, name: str, file: Path, layer: str, bases: Set[str], methods: Set[str]):
+    def __init__(self, name: str, file: Path, layer: str, bases: set[str], methods: set[str]):
         self.name = name
         self.file = file
         self.layer = layer  # "PORT" or "ADAPTER"
         self.bases = bases
         self.methods = methods
-        self.resolved_methods: Set[str] = set()
+        self.resolved_methods: set[str] = set()
 
     def __repr__(self):
         return f"<{self.layer} {self.name} from {self.file.name}>"
@@ -71,18 +70,18 @@ class ClassInfo:
 
 class Registry:
     def __init__(self):
-        self.classes: Dict[str, ClassInfo] = {}
-        self.failed_files: List[Path] = []
+        self.classes: dict[str, ClassInfo] = {}
+        self.failed_files: list[Path] = []
 
     def add(self, info: ClassInfo):
         self.classes[info.name] = info
 
-    def get(self, name: str) -> Optional[ClassInfo]:
+    def get(self, name: str) -> ClassInfo | None:
         return self.classes.get(name)
 
     def resolve_inheritance(self):
         """Resolve all methods from base classes."""
-        visited: Set[str] = set()
+        visited: set[str] = set()
 
         def _resolve(cls_name: str):
             if cls_name in visited:
@@ -144,7 +143,7 @@ def parse_file(file_path: Path, layer: str, registry: Registry) -> None:
             continue
 
         # Collect base class names
-        bases: Set[str] = set()
+        bases: set[str] = set()
         for b in node.bases:
             if isinstance(b, ast.Name):
                 bases.add(b.id)
@@ -157,7 +156,7 @@ def parse_file(file_path: Path, layer: str, registry: Registry) -> None:
                     pass
 
         # Collect public methods (not starting with _)
-        methods: Set[str] = set()
+        methods: set[str] = set()
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if not item.name.startswith("_"):
@@ -195,19 +194,19 @@ def normalize_name(name: str) -> str:
 # ============================================================================
 # MATCHING ENGINE
 # ============================================================================
-def match_ports_to_adapters(registry: Registry) -> Dict[str, Optional[Tuple[str, Set[str]]]]:
+def match_ports_to_adapters(registry: Registry) -> dict[str, tuple[str, set[str]] | None]:
     """
     Returns dict: port_name -> (adapter_name, missing_methods) or None.
     """
     ports = {k: v for k, v in registry.classes.items() if v.layer == "PORT"}
     adapters = {k: v for k, v in registry.classes.items() if v.layer == "ADAPTER"}
 
-    result: Dict[str, Optional[Tuple[str, Set[str]]]] = {}
+    result: dict[str, tuple[str, set[str]] | None] = {}
 
     for port_name, port_info in ports.items():
-        best_adapter: Optional[ClassInfo] = None
+        best_adapter: ClassInfo | None = None
         best_score = -1
-        best_missing: Set[str] = set()
+        best_missing: set[str] = set()
 
         for adp_name, adp_info in adapters.items():
             # Primary: explicit inheritance

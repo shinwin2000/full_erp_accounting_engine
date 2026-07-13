@@ -26,7 +26,6 @@ from audit.sampling_materiality.audit_sampling_engine import (
 from audit.sampling_materiality.materiality_threshold_calculator import (
     MaterialityThresholdCalculator,
 )
-
 from ports.primary.audit_repository_port import AuditRepositoryPort
 
 logger = logging.getLogger(__name__)

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/idempotency_checker.py
 ==============================
@@ -36,7 +35,6 @@ import json
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
 
 # ---- Project root ----
 _THIS_FILE = Path(__file__).resolve()
@@ -93,8 +91,8 @@ class RuntimeError:
 
 @dataclass
 class Report:
-    findings: List[Finding] = field(default_factory=list)
-    runtime_errors: List[RuntimeError] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
+    runtime_errors: list[RuntimeError] = field(default_factory=list)
     score: int = 100
     total_files_scanned: int = 0
 
@@ -168,12 +166,12 @@ VO_CLASS_NAMES = {
 class IdempotencyAnalyzer:
     def __init__(self, file_path: Path):
         self.file_path = file_path
-        self.findings: List[Finding] = []
-        self._definitions: Set[str] = set()
-        self._idempotent_functions: Set[str] = set()
-        self._class_names: Set[str] = set()
+        self.findings: list[Finding] = []
+        self._definitions: set[str] = set()
+        self._idempotent_functions: set[str] = set()
+        self._class_names: set[str] = set()
 
-    def analyze(self) -> List[Finding]:
+    def analyze(self) -> list[Finding]:
         try:
             src = self.file_path.read_text(encoding="utf-8", errors="replace")
             tree = ast.parse(src, filename=str(self.file_path))
@@ -270,10 +268,7 @@ class IdempotencyAnalyzer:
                         self._idempotent_functions.add(func_name)
 
         # Cek nama fungsi
-        if func_name.lower() in IDEMPOTENCY_KEYWORDS:
-            is_idempotent = True
-            self._idempotent_functions.add(func_name)
-        elif any(kw in func_name.lower() for kw in IDEMPOTENCY_KEYWORDS):
+        if func_name.lower() in IDEMPOTENCY_KEYWORDS or any(kw in func_name.lower() for kw in IDEMPOTENCY_KEYWORDS):
             is_idempotent = True
             self._idempotent_functions.add(func_name)
 
@@ -434,9 +429,9 @@ class IdempotencyAnalyzer:
 # ============================================================================
 
 def scan_project(
-    target_dirs: List[str] | None = None,
+    target_dirs: list[str] | None = None,
     skip_runtime: bool = True,
-    exclude_patterns: Set[str] | None = None
+    exclude_patterns: set[str] | None = None
 ) -> Report:
     if target_dirs is None:
         target_dirs = DEFAULT_TARGET_DIRS
@@ -502,7 +497,7 @@ def scan_project(
 
 def integrate_with_rca(engine=None):
     try:
-        from checker.core.rca import get_engine, RCARule, Severity, ErrorCode, Category, RCAResult
+        from checker.core.rca import Category, ErrorCode, RCAResult, RCARule, Severity, get_engine
     except ImportError:
         print("⚠️ RCA engine tidak ditemukan, integrasi dilewati")
         return None
@@ -515,7 +510,7 @@ def integrate_with_rca(engine=None):
         def match(self, exc, frames, context) -> bool:
             return "Idempotency" in type(exc).__name__ or "idempotent" in str(exc).lower()
 
-        def analyze(self, exc, frames, context) -> Optional[RCAResult]:
+        def analyze(self, exc, frames, context) -> RCAResult | None:
             report = scan_project()
             if report.findings:
                 errors = [f for f in report.findings if f.severity == "ERROR"]

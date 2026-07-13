@@ -162,4 +162,4 @@ class EventPublisherPort(ABC):
         pass
 
 
-__all__ = ["EventPublisherPort", "EventPriority", "EventStatus"]
+__all__ = ["EventPriority", "EventPublisherPort", "EventStatus"]

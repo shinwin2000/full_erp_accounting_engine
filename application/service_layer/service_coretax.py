@@ -1,4 +1,5 @@
 # service_coretax.py - Complete rewrite with full event publishing (including BupotSubmittedEvent, SPTApprovedEvent, FakturSubmittedEvent)
+# v5.9.4 - Added audit trail for all mutative methods
 
 #!/usr/bin/env python3
 
@@ -35,10 +36,6 @@ from application.dto_objects.coretax_submission_request import (
     SPTMasaPpnRequest,
     SPTTahunanBadanRequest,
 )
-from ports.primary.event_publisher_port import EventPublisherPort
-from ports.primary.tax_authority_coretax_port import CoretaxPort
-from ports.primary.tax_repository_port import TaxRepositoryPort
-from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 # Import domain events (semua dengan nama yang benar sesuai registry)
 from application.events import (
@@ -50,6 +47,10 @@ from application.events import (
     SPTApprovedEvent,
     SPTSubmittedEvent,
 )
+from ports.primary.event_publisher_port import EventPublisherPort
+from ports.primary.tax_authority_coretax_port import CoretaxPort
+from ports.primary.tax_repository_port import TaxRepositoryPort
+from ports.primary.unit_of_work_port import UnitOfWorkPort
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +105,22 @@ class CoretaxService:
         self._nsfp_range: tuple[str, str] | None = None
         self._nsfp_current: str | None = None
         self._stats = {"faktur_submitted": 0, "spt_submitted": 0, "errors": 0}
+        self._audit_trail: list[dict] = []
 
         logger.info("CoretaxService initialized")
+
+    # ==================== AUDIT TRAIL ====================
+
+    def _record_audit(self, action: str, details: dict) -> None:
+        """Record audit trail entry."""
+        entry = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "CoretaxService",
+            "action": action,
+            "details": details,
+        }
+        self._audit_trail.append(entry)
+        logger.info(f"AUDIT: {action} - {details}")
 
     # ==================== EVENT PUBLISHING HELPER ====================
 
@@ -203,6 +218,16 @@ class CoretaxService:
                 await self._uow.commit()
 
             self._stats["faktur_submitted"] += 1
+
+            # Audit trail
+            self._record_audit("SUBMIT_FAKTUR_KELUARAN", {
+                "faktur_id": str(faktur.id),
+                "seri_faktur": faktur.seri_faktur,
+                "dpp": str(faktur.dpp),
+                "ppn": str(faktur.ppn),
+                "user_id": str(user_id) if user_id else None,
+            })
+
             logger.info(f"Faktur {faktur.seri_faktur} submitted successfully")
 
             # --- PUBLISH APPROVED EVENT ---
@@ -232,6 +257,14 @@ class CoretaxService:
             await self._tax_repo.save_faktur_keluaran(faktur)
             self._stats["errors"] += 1
 
+            # Audit trail
+            self._record_audit("SUBMIT_FAKTUR_KELUARAN_FAILED", {
+                "faktur_id": str(faktur.id),
+                "seri_faktur": faktur.seri_faktur,
+                "error": response.get("message"),
+                "user_id": str(user_id) if user_id else None,
+            })
+
             # --- PUBLISH REJECTED EVENT ---
             if self._event_publisher:
                 event_rejected = FakturRejectedEvent(
@@ -259,8 +292,25 @@ class CoretaxService:
             await self._tax_repo.save_faktur_keluaran(faktur)
             if self._uow:
                 await self._uow.commit()
+
+            # Audit trail
+            self._record_audit("CANCEL_FAKTUR_KELUARAN", {
+                "faktur_id": str(faktur_id),
+                "seri_faktur": faktur.seri_faktur,
+                "reason": reason,
+                "user_id": str(user_id),
+            })
+
             return True
-        return False
+        else:
+            self._record_audit("CANCEL_FAKTUR_KELUARAN_FAILED", {
+                "faktur_id": str(faktur_id),
+                "seri_faktur": faktur.seri_faktur,
+                "reason": reason,
+                "error": response.get("message"),
+                "user_id": str(user_id),
+            })
+            return False
 
     # ========================================================================
     # Faktur Pajak Masukan
@@ -294,7 +344,13 @@ class CoretaxService:
         if self._uow:
             await self._uow.commit()
 
-        # Tidak publish event untuk import (hanya internal)
+        # Audit trail (internal operation)
+        self._record_audit("IMPORT_FAKTUR_MASUKAN", {
+            "npwp": npwp,
+            "masa_pajak": masa_pajak,
+            "count": len(fakturs),
+        })
+
         return fakturs
 
     # ========================================================================
@@ -342,6 +398,14 @@ class CoretaxService:
 
             self._stats["spt_submitted"] += 1
 
+            # Audit trail
+            self._record_audit("SUBMIT_EBUPOT", {
+                "bukti_potong_id": str(bukti_potong.id),
+                "nomor_bukpot": bukti_potong.nomor_bukpot,
+                "npwp_pemotong": bukti_potong.npwp_pemotong.value,
+                "user_id": str(user_id) if user_id else None,
+            })
+
             # --- PUBLISH APPROVED EVENT ---
             if self._event_publisher:
                 event_approved = BupotApprovedEvent(
@@ -366,6 +430,14 @@ class CoretaxService:
             )
         else:
             self._stats["errors"] += 1
+
+            # Audit trail
+            self._record_audit("SUBMIT_EBUPOT_FAILED", {
+                "bukti_potong_id": str(bukti_potong.id),
+                "error": response.get("message"),
+                "user_id": str(user_id) if user_id else None,
+            })
+
             raise CoretaxSubmissionError(f"e-Bupot submission failed: {response.get('message')}")
 
     # ========================================================================
@@ -386,6 +458,14 @@ class CoretaxService:
                 await self._uow.commit()
 
             self._stats["spt_submitted"] += 1
+
+            # Audit trail
+            self._record_audit("SUBMIT_SPT_MASA_PPN", {
+                "spt_id": str(spt.id),
+                "masa_pajak": spt.masa_pajak.to_str(),
+                "npwp": spt.npwp_wajib_pajak.value,
+                "user_id": str(user_id) if user_id else None,
+            })
 
             # --- PUBLISH SUBMITTED EVENT ---
             if self._event_publisher:
@@ -425,6 +505,15 @@ class CoretaxService:
             )
         else:
             self._stats["errors"] += 1
+
+            # Audit trail
+            self._record_audit("SUBMIT_SPT_MASA_PPN_FAILED", {
+                "spt_id": str(spt.id),
+                "masa_pajak": spt.masa_pajak.to_str(),
+                "error": response.get("message"),
+                "user_id": str(user_id) if user_id else None,
+            })
+
             raise CoretaxSubmissionError(f"SPT PPN failed: {response.get('message')}")
 
     # ========================================================================
@@ -457,6 +546,14 @@ class CoretaxService:
                 await self._uow.commit()
 
             self._stats["spt_submitted"] += 1
+
+            # Audit trail
+            self._record_audit("SUBMIT_SPT_MASA_PPH21", {
+                "spt_id": str(spt.id),
+                "masa_pajak": spt.masa_pajak.to_str(),
+                "npwp": spt.npwp_pemotong.value,
+                "user_id": str(user_id) if user_id else None,
+            })
 
             # --- PUBLISH SUBMITTED EVENT ---
             if self._event_publisher:
@@ -496,6 +593,15 @@ class CoretaxService:
             )
         else:
             self._stats["errors"] += 1
+
+            # Audit trail
+            self._record_audit("SUBMIT_SPT_MASA_PPH21_FAILED", {
+                "spt_id": str(spt.id),
+                "masa_pajak": spt.masa_pajak.to_str(),
+                "error": response.get("message"),
+                "user_id": str(user_id) if user_id else None,
+            })
+
             raise CoretaxSubmissionError(f"SPT PPh 21 failed: {response.get('message')}")
 
     # ========================================================================
@@ -528,6 +634,14 @@ class CoretaxService:
                 await self._uow.commit()
 
             self._stats["spt_submitted"] += 1
+
+            # Audit trail
+            self._record_audit("SUBMIT_SPT_TAHUNAN_BADAN", {
+                "spt_id": str(spt.id),
+                "tahun_pajak": spt.tahun_pajak.tahun,
+                "npwp": spt.npwp_wajib_pajak.value,
+                "user_id": str(user_id) if user_id else None,
+            })
 
             # --- PUBLISH SUBMITTED EVENT ---
             if self._event_publisher:
@@ -567,6 +681,15 @@ class CoretaxService:
             )
         else:
             self._stats["errors"] += 1
+
+            # Audit trail
+            self._record_audit("SUBMIT_SPT_TAHUNAN_BADAN_FAILED", {
+                "spt_id": str(spt.id),
+                "tahun_pajak": spt.tahun_pajak.tahun,
+                "error": response.get("message"),
+                "user_id": str(user_id) if user_id else None,
+            })
+
             raise CoretaxSubmissionError(f"SPT Tahunan failed: {response.get('message')}")
 
     # ========================================================================
@@ -608,6 +731,9 @@ class CoretaxService:
 
     def get_stats(self) -> dict[str, int]:
         return self._stats.copy()
+
+    def get_audit_trail(self) -> list[dict]:
+        return self._audit_trail.copy()
 
 
 # ============================================================================

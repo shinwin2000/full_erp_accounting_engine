@@ -108,7 +108,6 @@ class EmergencyOverrideError(Exception):
 
 @dataclass(kw_only=True)
 class ConstitutionalRule:
-    # Required fields (no defaults)
     rule_id: UUID
     principle: ConstitutionalPrinciple
     statement: str
@@ -118,7 +117,6 @@ class ConstitutionalRule:
     created_by: str
     created_at: datetime
     approved_by: list[str]
-    # Optional fields (with defaults)
     effective_until: datetime | None = None
     version: int = 1
     deleted_at: datetime | None = None
@@ -349,7 +347,6 @@ class ConstitutionalRule:
 
 @dataclass(kw_only=True)
 class AmendmentRecord:
-    # Required fields (no defaults)
     amendment_id: UUID
     previous_version_id: UUID
     new_version_id: UUID
@@ -361,7 +358,6 @@ class AmendmentRecord:
     effective_from: datetime
     justification: str
     impact_assessment: str
-    # Optional fields (with defaults)
     version: int = 1
     deleted_at: datetime | None = None
     deleted_by: str | None = None
@@ -560,7 +556,6 @@ class AmendmentRecord:
 
 @dataclass(kw_only=True)
 class EmergencyOverride:
-    # Required fields (no defaults)
     override_id: UUID
     reason: EmergencyOverrideReason
     suspended_principles: set[ConstitutionalPrinciple]
@@ -568,7 +563,6 @@ class EmergencyOverride:
     authorized_by: list[str]
     authorized_at: datetime
     justification_document: str
-    # Optional fields (with defaults)
     version: int = 1
     deleted_at: datetime | None = None
     deleted_by: str | None = None
@@ -757,7 +751,6 @@ class EmergencyOverride:
 
 @dataclass(kw_only=True)
 class ViolationRecord:
-    # Required fields (no defaults)
     violation_id: UUID
     rule_id: UUID
     principle: ConstitutionalPrinciple
@@ -765,7 +758,6 @@ class ViolationRecord:
     offending_module: str
     message: str
     timestamp: datetime
-    # Optional fields (with defaults)
     offending_user: str | None = None
     offending_command_id: UUID | None = None
     acknowledged_by: str | None = None
@@ -978,14 +970,12 @@ class ViolationRecord:
 
 @dataclass(kw_only=True)
 class ConstitutionalSnapshot:
-    # Required fields (no defaults)
     snapshot_id: UUID
     effective_as_of: datetime
     active_rules: list[ConstitutionalRule]
     active_overrides: list[EmergencyOverride]
     version: str
     hash_chain_previous: str | None
-    # Optional fields (with defaults)
     version_number: int = 1
     hash_current: str = ""
 
@@ -1146,7 +1136,7 @@ class Constitution:
     overrides: list[EmergencyOverride] = field(default_factory=list)
     violations: list[ViolationRecord] = field(default_factory=list)
     snapshots: list[ConstitutionalSnapshot] = field(default_factory=list)
-    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    _lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)  # FIXED: RLock
 
     def __post_init__(self) -> None:
         if not self.rules:
@@ -1572,7 +1562,6 @@ class SupremeLaw:
                     context.get("command_id"),
                 )
                 return False
-        # (implementasi principle lainnya, singkat)
         return True
 
     def check_violation(

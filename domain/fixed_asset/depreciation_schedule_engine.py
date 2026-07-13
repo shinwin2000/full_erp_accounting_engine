@@ -757,13 +757,13 @@ DepreciationEngine = DepreciationScheduleEngine
 
 
 __all__ = [
+    "DepreciationEngine",
     "DepreciationEntry",
     "DepreciationError",
     "DepreciationMethod",
     "DepreciationSchedule",
     "DepreciationScheduleEngine",
     "DepreciationScheduleLine",
-    "DepreciationEngine",  
     "InvalidDepreciationMethodError",
     "calculate_remaining_useful_life",
     "is_fully_depreciated",

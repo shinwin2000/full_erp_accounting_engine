@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 kernel/error_analysis.py
 ========================
@@ -13,8 +12,7 @@ Big-4 Audit Grade: Tidak ada pelanggaran layer.
 from __future__ import annotations
 
 import logging
-import sys
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 logger = logging.getLogger("erp_engine.rca")
 
@@ -22,10 +20,15 @@ logger = logging.getLogger("erp_engine.rca")
 class RCAResult:
     """Hasil analisis RCA yang aman dan serializable."""
     __slots__ = (
-        "severity", "category", "error_code",
-        "root_cause", "evidence", "impact",
-        "suggested_fix", "confidence",
-        "_raw"
+        "_raw",
+        "category",
+        "confidence",
+        "error_code",
+        "evidence",
+        "impact",
+        "root_cause",
+        "severity",
+        "suggested_fix"
     )
 
     def __init__(
@@ -34,11 +37,11 @@ class RCAResult:
         category: str = "Unknown",
         error_code: str = "UNKNOWN",
         root_cause: str = "",
-        evidence: Optional[List[str]] = None,
-        impact: Optional[List[str]] = None,
+        evidence: list[str] | None = None,
+        impact: list[str] | None = None,
         suggested_fix: str = "",
         confidence: float = 0.0,
-        _raw: Optional[Any] = None,
+        _raw: Any | None = None,
     ):
         self.severity = severity
         self.category = category
@@ -50,7 +53,7 @@ class RCAResult:
         self.confidence = confidence
         self._raw = _raw
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "severity": self.severity,
             "category": self.category,
@@ -85,7 +88,7 @@ def _import_rca() -> bool:
 
     try:
         # Coba dari checker.core.rca (lokasi default)
-        from checker.core.rca import analyze_exception, Severity, get_engine
+        from checker.core.rca import Severity, analyze_exception, get_engine
         _RCA_ENGINE = get_engine()
         _RCA_AVAILABLE = True
         logger.debug("RCA engine loaded from checker.core.rca")
@@ -113,7 +116,7 @@ def _import_rca() -> bool:
 
 def analyze_error(
     exception: Exception,
-    context: Optional[Dict[str, Any]] = None,
+    context: dict[str, Any] | None = None,
 ) -> RCAResult:
     """
     Analisis root cause dari exception menggunakan RCA engine (jika tersedia).
@@ -132,8 +135,8 @@ def analyze_error(
             severity="ERROR",
             category="Runtime",
             error_code="RCA_FALLBACK",
-            root_cause=f"{type(exception).__name__}: {str(exception)}",
-            evidence=[f"RCA engine tidak tersedia. Traceback tidak dianalisis."],
+            root_cause=f"{type(exception).__name__}: {exception!s}",
+            evidence=["RCA engine tidak tersedia. Traceback tidak dianalisis."],
             impact=["Perbaiki instalasi checker.core.rca atau rca.py"],
             suggested_fix="Instal RCA engine atau perbaiki import",
             confidence=0.3,
@@ -141,7 +144,7 @@ def analyze_error(
         )
 
     try:
-        from checker.core.rca import analyze_exception as _rca_analyze, Severity
+        from checker.core.rca import analyze_exception as _rca_analyze
 
         ctx = context or {}
         result = _rca_analyze(exception, ctx)
@@ -165,7 +168,7 @@ def analyze_error(
             category="RCA",
             error_code="RCA_ERROR",
             root_cause=f"RCA engine error: {e}",
-            evidence=[f"Original exception: {type(exception).__name__}: {str(exception)}"],
+            evidence=[f"Original exception: {type(exception).__name__}: {exception!s}"],
             impact=["RCA analysis failed, but original error is logged"],
             suggested_fix="Periksa RCA engine atau log traceback",
             confidence=0.5,

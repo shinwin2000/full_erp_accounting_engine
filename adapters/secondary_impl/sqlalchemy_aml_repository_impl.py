@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence_orm.aml_risk_score_table import AMLRiskScoreTable

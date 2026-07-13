@@ -368,25 +368,34 @@ class SQLAlchemyTaxTransactionRepository(TaxTransactionRepositoryPort):
         await self._log_audit("REJECT_SPT", spt_id, {"reason": reason})
         return True
 
+    # ========================================================================
+    # MARK TRANSACTIONS REPORTED — DIPERBAIKI (tanpa query dalam loop)
+    # ========================================================================
+
     async def mark_transactions_reported(
         self, tax_transaction_ids: list[UUID], spt_id: UUID, user_id: UUID
     ) -> int:
+        if not tax_transaction_ids:
+            return 0
         session = await self._get_session()
-        count = 0
-        for tid in tax_transaction_ids:
-            stmt = select(TaxTransactionTable).where(
-                TaxTransactionTable.id == tid,
+        # Lakukan UPDATE massal langsung tanpa SELECT per ID
+        stmt = (
+            update(TaxTransactionTable)
+            .where(
+                TaxTransactionTable.id.in_(tax_transaction_ids),
                 TaxTransactionTable.deleted_at.is_(None)
             )
-            result = await session.execute(stmt)
-            tx = result.scalar_one_or_none()
-            if tx:
-                tx.submission_status = "reported"
-                tx.updated_at = datetime.utcnow()
-                tx.updated_by = user_id
-                count += 1
+            .values(
+                submission_status="reported",
+                updated_at=datetime.utcnow(),
+                updated_by=user_id,
+            )
+        )
+        result = await session.execute(stmt)
         await session.flush()
+        count = result.rowcount
         await self._log_audit("MARK_REPORTED", UUID(int=0), {"count": count, "spt_id": str(spt_id)})
+        logger.info(f"Marked {count} transactions as reported for SPT {spt_id}")
         return count
 
     async def record_payment(

@@ -15,8 +15,6 @@ All mappers are stateless and thread-safe.
 """
 
 # ✅ FIX: Import the module itself, not a missing symbol
-from . import domain_to_dto
-
 from application.mappers.domain_to_dto import (
     DomainToDTOMappingError,
     JournalDomainToDtoMapper,
@@ -63,6 +61,8 @@ from application.mappers.event_to_read_model import (
     process_event_for_read_model,
     register_all_handlers,
 )
+
+from . import domain_to_dto
 
 __all__ = [
     # Domain to DTO

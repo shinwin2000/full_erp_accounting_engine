@@ -484,7 +484,7 @@ Percentage = PercentageVO
 
 __all__ = [
     "InvalidPercentageError",
-    "Percentage", 
+    "Percentage",
     "PercentageError",
     "PercentageVO",
     "average_percentage",

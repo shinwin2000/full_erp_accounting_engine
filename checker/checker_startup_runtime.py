@@ -1,24 +1,15 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║     PRE-FLIGHT DEPLOYMENT VALIDATOR  v3.0.1                                 ║
+║     PRE-FLIGHT DEPLOYMENT VALIDATOR  v3.0.2                                 ║
 ║     Import + Startup + Deep Validation Suite                                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  Capabilities:                                                               ║
-║  • Syntax validation (AST)                                                   ║
-║  • Static circular-import detection (optional networkx)                      ║
-║  • Runtime import in isolated subprocess (REAL RUNTIME, SAFE)                ║
-║  • Deep validation: SQLAlchemy, DI Container, FastAPI lifespan, Pydantic     ║
-║  • Root Cause Analysis (RCA) integration                                     ║
-║  • Reports: JSON, HTML (full), SARIF 2.1.0 (compliant)                      ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-║  FIXES v3.0.1:                                                               ║
-║  • RCA import now works (checker.core.rca)                                  ║
-║  • Asyncpg driver error fixed (set DATABASE_URL with +asyncpg)              ║
-║  • Circular import detection now uses exact module matching                 ║
-║  • Only first 50 cycles are printed                                         ║
-║  • Environment variables are passed to subprocess workers                   ║
+║  FIXES v3.0.2:                                                               ║
+║  • Exclude erp_frontend/ folder completely                                  ║
+║  • Exclude frontend/gui/ui/client folders                                   ║
+║  • Exclude site-packages, dist-packages                                     ║
+║  • Add --exclude-dirs option for manual exclusion                           ║
+║  • Better RCA integration                                                   ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -28,22 +19,20 @@ import builtins
 import concurrent.futures
 import importlib
 import importlib.util
-import inspect
 import json
 import logging
 import multiprocessing
 import os
 import re
 import sys
-import tempfile
 import time
 import traceback
 import uuid
-from collections import Counter, defaultdict
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 
 # ─── Platform-conditional imports ────────────────────────────────────────────
 try:
@@ -84,7 +73,7 @@ except ImportError:
     RED = GREEN = YELLOW = CYAN = MAGENTA = WHITE = BOLD = RESET = ""
 
 # ─── Version ──────────────────────────────────────────────────────────────────
-__version__ = "3.0.1"
+__version__ = "3.0.2"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATA CLASSES
@@ -95,13 +84,13 @@ class ImportResult:
     """Result of a single module import attempt."""
     module_name: str
     success: bool
-    error_message: Optional[str] = None
+    error_message: str | None = None
     traceback_str: str = ""
     error_file: str = ""
     error_line: int = 0
     exc_type_name: str = ""
     exc_message: str = ""
-    exc_object: Optional[BaseException] = None
+    exc_object: BaseException | None = None
     duration_seconds: float = 0.0
 
 
@@ -109,7 +98,7 @@ class ImportResult:
 class ValidationCheck:
     """Result of a single deep-validation check."""
     status: str = "SKIPPED"          # PASSED | FAILED | SKIPPED | SKIPPED (reason)
-    error: Optional[str] = None
+    error: str | None = None
     traceback_str: str = ""
     details: str = ""
 
@@ -130,17 +119,17 @@ class AuditReport:
     """Complete audit report — serialisable to JSON / HTML / SARIF."""
     run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp_utc: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
     tool_version: str = __version__
     project_root: str = ""
     mode: str = "SAFE"
     total_modules: int = 0
     successes: int = 0
-    failures: List[Dict[str, Any]] = field(default_factory=list)
-    syntax_errors: List[Dict[str, Any]] = field(default_factory=list)
-    circular_imports: List[List[str]] = field(default_factory=list)
-    validation: Optional[Dict[str, Any]] = None
+    failures: list[dict[str, Any]] = field(default_factory=list)
+    syntax_errors: list[dict[str, Any]] = field(default_factory=list)
+    circular_imports: list[list[str]] = field(default_factory=list)
+    validation: dict[str, Any] | None = None
     elapsed_seconds: float = 0.0
     overall_status: str = "PASSED"   # PASSED | FAILED
 
@@ -204,7 +193,7 @@ if not RCA_AVAILABLE:
 # PROJECT ROOT RESOLUTION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_ROOT_MARKERS: Tuple[str, ...] = (
+_ROOT_MARKERS: tuple[str, ...] = (
     "pyproject.toml", "setup.py", "setup.cfg",
     ".git", "manage.py", "requirements.txt",
 )
@@ -230,7 +219,7 @@ if str(ROOT) not in sys.path:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION
+# CONFIGURATION  — FIX: exclude frontend folders
 # ═══════════════════════════════════════════════════════════════════════════════
 
 SKIP_DIRS: frozenset = frozenset({
@@ -238,6 +227,8 @@ SKIP_DIRS: frozenset = frozenset({
     ".git", ".venv", "venv", "node_modules", ".tox", ".cache",
     "site-packages", "dist-packages", "dist", "build", "eggs",
     "helm", "checker",
+    # FIX: exclude frontend/UI folders
+    "erp_frontend", "frontend", "gui", "ui", "desktop", "client",
 })
 
 SKIP_FILES: frozenset = frozenset({
@@ -254,7 +245,6 @@ MAX_WORKERS_CAP = 32
 MAX_CYCLES_REPORTED = 50   # avoid flooding output
 
 # ─── Environment variables to inject into subprocess ─────────────────────────
-# These are needed for imports that rely on env (e.g., DATABASE_URL)
 _INJECT_ENV_VARS = (
     "DATABASE_URL",
     "REDIS_URL",
@@ -281,10 +271,10 @@ _INJECT_ENV_VARS = (
 # FILE I/O HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_ENCODINGS: Tuple[str, ...] = ("utf-8-sig", "utf-8", "latin-1", "cp1252")
+_ENCODINGS: tuple[str, ...] = ("utf-8-sig", "utf-8", "latin-1", "cp1252")
 
 
-def read_file_with_encoding(filepath: Path) -> Optional[str]:
+def read_file_with_encoding(filepath: Path) -> str | None:
     """Try multiple encodings; return source text or None on failure."""
     for enc in _ENCODINGS:
         try:
@@ -301,7 +291,7 @@ def read_file_with_encoding(filepath: Path) -> Optional[str]:
 # SYNTAX CHECKING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def check_syntax(filepath: Path) -> Optional[str]:
+def check_syntax(filepath: Path) -> str | None:
     """Return None on success or a human-readable error string."""
     source = read_file_with_encoding(filepath)
     if source is None:
@@ -341,7 +331,7 @@ def show_progress(current: int, total: int, start_time: float) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MODULE DISCOVERY
+# MODULE DISCOVERY  — FIX: skip frontend folders
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -363,8 +353,18 @@ def should_skip(path: Path, skip_tests: bool, skip_migrations: bool) -> bool:
     except ValueError:
         return True   # Path outside ROOT — skip
 
+    # Check each part against SKIP_DIRS and frontend patterns
     for part in rel.parts:
-        if part in SKIP_DIRS or part.startswith("."):
+        if part in SKIP_DIRS:
+            return True
+        if part.startswith("."):
+            return True
+        # Additional frontend patterns
+        if "frontend" in part.lower():
+            return True
+        if "gui" in part.lower() or "ui" in part.lower():
+            return True
+        if "desktop" in part.lower() or "client" in part.lower():
             return True
 
     if skip_tests and "tests" in rel.parts:
@@ -374,7 +374,7 @@ def should_skip(path: Path, skip_tests: bool, skip_migrations: bool) -> bool:
     return False
 
 
-def module_name_from_path(path: Path) -> Optional[str]:
+def module_name_from_path(path: Path) -> str | None:
     """Derive a dotted module name from a file path relative to ROOT."""
     try:
         rel = path.relative_to(ROOT)
@@ -398,12 +398,12 @@ def collect_modules(
     skip_tests: bool,
     skip_migrations: bool,
     root: Path = ROOT,
-) -> List[Tuple[str, Path]]:
+) -> list[tuple[str, Path]]:
     """
     Walk *root* and return unique (module_name, path) pairs, sorted.
     """
-    seen: Set[str] = set()
-    modules: List[Tuple[str, Path]] = []
+    seen: set[str] = set()
+    modules: list[tuple[str, Path]] = []
 
     for p in sorted(root.rglob("*.py")):
         if should_skip(p, skip_tests, skip_migrations):
@@ -420,10 +420,10 @@ def collect_modules(
 # AST CACHE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_AST_CACHE: Dict[Path, Optional[ast.AST]] = {}
+_AST_CACHE: dict[Path, ast.AST | None] = {}
 
 
-def get_ast(path: Path) -> Optional[ast.AST]:
+def get_ast(path: Path) -> ast.AST | None:
     """Parse and cache an AST; return None on SyntaxError or unreadable file."""
     if path in _AST_CACHE:
         return _AST_CACHE[path]
@@ -447,8 +447,8 @@ def get_ast(path: Path) -> Optional[ast.AST]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def detect_circular_imports(
-    modules: List[Tuple[str, Path]],
-) -> List[List[str]]:
+    modules: list[tuple[str, Path]],
+) -> list[list[str]]:
     """
     Detect static circular imports using networkx digraph.
     Now uses *exact* module name matching to avoid thousands of false cycles.
@@ -459,7 +459,7 @@ def detect_circular_imports(
         print(f"{YELLOW}⚠️  networkx not installed — circular import detection skipped.{RESET}")
         return []
 
-    module_set: Set[str] = {mod for mod, _ in modules}
+    module_set: set[str] = {mod for mod, _ in modules}
     G: nx.DiGraph = nx.DiGraph()
 
     for mod_name, path in modules:
@@ -469,7 +469,7 @@ def detect_circular_imports(
         G.add_node(mod_name)
 
         for node in ast.walk(tree):
-            imported: Optional[str] = None
+            imported: str | None = None
 
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -501,7 +501,7 @@ def detect_circular_imports(
             if imported:
                 G.add_edge(mod_name, imported)
 
-    cycles: List[List[str]] = []
+    cycles: list[list[str]] = []
     try:
         for cycle in nx.simple_cycles(G):
             cycles.append(cycle)
@@ -515,7 +515,7 @@ def detect_circular_imports(
 # RCA HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _rca_dict(result: Any) -> Dict[str, Any]:
+def _rca_dict(result: Any) -> dict[str, Any]:
     """Safely extract a normalised dict from an RCA result object."""
     return {
         "severity": getattr(result, "severity", None) and result.severity.value,
@@ -529,8 +529,8 @@ def _rca_dict(result: Any) -> Dict[str, Any]:
 
 def analyze_error(
     exception: BaseException,
-    context: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """Run RCA on a live exception object."""
     if not RCA_AVAILABLE or RCA_ENGINE is None:
         return None
@@ -546,8 +546,8 @@ def analyze_error_from_info(
     exc_type_name: str,
     exc_msg: str,
     tb_str: str,
-    context: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """Reconstruct an exception from serialised info and run RCA."""
     if not RCA_AVAILABLE or RCA_ENGINE is None:
         return None
@@ -577,8 +577,8 @@ def analyze_error_from_info(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def import_worker(
-    args: Tuple[str, str, float, int],
-) -> Tuple[str, bool, Optional[str], str, str, int, str, str, float]:
+    args: tuple[str, str, float, int],
+) -> tuple[str, bool, str | None, str, str, int, str, str, float]:
     """
     Execute a single module import in an isolated subprocess context.
     Environment variables are injected to fix async driver issues.
@@ -589,7 +589,6 @@ def import_worker(
     memory_limit_mb: int = int(args[3])
 
     # ── Inject environment variables ──────────────────────────────────────────
-    # ─── Inject environment variables ──────────────────────────────────────────
     for var in _INJECT_ENV_VARS:
         if var == "DATABASE_URL":
             # Force asyncpg driver to avoid sync psycopg2 error
@@ -755,7 +754,7 @@ def _check_fastapi_lifespan(results: ValidationSuiteResult) -> None:
         results.fastapi_lifespan = ValidationCheck(status="SKIPPED", details="app not found")
         return
 
-    app = getattr(app_mod, "app")
+    app = app_mod.app
     if "FastAPI" not in type(app).__mro__[0].__module__ + type(app).__name__:
         results.fastapi_lifespan = ValidationCheck(status="SKIPPED", details="not a FastAPI app")
         return
@@ -811,7 +810,7 @@ def _check_pydantic_models(results: ValidationSuiteResult) -> None:
             if not (isinstance(obj, type) and issubclass(obj, pydantic.BaseModel) and obj is not pydantic.BaseModel):
                 continue
             try:
-                data: Dict[str, Any] = {}
+                data: dict[str, Any] = {}
                 for fname, fld in getattr(obj, "model_fields", {}).items():
                     undefined = getattr(pydantic.fields, "PydanticUndefined", None)
                     if undefined is not None and fld.default is not undefined:
@@ -820,11 +819,11 @@ def _check_pydantic_models(results: ValidationSuiteResult) -> None:
                         data[fname] = fld.default_factory()
                     else:
                         ann = getattr(fld, "annotation", None)
-                        _type_defaults: Dict[Any, Any] = {
+                        _type_defaults: dict[Any, Any] = {
                             str: "test", int: 0, bool: False,
                             float: 0.0, list: [], dict: {},
                         }
-                        data[fname] = _type_defaults.get(ann, None)
+                        data[fname] = _type_defaults.get(ann)
                 obj(**data)
                 models_checked += 1
             except Exception:
@@ -839,7 +838,7 @@ def _check_pydantic_models(results: ValidationSuiteResult) -> None:
 
 
 def _check_env_vars(results: ValidationSuiteResult) -> None:
-    required_vars: Set[str] = set()
+    required_vars: set[str] = set()
     for mod_name in _CONFIG_MODULES:
         try:
             mod = importlib.import_module(mod_name)
@@ -866,7 +865,7 @@ def validation_worker(
     root: str,
     timeout: float = 60.0,
     memory_limit_mb: int = 2048,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Run deep validation suite in the calling process (already a subprocess
     when invoked from audit_runtime_imports).
@@ -921,7 +920,7 @@ def validation_worker(
         except Exception:
             pass
 
-    result: Dict[str, Any] = {"overall_status": suite.overall_status}
+    result: dict[str, Any] = {"overall_status": suite.overall_status}
     for attr in ("sqlalchemy_mappers", "di_container", "fastapi_lifespan", "pydantic_models", "env_vars"):
         chk: ValidationCheck = getattr(suite, attr)
         result[attr] = {
@@ -940,7 +939,7 @@ def validation_worker(
 _SARIF_SCHEMA = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json"
 
 
-def _build_html_report(data: Dict[str, Any]) -> str:
+def _build_html_report(data: dict[str, Any]) -> str:
     failures_html = ""
     for f in data.get("failures", []):
         failures_html += f"""
@@ -992,7 +991,7 @@ def _build_html_report(data: Dict[str, Any]) -> str:
 </html>"""
 
 
-def _build_sarif_report(data: Dict[str, Any]) -> Dict[str, Any]:
+def _build_sarif_report(data: dict[str, Any]) -> dict[str, Any]:
     """Build a SARIF 2.1.0 compliant structure."""
     sarif_results = []
     for f in data.get("failures", []):
@@ -1061,9 +1060,9 @@ def _build_sarif_report(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def generate_report(
-    results: Dict[str, Any],
+    results: dict[str, Any],
     fmt: str = "json",
-    output_file: Optional[Path] = None,
+    output_file: Path | None = None,
 ) -> str:
     """Render and optionally write the audit report."""
     if fmt == "json":
@@ -1093,7 +1092,7 @@ def _print_banner() -> None:
 
 
 def _print_rca(
-    rca: Optional[Dict[str, Any]],
+    rca: dict[str, Any] | None,
     verbose: bool,
     tb: str,
 ) -> None:
@@ -1130,7 +1129,7 @@ def audit_runtime_imports(
     no_rca: bool = False,
     unsafe_mode: bool = False,
     report_format: str = "json",
-    output: Optional[Path] = None,
+    output: Path | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     memory_limit_mb: int = DEFAULT_MEMORY_LIMIT_MB,
 ) -> None:
@@ -1160,7 +1159,7 @@ def audit_runtime_imports(
 
     # ── 2. Syntax Validation ──────────────────────────────────────────────
     print(f"{BOLD}{WHITE}📄 Syntax validation ({total_discovered} files)...{RESET}")
-    syntax_errors_raw: List[Tuple[str, Path, str]] = []
+    syntax_errors_raw: list[tuple[str, Path, str]] = []
     for mod, path in modules:
         err = check_syntax(path)
         if err:
@@ -1223,7 +1222,7 @@ def audit_runtime_imports(
             raise SystemExit(0)
 
     total = len(modules_to_import)
-    failures: List[ImportResult] = []
+    failures: list[ImportResult] = []
     successes = 0
 
     # ── 6. Runtime Import ─────────────────────────────────────────────────
@@ -1239,7 +1238,7 @@ def audit_runtime_imports(
         ]
 
         pool = multiprocessing.Pool(processes=workers)
-        pool_results: List[Any] = []
+        pool_results: list[Any] = []
         try:
             pool_timeout = timeout * len(modules_to_import) + PARALLEL_TIMEOUT_HEADROOM_SECONDS
             async_result = pool.map_async(import_worker, args_list, chunksize=4)
@@ -1294,13 +1293,13 @@ def audit_runtime_imports(
             if unsafe_mode:
                 t0 = time.monotonic()
                 ok = False
-                err: Optional[str] = None
+                err: str | None = None
                 tb = ""
                 err_file = ""
                 err_line = 0
                 exc_type = ""
                 exc_msg_str = ""
-                exc_obj: Optional[BaseException] = None
+                exc_obj: BaseException | None = None
                 try:
                     importlib.import_module(mod)
                     ok = True
@@ -1349,7 +1348,7 @@ def audit_runtime_imports(
     elapsed = time.monotonic() - start_time
 
     # ── 7. Deep Validation Suite ──────────────────────────────────────────
-    validation_result: Optional[Dict[str, Any]] = None
+    validation_result: dict[str, Any] | None = None
     if deep and not failures and not unsafe_mode:
         print(f"\n{BOLD}{WHITE}🔍 Running Deep Validation Suite...{RESET}")
         try:
@@ -1417,9 +1416,9 @@ def audit_runtime_imports(
 
     # ── 9. Write Report File ──────────────────────────────────────────────
     if output:
-        report_data: Dict[str, Any] = {
+        report_data: dict[str, Any] = {
             "run_id": str(uuid.uuid4()),
-            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "timestamp_utc": datetime.now(UTC).isoformat(),
             "tool_version": __version__,
             "project_root": str(ROOT),
             "mode": "UNSAFE" if unsafe_mode else "SAFE",
@@ -1469,7 +1468,7 @@ def audit_runtime_imports(
             print(f"     ⏱️  Duration : {f.duration_seconds:.2f}s")
 
             # RCA
-            rca: Optional[Dict[str, Any]] = None
+            rca: dict[str, Any] | None = None
             if rca_available:
                 if f.exc_object is not None:
                     rca = analyze_error(f.exc_object, {"module": f.module_name, "file": rel_path})

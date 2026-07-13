@@ -27,6 +27,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
+import aiofiles  # <-- Tambahan untuk async file I/O
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC as PBKDF2
@@ -136,6 +137,16 @@ class AnalyticsExportPort:
         self._lock = asyncio.Lock()
         self._scheduler_task: asyncio.Task | None = None
         self._running = False
+
+        # ===== PERBAIKAN: Simpan referensi task =====
+        self._pending_tasks: list[asyncio.Task] = []
+
+    def _add_pending_task(self, task: asyncio.Task) -> None:
+        """Tambahkan task ke daftar pending dan daftarkan callback untuk menghapusnya."""
+        self._pending_tasks.append(task)
+        task.add_done_callback(
+            lambda t: self._pending_tasks.remove(t) if t in self._pending_tasks else None
+        )
 
     # ==================== HELPER ====================
 
@@ -360,6 +371,10 @@ class AnalyticsExportPort:
             await self._log_audit("FAILED", job_id, {"error": str(e)})
             return False
 
+    # ========================================================================
+    # PERBAIKAN: _deliver menggunakan aiofiles untuk local path
+    # ========================================================================
+
     async def _deliver(self, job: ExportJob, data: bytes) -> str:
         """Kirim hasil ekspor sesuai delivery method."""
         method = job.delivery_method
@@ -383,8 +398,9 @@ class AnalyticsExportPort:
             return f"s3://{bucket}/{key}"
         elif method == DeliveryMethod.LOCAL_PATH:
             path = config.get("path")
-            with open(path, "wb") as f:
-                f.write(data)
+            # ===== PERBAIKAN: gunakan aiofiles.open untuk async write =====
+            async with aiofiles.open(path, "wb") as f:
+                await f.write(data)
             return f"file://{path}"
         elif method == DeliveryMethod.WEBHOOK:
             url = config.get("url")
@@ -424,12 +440,17 @@ class AnalyticsExportPort:
 
     # ==================== SCHEDULER ====================
 
+    # ========================================================================
+    # PERBAIKAN: start_scheduler dengan task management
+    # ========================================================================
+
     async def start_scheduler(self, poll_interval_seconds: int = 60):
         """Start background scheduler to process scheduled jobs."""
         if self._running:
             return
         self._running = True
         self._scheduler_task = asyncio.create_task(self._scheduler_loop(poll_interval_seconds))
+        self._add_pending_task(self._scheduler_task)
         logger.info("Export scheduler started")
 
     async def _scheduler_loop(self, interval: int):
@@ -451,14 +472,22 @@ class AnalyticsExportPort:
         for job_id in jobs_to_run:
             await self.execute_job(job_id)
 
+    # ========================================================================
+    # PERBAIKAN: stop_scheduler membatalkan semua pending tasks
+    # ========================================================================
+
     async def stop_scheduler(self):
+        """Stop the background scheduler."""
         self._running = False
-        if self._scheduler_task:
-            self._scheduler_task.cancel()
-            try:
-                await self._scheduler_task
-            except asyncio.CancelledError:
-                pass
+        # Batalkan semua pending tasks
+        if self._pending_tasks:
+            for task in self._pending_tasks:
+                if not task.done():
+                    task.cancel()
+            if self._pending_tasks:
+                await asyncio.gather(*self._pending_tasks, return_exceptions=True)
+                self._pending_tasks.clear()
+        self._scheduler_task = None
         logger.info("Export scheduler stopped")
 
     # ==================== QUERY ====================

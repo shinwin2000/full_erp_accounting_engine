@@ -36,7 +36,6 @@ class ServiceRegistry:
         lifetime: Any = None,   # akan diisi dari impor lokal
         name: str | None = None,
     ) -> None:
-        # Impor Lifetime lokal
         from bootstrap.dependency_container.ioc_container import Lifetime
         if lifetime is None:
             lifetime = Lifetime.SINGLETON
@@ -112,21 +111,13 @@ def service(
 ):
     """
     Dekorator untuk mendaftarkan service ke container.
-    Import Lifetime dilakukan di dalam dekorator saat runtime.
     """
     def decorator(cls):
         from bootstrap.dependency_container.ioc_container import Lifetime
         lifetime_enum = getattr(Lifetime, lifetime.upper(), Lifetime.SINGLETON)
         service_name = name or cls.__name__
         service_interface = interface or cls
-        registry = ServiceRegistry()
-        # Container akan di-set nanti saat register_all dipanggil
-        # Untuk sementara kita simpan metadata di kelas
-        setattr(cls, "_service_metadata", {
-            "interface": service_interface,
-            "lifetime": lifetime_enum,
-            "name": service_name,
-        })
+        cls._service_metadata = {"interface": service_interface, "lifetime": lifetime_enum, "name": service_name}
         return cls
     return decorator
 
@@ -134,8 +125,7 @@ def service(
 class ServiceRegistrar:
     @staticmethod
     async def register_all(container: ContainerInterface | None = None) -> None:
-        # Impor lokal
-        from bootstrap.dependency_container.ioc_container import get_container, Lifetime
+        from bootstrap.dependency_container.ioc_container import get_container
 
         if container is None:
             container = get_container()
@@ -226,6 +216,76 @@ class ServiceRegistrar:
             container.register_singleton("OutboxPoller", factory=get_outbox_poller)
         except ImportError:
             pass
+
+        # ============================================================
+        # --- IAM SERVICE & DEPENDENCIES (TAMBAHAN BARU) ---
+        # ============================================================
+        try:
+            from adapters.secondary_impl.sqlalchemy_iam_user_repository_impl import (
+                SQLAlchemyIAMUserRepository,
+            )
+            from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import SQLAlchemyUnitOfWork
+            from application.service_layer.service_iam import IAMService
+            from ports.primary.iam_repository_port import IAMRepositoryPort
+            from ports.primary.unit_of_work_port import UnitOfWorkPort
+
+            # Daftarkan repository dan UoW
+            container.register_singleton(SQLAlchemyIAMUserRepository, SQLAlchemyIAMUserRepository)
+            container.register_singleton(SQLAlchemyUnitOfWork, SQLAlchemyUnitOfWork)
+            container.register_singleton(IAMRepositoryPort, SQLAlchemyIAMUserRepository)
+            container.register_singleton(UnitOfWorkPort, SQLAlchemyUnitOfWork)
+
+            # Dependency opsional, coba import jika ada
+            event_publisher = None
+            token_issuer = None
+            cache = None
+
+            try:
+                from infrastructure.event_publisher.event_publisher import EventPublisher
+
+                from ports.primary.event_publisher_port import EventPublisherPort
+                container.register_singleton(EventPublisher, EventPublisher)
+                container.register_singleton(EventPublisherPort, EventPublisher)
+                event_publisher = container.resolve(EventPublisherPort)
+                logger.info("EventPublisher registered")
+            except ImportError:
+                logger.warning("EventPublisher not available, using None")
+
+            try:
+                from infrastructure.security.jwt_token_service import JWTTokenService
+                from ports.primary.token_issuer_port import TokenIssuerPort
+                container.register_singleton(JWTTokenService, JWTTokenService)
+                container.register_singleton(TokenIssuerPort, JWTTokenService)
+                token_issuer = container.resolve(TokenIssuerPort)
+                logger.info("JWTTokenService registered")
+            except ImportError:
+                logger.warning("JWTTokenService not available, using None")
+
+            try:
+                from infrastructure.caching.redis_cache import RedisCache
+
+                from ports.primary.cache_port import CachePort
+                container.register_singleton(RedisCache, RedisCache)
+                container.register_singleton(CachePort, RedisCache)
+                cache = container.resolve(CachePort)
+                logger.info("RedisCache registered")
+            except ImportError:
+                logger.warning("RedisCache not available, using None")
+
+            # Daftarkan IAMService dengan factory
+            container.register_singleton(
+                IAMService,
+                lambda: IAMService(
+                    iam_repo=container.resolve(IAMRepositoryPort),
+                    uow=container.resolve(UnitOfWorkPort),
+                    event_publisher=event_publisher,
+                    token_issuer=token_issuer,
+                    cache=cache
+                )
+            )
+            logger.info("IAMService and dependencies registered")
+        except Exception as e:
+            logger.error(f"Failed to register IAMService: {e}")
 
         logger.info("All application services registered to IoC container")
 

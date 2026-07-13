@@ -19,7 +19,12 @@ from uuid import uuid4
 
 import yaml
 
-from config.exceptions import ConfigNotFoundError, ConfigValidationError, ConfigError, ConfigErrorCode
+from config.exceptions import (
+    ConfigError,
+    ConfigErrorCode,
+    ConfigNotFoundError,
+    ConfigValidationError,
+)
 
 logger = logging.getLogger(__name__)
 

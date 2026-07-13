@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║    SOVEREIGN ERP — ARCHITECTURE DRIFT & BOUNDARY VALIDATOR   v5.1.1       ║
@@ -28,8 +27,8 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional, Any, List, Dict, Set, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 # ─────────────────────────────────────────────────────────────────────────────
 # VERSI & METADATA
@@ -72,7 +71,7 @@ def _init_rca_engine() -> bool:
 
     # 1. Coba import langsung
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         RCA_ENGINE = get_engine()
         RCA_ANALYZE = analyze_exception
         RCA_SEVERITY = Severity
@@ -86,7 +85,7 @@ def _init_rca_engine() -> bool:
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
     try:
-        from checker.core.rca import get_engine, analyze_exception, Severity
+        from checker.core.rca import Severity, analyze_exception, get_engine
         RCA_ENGINE = get_engine()
         RCA_ANALYZE = analyze_exception
         RCA_SEVERITY = Severity
@@ -100,7 +99,7 @@ def _init_rca_engine() -> bool:
     if core_path.exists() and str(core_path) not in sys.path:
         sys.path.insert(0, str(core_path))
     try:
-        from rca import get_engine, analyze_exception, Severity
+        from rca import Severity, analyze_exception, get_engine
         RCA_ENGINE = get_engine()
         RCA_ANALYZE = analyze_exception
         RCA_SEVERITY = Severity
@@ -111,7 +110,7 @@ def _init_rca_engine() -> bool:
 
     # 4. Fallback terakhir: dari core.rca
     try:
-        from core.rca import get_engine, analyze_exception, Severity
+        from core.rca import Severity, analyze_exception, get_engine
         RCA_ENGINE = get_engine()
         RCA_ANALYZE = analyze_exception
         RCA_SEVERITY = Severity
@@ -651,8 +650,8 @@ class SovereignArchitectureVerifier:
         self,
         source_module: str,
         level: int,
-        target_name: Optional[str],
-    ) -> Optional[str]:
+        target_name: str | None,
+    ) -> str | None:
         if level <= 0:
             return target_name
         parts = source_module.split(".")
@@ -666,7 +665,7 @@ class SovereignArchitectureVerifier:
             return base if base else None
 
     @staticmethod
-    def _read_file_with_encodings(path: pathlib.Path) -> tuple[Optional[str], Optional[str]]:
+    def _read_file_with_encodings(path: pathlib.Path) -> tuple[str | None, str | None]:
         """Baca file dengan mencoba beberapa encoding. Return (content, error_msg)."""
         encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']
         for enc in encodings:
@@ -682,7 +681,7 @@ class SovereignArchitectureVerifier:
     def parse_module(
         self,
         file_path: pathlib.Path,
-    ) -> tuple[Optional[ModuleReport], list[ImportEdge], Optional[str]]:
+    ) -> tuple[ModuleReport | None, list[ImportEdge], str | None]:
         """Return: (ModuleReport or None, list of edges, error message or None)"""
         # ── Baca file dengan multi-encoding ──────────────────────────────
         source_code, error = self._read_file_with_encodings(file_path)
@@ -730,9 +729,7 @@ class SovereignArchitectureVerifier:
 
             def visit_If(self, node):
                 is_type_checking = False
-                if isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
-                    is_type_checking = True
-                elif isinstance(node.test, ast.Attribute) and node.test.attr == "TYPE_CHECKING":
+                if (isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING") or (isinstance(node.test, ast.Attribute) and node.test.attr == "TYPE_CHECKING"):
                     is_type_checking = True
                 if is_type_checking:
                     self.in_type_checking = True
@@ -1117,7 +1114,7 @@ Contoh:
     root_dir   = pathlib.Path.cwd()
     verifier   = SovereignArchitectureVerifier(root_dir, strict_mode=args.strict)
     git_commit = get_git_commit(root_dir)
-    scan_ts    = datetime.now(timezone.utc).isoformat()
+    scan_ts    = datetime.now(UTC).isoformat()
 
     print(c("BOLD", c("CYAN",
         "╔══════════════════════════════════════════════════════════════════════════╗\n"

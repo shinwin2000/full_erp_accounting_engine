@@ -8,12 +8,11 @@ Responsibility: Implementasi repository Payroll menggunakan SQLAlchemy.
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence_orm.employee_table import EmployeeTable

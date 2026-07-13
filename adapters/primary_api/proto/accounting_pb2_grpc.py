@@ -5,11 +5,12 @@ from __future__ import annotations
 
 """Client and server classes corresponding to protobuf-defined services."""
 
-import grpc
 import hashlib
 import json
 from datetime import datetime
 from typing import Any
+
+import grpc
 
 from adapters.primary_api.proto import (
     accounting_pb2 as adapters_dot_primary__api_dot_proto_dot_accounting__pb2,

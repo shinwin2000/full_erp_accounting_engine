@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 layer_checker.py — Layer Dependency Validator for Hexagonal/DDD Architecture
 =============================================================================
@@ -28,12 +27,10 @@ import pathlib
 import sys
 import threading
 import time
-import hashlib
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import (
-    Any, Dict, FrozenSet, Iterator, List, Optional,
-    Set, Tuple, Union,
+    Any,
 )
 
 # ─── RCA ENGINE INTEGRATION ─────────────────────────────────────────────────
@@ -65,7 +62,7 @@ def _init_rca() -> bool:
 
 _init_rca()
 
-def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Any]:
+def _rca_analyze(exc: Exception, context: dict | None = None) -> Any | None:
     if not _RCA_AVAILABLE or _RCA_ENGINE is None:
         return {
             "severity": "WARNING",
@@ -83,7 +80,7 @@ def _rca_analyze(exc: Exception, context: Optional[Dict] = None) -> Optional[Any
             "confidence": 0.0,
         }
 
-def _rca_to_dict(rca_result: Optional[Any]) -> Optional[Dict[str, Any]]:
+def _rca_to_dict(rca_result: Any | None) -> dict[str, Any] | None:
     if rca_result is None:
         return None
     if isinstance(rca_result, dict):
@@ -101,7 +98,7 @@ def _rca_to_dict(rca_result: Optional[Any]) -> Optional[Dict[str, Any]]:
         return {"error": "RCA serialization failed"}
 
 # ─── HELPER FUNCTIONS ──────────────────────────────────────────────────────
-def _build_stdlib_set() -> Set[str]:
+def _build_stdlib_set() -> set[str]:
     if hasattr(sys, "stdlib_module_names"):
         return set(sys.stdlib_module_names)
     return {
@@ -134,7 +131,7 @@ def is_friend(layer: str, module: str) -> bool:
 def is_allowed_third_party(module: str) -> bool:
     return module.split(".")[0] in ALWAYS_ALLOWED_THIRD_PARTY
 
-def resolve_relative_import(source_module: str, level: int, target: Optional[str]) -> str:
+def resolve_relative_import(source_module: str, level: int, target: str | None) -> str:
     parts = source_module.split(".")
     # level=1 berarti current package, level=2 parent package, dst.
     # Kita naik (level - 1) sesuai PEP 328
@@ -150,7 +147,7 @@ def get_relative_path(p: pathlib.Path, root: pathlib.Path) -> str:
     try: return str(p.relative_to(root)).replace("\\", "/")
     except ValueError: return str(p).replace("\\", "/")
 
-def _normalize_cycle(cycle: List[str]) -> Tuple[str, ...]:
+def _normalize_cycle(cycle: list[str]) -> tuple[str, ...]:
     if not cycle: return ()
     c = cycle[:]
     if len(c) > 1 and c[0] == c[-1]: c = c[:-1]
@@ -171,7 +168,7 @@ if not logger.handlers:
     logger.addHandler(_log_handler)
 
 # ─── COLOR ──────────────────────────────────────────────────────────────────
-COLOR: Dict[str, str] = {
+COLOR: dict[str, str] = {
     "RED": "", "GREEN": "", "YELLOW": "", "CYAN": "", "BOLD": "", "DIM": "", "RESET": "",
 }
 try:
@@ -193,7 +190,7 @@ except ImportError:
 __version__ = "3.0.6"
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
-LAYER_MAP: Dict[str, str] = {
+LAYER_MAP: dict[str, str] = {
     "domain"        : "domain",
     "axioms"        : "axioms",
     "constitution"  : "constitution",
@@ -230,7 +227,7 @@ LAYER_MAP: Dict[str, str] = {
     "external"      : "external",
 }
 
-ALLOWED_PAIRS: FrozenSet[Tuple[str, str]] = frozenset({
+ALLOWED_PAIRS: frozenset[tuple[str, str]] = frozenset({
     ("domain", "domain"),
     ("domain", "axioms"),
     ("domain", "constitution"),
@@ -327,26 +324,26 @@ ALLOWED_PAIRS: FrozenSet[Tuple[str, str]] = frozenset({
 })
 
 # Aturan khusus untuk import yang memang diperlukan (exception)
-ALLOWED_SPECIAL_IMPORTS: List[Tuple[str, str, str]] = [
+ALLOWED_SPECIAL_IMPORTS: list[tuple[str, str, str]] = [
     ("application", "infrastructure", "infrastructure"),
     ("adapters", "bootstrap.dependency_container", "bootstrap"),
 ]
 
-SKIP_LAYERS: FrozenSet[str] = frozenset({
+SKIP_LAYERS: frozenset[str] = frozenset({
     "unknown", "checker", "scripts", "tools", "migrations", "deployment",
     "docs", "monitoring", "config_files", "logs", "tests", "test",
     "utils", "common", "shared", "lib", "vendor", "external",
 })
 
-STD_LIB_MODULES: Set[str] = _build_stdlib_set()
+STD_LIB_MODULES: set[str] = _build_stdlib_set()
 
-FRIEND_PACKAGES: Dict[str, Set[str]] = {
+FRIEND_PACKAGES: dict[str, set[str]] = {
     "domain"     : {"typing", "abc", "dataclasses", "enum", "uuid", "decimal", "datetime", "zoneinfo"},
     "application": {"typing", "dataclasses", "enum", "uuid", "decimal", "datetime"},
     "kernel"     : {"typing", "dataclasses", "enum", "uuid", "decimal", "datetime"},
 }
 
-ALWAYS_ALLOWED_THIRD_PARTY: Set[str] = {
+ALWAYS_ALLOWED_THIRD_PARTY: set[str] = {
     "dateutil", "pydantic", "sqlalchemy", "alembic", "celery",
     "redis", "kafka", "boto3", "requests", "httpx", "aiohttp",
     "fastapi", "starlette", "uvicorn", "gunicorn",
@@ -373,7 +370,7 @@ class ViolationSeverity:
         return ViolationSeverity.HIGH
 
     @staticmethod
-    def for_cycle(cycle: List[str]) -> str:
+    def for_cycle(cycle: list[str]) -> str:
         important = {"domain", "axioms", "constitution", "kernel", "ports"}
         if any(l in important for l in cycle):
             return ViolationSeverity.FATAL
@@ -404,9 +401,9 @@ class Violation:
     is_toplevel  : bool = True
     in_type_checking: bool = False
     in_try_except: bool = False
-    rca: Optional[Dict] = None
+    rca: dict | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "source_file"   : self.source_file,
             "source_layer"  : self.source_layer,
@@ -424,9 +421,9 @@ class Violation:
 
 @dataclass
 class CycleViolation(Violation):
-    cycle: List[str] = field(default_factory=list)
+    cycle: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = super().to_dict()
         d["cycle"] = " → ".join(self.cycle + [self.cycle[0]]) if self.cycle else ""
         return d
@@ -436,11 +433,11 @@ class LayerStats:
     total_files    : int = 0
     total_imports  : int = 0
     skipped_files  : int = 0
-    parse_errors   : List[str] = field(default_factory=list)
-    violations     : List[Violation] = field(default_factory=list)
-    layer_counts   : Dict[str, int] = field(default_factory=dict)
-    dependency_graph: Dict[str, Set[str]] = field(default_factory=dict)
-    cycles         : List[List[str]] = field(default_factory=list)
+    parse_errors   : list[str] = field(default_factory=list)
+    violations     : list[Violation] = field(default_factory=list)
+    layer_counts   : dict[str, int] = field(default_factory=dict)
+    dependency_graph: dict[str, set[str]] = field(default_factory=dict)
+    cycles         : list[list[str]] = field(default_factory=list)
     scan_time_s    : float = 0.0
     rca_enriched   : bool = False
 
@@ -452,10 +449,10 @@ class LayerStats:
     def is_clean(self) -> bool: return self.violation_count == 0 and self.cycle_count == 0
 
 # ─── AST PARSER ──────────────────────────────────────────────────────────────
-_AST_CACHE: Dict[str, Tuple[Optional[ast.AST], Optional[str]]] = {}
+_AST_CACHE: dict[str, tuple[ast.AST | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
 
-def get_ast_cached(file_path: pathlib.Path) -> Tuple[Optional[ast.AST], Optional[str]]:
+def get_ast_cached(file_path: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     key = str(file_path.resolve())
     with _CACHE_LOCK:
         if key in _AST_CACHE:
@@ -472,7 +469,7 @@ def get_ast_cached(file_path: pathlib.Path) -> Tuple[Optional[ast.AST], Optional
         _AST_CACHE[key] = (tree, error)
     return tree, error
 
-def extract_imports(file_path: pathlib.Path, root: pathlib.Path) -> Tuple[List[ImportRecord], Optional[str]]:
+def extract_imports(file_path: pathlib.Path, root: pathlib.Path) -> tuple[list[ImportRecord], str | None]:
     """
     Ekstrak semua import dengan konteks (top-level, TYPE_CHECKING, relatif, dll.)
     """
@@ -483,7 +480,7 @@ def extract_imports(file_path: pathlib.Path, root: pathlib.Path) -> Tuple[List[I
     rel_path = get_relative_path(file_path, root)
     source_module = rel_path.replace("/", ".").rsplit(".", 1)[0]
     source_layer = get_layer(source_module)
-    records: List[ImportRecord] = []
+    records: list[ImportRecord] = []
 
     class ImportVisitor(ast.NodeVisitor):
         def __init__(self):
@@ -565,7 +562,7 @@ def extract_imports(file_path: pathlib.Path, root: pathlib.Path) -> Tuple[List[I
     return visitor.records, None
 
 # ─── CYCLE DETECTION ──────────────────────────────────────────────────────────
-def find_cycles(graph: Dict[str, Set[str]], max_cycles: int = 100) -> List[List[str]]:
+def find_cycles(graph: dict[str, set[str]], max_cycles: int = 100) -> list[list[str]]:
     seen = set()
     result = []
     for start in list(graph.keys()):
@@ -597,13 +594,13 @@ class LayerChecker:
 
     def __init__(
         self,
-        root: Optional[pathlib.Path] = None,
+        root: pathlib.Path | None = None,
         max_workers: int = 8,
         enable_rca: bool = True,
         strict_toplevel: bool = False,
         max_cycles: int = 100,
-        exclude_dirs: Optional[Set[str]] = None,
-        exclude_files: Optional[Set[str]] = None,
+        exclude_dirs: set[str] | None = None,
+        exclude_files: set[str] | None = None,
     ):
         self.root = self._resolve_root(root)
         self.max_workers = max_workers
@@ -615,7 +612,7 @@ class LayerChecker:
         self.exclude_files.add(pathlib.Path(__file__).name)
         self._rca_available = _RCA_AVAILABLE
 
-    def _resolve_root(self, root: Optional[pathlib.Path]) -> pathlib.Path:
+    def _resolve_root(self, root: pathlib.Path | None) -> pathlib.Path:
         if root is not None:
             if not root.exists():
                 raise ValueError(f"Root not found: {root}")
@@ -628,7 +625,7 @@ class LayerChecker:
                 return p
         return pathlib.Path(__file__).resolve().parent.parent
 
-    def _collect_files(self) -> List[pathlib.Path]:
+    def _collect_files(self) -> list[pathlib.Path]:
         files = []
         for p in self.root.rglob("*.py"):
             if any(part in self.exclude_dirs for part in p.parts):
@@ -638,7 +635,7 @@ class LayerChecker:
             files.append(p)
         return files
 
-    def _scan_files(self, files: List[pathlib.Path]) -> Tuple[List[ImportRecord], List[str]]:
+    def _scan_files(self, files: list[pathlib.Path]) -> tuple[list[ImportRecord], list[str]]:
         all_records = []
         errors = []
         lock = threading.Lock()
@@ -658,7 +655,7 @@ class LayerChecker:
                 list(pool.map(_parse_one, files))
         return all_records, errors
 
-    def _check_violations(self, records: List[ImportRecord]) -> List[Violation]:
+    def _check_violations(self, records: list[ImportRecord]) -> list[Violation]:
         violations = []
         for rec in records:
             src = rec.source_layer
@@ -697,7 +694,7 @@ class LayerChecker:
                 ))
         return violations
 
-    def _analyze_cycle_with_rca(self, cycle: List[str]) -> Optional[CycleViolation]:
+    def _analyze_cycle_with_rca(self, cycle: list[str]) -> CycleViolation | None:
         if not cycle:
             return None
         cycle_str = " → ".join(cycle + [cycle[0]])
@@ -728,7 +725,7 @@ class LayerChecker:
             cycle=cycle,
         )
 
-    def _enrich_rca(self, violations: List[Violation]) -> List[Violation]:
+    def _enrich_rca(self, violations: list[Violation]) -> list[Violation]:
         if not self.enable_rca or not _RCA_AVAILABLE:
             return violations
 
@@ -787,7 +784,7 @@ class LayerChecker:
         cycles = find_cycles(dict(graph), max_cycles=self.max_cycles)
         stats.cycles = cycles
 
-        cycle_violations: List[Violation] = []
+        cycle_violations: list[Violation] = []
         for cycle in cycles:
             if self.enable_rca and _RCA_AVAILABLE:
                 v = self._analyze_cycle_with_rca(cycle)
@@ -829,7 +826,7 @@ class LayerChecker:
         return stats
 
 # ─── REPORT ──────────────────────────────────────────────────────────────────
-def print_report(stats: LayerStats, verbose: bool = False, hide_unknown: bool = False) -> List[str]:
+def print_report(stats: LayerStats, verbose: bool = False, hide_unknown: bool = False) -> list[str]:
     c = COLOR
     lines = []
     def emit(s=""):
@@ -1020,7 +1017,7 @@ def self_test(verbose: bool = True) -> bool:
     return failed == 0
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=f"Layer Checker v{__version__}")
     parser.add_argument("--root", help="Project root directory")
     parser.add_argument("--verbose", "-v", action="store_true")

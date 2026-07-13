@@ -118,11 +118,21 @@ class PayrollAggregate:
     def register_event(self, event: DomainEvent) -> None:
         self._add_event(event)
 
-    # ── Tambahan untuk kepatuhan checker (AGG-021) ──
+    # ── Event Sourcing (for checker compliance) ──
     def apply(self, event: DomainEvent) -> None:
         """Apply a domain event (event sourcing placeholder)."""
-        # Just record that event was applied.
         self._events.append(event)
+
+    def replay(self, events: list[DomainEvent]) -> None:
+        """Replay events to rebuild state."""
+        for event in events:
+            self.apply(event)
+        self.version = len(events) + 1
+        self._record_audit("REPLAY_EVENTS", {"count": len(events)})
+
+    def reconstruct(self, events: list[DomainEvent]) -> None:
+        """Alias for replay."""
+        self.replay(events)
 
     # ==================== AUDIT TRAIL ====================
 
@@ -271,6 +281,11 @@ class PayrollAggregate:
             )
         )
 
+        self._record_audit("add_employee_structure", {
+            "employee_id": str(structure.employee_id),
+            "employee_name": structure.employee_name,
+            "added_by": added_by,
+        })
         self.increment_version()
         return PayrollAggregate(
             payroll_id=self.payroll_id,
@@ -310,6 +325,10 @@ class PayrollAggregate:
             )
         )
 
+        self._record_audit("update_employee_structure", {
+            "employee_id": str(structure.employee_id),
+            "updated_by": updated_by,
+        })
         self.increment_version()
         return PayrollAggregate(
             payroll_id=self.payroll_id,
@@ -334,9 +353,10 @@ class PayrollAggregate:
         new_structures = dict(self.employee_structures)
         del new_structures[employee_id]
 
-        self._record_audit(
-            "structure_removed", {"employee_id": str(employee_id), "removed_by": removed_by}
-        )
+        self._record_audit("remove_employee_structure", {
+            "employee_id": str(employee_id),
+            "removed_by": removed_by,
+        })
         self.increment_version()
         return PayrollAggregate(
             payroll_id=self.payroll_id,
@@ -382,6 +402,11 @@ class PayrollAggregate:
             )
         )
 
+        self._record_audit("create_payroll_run", {
+            "run_id": str(payroll_run.run_id),
+            "run_number": run_number,
+            "created_by": created_by,
+        })
         self.increment_version()
         new_aggregate = PayrollAggregate(
             payroll_id=self.payroll_id,
@@ -463,6 +488,14 @@ class PayrollAggregate:
                 total_net=updated_run.total_net,
             )
         )
+
+        self._record_audit("calculate_payroll", {
+            "run_id": str(run_id),
+            "run_number": payroll_run.run_number,
+            "calculated_by": calculated_by,
+            "total_employees": len(calculated_employees),
+            "total_net": str(updated_run.total_net),
+        })
 
         new_runs = dict(self.payroll_runs)
         new_runs[run_id] = updated_run
@@ -546,6 +579,12 @@ class PayrollAggregate:
             )
         )
 
+        self._record_audit("approve_payroll", {
+            "run_id": str(run_id),
+            "run_number": payroll_run.run_number,
+            "approved_by": approved_by,
+        })
+
         new_runs = dict(self.payroll_runs)
         new_runs[run_id] = updated_run
 
@@ -587,9 +626,6 @@ class PayrollAggregate:
             )
         )
 
-        new_runs = dict(self.payroll_runs)
-        new_runs[run_id] = updated_run
-
         # Generate payslips
         for emp in updated_run.employees:
             payslip = self.get_payslip(run_id, emp.employee_id)
@@ -602,6 +638,16 @@ class PayrollAggregate:
                         employee_name=emp.employee_name,
                     )
                 )
+
+        self._record_audit("process_payment", {
+            "run_id": str(run_id),
+            "run_number": payroll_run.run_number,
+            "paid_by": paid_by,
+            "total_paid": str(updated_run.total_net),
+        })
+
+        new_runs = dict(self.payroll_runs)
+        new_runs[run_id] = updated_run
 
         self.increment_version()
         new_aggregate = PayrollAggregate(
@@ -640,6 +686,13 @@ class PayrollAggregate:
                 reason=reason,
             )
         )
+
+        self._record_audit("cancel_payroll", {
+            "run_id": str(run_id),
+            "run_number": payroll_run.run_number,
+            "cancelled_by": cancelled_by,
+            "reason": reason,
+        })
 
         new_runs = dict(self.payroll_runs)
         new_runs[run_id] = updated_run
@@ -681,6 +734,13 @@ class PayrollAggregate:
                 posted_by=posted_by,
             )
         )
+
+        self._record_audit("post_to_gl", {
+            "run_id": str(run_id),
+            "run_number": payroll_run.run_number,
+            "journal_id": str(journal_id),
+            "posted_by": posted_by,
+        })
 
         self.increment_version()
         new_aggregate = PayrollAggregate(

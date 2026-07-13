@@ -20,24 +20,20 @@ from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from adapters.dependency_provider import get_service
 from adapters.primary_api.common.fastapi_auth_jwt_middleware import (
     TokenPayload,
-    get_current_legal_entity,
     get_current_user,
-    require_permission,
 )
 
 # Import service
 from application.service_layer.service_supplier import (
-    SupplierService,
     Supplier,
-    SupplierStatus,
-    WithholdingCategory,
-    SupplierServiceError,
     SupplierNotFoundError,
+    SupplierService,
+    SupplierServiceError,
 )
 
 logger = logging.getLogger(__name__)

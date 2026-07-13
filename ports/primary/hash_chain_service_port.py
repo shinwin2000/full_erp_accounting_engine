@@ -537,7 +537,8 @@ class HashChainServicePort:
             try:
                 await self._monitor_task
             except asyncio.CancelledError:
-                pass
+                # Log that the task was cancelled as expected during shutdown
+                logger.debug("Hash chain monitoring task cancelled during stop")
             self._monitor_task = None
         logger.info("Hash chain monitoring stopped")
 

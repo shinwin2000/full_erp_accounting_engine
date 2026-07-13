@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Module: period_reopen_with_audit.py
@@ -310,7 +309,7 @@ class PeriodReopenTestHelper:
 
 __all__ = [
     "PeriodReopenResult",
-    "PeriodReopenTestHelper",          
+    "PeriodReopenTestHelper",
     "PeriodReopenWithAuditCommand",
     "PeriodReopenWithAuditUseCase",
     "period_reopen_handler",

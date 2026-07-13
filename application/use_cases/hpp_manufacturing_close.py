@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Module: hpp_manufacturing_close.py
@@ -20,10 +19,10 @@ from typing import Any
 from uuid import UUID
 
 from application.commands_cqrs.command_bus_unified import BaseCommand, CommandResult
+from application.service_layer.service_fiscal_period import FiscalPeriodService
 from application.service_layer.service_inventory import InventoryService
 from application.service_layer.service_journal import JournalService
 from application.service_layer.service_manufacturing import ManufacturingService
-from application.service_layer.service_fiscal_period import FiscalPeriodService
 from domain.fiscal_period.aggregate_root import PeriodStatus
 from kernel.sealed_gate import SealedGate
 from ports.primary.unit_of_work_port import UnitOfWorkPort

@@ -37,7 +37,6 @@ from application.events import (
     TransactionRecordedEvent,
     TransactionUpdatedEvent,
 )
-
 from domain.umkm_simplified.domain_events import TransactionRecorded as DomainTransactionRecorded
 from domain.umkm_simplified.simplified_journal_entity import SimplifiedJournal, TransactionType
 from domain.umkm_simplified.tax_compliance_helper import TaxComplianceHelper

@@ -638,7 +638,9 @@ class PointInTimeRecovery:
             ]
             subprocess.run(cmd, env=env, capture_output=True, check=True)
             return True
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            # Log the error before returning False
+            logger.error(f"Validation restore failed: {e}")
             return False
 
     # ------------------------------------------------------------------------

@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from datetime import date
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 
@@ -56,7 +56,7 @@ class LedgerEntry:
         cost_center: str | None = None,
         department_id: UUID | None = None,
         project_id: UUID | None = None,
-        created_at: Optional[datetime] = None,
+        created_at: datetime | None = None,
         created_by: UUID | None = None,
     ):
         self.id = id

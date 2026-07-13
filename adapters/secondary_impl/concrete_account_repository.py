@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Module: concrete_account_repository.py
 Layer: Adapters (Secondary Impl)
@@ -16,15 +15,12 @@ implementation, allowing SQLAlchemyAccountRepositoryImpl to be used.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
-from decimal import Decimal
-from typing import Any, List, Optional
+from typing import Any
 from uuid import UUID
 
 # Correct imports based on actual file structure
 from domain.coa.account_entity import Account
 from domain.coa.account_type_enum import AccountType
-from domain.coa.account_normal_balance_vo import NormalBalance
 from ports.primary.account_repository_port import AccountRepositoryPort
 
 logger = logging.getLogger(__name__)
@@ -62,12 +58,12 @@ class _ConcreteAccountRepository(AccountRepositoryPort):
         service = await self._get_service()
         return await service.add_account(account)
 
-    async def get_by_id(self, account_id: UUID) -> Optional[Account]:
+    async def get_by_id(self, account_id: UUID) -> Account | None:
         """Get account by ID."""
         service = await self._get_service()
         return await service.get_account_by_id(account_id)
 
-    async def get_by_code(self, account_code: str, legal_entity_id: UUID) -> Optional[Account]:
+    async def get_by_code(self, account_code: str, legal_entity_id: UUID) -> Account | None:
         """Get account by code and legal entity."""
         service = await self._get_service()
         return await service.get_account_by_code(account_code, legal_entity_id)
@@ -91,27 +87,27 @@ class _ConcreteAccountRepository(AccountRepositoryPort):
     # HIERARCHY METHODS
     # ========================================================================
 
-    async def get_children(self, parent_account_id: UUID, recursive: bool = False) -> List[Account]:
+    async def get_children(self, parent_account_id: UUID, recursive: bool = False) -> list[Account]:
         """Get child accounts of a parent."""
         service = await self._get_service()
         return await service.get_children(parent_account_id, recursive)
 
-    async def get_root_accounts(self, legal_entity_id: UUID) -> List[Account]:
+    async def get_root_accounts(self, legal_entity_id: UUID) -> list[Account]:
         """Get root accounts (level 0)."""
         service = await self._get_service()
         return await service.get_root_accounts(legal_entity_id)
 
-    async def get_full_hierarchy(self, legal_entity_id: UUID) -> List[dict[str, Any]]:
+    async def get_full_hierarchy(self, legal_entity_id: UUID) -> list[dict[str, Any]]:
         """Get full COA hierarchy as nested dicts."""
         service = await self._get_service()
         return await service.get_full_hierarchy(legal_entity_id)
 
-    async def get_descendants(self, account_id: UUID) -> List[Account]:
+    async def get_descendants(self, account_id: UUID) -> list[Account]:
         """Get all descendants recursively."""
         service = await self._get_service()
         return await service.get_descendants(account_id)
 
-    async def get_path(self, account_id: UUID) -> List[Account]:
+    async def get_path(self, account_id: UUID) -> list[Account]:
         """Get path from root to account."""
         service = await self._get_service()
         return await service.get_path(account_id)
@@ -120,17 +116,17 @@ class _ConcreteAccountRepository(AccountRepositoryPort):
     # QUERY METHODS
     # ========================================================================
 
-    async def find_by_type(self, account_type: AccountType, legal_entity_id: UUID) -> List[Account]:
+    async def find_by_type(self, account_type: AccountType, legal_entity_id: UUID) -> list[Account]:
         """Find accounts by type."""
         service = await self._get_service()
         return await service.find_by_type(account_type, legal_entity_id)
 
-    async def find_by_name_contains(self, keyword: str, legal_entity_id: UUID, limit: int = 50) -> List[Account]:
+    async def find_by_name_contains(self, keyword: str, legal_entity_id: UUID, limit: int = 50) -> list[Account]:
         """Find accounts by name/code containing keyword."""
         service = await self._get_service()
         return await service.find_by_name_contains(keyword, legal_entity_id, limit)
 
-    async def find_active(self, legal_entity_id: UUID) -> List[Account]:
+    async def find_active(self, legal_entity_id: UUID) -> list[Account]:
         """Find all active accounts."""
         service = await self._get_service()
         return await service.find_active(legal_entity_id)
@@ -141,17 +137,17 @@ class _ConcreteAccountRepository(AccountRepositoryPort):
         include_inactive: bool = False,
         limit: int = 200,
         offset: int = 0,
-    ) -> List[Account]:
+    ) -> list[Account]:
         """Get accounts with pagination."""
         service = await self._get_service()
         return await service.get_all(legal_entity_id, include_inactive, limit, offset)
 
-    async def get_balance_sheet_accounts(self, legal_entity_id: UUID) -> List[Account]:
+    async def get_balance_sheet_accounts(self, legal_entity_id: UUID) -> list[Account]:
         """Get balance sheet accounts (asset, liability, equity)."""
         service = await self._get_service()
         return await service.get_balance_sheet_accounts(legal_entity_id)
 
-    async def get_income_statement_accounts(self, legal_entity_id: UUID) -> List[Account]:
+    async def get_income_statement_accounts(self, legal_entity_id: UUID) -> list[Account]:
         """Get income statement accounts (revenue, expense)."""
         service = await self._get_service()
         return await service.get_income_statement_accounts(legal_entity_id)
@@ -160,7 +156,7 @@ class _ConcreteAccountRepository(AccountRepositoryPort):
     # VALIDATION & UTILITY
     # ========================================================================
 
-    async def is_code_unique(self, account_code: str, legal_entity_id: UUID, exclude_id: Optional[UUID] = None) -> bool:
+    async def is_code_unique(self, account_code: str, legal_entity_id: UUID, exclude_id: UUID | None = None) -> bool:
         """Check if account code is unique."""
         service = await self._get_service()
         return await service.is_code_unique(account_code, legal_entity_id, exclude_id)

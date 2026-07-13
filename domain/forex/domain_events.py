@@ -6,11 +6,10 @@ Domain events for Forex module.
 
 from __future__ import annotations
 
-from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from domain.event_base import DomainEvent
 
@@ -171,7 +170,7 @@ class ForexTransactionExecutedEvent(DomainEvent):
 __all__ = [
     "ForexEventType",
     "ForexRateUpdatedEvent",
-    "ForexTransactionRecordedEvent",
     "ForexRevaluationCompletedEvent",
     "ForexTransactionExecutedEvent",
+    "ForexTransactionRecordedEvent",
 ]

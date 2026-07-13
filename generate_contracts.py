@@ -1,7 +1,8 @@
 
 import ast
-import yaml
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parent
 KERNEL_DIR = ROOT / "kernel"

@@ -201,6 +201,8 @@ class VaultDynamicSecretProvider:
             try:
                 return json.loads(value)
             except json.JSONDecodeError:
+                # Fallback to raw string if JSON parsing fails
+                logger.debug("JSON decode failed for env var %s, returning raw string", env_name)
                 return value
         return None
 
@@ -390,6 +392,7 @@ class VaultDynamicSecretProvider:
                         await self.renew_lease(lease_id)
 
             except asyncio.CancelledError:
+                logger.debug("Lease renewal loop cancelled")
                 break
             except Exception as e:
                 logger.error("Error in renewal loop: %s", type(e).__name__)
@@ -404,6 +407,7 @@ class VaultDynamicSecretProvider:
             try:
                 await self._renewal_task
             except asyncio.CancelledError:
+                logger.debug("Lease renewal task cancelled during shutdown")
                 pass
             self._renewal_task = None
 

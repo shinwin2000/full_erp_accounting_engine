@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 checker/kernel_checker.py — Kernel Layer Compliance Checker v10.2
 ================================================================
@@ -27,9 +26,9 @@ import logging
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 
 # ---- Project root ----
 _THIS_FILE = Path(__file__).resolve()
@@ -39,8 +38,13 @@ sys.path.insert(0, str(ROOT))
 # ---- RCA Engine ----
 try:
     from checker.core.rca import (
-        RCAEngine, RCAResult, Severity, Category, ErrorCode,
-        get_engine, analyze_exception
+        Category,
+        ErrorCode,
+        RCAEngine,
+        RCAResult,
+        Severity,
+        analyze_exception,
+        get_engine,
     )
     RCA_AVAILABLE = True
 except ImportError:
@@ -106,29 +110,29 @@ class MethodInfo:
     is_classmethod: bool = False
     is_staticmethod: bool = False
     is_abstract: bool = False
-    decorators: List[str] = field(default_factory=list)
+    decorators: list[str] = field(default_factory=list)
 
 @dataclass
 class ClassInfo:
     name: str
-    base_names: List[str]
-    methods: Dict[str, MethodInfo]
-    decorators: List[str]
+    base_names: list[str]
+    methods: dict[str, MethodInfo]
+    decorators: list[str]
     is_abstract: bool = False
-    mro: List[str] = field(default_factory=list)
+    mro: list[str] = field(default_factory=list)
 
 @dataclass
 class FileSymbolTable:
     path: str
-    classes: Dict[str, ClassInfo]
-    all_methods: Set[str]
+    classes: dict[str, ClassInfo]
+    all_methods: set[str]
     module_name: str = ""
 
 @dataclass
 class ContractDefinition:
     base_class: str
-    required: List[str] = field(default_factory=list)
-    optional: List[str] = field(default_factory=list)
+    required: list[str] = field(default_factory=list)
+    optional: list[str] = field(default_factory=list)
 
 @dataclass
 class DetectedContract:
@@ -136,16 +140,16 @@ class DetectedContract:
     class_name: str
     file_path: str
     base_class: str
-    required_methods: List[str]
-    optional_methods: List[str]
+    required_methods: list[str]
+    optional_methods: list[str]
     source: str                 # "abstract" or "config"
 
 @dataclass
 class ContractViolation:
     contract_type: str
     class_name: str
-    missing_required: List[str]
-    missing_optional: List[str]
+    missing_required: list[str]
+    missing_optional: list[str]
     file_path: str
 
 @dataclass
@@ -155,9 +159,9 @@ class KernelViolation:
     severity: str
     message: str
     suggestion: str
-    rca_result: Optional[Dict[str, Any]] = None
+    rca_result: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = {
             "file": self.file_path,
             "module": self.module_type,
@@ -175,20 +179,20 @@ class KernelModuleInfo:
     contract_type: str
     class_name: str
     base_class: str
-    required_methods: List[str]
-    optional_methods: List[str]
-    missing_required: List[str]
-    missing_optional: List[str]
+    required_methods: list[str]
+    optional_methods: list[str]
+    missing_required: list[str]
+    missing_optional: list[str]
     has_singleton: bool = False
     source: str = ""
-    violations: List[KernelViolation] = field(default_factory=list)
+    violations: list[KernelViolation] = field(default_factory=list)
 
 # =============================================================================
 # AST ANALYZER
 # =============================================================================
 class ASTAnalyzer:
     @staticmethod
-    def analyze(file_path: Path, content: str) -> Optional[FileSymbolTable]:
+    def analyze(file_path: Path, content: str) -> FileSymbolTable | None:
         try:
             tree = ast.parse(content)
         except SyntaxError:
@@ -283,7 +287,7 @@ class SymbolResolver:
         return symbol_table
 
     @staticmethod
-    def _compute_mro(class_name: str, classes: Dict[str, ClassInfo]) -> List[str]:
+    def _compute_mro(class_name: str, classes: dict[str, ClassInfo]) -> list[str]:
         visited = set()
         result = []
         def dfs(name):
@@ -300,7 +304,7 @@ class SymbolResolver:
         return result
 
     @staticmethod
-    def get_all_base_classes(class_info: ClassInfo, symbol_table: FileSymbolTable) -> List[ClassInfo]:
+    def get_all_base_classes(class_info: ClassInfo, symbol_table: FileSymbolTable) -> list[ClassInfo]:
         """Get all base classes in the inheritance chain (within file)."""
         bases = []
         for base_name in class_info.mro:
@@ -314,11 +318,11 @@ class SymbolResolver:
 # CONTRACT DETECTOR (Abstract + Config)
 # =============================================================================
 class ContractDetector:
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         self.config = config
         self.base_class_contracts = config.get("base_class_contracts", {})
 
-    def detect(self, symbol_table: FileSymbolTable, file_path: Path) -> List[DetectedContract]:
+    def detect(self, symbol_table: FileSymbolTable, file_path: Path) -> list[DetectedContract]:
         detected = []
         rel_path = str(file_path.relative_to(ROOT)).replace('\\', '/')
 
@@ -415,7 +419,7 @@ class RCAIntegration:
     def __init__(self):
         self.enabled = RCA_AVAILABLE
 
-    def analyze(self, msg: str, severity: str, file_path: str, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def analyze(self, msg: str, severity: str, file_path: str, context: dict[str, Any]) -> dict[str, Any] | None:
         if not self.enabled or analyze_exception is None:
             return None
         try:
@@ -436,13 +440,13 @@ class RCAIntegration:
 # MAIN CHECKER ENGINE
 # =============================================================================
 class KernelChecker:
-    def __init__(self, root_dir: Path, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, root_dir: Path, config: dict[str, Any] | None = None):
         self.root_dir = root_dir
         self.config = DEFAULT_CONFIG.copy()
         if config:
             self.config.update(config)
         self.rca = RCAIntegration()
-        self._results: List[KernelModuleInfo] = []
+        self._results: list[KernelModuleInfo] = []
 
     def _should_ignore_file(self, file_path: Path) -> bool:
         name = file_path.name
@@ -458,7 +462,7 @@ class KernelChecker:
                 return True
         return False
 
-    def _get_files(self) -> List[Path]:
+    def _get_files(self) -> list[Path]:
         kernel_dir = self.root_dir / "kernel"
         files = []
         dirs_to_scan = [kernel_dir]
@@ -491,7 +495,7 @@ class KernelChecker:
                         return True
         return False
 
-    def scan_file(self, file_path: Path, discover: bool = False) -> Optional[KernelModuleInfo]:
+    def scan_file(self, file_path: Path, discover: bool = False) -> KernelModuleInfo | None:
         content = None
         for encoding in ("utf-8", "latin-1", "cp1252"):
             try:
@@ -516,7 +520,7 @@ class KernelChecker:
             return None
 
         rel_path = str(file_path.relative_to(self.root_dir)).replace('\\', '/')
-        modules_info: List[KernelModuleInfo] = []
+        modules_info: list[KernelModuleInfo] = []
 
         if discover:
             print(f"\n📄 {rel_path}")
@@ -534,7 +538,7 @@ class KernelChecker:
             has_singleton = self._has_singleton(ast.parse(content))
             singleton_required = self.config.get("singleton_required", False)
 
-            violations_list: List[KernelViolation] = []
+            violations_list: list[KernelViolation] = []
 
             if violation.missing_required:
                 msg = f"Modul '{contract.contract_type}' kehilangan method kritis: {', '.join(violation.missing_required)}"
@@ -596,7 +600,7 @@ class KernelChecker:
 
         return modules_info[0] if modules_info else None
 
-    def scan(self, discover: bool = False) -> List[KernelModuleInfo]:
+    def scan(self, discover: bool = False) -> list[KernelModuleInfo]:
         files = self._get_files()
         self._results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.config.get("max_workers", 4)) as executor:
@@ -610,7 +614,7 @@ class KernelChecker:
 # =============================================================================
 # REPORTING
 # =============================================================================
-def print_report(modules: List[KernelModuleInfo], verbose: bool = False, show_rca: bool = True):
+def print_report(modules: list[KernelModuleInfo], verbose: bool = False, show_rca: bool = True):
     c = COLOR
     total = len(modules)
 
@@ -653,9 +657,9 @@ def print_report(modules: List[KernelModuleInfo], verbose: bool = False, show_rc
 
     print(f"\n  Total Core Kernel Modules (with explicit contracts): {total}")
     print(f"  RCA Engine: {'✅ Aktif' if RCA_AVAILABLE else '⚠️ Tidak tersedia'}")
-    print(f"  ⚠️  Note: guards/ and immutable_laws/ are NOT scanned here (use separate checkers)")
+    print("  ⚠️  Note: guards/ and immutable_laws/ are NOT scanned here (use separate checkers)")
 
-    print(f"\n  📊 COMPLIANCE SCORES:")
+    print("\n  📊 COMPLIANCE SCORES:")
     print(f"    🔴 Critical (required methods): {critical_score:.1f}% ({critical_ok}/{total})")
     print(f"    🟡 Optional (extra methods):   {optional_score:.1f}% ({optional_ok}/{optional_total} when critical OK)")
     print(f"    🔵 Singleton pattern:          {singleton_score:.1f}% ({singleton_ok}/{singleton_total})")
@@ -682,12 +686,12 @@ def print_report(modules: List[KernelModuleInfo], verbose: bool = False, show_rc
     else:
         print(f"\n{c['GREEN']}✅ Semua kernel modules compliant!{c['RESET']}")
 
-def save_json(modules: List[KernelModuleInfo], path: str, include_rca: bool = True):
+def save_json(modules: list[KernelModuleInfo], path: str, include_rca: bool = True):
     try:
         out = Path(path)
         out.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "version": "10.2",
             "total_modules": len(modules),
             "compliant": [m.file_path for m in modules if not m.violations],
@@ -735,7 +739,7 @@ def main():
     parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed RCA output")
     parser.add_argument("--no-rca", action="store_true", help="Disable RCA analysis")
     parser.add_argument("--workers", type=int, default=4, help="Number of parallel workers")
-    parser.add_argument("--severity", choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"], 
+    parser.add_argument("--severity", choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"],
                         default=None, help="Minimum severity to report")
     parser.add_argument("--discover", action="store_true", help="Show all detected contracts (dry-run)")
     args = parser.parse_args()
@@ -749,7 +753,7 @@ def main():
     if args.config:
         try:
             import yaml
-            with open(args.config, "r") as f:
+            with open(args.config) as f:
                 config = yaml.safe_load(f)
         except ImportError:
             logger.warning("PyYAML not installed; config file ignored")

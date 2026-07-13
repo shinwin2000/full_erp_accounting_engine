@@ -10,7 +10,6 @@ import importlib
 import logging
 import os
 from datetime import UTC, datetime, timedelta
-from enum import Enum  # <-- TAMBAHAN: mencegah NameError jika ada yang mengimpor tanpa Enum
 from uuid import UUID, uuid4
 
 from fastapi import Depends, HTTPException, Request

@@ -553,15 +553,15 @@ class SODEnforcer(BaseSODEnforcer):
     """
 
     __slots__ = (
+        "_audit_trail",
         "_enabled",
         "_lock",
         "_max_history",
         "_rules",
         "_strict_mode",
         "_user_repo",
-        "_violations",
         "_version",
-        "_audit_trail",
+        "_violations",
     )
 
     def __init__(self, user_repository: Any | None = None):
@@ -1358,9 +1358,9 @@ __all__ = [
     "SODRuleType",
     "SODSeverity",
     "SODViolation",
+    "SegregationOfDutiesGuard",
     "SoDEnforcer",
     "SodEnforcer",
-    "SegregationOfDutiesGuard",
     "check_segregation",
     "enforce_sod",
     "get_sod_enforcer",

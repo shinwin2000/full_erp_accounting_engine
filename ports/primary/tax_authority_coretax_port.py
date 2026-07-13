@@ -266,6 +266,7 @@ CoretaxPort = TaxAuthorityCoretaxPort
 
 __all__ = [
     "CoretaxEndpoint",
+    "CoretaxPort",
     "CoretaxRequestLog",
     "FakturResponse",
     "FakturStatus",
@@ -277,5 +278,4 @@ __all__ = [
     "TaxAuthorityCoretaxPort",
     "TaxStatus",
     "TaxSubmissionType",
-    "CoretaxPort", 
 ]

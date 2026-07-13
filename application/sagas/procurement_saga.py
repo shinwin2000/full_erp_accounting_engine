@@ -28,7 +28,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from application.sagas.saga_orchestrator_base import SagaOrchestratorBase
@@ -84,7 +84,7 @@ class ProcurementSaga(SagaOrchestratorBase[ProcurementSagaState]):
     """
 
     # ── Class-level attributes for saga_checker compliance ──
-    idempotency_key: Optional[str] = None
+    idempotency_key: str | None = None
     state: str = "IDLE"
 
     _instance: ProcurementSaga | None = None
@@ -322,7 +322,7 @@ class ProcurementSagaOrchestrator:
     """
 
     # ── Class-level attributes for saga_checker compliance ──
-    idempotency_key: Optional[str] = None
+    idempotency_key: str | None = None
     state: str = "IDLE"
 
     def __init__(self, state_store: SagaStateStorePort) -> None:

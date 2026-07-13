@@ -17,7 +17,6 @@ Audit: Setiap transaksi yang memerlukan dual approval dictat status approval-nya
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import logging
 import threading
@@ -580,10 +579,10 @@ def get_dual_approval_enforcer() -> DualApprovalEnforcer:
 # === 5. EXPORTS ===
 
 __all__ = [
+    "VERSION",
     "ApprovalLevel",
     "ApprovalRecord",
     "ApprovalStatus",
     "DualApprovalEnforcer",
     "get_dual_approval_enforcer",
-    "VERSION",
 ]

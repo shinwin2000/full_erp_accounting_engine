@@ -22,10 +22,11 @@ import json
 import logging
 import os
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ class KeyManager:
 
             # 2. Coba dari file JSON
             if self._keys_file.exists():
-                with open(self._keys_file, "r", encoding="utf-8") as f:
+                with open(self._keys_file, encoding="utf-8") as f:
                     data = json.load(f)
                 self._load_from_dict(data)
                 logger.info(f"Loaded {len(self._keys)} keys from {self._keys_file}")
@@ -386,13 +387,13 @@ def reload_keys() -> None:
 
 __all__ = [
     "KeyManager",
-    "get_key_manager",
+    "add_key",
     "get_current_key",
     "get_current_key_id",
+    "get_key_manager",
     "list_keys",
-    "add_key",
-    "set_current_key",
-    "rotate_key",
-    "remove_key",
     "reload_keys",
+    "remove_key",
+    "rotate_key",
+    "set_current_key",
 ]

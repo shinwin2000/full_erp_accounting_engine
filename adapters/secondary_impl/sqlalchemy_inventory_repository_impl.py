@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.inventory.aggregate_root import InventoryItemAggregate, StockMovement, StockMovementType
 from domain.inventory.item_entity import ItemType, ValuationMethod
-from domain.inventory.stock_opname_entity import StockOpname
 from domain.inventory.valuation_method import FIFOLayer
 from domain.shared_value_objects.money_vo import Money
 from domain.shared_value_objects.quantity_vo import Quantity

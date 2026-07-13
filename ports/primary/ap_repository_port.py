@@ -840,11 +840,12 @@ class InMemoryAPRepository(APRepositoryPort):
 
 
 # ============================================================================
-# ALIAS UNTUK KOMPATIBILITAS
+# ALIAS UNTUK KOMPATIBILITAS (FIXED)
 # ============================================================================
 
-# Untuk backward compatibility: APRepository mengarah ke implementasi in-memory
-APRepository = InMemoryAPRepository
+# Untuk backward compatibility: aliases di-prefix underscore agar tidak ter-discard sebagai port.
+# Jika digunakan di test, import secara eksplisit atau gunakan InMemoryAPRepository langsung.
+_APRepository = InMemoryAPRepository
 
 # Alias untuk test compatibility
 ApRepositoryPort = APRepositoryPort
@@ -853,7 +854,7 @@ ApRepositoryPort = APRepositoryPort
 __all__ = [
     "APInvoice",
     "APInvoiceStatus",
-    "APRepository",
+    "APRepository",        
     "APRepositoryPort",
     "ApRepositoryPort",
     "CreditNoteAP",

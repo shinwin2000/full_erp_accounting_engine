@@ -12,7 +12,6 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Column, DateTime, Index, Integer, String, Text, desc, select
