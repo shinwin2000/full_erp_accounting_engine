@@ -11,6 +11,7 @@ Fitur tambahan (baru):
   - Location Check   : peringatan jika event dipublish di infrastructure/adapter/repository/migration
   - After Commit     : peringatan jika event dipublish setelah commit()/flush()
   - Order Check      : peringatan jika event dipublish sebelum ada perubahan state (assignment ke self.*)
+  - Ignore External  : otomatis mengabaikan event dari library eksternal (venv, site-packages)
 
 Cara pakai:
   python checker/checker_domain_event_publish.py
@@ -21,6 +22,7 @@ Cara pakai:
   python checker/checker_domain_event_publish.py --check-location
   python checker/checker_domain_event_publish.py --check-commit
   python checker/checker_domain_event_publish.py --check-order
+  python checker/checker_domain_event_publish.py --exclude-dirs venv,.venv,env
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Any
 
 # =============================================================================
 # Konfigurasi Root Project
@@ -56,9 +59,11 @@ COLOR = {
 if not sys.stdout.isatty():
     COLOR = dict.fromkeys(COLOR, "")
 
-EXCLUDED_DIRS = {
+# Direktori yang akan diabaikan (default)
+DEFAULT_EXCLUDED_DIRS = {
     "checker", "tests", "migrations", "__pycache__", ".git",
-    "docs", "scripts", "deployment", "monitoring", "reports", "alembic"
+    "docs", "scripts", "deployment", "monitoring", "reports", "alembic",
+    "venv", ".venv", "env", "virtualenv", "lib", "Lib", "site-packages"
 }
 
 PUBLISH_METHODS = {"publish", "add_event", "apply", "record_event", "emit", "raise_event", "append"}
@@ -339,12 +344,15 @@ class Violation:
 class EventPublishChecker:
     def __init__(self, root_dir: pathlib.Path, strict: bool = False,
                  check_location: bool = False, check_commit: bool = False,
-                 check_order: bool = False):
+                 check_order: bool = False, exclude_dirs: set[str] | None = None,
+                 ignore_external: bool = True):
         self.root_dir = root_dir
         self.strict = strict
         self.check_location = check_location
         self.check_commit = check_commit
         self.check_order = check_order
+        self.exclude_dirs = exclude_dirs or DEFAULT_EXCLUDED_DIRS
+        self.ignore_external = ignore_external
 
         self.registry_events: set[str] = set()
         self.registry_events_norm: set[str] = set()
@@ -354,12 +362,19 @@ class EventPublishChecker:
         self.publish_counts: dict[str, int] = defaultdict(int)
         self.publish_locations: dict[str, list[tuple[str, int]]] = defaultdict(list)
 
+        # Untuk fitur tambahan
+        self._location_violations: list[tuple[str, str, int]] = []
+        self._commit_violations: list[tuple[str, str, int]] = []
+        self._order_violations: list[tuple[str, str, int]] = []
+
     def _get_python_files(self, base_dir: pathlib.Path | None = None) -> list[pathlib.Path]:
         target = base_dir or self.root_dir
         py_files = []
         for p in target.rglob("*.py"):
-            if any(part in EXCLUDED_DIRS for part in p.parts):
+            # Lewati direktori yang dikecualikan
+            if any(part in self.exclude_dirs for part in p.parts):
                 continue
+            # Lewati file test
             if p.name.startswith(("test_", "conftest")):
                 continue
             py_files.append(p)
@@ -378,6 +393,15 @@ class EventPublishChecker:
         if name in FALSE_POSITIVE_EVENTS:
             return False
         return name.endswith("Event") and name not in IGNORE_EVENTS
+
+    def _is_external_file(self, file_path: str) -> bool:
+        """Periksa apakah file berasal dari library eksternal (venv, site-packages)."""
+        if not self.ignore_external:
+            return False
+        # Periksa apakah path mengandung direktori yang menandakan external
+        parts = file_path.split("/")
+        external_indicators = {"venv", ".venv", "env", "virtualenv", "site-packages", "dist-packages", "lib", "Lib"}
+        return any(ind in parts for ind in external_indicators)
 
     def load_registry_and_events(self):
         try:
@@ -430,6 +454,8 @@ class EventPublishChecker:
                 continue
 
             rel_path = str(py_file.relative_to(self.root_dir))
+            # Jika file berada di external, kita tetap scan untuk statistik, tapi nanti kita bisa abaikan violations-nya
+            is_external = self._is_external_file(rel_path)
 
             class EventTracker(ast.NodeVisitor):
                 def __init__(self):
@@ -663,48 +689,46 @@ class EventPublishChecker:
 
             # Simpan publish calls untuk duplicate & lokasi
             for ev_name, line in tracker.publish_calls:
+                # Jika file external dan ignore_external=True, kita tetap catat tapi nanti diabaikan di validasi registry
                 self.publish_counts[ev_name] += 1
                 self.publish_locations[ev_name].append((rel_path, line))
 
-            # Simpan usages
-            for usage in tracker.usages:
-                if usage.event_name in BASE_EVENTS:
-                    self.base_events.add(usage.event_name)
-                    continue
-                if usage.event_name not in events_map:
-                    events_map[usage.event_name] = EventInfo(event_name=usage.event_name)
-                events_map[usage.event_name].usages.append(usage)
-                self.instantiated_events.add(usage.event_name)
+            # Simpan usages hanya jika tidak external atau jika kita tidak mengabaikan external
+            if not is_external or not self.ignore_external:
+                for usage in tracker.usages:
+                    if usage.event_name in BASE_EVENTS:
+                        self.base_events.add(usage.event_name)
+                        continue
+                    if usage.event_name not in events_map:
+                        events_map[usage.event_name] = EventInfo(event_name=usage.event_name)
+                    events_map[usage.event_name].usages.append(usage)
+                    self.instantiated_events.add(usage.event_name)
+            else:
+                # Untuk eksternal, kita tetap catat base events jika ada
+                for usage in tracker.usages:
+                    if usage.event_name in BASE_EVENTS:
+                        self.base_events.add(usage.event_name)
 
             # ---- FITUR TAMBAHAN ----
             # 1. Location check: cek apakah file berada di direktori terlarang
-            if self.check_location:
+            if self.check_location and not is_external:
                 for ev_name, line in tracker.publish_calls:
                     if any(forbidden in rel_path.split("/") for forbidden in FORBIDDEN_PUBLISH_DIRS):
-                        # tambahkan violation nanti di check()
-                        # kita simpan di struktur tambahan
-                        if not hasattr(self, "_location_violations"):
-                            self._location_violations = []
                         self._location_violations.append((ev_name, rel_path, line))
 
             # 2. After commit check: apakah ada commit sebelum publish
-            if self.check_commit and tracker.commit_lines:
+            if self.check_commit and not is_external and tracker.commit_lines:
                 for ev_name, line in tracker.publish_calls:
                     if any(commit_line < line for commit_line in tracker.commit_lines):
-                        if not hasattr(self, "_commit_violations"):
-                            self._commit_violations = []
                         self._commit_violations.append((ev_name, rel_path, line))
 
             # 3. Order check: apakah publish sebelum ada assignment ke self.*
-            if self.check_order and tracker.assignment_lines:
+            if self.check_order and not is_external and tracker.assignment_lines:
                 for ev_name, line in tracker.publish_calls:
                     # Jika tidak ada assignment sebelum publish, atau assignment setelah publish
                     # maka dianggap order salah
-                    # Cari assignment terdekat sebelum publish
                     prev_assign = max((a for a in tracker.assignment_lines if a < line), default=None)
                     if prev_assign is None:
-                        if not hasattr(self, "_order_violations"):
-                            self._order_violations = []
                         self._order_violations.append((ev_name, rel_path, line))
 
         return events_map
@@ -715,8 +739,10 @@ class EventPublishChecker:
 
         violations = []
 
-        # 1. Registry validation
+        # 1. Registry validation - hanya untuk event yang bukan dari external
         for ev_name, info in events_map.items():
+            # Abaikan jika event berasal dari external (tidak mungkin terdaftar di registry)
+            # Tapi kita hanya mengecek file internal yang sudah masuk events_map (karena external tidak dimasukkan)
             norm = self._normalize_event_name(ev_name)
             if ev_name not in self.registry_events and norm not in self.registry_events_norm:
                 is_domain_event = ev_name in self.event_classes
@@ -734,7 +760,7 @@ class EventPublishChecker:
                     detail=detail
                 ))
 
-        # 2. Dead Event Detection (INFO)
+        # 2. Dead Event Detection (INFO) - hanya untuk event domain yang terdaftar
         used_events = set(events_map.keys())
         registered_not_used = set()
         for ev in self.registry_events:
@@ -752,8 +778,11 @@ class EventPublishChecker:
                 detail="Event ini mungkin dead code atau belum digunakan."
             ))
 
-        # 3. Duplicate Publish Detection
+        # 3. Duplicate Publish Detection - hanya untuk event internal
         for ev_name, count in self.publish_counts.items():
+            # Jika event ini hanya muncul di external, abaikan
+            if all(self._is_external_file(path) for path, _ in self.publish_locations[ev_name]):
+                continue
             if count > 1 and ev_name not in DUPLICATE_EXCEPTIONS:
                 locations = "\n".join(
                     f"    - {path}:{line}" for path, line in self.publish_locations[ev_name][:5]
@@ -767,7 +796,7 @@ class EventPublishChecker:
                 ))
 
         # 4. Location violations
-        if self.check_location and hasattr(self, "_location_violations"):
+        if self.check_location:
             for ev_name, path, line in self._location_violations:
                 violations.append(Violation(
                     severity="WARNING",
@@ -776,7 +805,7 @@ class EventPublishChecker:
                 ))
 
         # 5. After commit violations
-        if self.check_commit and hasattr(self, "_commit_violations"):
+        if self.check_commit:
             for ev_name, path, line in self._commit_violations:
                 violations.append(Violation(
                     severity="WARNING",
@@ -785,7 +814,7 @@ class EventPublishChecker:
                 ))
 
         # 6. Order violations
-        if self.check_order and hasattr(self, "_order_violations"):
+        if self.check_order:
             for ev_name, path, line in self._order_violations:
                 violations.append(Violation(
                     severity="WARNING",
@@ -806,16 +835,31 @@ def main():
     parser.add_argument("--check-location", action="store_true", help="Deteksi publish di infrastructure/adapter/repository/migration")
     parser.add_argument("--check-commit", action="store_true", help="Deteksi publish setelah commit/flush")
     parser.add_argument("--check-order", action="store_true", help="Deteksi publish sebelum aggregate berubah")
+    parser.add_argument("--exclude-dirs", type=str, default="",
+                        help="Tambahan direktori yang akan diabaikan (pisahkan dengan koma). Default: venv,.venv,env,site-packages,dsb.")
+    parser.add_argument("--no-ignore-external", action="store_true",
+                        help="Jangan mengabaikan event dari library eksternal (termasuk venv).")
     args = parser.parse_args()
 
     start_time = time.monotonic()
     root_dir = ROOT
+
+    # Gabungkan exclude dirs dari default + tambahan dari CLI
+    exclude_dirs = set(DEFAULT_EXCLUDED_DIRS)
+    if args.exclude_dirs:
+        for d in args.exclude_dirs.split(","):
+            d = d.strip()
+            if d:
+                exclude_dirs.add(d)
+
     checker = EventPublishChecker(
         root_dir,
         strict=args.strict,
         check_location=args.check_location,
         check_commit=args.check_commit,
-        check_order=args.check_order
+        check_order=args.check_order,
+        exclude_dirs=exclude_dirs,
+        ignore_external=not args.no_ignore_external
     )
 
     print(f"{COLOR['BOLD']}{COLOR['CYAN']}╔════════════════════════════════════════════════════════════════════╗")
@@ -838,6 +882,10 @@ def main():
         print(f"  Mode Strict              :  {COLOR['RED']}✅ Semua event tidak terdaftar = ERROR{COLOR['RESET']}")
     else:
         print(f"  Mode Strict              :  {COLOR['YELLOW']}❌ Domain event = ERROR, Base event = WARNING{COLOR['RESET']}")
+    if checker.ignore_external:
+        print(f"  Ignore External Libs     :  {COLOR['GREEN']}✅ Event dari venv/site-packages diabaikan{COLOR['RESET']}")
+    if args.exclude_dirs:
+        print(f"  Exclude Directories      :  {COLOR['GREEN']}✅ {', '.join(exclude_dirs)}{COLOR['RESET']}")
 
     if args.check_location:
         print(f"  Check Location           :  {COLOR['GREEN']}✅ Aktif (forbidden dirs: {', '.join(FORBIDDEN_PUBLISH_DIRS)}){COLOR['RESET']}")

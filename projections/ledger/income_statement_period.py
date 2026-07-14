@@ -3,24 +3,6 @@
 Module: income_statement_period.py
 Layer: Projections (Ledger)
 Responsibility: Membangun read model Income Statement (Laporan Laba Rugi) per periode.
-               Menyimpan pendapatan dan beban untuk setiap periode, mendukung
-               analisis tren dan perbandingan period-to-period. Juga menyediakan
-               query untuk gross profit, operating income, dan net income.
-Dependencies:
-- asyncio, logging, datetime
-- sqlalchemy.ext.asyncio
-- infrastructure.database.session_factory_sqlalchemy
-- infrastructure.persistence_orm.ledger_entry_table
-- infrastructure.persistence_orm.account_table
-- infrastructure.persistence_orm.fiscal_period_table
-- domain.journal.aggregate_root (events)
-- projections.ledger.trial_balance_cube (opsional)
-Audit: Setiap pembangunan income statement dicatat. Rebuild dimonitor.
-
-Perbaikan presisi:
-    - Mengganti float() dengan str() pada nilai moneter (amount) di
-      revenue_breakdown dan expense_breakdown untuk menghindari
-      kehilangan presisi dan memenuhi aturan MNY-003.
 """
 
 from __future__ import annotations
@@ -37,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
-from infrastructure.event_store.append_only_store import AppendOnlyStore, get_event_store
 from infrastructure.persistence_orm.account_table import AccountTable
 from infrastructure.persistence_orm.fiscal_period_table import FiscalPeriodTable
 from infrastructure.persistence_orm.ledger_entry_table import LedgerEntryTable
@@ -52,11 +33,9 @@ logger = get_logger(__name__)
 
 PROJECTION_NAME = "income_statement_period"
 BATCH_SIZE = 100
-
-# Account types for income statement
 REVENUE_ACCOUNT_TYPES = ("Revenue",)
 EXPENSE_ACCOUNT_TYPES = ("Expense",)
-COGS_ACCOUNT_TYPES = ("Expense",)  # Bisa ditandai khusus dengan flag is_cogs
+COGS_ACCOUNT_TYPES = ("Expense",)
 
 # ============================================================================
 # EXCEPTIONS
@@ -64,8 +43,6 @@ COGS_ACCOUNT_TYPES = ("Expense",)  # Bisa ditandai khusus dengan flag is_cogs
 
 
 class IncomeStatementError(Exception):
-    """Base exception untuk income statement projection."""
-
     pass
 
 
@@ -75,26 +52,15 @@ class IncomeStatementError(Exception):
 
 
 class IncomeStatementPeriod:
-    """
-    Read model Income Statement per periode.
-
-    Fitur:
-    - Menghitung pendapatan, beban, dan laba/rugi per periode
-    - Menyimpan hasil dalam tabel materialized
-    - Mendukung YTD (Year-to-Date) aggregation
-    - Query untuk perbandingan period-over-period
-    - Rebuild dari event store
-    - Incremental update saat period closed
-    """
-
     def __init__(self):
-        self._event_store: AppendOnlyStore | None = None
+        self._event_store = None
         self._session_factory = None
         self._account_type_cache: dict[str, str] = {}
         self._is_cogs_cache: dict[str, bool] = {}
 
-    async def _get_event_store(self) -> AppendOnlyStore:
+    async def _get_event_store(self):
         if self._event_store is None:
+            from infrastructure.event_store.append_only_store import get_event_store
             self._event_store = await get_event_store()
         return self._event_store
 
@@ -107,7 +73,6 @@ class IncomeStatementPeriod:
         key = str(account_id)
         if key in self._account_type_cache:
             return self._account_type_cache[key]
-
         async with await self._get_session() as session:
             stmt = select(AccountTable.account_type).where(AccountTable.id == account_id)
             result = await session.execute(stmt)
@@ -120,9 +85,7 @@ class IncomeStatementPeriod:
         key = str(account_id)
         if key in self._is_cogs_cache:
             return self._is_cogs_cache[key]
-
         async with await self._get_session() as session:
-            # COGS accounts typically have account_code starting with "5-11" or specific flag
             stmt = select(AccountTable.account_code, AccountTable.is_cogs).where(
                 AccountTable.id == account_id
             )
@@ -135,15 +98,7 @@ class IncomeStatementPeriod:
             return False
 
     async def compute_period_income(self, legal_entity_id: UUID, period_id: UUID) -> dict[str, Any]:
-        """
-        Menghitung income statement untuk satu periode.
-
-        Returns:
-            Dictionary dengan total_revenue, total_expense, gross_profit,
-            operating_income, net_income, dan breakdown per kategori.
-        """
         async with await self._get_session() as session:
-            # Get period dates
             period_stmt = select(FiscalPeriodTable).where(FiscalPeriodTable.id == period_id)
             period_result = await session.execute(period_stmt)
             period = period_result.scalar_one_or_none()
@@ -153,7 +108,6 @@ class IncomeStatementPeriod:
             start_date = period.start_date
             end_date = period.end_date
 
-            # Get all revenue accounts for this legal entity
             revenue_stmt = select(
                 AccountTable.id, AccountTable.account_code, AccountTable.account_name
             ).where(
@@ -164,7 +118,6 @@ class IncomeStatementPeriod:
             revenue_result = await session.execute(revenue_stmt)
             revenue_accounts = revenue_result.all()
 
-            # Get all expense accounts
             expense_stmt = select(
                 AccountTable.id, AccountTable.account_code, AccountTable.account_name
             ).where(
@@ -178,7 +131,6 @@ class IncomeStatementPeriod:
             total_revenue = Decimal(0)
             revenue_breakdown = []
             for acc in revenue_accounts:
-                # Calculate credit balance for revenue (normal balance credit)
                 balance_stmt = select(
                     func.coalesce(func.sum(LedgerEntryTable.credit_amount), 0).label("credit"),
                     func.coalesce(func.sum(LedgerEntryTable.debit_amount), 0).label("debit"),
@@ -192,14 +144,14 @@ class IncomeStatementPeriod:
                 row = balance_result.first()
                 credit = Decimal(str(row.credit or 0))
                 debit = Decimal(str(row.debit or 0))
-                amount = credit - debit  # Revenue: credit increases
+                amount = credit - debit
                 total_revenue += amount
                 revenue_breakdown.append(
                     {
                         "account_id": str(acc[0]),
                         "account_code": acc[1],
                         "account_name": acc[2],
-                        "amount": str(amount),  # ganti float -> str
+                        "amount": str(amount),
                     }
                 )
 
@@ -220,10 +172,9 @@ class IncomeStatementPeriod:
                 row = balance_result.first()
                 debit = Decimal(str(row.debit or 0))
                 credit = Decimal(str(row.credit or 0))
-                amount = debit - credit  # Expense: debit increases
+                amount = debit - credit
                 total_expense += amount
 
-                # Check if this is COGS
                 is_cogs = await self._is_cogs_account(acc[0])
                 if is_cogs:
                     total_cogs += amount
@@ -233,7 +184,7 @@ class IncomeStatementPeriod:
                         "account_id": str(acc[0]),
                         "account_code": acc[1],
                         "account_name": acc[2],
-                        "amount": str(amount),  # ganti float -> str
+                        "amount": str(amount),
                         "is_cogs": is_cogs,
                     }
                 )
@@ -260,11 +211,7 @@ class IncomeStatementPeriod:
             }
 
     async def save_income_statement(self, income_data: dict[str, Any]) -> None:
-        """
-        Menyimpan income statement ke tabel materialized.
-        """
         async with await self._get_session() as session, session.begin():
-            # Delete existing
             await session.execute(
                 delete(IncomeStatementPeriodTable).where(
                     IncomeStatementPeriodTable.legal_entity_id
@@ -272,7 +219,6 @@ class IncomeStatementPeriod:
                     IncomeStatementPeriodTable.period_id == UUID(income_data["period_id"]),
                 )
             )
-
             stmt = insert(IncomeStatementPeriodTable).values(
                 id=uuid4(),
                 legal_entity_id=UUID(income_data["legal_entity_id"]),
@@ -294,12 +240,8 @@ class IncomeStatementPeriod:
             await session.commit()
 
     async def rebuild_for_legal_entity(self, legal_entity_id: UUID) -> dict[str, Any]:
-        """
-        Membangun ulang semua income statement untuk satu legal entity.
-        """
         logger.info(f"Rebuilding income statements for legal entity {legal_entity_id}")
         start_time = datetime.now(UTC)
-
         async with await self._get_session() as session:
             period_stmt = (
                 select(FiscalPeriodTable)
@@ -314,7 +256,6 @@ class IncomeStatementPeriod:
 
         success_count = 0
         error_count = 0
-
         for period in periods:
             try:
                 income_data = await self.compute_period_income(legal_entity_id, period.id)
@@ -323,13 +264,11 @@ class IncomeStatementPeriod:
             except (IncomeStatementError, SQLAlchemyError, ValueError, TypeError) as e:
                 logger.error(f"Failed to compute income statement for period {period.id}: {e}")
                 error_count += 1
-            except Exception as e:  # pylint: disable=broad-except
-                # Catch any unexpected error to keep batch processing running
+            except Exception as e:
                 logger.error(f"Unexpected error for period {period.id}: {e}")
                 error_count += 1
 
         duration = (datetime.now(UTC) - start_time).total_seconds()
-
         result = {
             "legal_entity_id": str(legal_entity_id),
             "periods_processed": len(periods),
@@ -337,11 +276,7 @@ class IncomeStatementPeriod:
             "errors": error_count,
             "duration_seconds": duration,
         }
-
-        logger.info(
-            f"Income statements rebuild completed: {success_count} periods, {error_count} errors"
-        )
-
+        logger.info(f"Income statements rebuild completed: {success_count} periods, {error_count} errors")
         if error_count > 0:
             await trigger_alert(
                 title="Income Statement Rebuild Partial Failure",
@@ -349,13 +284,9 @@ class IncomeStatementPeriod:
                 severity="warning",
                 source="IncomeStatementPeriod",
             )
-
         return result
 
     async def rebuild_all(self) -> dict[str, Any]:
-        """
-        Membangun ulang income statement untuk semua legal entity.
-        """
         async with await self._get_session() as session:
             stmt = select(AccountTable.legal_entity_id).distinct()
             result = await session.execute(stmt)
@@ -363,7 +294,6 @@ class IncomeStatementPeriod:
 
         total_success = 0
         total_errors = 0
-
         for le_id in legal_entity_ids:
             res = await self.rebuild_for_legal_entity(le_id)
             total_success += res["success"]
@@ -377,9 +307,6 @@ class IncomeStatementPeriod:
         }
 
     async def get_income_statement(self, legal_entity_id: UUID, period_id: UUID) -> dict | None:
-        """
-        Mendapatkan income statement untuk periode tertentu.
-        """
         async with await self._get_session() as session:
             stmt = select(IncomeStatementPeriodTable).where(
                 IncomeStatementPeriodTable.legal_entity_id == legal_entity_id,
@@ -406,9 +333,6 @@ class IncomeStatementPeriod:
             }
 
     async def get_ytd_income(self, legal_entity_id: UUID, fiscal_year: int) -> dict[str, Any]:
-        """
-        Mendapatkan income statement year-to-date untuk fiscal year.
-        """
         async with await self._get_session() as session:
             period_stmt = (
                 select(FiscalPeriodTable)
@@ -425,7 +349,6 @@ class IncomeStatementPeriod:
         total_revenue = Decimal(0)
         total_expense = Decimal(0)
         total_cogs = Decimal(0)
-
         for period in periods:
             stmt = select(IncomeStatementPeriodTable).where(
                 IncomeStatementPeriodTable.legal_entity_id == legal_entity_id,
@@ -451,16 +374,11 @@ class IncomeStatementPeriod:
     async def get_period_comparison(
         self, legal_entity_id: UUID, period1_id: UUID, period2_id: UUID
     ) -> dict:
-        """
-        Membandingkan dua periode (period-over-period analysis).
-        """
         income1 = await self.get_income_statement(legal_entity_id, period1_id)
         income2 = await self.get_income_statement(legal_entity_id, period2_id)
-
         if not income1 or not income2:
             return {"error": "One or both periods not found"}
 
-        # Ubah string ke Decimal untuk perhitungan
         rev1 = Decimal(income1["total_revenue"])
         rev2 = Decimal(income2["total_revenue"])
         net1 = Decimal(income1["net_income"])
@@ -469,14 +387,9 @@ class IncomeStatementPeriod:
         gp2 = Decimal(income2["gross_profit"])
 
         revenue_change = rev2 - rev1
-        revenue_change_pct = (
-            (revenue_change / rev1 * 100) if rev1 != 0 else Decimal(0)
-        )
-
+        revenue_change_pct = (revenue_change / rev1 * 100) if rev1 != 0 else Decimal(0)
         net_income_change = net2 - net1
-        net_income_change_pct = (
-            (net_income_change / net1 * 100) if net1 != 0 else Decimal(0)
-        )
+        net_income_change_pct = (net_income_change / net1 * 100) if net1 != 0 else Decimal(0)
 
         return {
             "period1": income1,
@@ -491,9 +404,6 @@ class IncomeStatementPeriod:
         }
 
     async def incremental_update(self, period_id: UUID) -> None:
-        """
-        Incremental update ketika periode ditutup.
-        """
         async with await self._get_session() as session:
             period_stmt = select(FiscalPeriodTable).where(FiscalPeriodTable.id == period_id)
             period_result = await session.execute(period_stmt)
@@ -501,19 +411,18 @@ class IncomeStatementPeriod:
             if not period:
                 logger.warning(f"Period {period_id} not found for income statement update")
                 return
-
             try:
                 income_data = await self.compute_period_income(period.legal_entity_id, period_id)
                 await self.save_income_statement(income_data)
                 logger.info(f"Income statement updated for period {period.period_name}")
             except (IncomeStatementError, SQLAlchemyError, ValueError, TypeError) as e:
                 logger.error(f"Failed to update income statement for period {period_id}: {e}")
-            except Exception as e:  # pylint: disable=broad-except
+            except Exception as e:
                 logger.error(f"Unexpected error updating income statement for period {period_id}: {e}")
 
 
 # ============================================================================
-# ORM MODEL (tambahan)
+# ORM MODEL
 # ============================================================================
 
 from sqlalchemy import JSON, Column, Date, DateTime, Index, Numeric, String
@@ -554,36 +463,19 @@ class IncomeStatementPeriodTable(Base):
 
 _income_statement_projection: IncomeStatementPeriod | None = None
 
-
 async def get_income_statement_projection() -> IncomeStatementPeriod:
-    """Get singleton instance of IncomeStatementPeriod."""
     global _income_statement_projection
     if _income_statement_projection is None:
         _income_statement_projection = IncomeStatementPeriod()
     return _income_statement_projection
 
 
-# ============================================================================
-# INCOME STATEMENT PROJECTION FOR TEST
-# ============================================================================
-
-
 class IncomeStatementProjection:
-    """
-    Simple wrapper for performance test.
-    The test expects: inc = IncomeStatementProjection(period="...", period_end="...") and inc.generate()
-    """
-
     def __init__(self, period: str, period_end: str):
         self.period = period
         self.period_end = period_end
 
     def generate(self) -> dict:
-        """
-        Generate a mock income statement for the given period.
-        In a real implementation, this would query the database.
-        For performance test, we just return a dummy result.
-        """
         return {
             "period": self.period,
             "period_end": self.period_end,
@@ -592,10 +484,6 @@ class IncomeStatementProjection:
             "net_income": "0.00",
         }
 
-
-# ============================================================================
-# EXPORTS
-# ============================================================================
 
 __all__ = [
     "IncomeStatementError",

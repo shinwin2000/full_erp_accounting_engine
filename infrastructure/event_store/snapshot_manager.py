@@ -1,14 +1,10 @@
+# ============================================================================
 # infrastructure/event_store/snapshot_manager.py
+# ============================================================================
 """
 Module: snapshot_manager.py
 Layer: Infrastructure (Event Store)
-Responsibility: Manajemen snapshot untuk event sourcing. Membuat dan memuat snapshot
-               dari aggregate untuk mempercepat recovery tanpa harus memutar semua event.
-Dependencies:
-- asyncio, datetime, json, pickle (opsional), zlib
-- infrastructure.database.session_factory_sqlalchemy
-- infrastructure.event_store.append_only_store (untuk membaca event terbaru)
-Audit: Setiap pembuatan snapshot dicatat.
+Responsibility: Manajemen snapshot untuk event sourcing.
 """
 
 from __future__ import annotations
@@ -24,23 +20,12 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
-from infrastructure.event_store.append_only_store import AppendOnlyStore
 
 logger = logging.getLogger(__name__)
 
 
 class SnapshotManager:
-    """
-    Manajer snapshot untuk event sourcing.
-
-    Fitur:
-    - Membuat snapshot dari state aggregate pada version tertentu
-    - Menyimpan snapshot ke database (PostgreSQL) dengan kompresi
-    - Memuat snapshot terbaru untuk aggregate
-    - Mendukung versioning dan pruning snapshot lama
-    """
-
-    def __init__(self, event_store: AppendOnlyStore | None = None):
+    def __init__(self, event_store=None):
         self._event_store = event_store
         self._session_factory = None
         self._lock = asyncio.Lock()
@@ -50,13 +35,18 @@ class SnapshotManager:
             self._session_factory = await get_session_factory()
         return self._session_factory.get_session()
 
+    async def _get_event_store(self):
+        if self._event_store is None:
+            # Impor lokal di dalam fungsi
+            from infrastructure.event_store.append_only_store import get_event_store
+            self._event_store = await get_event_store()
+        return self._event_store
+
     async def _compress_state(self, state: dict[str, Any]) -> bytes:
-        """Kompres state menggunakan zlib untuk menghemat ruang."""
         json_str = json.dumps(state, default=str, ensure_ascii=False)
         return zlib.compress(json_str.encode("utf-8"))
 
     async def _decompress_state(self, compressed: bytes) -> dict[str, Any]:
-        """Dekompres state."""
         json_str = zlib.decompress(compressed).decode("utf-8")
         return json.loads(json_str)
 
@@ -68,44 +58,22 @@ class SnapshotManager:
         state: dict[str, Any],
         metadata: dict[str, Any] | None = None,
     ) -> UUID:
-        """
-        Membuat snapshot untuk aggregate.
-
-        Args:
-            aggregate_id: ID aggregate (string)
-            aggregate_type: Tipe aggregate (misal "JournalAggregate")
-            version: Version aggregate saat snapshot
-            state: State aggregate yang akan disimpan
-            metadata: Metadata tambahan (opsional)
-
-        Returns:
-            UUID snapshot yang dibuat
-        """
         snapshot_id = uuid4()
         created_at = datetime.now(UTC)
-
-        # Kompres state
         compressed_state = await self._compress_state(state)
-
-        # Metadata default
         if metadata is None:
             metadata = {}
         metadata["aggregate_type"] = aggregate_type
         metadata["version"] = version
         metadata["created_at"] = created_at.isoformat()
-
-        # Simpan ke database
         try:
             async with await self._get_session() as session, session.begin():
-                # Hapus snapshot yang lebih lama jika sudah ada (optional: keep last N)
                 await session.execute(
                     "DELETE FROM snapshot WHERE aggregate_id = $1 AND aggregate_type = $2 AND version <= $3",
                     aggregate_id,
                     aggregate_type,
                     version,
                 )
-
-                # Insert snapshot baru
                 await session.execute(
                     """
                     INSERT INTO snapshot (id, aggregate_id, aggregate_type, version, state, metadata, created_at)
@@ -120,12 +88,10 @@ class SnapshotManager:
                     created_at,
                 )
                 await session.commit()
-
             logger.info(
                 f"Snapshot created: {aggregate_type}/{aggregate_id} v{version} (id={snapshot_id})"
             )
             return snapshot_id
-
         except Exception as e:
             logger.error(f"Failed to create snapshot for {aggregate_type}/{aggregate_id}: {e}")
             raise
@@ -133,17 +99,6 @@ class SnapshotManager:
     async def get_latest_snapshot(
         self, aggregate_id: str, aggregate_type: str, max_version: int | None = None
     ) -> dict[str, Any] | None:
-        """
-        Mendapatkan snapshot terbaru untuk aggregate.
-
-        Args:
-            aggregate_id: ID aggregate
-            aggregate_type: Tipe aggregate
-            max_version: Batas maksimum version (opsional)
-
-        Returns:
-            Dictionary dengan snapshot info atau None jika tidak ada
-        """
         try:
             async with await self._get_session() as session:
                 query = """
@@ -156,14 +111,11 @@ class SnapshotManager:
                     query += " AND version <= $3"
                     params.append(max_version)
                 query += " ORDER BY version DESC LIMIT 1"
-
                 row = await session.fetchrow(query, *params)
                 if not row:
                     return None
-
                 state = await self._decompress_state(row["state"])
                 metadata = json.loads(row["metadata"]) if row["metadata"] else {}
-
                 return {
                     "id": row["id"],
                     "aggregate_id": row["aggregate_id"],
@@ -173,23 +125,13 @@ class SnapshotManager:
                     "metadata": metadata,
                     "created_at": row["created_at"],
                 }
-
         except Exception as e:
             logger.error(f"Failed to get snapshot for {aggregate_type}/{aggregate_id}: {e}")
             return None
 
     async def delete_old_snapshots(self, aggregate_type: str, keep_count: int = 5) -> int:
-        """
-        Menghapus snapshot lama, hanya menyisakan keep_count terbaru per aggregate.
-        Menggunakan pessimistic locking (FOR UPDATE) untuk mencegah race condition.
-
-        LOCKING: SELECT FOR UPDATE memastikan exclusive lock pada baris yang akan dihapus.
-        """
         try:
             async with await self._get_session() as session, session.begin():
-                # 1. Ambil ID snapshot yang akan dihapus dengan lock (FOR UPDATE)
-                # Subquery: ambil semua ID, skip keep_count terbaru
-                # Gunakan FOR UPDATE untuk mengunci baris yang dipilih
                 select_ids_sql = """
                     SELECT id FROM snapshot
                     WHERE aggregate_type = $1
@@ -199,25 +141,19 @@ class SnapshotManager:
                 """
                 rows = await session.fetch(select_ids_sql, aggregate_type, keep_count)
                 ids_to_delete = [row["id"] for row in rows]
-
                 if not ids_to_delete:
                     return 0
-
-                # 2. Delete berdasarkan ID yang sudah dikunci
                 delete_sql = "DELETE FROM snapshot WHERE id = ANY($1)"
                 result = await session.execute(delete_sql, ids_to_delete)
                 deleted = result.rowcount
-
                 await session.commit()
                 logger.info(f"Deleted {deleted} old snapshots for type {aggregate_type}")
                 return deleted
-
         except Exception as e:
             logger.error(f"Failed to prune snapshots for {aggregate_type}: {e}")
             return 0
 
     async def create_table_if_not_exists(self) -> None:
-        """Membuat tabel snapshot jika belum ada."""
         try:
             async with await self._get_session() as session:
                 await session.execute(text("""
@@ -237,6 +173,5 @@ class SnapshotManager:
                 """))
                 await session.commit()
                 logger.info("Snapshot table created/verified")
-
         except Exception as e:
             logger.warning(f"Could not create snapshot table (maybe already exists): {e}")

@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from infrastructure.database.session_factory_sqlalchemy import get_async_session_factory
 from infrastructure.event_store.hash_chain_builder import HashChainBuilder
-from infrastructure.persistence_orm.event_store_table import EventStoreTable
 from infrastructure.telemetry.alert_manager_router import trigger_alert
 from infrastructure.telemetry.structured_json_logging import get_logger
 
@@ -58,6 +57,9 @@ class AppendOnlyStore:
         self._last_hashes: dict[str, str] = {}
 
     async def initialize(self) -> None:
+        # Impor lokal untuk menghindari circular import
+        from infrastructure.persistence_orm.event_store_table import EventStoreTable
+
         try:
             if self._session_factory is None:
                 self._session_factory = await get_async_session_factory()
@@ -100,6 +102,8 @@ class AppendOnlyStore:
         event_type: str = EVENT_TYPE_DOMAIN,
         metadata: dict[str, Any] | None = None,
     ) -> UUID:
+        from infrastructure.persistence_orm.event_store_table import EventStoreTable
+
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
         event_id = uuid4()
@@ -141,6 +145,8 @@ class AppendOnlyStore:
             raise AppendOnlyStoreError(f"Failed to append event: {e}") from e
 
     async def append_batch(self, events: list[tuple[str, dict, str, dict | None]]) -> list[UUID]:
+        from infrastructure.persistence_orm.event_store_table import EventStoreTable
+
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
         event_ids = []
@@ -185,6 +191,8 @@ class AppendOnlyStore:
     async def read_stream(
         self, stream_name: str, from_sequence: int = 1, limit: int = 1000
     ) -> list[dict[str, Any]]:
+        from infrastructure.persistence_orm.event_store_table import EventStoreTable
+
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
         cached = self._cache.get(stream_name, [])
@@ -224,6 +232,8 @@ class AppendOnlyStore:
             raise AppendOnlyStoreError(f"Failed to read stream: {e}") from e
 
     async def get_last_event(self, stream_name: str) -> dict[str, Any] | None:
+        from infrastructure.persistence_orm.event_store_table import EventStoreTable
+
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
         cached = self._cache.get(stream_name, [])
@@ -262,7 +272,8 @@ class AppendOnlyStore:
         return await self.get_last_event(store_name)
 
     async def verify_integrity(self, stream_name: str | None = None) -> dict[str, Any]:
-        """Verifikasi integritas hash chain tanpa menggunakan scanner eksternal."""
+        from infrastructure.persistence_orm.event_store_table import EventStoreTable
+
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
         try:
@@ -329,6 +340,8 @@ class AppendOnlyStore:
     async def _get_last_hash_for_stream(
         self, stream_name: str, session: AsyncSession | None = None
     ) -> str:
+        from infrastructure.persistence_orm.event_store_table import EventStoreTable
+
         if stream_name in self._last_hashes:
             return self._last_hashes[stream_name]
         close_session = False
@@ -359,6 +372,8 @@ class AppendOnlyStore:
     async def _get_next_sequence(
         self, stream_name: str, session: AsyncSession | None = None
     ) -> int:
+        from infrastructure.persistence_orm.event_store_table import EventStoreTable
+
         close_session = False
         if session is None:
             session = self._session_factory()
@@ -391,6 +406,8 @@ class AppendOnlyStore:
         return hashlib.sha256(json_str.encode("utf-8")).hexdigest()
 
     async def get_stream_info(self, stream_name: str) -> dict[str, Any]:
+        from infrastructure.persistence_orm.event_store_table import EventStoreTable
+
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
         try:
@@ -439,6 +456,8 @@ class AppendOnlyStore:
         end_time: datetime | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
+        from infrastructure.persistence_orm.event_store_table import EventStoreTable
+
         if not self._initialized:
             raise StoreNotInitializedError("Event store not initialized.")
         try:
@@ -474,6 +493,50 @@ class AppendOnlyStore:
             await session.rollback()
             logger.error(f"Failed to search events: {e}")
             raise AppendOnlyStoreError(f"Failed to search events: {e}") from e
+
+    async def list_streams(self, limit: int = 100) -> list[str]:
+        from infrastructure.persistence_orm.event_store_table import EventStoreTable
+
+        if not self._initialized:
+            raise StoreNotInitializedError("Event store not initialized.")
+        try:
+            async with self._session_factory() as session, session.begin():
+                stmt = select(EventStoreTable.stream_name).distinct().limit(limit)
+                result = await session.execute(stmt)
+                return result.scalars().all()
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Failed to list streams: {e}")
+            raise AppendOnlyStoreError(f"Failed to list streams: {e}") from e
+
+    async def read_all_events(self, limit: int = 1000000) -> list[dict[str, Any]]:
+        from infrastructure.persistence_orm.event_store_table import EventStoreTable
+
+        if not self._initialized:
+            raise StoreNotInitializedError("Event store not initialized.")
+        try:
+            async with self._session_factory() as session, session.begin():
+                stmt = select(EventStoreTable).order_by(EventStoreTable.timestamp).limit(limit)
+                result = await session.execute(stmt)
+                events = result.scalars().all()
+                return [
+                    {
+                        "id": e.id,
+                        "stream_name": e.stream_name,
+                        "event_type": e.event_type,
+                        "data": e.data,
+                        "metadata": e.event_metadata,
+                        "timestamp": e.timestamp,
+                        "sequence_number": e.sequence_number,
+                        "previous_hash": e.previous_hash,
+                        "hash": e.hash,
+                    }
+                    for e in events
+                ]
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Failed to read all events: {e}")
+            raise AppendOnlyStoreError(f"Failed to read all events: {e}") from e
 
 
 _event_store: AppendOnlyStore | None = None

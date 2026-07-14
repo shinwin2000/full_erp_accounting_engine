@@ -1,4 +1,6 @@
+# ============================================================================
 # infrastructure/event_store/event_store.py
+# ============================================================================
 """
 Module: event_store.py
 Layer: Infrastructure (Event Store)
@@ -17,54 +19,53 @@ from collections import defaultdict
 from typing import Any
 from uuid import UUID
 
-# Re-export class AppendOnlyStore sebagai AppendOnlyEventStore
-from infrastructure.event_store.append_only_store import (
-    AppendOnlyStore,
-    AppendOnlyStoreError,
-    EventNotFoundError,
-    IntegrityViolationError,
-    get_event_store,
-)
+# Tidak ada impor langsung dari append_only_store di sini.
+# Semua impor dilakukan di dalam fungsi/metode.
 
-# Setup logger
 logger = logging.getLogger(__name__)
 
 
-class AppendOnlyEventStore(AppendOnlyStore):
+class AppendOnlyEventStore:
     """
-    Subclass dari AppendOnlyStore yang menambahkan metode kompatibilitas
-    yang diharapkan oleh test integrasi:
+    Wrapper untuk AppendOnlyStore yang menambahkan metode kompatibilitas
+    yang diharapkan oleh test integrasi. Semua operasi didelegasikan ke
+    AppendOnlyStore yang diambil secara lazy.
+    """
 
-    - append_stream(stream_name, events) -> alias untuk append_batch
-    - load_stream(stream_name) -> alias untuk read_stream
-    - update_event(...) -> metode simulasi (tidak didukung dalam append-only store,
-      tetapi test membutuhkannya untuk demonstrasi tamper)
-    - save_events(events) -> simpan multiple events (batch)
-    """
+    def __init__(self):
+        self._store = None
+
+    async def _get_store(self):
+        if self._store is None:
+            # Impor lokal di dalam fungsi untuk menghindari circular import
+            from infrastructure.event_store.append_only_store import AppendOnlyStore
+            # Gunakan singleton atau buat instance baru
+            # Karena kita hanya membutuhkan instance, kita ambil yang sudah ada
+            store = await self._get_event_store()
+            self._store = store
+        return self._store
+
+    async def _get_event_store(self):
+        # Impor lokal
+        from infrastructure.event_store.append_only_store import get_event_store
+        return await get_event_store()
 
     async def append_stream(self, stream_name: str, events: list[dict[str, Any]]) -> list[UUID]:
-        """
-        Menambahkan beberapa event ke stream.
-        Test mengharapkan method ini.
-        """
+        """Menambahkan beberapa event ke stream."""
+        store = await self._get_event_store()
         # Konversi event list ke format yang diharapkan oleh append_batch
         batch = [(stream_name, ev, ev.get("type", "domain"), ev.get("metadata")) for ev in events]
-        return await self.append_batch(batch)
+        return await store.append_batch(batch)
 
     async def load_stream(self, stream_name: str) -> list[dict[str, Any]]:
-        """
-        Membaca semua event dari stream.
-        """
-        return await self.read_stream(stream_name, from_sequence=1, limit=1000000)
+        """Membaca semua event dari stream."""
+        store = await self._get_event_store()
+        return await store.read_stream(stream_name, from_sequence=1, limit=1000000)
 
     async def update_event(self, stream: str, position: int, new_data: dict[str, Any]) -> None:
         """
         Simulasi update event (tidak mungkin di append‑only store asli).
         Digunakan hanya untuk test integrity (tamper detection).
-        Dalam implementasi nyata, operasi ini tidak diizinkan.
-
-        LOCKING: Menggunakan SELECT FOR UPDATE untuk mengunci baris yang akan diupdate,
-        mencegah race condition pada operasi ini (hanya untuk testing).
         """
         logger.warning(
             f"update_event called on append-only store! This should not happen in production. "
@@ -106,10 +107,7 @@ class AppendOnlyEventStore(AppendOnlyStore):
             logger.error(f"Failed to update event in test: {e}")
 
     async def save_events(self, events: list[dict[str, Any]]) -> None:
-        """
-        Simpan multiple events (batch) ke stream yang sesuai.
-        Test mengharapkan method ini.
-        """
+        """Simpan multiple events (batch) ke stream yang sesuai."""
         streams = defaultdict(list)
         for ev in events:
             stream = ev.get("stream", f"default-{ev.get('type', 'unknown')}")
@@ -132,10 +130,5 @@ EventStore = AppendOnlyEventStore
 
 __all__ = [
     "AppendOnlyEventStore",
-    "AppendOnlyStore",
-    "AppendOnlyStoreError",
-    "EventNotFoundError",
     "EventStore",
-    "IntegrityViolationError",
-    "get_event_store",
 ]

@@ -3,17 +3,7 @@
 Module: audit_chain_length_metrics.py
 Layer: Infrastructure (Telemetry)
 Responsibility: Mengumpulkan dan mengekspor metrik tentang panjang hash chain
-               audit trail. Melacak jumlah event per stream, total event,
-               integritas chain, dan deteksi tampering. Membantu dalam monitoring
-               kesehatan audit trail dan compliance.
-Dependencies:
-- asyncio, logging
-- infrastructure.telemetry.prometheus_registry (PrometheusMetricRegistry)
-- infrastructure.event_store.append_only_store (AppendOnlyStore)
-- infrastructure.event_store.hash_chain_builder (HashChainBuilder)
-- infrastructure.telemetry.alert_manager_router
-Audit: Metrik chain length digunakan untuk monitoring integrity dan performance.
-       Deteksi chain yang terputus memicu alert security.
+               audit trail.
 """
 
 from __future__ import annotations
@@ -24,14 +14,9 @@ from typing import Any
 
 from sqlalchemy import select
 
-from infrastructure.event_store.append_only_store import AppendOnlyStore, get_event_store
 from infrastructure.event_store.hash_chain_builder import HashChainBuilder, get_hash_chain_builder
 from infrastructure.telemetry.alert_manager_router import trigger_alert
-
-# Internal dependencies
-from infrastructure.telemetry.prometheus_registry import (
-    get_gauge,
-)
+from infrastructure.telemetry.prometheus_registry import get_gauge
 from infrastructure.telemetry.structured_json_logging import get_logger
 
 logger = get_logger(__name__)
@@ -42,51 +27,34 @@ logger = get_logger(__name__)
 
 METRIC_PREFIX = "audit_chain"
 NAMESPACE = "erp"
-
-# Collection interval
-COLLECTION_INTERVAL_SECONDS = 3600  # Collect every hour
-
-# Alert thresholds
+COLLECTION_INTERVAL_SECONDS = 3600
 CHAIN_BROKEN_ALERT = "chain_broken"
-STREAM_SIZE_WARNING = 100000  # Warning if stream has > 100k events
-STREAM_SIZE_CRITICAL = 500000  # Critical if stream has > 500k events
-TOTAL_EVENTS_WARNING = 10000000  # Warning if total events > 10 million
+STREAM_SIZE_WARNING = 100000
+STREAM_SIZE_CRITICAL = 500000
+TOTAL_EVENTS_WARNING = 10000000
 
 # ============================================================================
 # METRICS
 # ============================================================================
 
-# Chain length gauges
 chain_length = get_gauge(
     f"{METRIC_PREFIX}_length", "Number of events in hash chain", ["stream_name"]
 )
-
 total_events = get_gauge(f"{METRIC_PREFIX}_total_events", "Total number of events in event store")
-
-total_streams = get_gauge(
-    f"{METRIC_PREFIX}_total_streams", "Total number of streams in event store"
-)
-
-# Chain integrity gauge (1=valid, 0=invalid)
+total_streams = get_gauge(f"{METRIC_PREFIX}_total_streams", "Total number of streams")
 chain_integrity = get_gauge(
     f"{METRIC_PREFIX}_integrity",
     "Hash chain integrity status (1=valid, 0=invalid)",
     ["stream_name"],
 )
-
-# Last hash timestamp (for freshness monitoring)
 last_event_timestamp = get_gauge(
     f"{METRIC_PREFIX}_last_event_timestamp_seconds",
     "Timestamp of last event in stream (Unix timestamp)",
     ["stream_name"],
 )
-
-# Chain growth rate (events per hour)
 chain_growth_rate = get_gauge(
     f"{METRIC_PREFIX}_growth_rate_per_hour", "Chain growth rate (events per hour)", ["stream_name"]
 )
-
-# Age of oldest event (for retention monitoring)
 oldest_event_age_days = get_gauge(
     f"{METRIC_PREFIX}_oldest_event_age_days", "Age of oldest event in days", ["stream_name"]
 )
@@ -98,27 +66,17 @@ oldest_event_age_days = get_gauge(
 
 
 class AuditChainLengthMetrics:
-    """
-    Collector untuk metrik panjang audit chain.
-
-    Fitur:
-    - Periodic collection of chain statistics
-    - Integrity monitoring for each stream
-    - Growth rate calculation
-    - Age monitoring for retention
-    - Alert for broken chains
-    """
-
     def __init__(self):
-        self._event_store: AppendOnlyStore | None = None
+        self._event_store = None
         self._hash_builder: HashChainBuilder | None = None
         self._previous_lengths: dict[str, int] = {}
         self._previous_collection_time: datetime | None = None
         self._collection_task: asyncio.Task | None = None
         self._running = False
 
-    async def _get_event_store(self) -> AppendOnlyStore:
+    async def _get_event_store(self):
         if self._event_store is None:
+            from infrastructure.event_store.append_only_store import get_event_store
             self._event_store = await get_event_store()
         return self._event_store
 
@@ -128,21 +86,13 @@ class AuditChainLengthMetrics:
         return self._hash_builder
 
     async def collect_stream_metrics(self, stream_name: str) -> dict[str, Any]:
-        """
-        Collect metrics for a single stream.
-        """
         store = await self._get_event_store()
         hash_builder = await self._get_hash_builder()
-
         try:
-            # Get events for this stream
             events = await store.read_stream(stream_name, limit=1000000)
             event_count = len(events)
-
-            # Verify chain integrity
             is_valid, broken_at, error = await hash_builder.verify_chain(events)
 
-            # Get last event timestamp
             last_event_ts = None
             if events:
                 last_event = events[-1]
@@ -156,7 +106,6 @@ class AuditChainLengthMetrics:
                     except (ValueError, AttributeError):
                         pass
 
-            # Get oldest event age
             oldest_age_days = None
             if events:
                 first_event = events[0]
@@ -171,22 +120,17 @@ class AuditChainLengthMetrics:
                     except (ValueError, AttributeError):
                         pass
 
-            # Update gauges
             chain_length.labels(stream_name=stream_name).set(event_count)
             chain_integrity.labels(stream_name=stream_name).set(1 if is_valid else 0)
-
             if last_event_ts:
                 last_event_timestamp.labels(stream_name=stream_name).set(last_event_ts)
-
             if oldest_age_days is not None:
                 oldest_event_age_days.labels(stream_name=stream_name).set(oldest_age_days)
 
-            # Calculate growth rate
             growth_rate = await self._calculate_growth_rate(stream_name, event_count)
             if growth_rate is not None:
                 chain_growth_rate.labels(stream_name=stream_name).set(growth_rate)
 
-            # Alert if chain is broken
             if not is_valid:
                 await trigger_alert(
                     title="Audit Chain Integrity Violation",
@@ -194,8 +138,6 @@ class AuditChainLengthMetrics:
                     severity="critical",
                     source="AuditChainLengthMetrics",
                 )
-
-            # Alert if stream is too large
             if event_count > STREAM_SIZE_CRITICAL:
                 await trigger_alert(
                     title="Audit Chain Size Critical",
@@ -220,62 +162,46 @@ class AuditChainLengthMetrics:
                 "oldest_event_age_days": oldest_age_days,
                 "growth_rate": growth_rate,
             }
-
         except Exception as e:
             logger.error(f"Failed to collect metrics for stream {stream_name}: {e}")
             return {"stream_name": stream_name, "error": str(e)}
 
     async def _calculate_growth_rate(self, stream_name: str, current_length: int) -> float | None:
-        """
-        Calculate chain growth rate in events per hour.
-        """
         if stream_name in self._previous_lengths and self._previous_collection_time:
             prev_length = self._previous_lengths[stream_name]
             delta_events = current_length - prev_length
             delta_time_hours = (
                 datetime.now(UTC) - self._previous_collection_time
             ).total_seconds() / 3600
-
             if delta_time_hours > 0:
                 return delta_events / delta_time_hours
-
         return None
 
     async def collect_all_streams(self) -> dict[str, Any]:
-        """
-        Collect metrics for all streams.
-        """
         store = await self._get_event_store()
-
         try:
-            # Get all stream names
             async with store._session_factory() as session:
                 from infrastructure.persistence_orm.event_store_table import EventStoreTable
-
                 stmt = select(EventStoreTable.stream_name).distinct()
                 result = await session.execute(stmt)
                 stream_names = result.scalars().all()
 
             total_events = 0
             results = []
-
             for stream_name in stream_names:
                 metrics = await self.collect_stream_metrics(stream_name)
                 results.append(metrics)
                 if "event_count" in metrics:
                     total_events += metrics["event_count"]
 
-            # Update total metrics
             total_events_gauge.set(total_events)
             total_streams_gauge.set(len(stream_names))
 
-            # Update previous lengths for next calculation
             self._previous_lengths = {
                 r["stream_name"]: r.get("event_count", 0) for r in results if "stream_name" in r
             }
             self._previous_collection_time = datetime.now(UTC)
 
-            # Check total events threshold
             if total_events > TOTAL_EVENTS_WARNING:
                 await trigger_alert(
                     title="Event Store Size Warning",
@@ -289,7 +215,6 @@ class AuditChainLengthMetrics:
                 "total_streams": len(stream_names),
                 "streams": results,
             }
-
         except Exception as e:
             logger.error(f"Failed to collect metrics for all streams: {e}")
             return {"error": str(e)}
@@ -297,25 +222,15 @@ class AuditChainLengthMetrics:
     async def start_periodic_collection(
         self, interval_seconds: int = COLLECTION_INTERVAL_SECONDS
     ) -> None:
-        """
-        Start periodic collection of audit chain metrics.
-        """
         if self._running:
-            logger.warning("Periodic collection already running")
             return
-
         self._running = True
         self._collection_task = asyncio.create_task(
             self._periodic_collection_loop(interval_seconds)
         )
-        logger.info(
-            f"Started periodic audit chain metrics collection every {interval_seconds} seconds"
-        )
+        logger.info(f"Started periodic audit chain metrics collection every {interval_seconds} seconds")
 
     async def _periodic_collection_loop(self, interval_seconds: int) -> None:
-        """
-        Background loop for periodic metrics collection.
-        """
         while self._running:
             try:
                 await self.collect_all_streams()
@@ -324,13 +239,9 @@ class AuditChainLengthMetrics:
                 break
             except Exception as e:
                 logger.error(f"Error in periodic audit chain collection: {e}")
-
             await asyncio.sleep(interval_seconds)
 
     async def stop_periodic_collection(self) -> None:
-        """
-        Stop periodic collection.
-        """
         self._running = False
         if self._collection_task:
             self._collection_task.cancel()
@@ -338,14 +249,10 @@ class AuditChainLengthMetrics:
                 await self._collection_task
             except asyncio.CancelledError:
                 logger.debug("Audit chain collection task cancelled during stop")
-                # Expected cancellation; continue
             self._collection_task = None
         logger.info("Stopped periodic audit chain metrics collection")
 
     async def get_status(self) -> dict[str, Any]:
-        """
-        Get collector status.
-        """
         return {
             "running": self._running,
             "previous_collection_time": self._previous_collection_time.isoformat()
@@ -358,9 +265,6 @@ class AuditChainLengthMetrics:
         }
 
     async def force_collection(self) -> dict[str, Any]:
-        """
-        Force immediate collection.
-        """
         return await self.collect_all_streams()
 
 
@@ -370,32 +274,21 @@ class AuditChainLengthMetrics:
 
 _audit_chain_metrics: AuditChainLengthMetrics | None = None
 
-
 async def get_audit_chain_metrics() -> AuditChainLengthMetrics:
-    """Get singleton instance of AuditChainLengthMetrics."""
     global _audit_chain_metrics
     if _audit_chain_metrics is None:
         _audit_chain_metrics = AuditChainLengthMetrics()
     return _audit_chain_metrics
 
-
 async def start_audit_chain_collection() -> None:
-    """Start audit chain metrics collection."""
     collector = await get_audit_chain_metrics()
     await collector.start_periodic_collection()
 
-
 async def stop_audit_chain_collection() -> None:
-    """Stop audit chain metrics collection."""
     global _audit_chain_metrics
     if _audit_chain_metrics:
         await _audit_chain_metrics.stop_periodic_collection()
         _audit_chain_metrics = None
-
-
-# ============================================================================
-# EXPORTS
-# ============================================================================
 
 __all__ = [
     "AuditChainLengthMetrics",

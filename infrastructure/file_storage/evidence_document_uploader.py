@@ -3,18 +3,6 @@
 Module: evidence_document_uploader.py
 Layer: Infrastructure (File Storage)
 Responsibility: Layanan khusus untuk upload dokumen bukti (evidence) ke file storage.
-               Menangani upload, validasi tipe file, kompresi (opsional), dan
-               pengaitan dengan transaksi (journal entry, invoice, payment, dll).
-               Terintegrasi dengan event store untuk audit trail.
-Dependencies:
-- asyncio, logging, mimetypes
-- infrastructure.file_storage.abstract_port (FileStoragePort)
-- infrastructure.file_storage.minio_evidence_adapter (MinioEvidenceAdapter)
-- infrastructure.file_storage.file_integrity_hasher (FileIntegrityHasher)
-- infrastructure.telemetry.structured_json_logging
-- infrastructure.telemetry.alert_manager_router
-Audit: Setiap upload evidence dicatat di event store dengan hash integrity.
-       Dokumen bukti tidak dapat dihapus setelah periode retensi.
 """
 
 from __future__ import annotations
@@ -25,8 +13,6 @@ import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
-
-from infrastructure.event_store.append_only_store import get_event_store
 
 # Internal dependencies
 from infrastructure.file_storage.abstract_port import FileStoragePort
@@ -44,23 +30,18 @@ logger = get_logger(__name__)
 # ============================================================================
 
 ALLOWED_MIME_TYPES = {
-    # Documents
     "application/pdf": [".pdf"],
     "application/msword": [".doc"],
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
     "application/vnd.ms-excel": [".xls"],
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
-    # Images
     "image/jpeg": [".jpg", ".jpeg"],
     "image/png": [".png"],
     "image/tiff": [".tiff", ".tif"],
-    # Text
     "text/plain": [".txt"],
     "text/csv": [".csv"],
-    # XML
     "application/xml": [".xml"],
     "text/xml": [".xml"],
-    # Archives
     "application/zip": [".zip"],
     "application/x-rar-compressed": [".rar"],
     "application/x-7z-compressed": [".7z"],
@@ -69,7 +50,6 @@ ALLOWED_MIME_TYPES = {
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 MAX_FILE_SIZE_MB = 50
 
-# Transaction types for evidence
 TRANSACTION_TYPES = {
     "journal": "journal",
     "ar_invoice": "ar_invoice",
@@ -88,26 +68,18 @@ TRANSACTION_TYPES = {
 
 
 class EvidenceUploadError(Exception):
-    """Error saat upload evidence."""
-
     pass
 
 
 class InvalidFileTypeError(EvidenceUploadError):
-    """Tipe file tidak diizinkan."""
-
     pass
 
 
 class FileTooLargeError(EvidenceUploadError):
-    """File melebihi batas ukuran."""
-
     pass
 
 
 class EvidenceNotFoundError(EvidenceUploadError):
-    """Evidence tidak ditemukan."""
-
     pass
 
 
@@ -117,19 +89,6 @@ class EvidenceNotFoundError(EvidenceUploadError):
 
 
 class EvidenceDocumentUploader:
-    """
-    Layanan upload dokumen bukti (evidence).
-
-    Fitur:
-    - Upload evidence dengan validasi tipe file dan ukuran
-    - Extract metadata dari file (opsional)
-    - Generate hash integrity
-    - Link evidence ke transaksi
-    - Duplicate detection
-    - Compress file besar (opsional)
-    - Audit trail ke event store
-    """
-
     def __init__(self, storage_adapter: FileStoragePort | None = None):
         self._storage = storage_adapter
         self._hasher = FileIntegrityHasher()
@@ -141,27 +100,18 @@ class EvidenceDocumentUploader:
         return self._storage
 
     def _validate_file_type(self, file_content: bytes, file_name: str) -> None:
-        """
-        Validate file type against allowed MIME types.
-        """
-        # Check by extension
         ext = os.path.splitext(file_name)[1].lower()
         allowed_exts = []
         for mime, exts in ALLOWED_MIME_TYPES.items():
             allowed_exts.extend(exts)
-
         if ext not in allowed_exts:
             raise InvalidFileTypeError(
                 f"File extension '{ext}' not allowed. Allowed: {', '.join(allowed_exts)}"
             )
-
-        # Check MIME type from magic bytes
         import magic
-
         try:
             mime = magic.from_buffer(file_content[:2048], mime=True)
             if mime not in ALLOWED_MIME_TYPES:
-                # Some files may have generic MIME type, check by extension again
                 if ext in allowed_exts:
                     logger.warning(
                         f"File MIME type '{mime}' not in allowed list but extension '{ext}' is allowed"
@@ -169,13 +119,9 @@ class EvidenceDocumentUploader:
                     return
                 raise InvalidFileTypeError(f"File MIME type '{mime}' not allowed")
         except ImportError:
-            # python-magic not available, skip MIME check
             logger.debug("python-magic not available, skipping MIME validation")
 
     def _validate_file_size(self, file_content: bytes) -> None:
-        """
-        Validate file size against max limit.
-        """
         size_mb = len(file_content) / (1024 * 1024)
         if len(file_content) > MAX_FILE_SIZE_BYTES:
             raise FileTooLargeError(
@@ -193,35 +139,15 @@ class EvidenceDocumentUploader:
         description: str | None = None,
         metadata: dict | None = None,
     ) -> dict[str, Any]:
-        """
-        Upload evidence document for a transaction.
-
-        Args:
-            file_content: File content as bytes
-            file_name: Original file name
-            transaction_type: Type of transaction (journal, ar_invoice, etc.)
-            transaction_id: ID of the transaction
-            uploaded_by: User ID who uploaded the file
-            legal_entity_id: Legal entity ID
-            description: Optional description
-            metadata: Additional metadata
-
-        Returns:
-            Dictionary with evidence info (uri, hash, size, etc.)
-        """
-        # Validate
         self._validate_file_type(file_content, file_name)
         self._validate_file_size(file_content)
 
-        # Compute hash for integrity
         file_hash = self._hasher.compute_hash(file_content)
 
-        # Check for duplicate (same hash for same transaction type)
         if await self._is_duplicate(transaction_type, transaction_id, file_hash):
             logger.warning(f"Duplicate evidence detected for {transaction_type}/{transaction_id}")
             raise EvidenceUploadError("Duplicate evidence file detected")
 
-        # Prepare metadata
         evidence_metadata = {
             "transaction_type": transaction_type,
             "transaction_id": str(transaction_id),
@@ -237,9 +163,7 @@ class EvidenceDocumentUploader:
         if metadata:
             evidence_metadata.update(metadata)
 
-        # Upload to storage
         storage = await self._get_storage()
-
         try:
             file_uri = await storage.upload_evidence(
                 file_content=io.BytesIO(file_content),
@@ -252,7 +176,6 @@ class EvidenceDocumentUploader:
             logger.error(f"Failed to upload evidence: {e}")
             raise EvidenceUploadError(f"Upload failed: {e}") from e
 
-        # Create audit record
         await self._create_audit_record(
             evidence_uri=file_uri,
             transaction_type=transaction_type,
@@ -261,7 +184,6 @@ class EvidenceDocumentUploader:
             file_hash=file_hash,
         )
 
-        # Store in history
         evidence_id = str(uuid4())
         self._upload_history[evidence_id] = {
             "evidence_id": evidence_id,
@@ -291,28 +213,13 @@ class EvidenceDocumentUploader:
         }
 
     async def download_evidence(self, evidence_uri: str, verify_hash: bool = True) -> bytes:
-        """
-        Download evidence document.
-
-        Args:
-            evidence_uri: URI of the evidence
-            verify_hash: Verify file integrity against stored hash
-
-        Returns:
-            File content as bytes
-        """
         storage = await self._get_storage()
-
         try:
             file_stream = await storage.download(evidence_uri)
             content = file_stream.read()
-
             if verify_hash:
-                # Get stored hash from metadata
                 metadata = await storage.get_metadata(evidence_uri)
-                stored_hash = metadata.get("metadata", {}).get("file_hash") or metadata.get(
-                    "file_hash"
-                )
+                stored_hash = metadata.get("metadata", {}).get("file_hash") or metadata.get("file_hash")
                 if stored_hash:
                     if not self._hasher.verify_hash(content, stored_hash):
                         await trigger_alert(
@@ -322,10 +229,8 @@ class EvidenceDocumentUploader:
                             source="EvidenceDocumentUploader",
                         )
                         raise EvidenceUploadError("Evidence integrity check failed")
-
             logger.info(f"Evidence downloaded: {evidence_uri} ({len(content)} bytes)")
             return content
-
         except FileNotFoundError:
             raise EvidenceNotFoundError(f"Evidence not found: {evidence_uri}")
         except Exception as e:
@@ -333,18 +238,13 @@ class EvidenceDocumentUploader:
             raise EvidenceUploadError(f"Download failed: {e}") from e
 
     async def delete_evidence(self, evidence_uri: str, deleted_by: UUID) -> bool:
-        """
-        Delete evidence document (may be restricted by retention policy).
-        """
         storage = await self._get_storage()
-
-        # Check retention policy
         metadata = await storage.get_metadata(evidence_uri)
         uploaded_at = metadata.get("metadata", {}).get("uploaded_at")
         if uploaded_at:
             try:
                 upload_date = datetime.fromisoformat(uploaded_at)
-                retention_days = 365 * 7  # 7 years
+                retention_days = 365 * 7
                 retention_end = upload_date + timedelta(days=retention_days)
                 if datetime.now(UTC) < retention_end:
                     logger.warning(f"Cannot delete evidence {evidence_uri} due to retention policy")
@@ -353,9 +253,7 @@ class EvidenceDocumentUploader:
                 pass
 
         result = await storage.delete(evidence_uri)
-
         if result:
-            # Record deletion in audit
             await self._create_audit_record(
                 evidence_uri=evidence_uri,
                 transaction_type="deletion",
@@ -365,16 +263,11 @@ class EvidenceDocumentUploader:
                 extra={"action": "delete"},
             )
             logger.info(f"Evidence deleted: {evidence_uri} by {deleted_by}")
-
         return result
 
     async def get_evidence_info(self, evidence_uri: str) -> dict[str, Any]:
-        """
-        Get evidence metadata.
-        """
         storage = await self._get_storage()
         metadata = await storage.get_metadata(evidence_uri)
-
         return {
             "uri": evidence_uri,
             "file_name": metadata.get("metadata", {}).get("original_filename"),
@@ -390,13 +283,9 @@ class EvidenceDocumentUploader:
     async def list_evidence_for_transaction(
         self, transaction_type: str, transaction_id: UUID
     ) -> list[dict[str, Any]]:
-        """
-        List all evidence documents for a transaction.
-        """
         prefix = f"{transaction_type}/{transaction_id}/"
         storage = await self._get_storage()
         files = await storage.list_files(prefix=prefix, limit=100)
-
         evidence_list = []
         for file_info in files:
             evidence_list.append(
@@ -407,17 +296,11 @@ class EvidenceDocumentUploader:
                     "last_modified": file_info.get("last_modified"),
                 }
             )
-
         return evidence_list
 
     async def _is_duplicate(
         self, transaction_type: str, transaction_id: UUID, file_hash: str
     ) -> bool:
-        """
-        Check if same file already uploaded for this transaction.
-        """
-        # In production, query database for existing evidence with same hash
-        # For now, return False
         return False
 
     async def _create_audit_record(
@@ -429,8 +312,9 @@ class EvidenceDocumentUploader:
         file_hash: str,
         extra: dict | None = None,
     ) -> None:
-        """Create audit record for evidence operation."""
         try:
+            # Impor lokal
+            from infrastructure.event_store.append_only_store import get_event_store
             store = await get_event_store()
             await store.append(
                 stream_name="audit_evidence",
@@ -450,12 +334,10 @@ class EvidenceDocumentUploader:
             logger.warning(f"Failed to create audit record: {e}")
 
     def _get_content_type(self, file_name: str) -> str:
-        """Get MIME type from file extension."""
         content_type, _ = mimetypes.guess_type(file_name)
         return content_type or "application/octet-stream"
 
     async def get_stats(self) -> dict[str, Any]:
-        """Get uploader statistics."""
         return {
             "total_uploads": len(self._upload_history),
             "upload_history": list(self._upload_history.values())[-20:],
@@ -468,28 +350,14 @@ class EvidenceDocumentUploader:
 
 _evidence_uploader: EvidenceDocumentUploader | None = None
 
-
 async def get_evidence_uploader() -> EvidenceDocumentUploader:
-    """Get singleton instance of EvidenceDocumentUploader."""
     global _evidence_uploader
     if _evidence_uploader is None:
         _evidence_uploader = EvidenceDocumentUploader()
     return _evidence_uploader
 
-
-# ============================================================================
-# FASTAPI DEPENDENCY
-# ============================================================================
-
-
 async def get_evidence_uploader_dep():
-    """FastAPI dependency for evidence uploader."""
     return await get_evidence_uploader()
-
-
-# ============================================================================
-# EXPORTS
-# ============================================================================
 
 __all__ = [
     "TRANSACTION_TYPES",

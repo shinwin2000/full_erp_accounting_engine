@@ -23,7 +23,12 @@ from event_gateway.event_envelope import EventEnvelope, EventPriority, EventStat
 from event_gateway.event_normalizer_canonical import EventNormalizer
 from event_gateway.event_router_to_transformer import EventRouter
 from event_gateway.event_schema_validator import EventSchemaValidator
-from infrastructure.event_store.append_only_store import get_audit_store
+
+# ============================================================================
+# PERBAIKAN: Hapus import langsung dari infrastructure.event_store.append_only_store
+# untuk menghindari circular import. get_audit_store akan diimpor secara lokal
+# di dalam metode yang membutuhkannya.
+# ============================================================================
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +106,9 @@ class EventGate:
         if self._last_hash:
             return self._last_hash
         try:
+            # PERBAIKAN: Import lokal untuk menghindari circular import
+            from infrastructure.event_store.append_only_store import get_audit_store
+
             store = await get_audit_store()
             if store:
                 last = await store.get_last_record("event_gate")
@@ -205,6 +213,9 @@ class EventGate:
 
     async def _audit_log(self, envelope: EventEnvelope, error: str | None = None) -> None:
         try:
+            # PERBAIKAN: Import lokal untuk menghindari circular import
+            from infrastructure.event_store.append_only_store import get_audit_store
+
             store = await get_audit_store()
             if store:
                 record = envelope.to_dict()

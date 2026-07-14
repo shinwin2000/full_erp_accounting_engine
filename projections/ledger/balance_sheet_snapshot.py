@@ -3,19 +3,7 @@
 Module: balance_sheet_snapshot.py
 Layer: Projections (Ledger)
 Responsibility: Membangun read model Balance Sheet snapshot untuk setiap periode
-               akuntansi. Menyimpan saldo akhir aset, liabilitas, dan ekuitas
-               untuk analisis tren dan laporan keuangan periodik.
-               Mendukung incremental update dari event store.
-Dependencies:
-- asyncio, logging, datetime
-- sqlalchemy.ext.asyncio
-- infrastructure.database.session_factory_sqlalchemy
-- infrastructure.persistence_orm.ledger_entry_table
-- infrastructure.persistence_orm.account_table
-- infrastructure.persistence_orm.fiscal_period_table
-- projections.ledger.trial_balance_cube (opsional)
-- domain.journal.aggregate_root (events)
-Audit: Setiap snapshot yang dihasilkan dicatat. Rebuild snapshot dicatat.
+               akuntansi.
 """
 
 from __future__ import annotations
@@ -30,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Internal dependencies
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
-from infrastructure.event_store.append_only_store import AppendOnlyStore, get_event_store
 from infrastructure.persistence_orm.account_table import AccountTable
 from infrastructure.persistence_orm.fiscal_period_table import FiscalPeriodTable
 from infrastructure.persistence_orm.ledger_entry_table import LedgerEntryTable
@@ -52,8 +39,6 @@ BATCH_SIZE = 100
 
 
 class BalanceSheetSnapshotError(Exception):
-    """Base exception untuk balance sheet snapshot."""
-
     pass
 
 
@@ -63,24 +48,14 @@ class BalanceSheetSnapshotError(Exception):
 
 
 class BalanceSheetSnapshot:
-    """
-    Read model Balance Sheet snapshot per period.
-
-    Fitur:
-    - Membangun snapshot untuk setiap periode yang ditutup
-    - Menyimpan total aset, liabilitas, ekuitas
-    - Query snapshot berdasarkan periode
-    - Trend analysis
-    - Rebuild dari event store
-    """
-
     def __init__(self):
-        self._event_store: AppendOnlyStore | None = None
+        self._event_store = None
         self._session_factory = None
         self._snapshots: dict[str, dict] = {}
 
-    async def _get_event_store(self) -> AppendOnlyStore:
+    async def _get_event_store(self):
         if self._event_store is None:
+            from infrastructure.event_store.append_only_store import get_event_store
             self._event_store = await get_event_store()
         return self._event_store
 
@@ -90,20 +65,14 @@ class BalanceSheetSnapshot:
         return self._session_factory.get_session()
 
     async def compute_snapshot(self, legal_entity_id: UUID, period_id: UUID) -> dict[str, Any]:
-        """
-        Menghitung snapshot balance sheet untuk periode tertentu.
-        """
         async with await self._get_session() as session:
-            # Get period dates
             period_stmt = select(FiscalPeriodTable).where(FiscalPeriodTable.id == period_id)
             period_result = await session.execute(period_stmt)
             period = period_result.scalar_one_or_none()
             if not period:
                 raise BalanceSheetSnapshotError(f"Period {period_id} not found")
-
             as_of_date = period.end_date
 
-            # Get all accounts for legal entity
             account_stmt = select(AccountTable).where(
                 AccountTable.legal_entity_id == legal_entity_id, AccountTable.deleted_at.is_(None)
             )
@@ -115,7 +84,6 @@ class BalanceSheetSnapshot:
             total_equity = Decimal(0)
 
             for account in accounts:
-                # Calculate balance as of period end
                 balance_stmt = select(
                     func.coalesce(func.sum(LedgerEntryTable.debit_amount), 0).label("debit"),
                     func.coalesce(func.sum(LedgerEntryTable.credit_amount), 0).label("credit"),
@@ -128,14 +96,11 @@ class BalanceSheetSnapshot:
                 row = balance_result.first()
                 debit = Decimal(str(row.debit or 0))
                 credit = Decimal(str(row.credit or 0))
-
-                # Calculate balance based on normal balance
                 if account.normal_balance == "debit":
                     balance = debit - credit
                 else:
                     balance = credit - debit
 
-                # Categorize by account type
                 account_type = account.account_type
                 if account_type in ("Asset", "ContraAsset"):
                     total_assets += balance
@@ -152,24 +117,18 @@ class BalanceSheetSnapshot:
                 "total_assets": float(total_assets),
                 "total_liabilities": float(total_liabilities),
                 "total_equity": float(total_equity),
-                "is_balanced": abs(total_assets - (total_liabilities + total_equity))
-                < Decimal("0.01"),
+                "is_balanced": abs(total_assets - (total_liabilities + total_equity)) < Decimal("0.01"),
                 "created_at": datetime.now(UTC).isoformat(),
             }
 
     async def save_snapshot(self, snapshot: dict[str, Any]) -> None:
-        """
-        Menyimpan snapshot ke tabel materialized.
-        """
         async with await self._get_session() as session, session.begin():
-            # Upsert: delete existing if any, then insert
             await session.execute(
                 delete(BalanceSheetSnapshotTable).where(
                     BalanceSheetSnapshotTable.legal_entity_id == UUID(snapshot["legal_entity_id"]),
                     BalanceSheetSnapshotTable.period_id == UUID(snapshot["period_id"]),
                 )
             )
-
             stmt = insert(BalanceSheetSnapshotTable).values(
                 id=uuid4(),
                 legal_entity_id=UUID(snapshot["legal_entity_id"]),
@@ -186,14 +145,9 @@ class BalanceSheetSnapshot:
             await session.commit()
 
     async def rebuild_for_legal_entity(self, legal_entity_id: UUID) -> dict[str, Any]:
-        """
-        Membangun ulang semua snapshot untuk satu legal entity.
-        """
         logger.info(f"Rebuilding balance sheet snapshots for legal entity {legal_entity_id}")
         start_time = datetime.now(UTC)
-
         async with await self._get_session() as session:
-            # Get all periods for this legal entity
             period_stmt = (
                 select(FiscalPeriodTable)
                 .where(
@@ -207,7 +161,6 @@ class BalanceSheetSnapshot:
 
         success_count = 0
         error_count = 0
-
         for period in periods:
             try:
                 snapshot = await self.compute_snapshot(legal_entity_id, period.id)
@@ -218,7 +171,6 @@ class BalanceSheetSnapshot:
                 error_count += 1
 
         duration = (datetime.now(UTC) - start_time).total_seconds()
-
         result = {
             "legal_entity_id": str(legal_entity_id),
             "periods_processed": len(periods),
@@ -226,11 +178,7 @@ class BalanceSheetSnapshot:
             "errors": error_count,
             "duration_seconds": duration,
         }
-
-        logger.info(
-            f"Balance sheet snapshots rebuild completed: {success_count} periods, {error_count} errors"
-        )
-
+        logger.info(f"Balance sheet snapshots rebuild completed: {success_count} periods, {error_count} errors")
         if error_count > 0:
             await trigger_alert(
                 title="Balance Sheet Snapshot Rebuild Partial Failure",
@@ -238,13 +186,9 @@ class BalanceSheetSnapshot:
                 severity="warning",
                 source="BalanceSheetSnapshot",
             )
-
         return result
 
     async def rebuild_all(self) -> dict[str, Any]:
-        """
-        Membangun ulang snapshot untuk semua legal entity.
-        """
         async with await self._get_session() as session:
             stmt = select(AccountTable.legal_entity_id).distinct()
             result = await session.execute(stmt)
@@ -252,7 +196,6 @@ class BalanceSheetSnapshot:
 
         total_success = 0
         total_errors = 0
-
         for le_id in legal_entity_ids:
             res = await self.rebuild_for_legal_entity(le_id)
             total_success += res["success"]
@@ -266,9 +209,6 @@ class BalanceSheetSnapshot:
         }
 
     async def get_snapshot(self, legal_entity_id: UUID, period_id: UUID) -> dict | None:
-        """
-        Mendapatkan snapshot untuk periode tertentu.
-        """
         async with await self._get_session() as session:
             stmt = select(BalanceSheetSnapshotTable).where(
                 BalanceSheetSnapshotTable.legal_entity_id == legal_entity_id,
@@ -290,9 +230,6 @@ class BalanceSheetSnapshot:
             }
 
     async def get_snapshot_history(self, legal_entity_id: UUID, limit: int = 12) -> list[dict]:
-        """
-        Mendapatkan history snapshot untuk trend analysis.
-        """
         async with await self._get_session() as session:
             stmt = (
                 select(BalanceSheetSnapshotTable)
@@ -316,10 +253,6 @@ class BalanceSheetSnapshot:
             ]
 
     async def incremental_update(self, period_id: UUID) -> None:
-        """
-        Incremental update snapshot ketika periode ditutup.
-        Dipanggil oleh event listener ketika period closed event diterima.
-        """
         async with await self._get_session() as session:
             period_stmt = select(FiscalPeriodTable).where(FiscalPeriodTable.id == period_id)
             period_result = await session.execute(period_stmt)
@@ -327,14 +260,13 @@ class BalanceSheetSnapshot:
             if not period:
                 logger.warning(f"Period {period_id} not found for snapshot update")
                 return
-
             snapshot = await self.compute_snapshot(period.legal_entity_id, period_id)
             await self.save_snapshot(snapshot)
             logger.info(f"Balance sheet snapshot updated for period {period.period_name}")
 
 
 # ============================================================================
-# ORM MODEL (tambahan)
+# ORM MODEL
 # ============================================================================
 
 from sqlalchemy import Boolean, Column, Numeric, String
@@ -366,38 +298,18 @@ class BalanceSheetSnapshotTable(Base):
 
 _balance_sheet_snapshot: BalanceSheetSnapshot | None = None
 
-
 async def get_balance_sheet_snapshot() -> BalanceSheetSnapshot:
-    """Get singleton instance of BalanceSheetSnapshot."""
     global _balance_sheet_snapshot
     if _balance_sheet_snapshot is None:
         _balance_sheet_snapshot = BalanceSheetSnapshot()
     return _balance_sheet_snapshot
 
 
-# ============================================================================
-# BALANCE SHEET PROJECTION FOR TEST (simple wrapper)
-# ============================================================================
-
-
 class BalanceSheetProjection:
-    """
-    Simple wrapper for performance test.
-    """
-
     def __init__(self, for_date: date):
         self.for_date = for_date
 
     def generate(self):
-        """
-        Generate balance sheet as of the given date.
-        Returns a dict with mock data (for test performance only).
-        """
-        # In a real implementation, this would query the database.
-        # For the test, we just simulate a delay (or do nothing) to measure.
-        # Since the test only cares about time, we can return a dummy result.
-        # The actual implementation would compute the balance sheet.
-        # For now, return a simple dict to satisfy the test.
         return {
             "as_of_date": self.for_date.isoformat(),
             "assets": 0,
@@ -405,10 +317,6 @@ class BalanceSheetProjection:
             "equity": 0,
         }
 
-
-# ============================================================================
-# EXPORTS
-# ============================================================================
 
 __all__ = [
     "BalanceSheetProjection",

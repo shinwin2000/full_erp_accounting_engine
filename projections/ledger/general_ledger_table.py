@@ -3,19 +3,7 @@
 Module: general_ledger_table.py
 Layer: Projections (Ledger)
 Responsibility: Membangun dan memelihara read model General Ledger (tabel ledger)
-               berdasarkan event dari event store. Read model ini dioptimalkan
-               untuk query cepat laporan keuangan. Mendukung incremental update
-               dan full rebuild, serta menyediakan metode untuk mengakses entri
-               ledger dengan filter berbagai dimensi (akun, periode, cost center).
-Dependencies:
-- asyncio, logging, datetime
-- sqlalchemy.ext.asyncio
-- infrastructure.event_store.append_only_store
-- infrastructure.database.session_factory_sqlalchemy
-- infrastructure.persistence_orm.ledger_entry_table
-- domain.journal.aggregate_root (events)
-- application.service_layer.service_ledger (optional)
-Audit: Proses rebuild projection dicatat. Setiap update dari event dicatat.
+               berdasarkan event dari event store.
 """
 
 from __future__ import annotations
@@ -30,9 +18,6 @@ from sqlalchemy import and_, func, insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.session_factory_sqlalchemy import get_session_factory
-
-# Internal dependencies
-from infrastructure.event_store.append_only_store import AppendOnlyStore, get_event_store
 from infrastructure.persistence_orm.account_table import AccountTable
 from infrastructure.persistence_orm.ledger_entry_table import LedgerEntryTable
 from infrastructure.telemetry.alert_manager_router import trigger_alert
@@ -53,14 +38,10 @@ BATCH_SIZE = 1000
 
 
 class GeneralLedgerProjectionError(Exception):
-    """Base exception untuk general ledger projection."""
-
     pass
 
 
 class RebuildInProgressError(GeneralLedgerProjectionError):
-    """Rebuild sedang berlangsung."""
-
     pass
 
 
@@ -70,26 +51,16 @@ class RebuildInProgressError(GeneralLedgerProjectionError):
 
 
 class GeneralLedgerTable:
-    """
-    Read model General Ledger.
-
-    Fitur:
-    - Membangun dari event store (full rebuild)
-    - Incremental update dari event baru
-    - Query dengan filter (account, date range, cost center)
-    - Get balance for account
-    - Checkpoint management untuk incremental update
-    """
-
     def __init__(self):
-        self._event_store: AppendOnlyStore | None = None
+        self._event_store = None
         self._session_factory = None
         self._rebuild_lock = asyncio.Lock()
         self._last_event_id: UUID | None = None
         self._last_event_sequence: int = 0
 
-    async def _get_event_store(self) -> AppendOnlyStore:
+    async def _get_event_store(self):
         if self._event_store is None:
+            from infrastructure.event_store.append_only_store import get_event_store
             self._event_store = await get_event_store()
         return self._event_store
 
@@ -99,7 +70,6 @@ class GeneralLedgerTable:
         return self._session_factory.get_session()
 
     async def _get_checkpoint(self) -> tuple[UUID | None, int]:
-        """Mendapatkan checkpoint terakhir dari database."""
         async with await self._get_session() as session:
             stmt = select(
                 ProjectionCheckpointTable.last_event_id,
@@ -112,7 +82,6 @@ class GeneralLedgerTable:
             return None, 0
 
     async def _update_checkpoint(self, event_id: UUID, sequence: int) -> None:
-        """Update checkpoint setelah processing events."""
         async with await self._get_session() as session, session.begin():
             stmt = (
                 insert(ProjectionCheckpointTable)
@@ -135,29 +104,19 @@ class GeneralLedgerTable:
             await session.commit()
 
     async def rebuild(self, batch_size: int = BATCH_SIZE) -> dict[str, Any]:
-        """
-        Full rebuild of general ledger projection from event store.
-        """
         async with self._rebuild_lock:
             logger.info("Starting full rebuild of General Ledger projection")
             start_time = datetime.now(UTC)
-
             store = await self._get_event_store()
-
-            # Truncate existing ledger entries
             async with await self._get_session() as session, session.begin():
                 await session.execute(text("TRUNCATE TABLE ledger_entry"))
                 await session.commit()
 
-            # Read all journal posted events
-            # For simplicity, we read from event store stream "journal"
-            # In production, we would read all relevant events
             events = await store.read_stream("journal", limit=1000000)
             journal_events = [e for e in events if e.get("event_type") == "JournalPosted"]
 
             total_processed = 0
             errors = 0
-
             for i in range(0, len(journal_events), batch_size):
                 batch = journal_events[i : i + batch_size]
                 try:
@@ -169,7 +128,6 @@ class GeneralLedgerTable:
                     errors += len(batch)
 
             duration = (datetime.now(UTC) - start_time).total_seconds()
-
             result = {
                 "success": errors == 0,
                 "total_events_processed": total_processed,
@@ -177,11 +135,7 @@ class GeneralLedgerTable:
                 "duration_seconds": duration,
                 "projection_name": PROJECTION_NAME,
             }
-
-            logger.info(
-                f"General Ledger rebuild completed: {total_processed} events in {duration:.2f}s"
-            )
-
+            logger.info(f"General Ledger rebuild completed: {total_processed} events in {duration:.2f}s")
             if errors > 0:
                 await trigger_alert(
                     title="General Ledger Rebuild Partial Failure",
@@ -189,11 +143,9 @@ class GeneralLedgerTable:
                     severity="warning",
                     source="GeneralLedgerTable",
                 )
-
             return result
 
     async def _process_event_batch(self, events: list[dict]) -> None:
-        """Process a batch of events and insert ledger entries."""
         ledger_entries = []
         for event in events:
             data = event.get("data", {})
@@ -207,13 +159,10 @@ class GeneralLedgerTable:
                 account_code = line.get("account_code")
                 debit = Decimal(str(line.get("debit_amount", 0)))
                 credit = Decimal(str(line.get("credit_amount", 0)))
-
-                # Get account_id from account_code (simplified - would query in batch)
                 account_id = await self._get_account_id(account_code)
                 if not account_id:
                     logger.warning(f"Account not found for code {account_code}")
                     continue
-
                 entry = LedgerEntryTable(
                     id=UUID(event.get("id")),
                     journal_id=UUID(journal_id),
@@ -240,22 +189,14 @@ class GeneralLedgerTable:
                 session.add_all(ledger_entries)
                 await session.commit()
 
-    # ADDED: handle method for single event (test compatibility)
     async def handle(self, event: dict) -> None:
-        """
-        Handle a single event and update the ledger.
-        This method is used by the performance test.
-        """
         await self._process_event_batch([event])
 
     async def _get_account_id(self, account_code: str) -> UUID | None:
-        """Get account ID from account code (cached)."""
-        # Simple cache implementation
         if not hasattr(self, "_account_cache"):
             self._account_cache = {}
         if account_code in self._account_cache:
             return self._account_cache[account_code]
-
         async with await self._get_session() as session:
             stmt = select(AccountTable.id).where(AccountTable.account_code == account_code)
             result = await session.execute(stmt)
@@ -274,9 +215,6 @@ class GeneralLedgerTable:
         limit: int = 1000,
         offset: int = 0,
     ) -> list[dict]:
-        """
-        Query ledger entries dengan filter.
-        """
         async with await self._get_session() as session:
             conditions = []
             if account_id:
@@ -297,10 +235,8 @@ class GeneralLedgerTable:
                 .limit(limit)
                 .offset(offset)
             )
-
             result = await session.execute(stmt)
             entries = result.scalars().all()
-
             return [
                 {
                     "id": str(e.id),
@@ -318,9 +254,6 @@ class GeneralLedgerTable:
     async def get_account_balance(
         self, account_id: UUID, as_of_date: date, legal_entity_id: UUID | None = None
     ) -> Decimal:
-        """
-        Mendapatkan saldo akun pada tanggal tertentu.
-        """
         async with await self._get_session() as session:
             conditions = [
                 LedgerEntryTable.account_id == account_id,
@@ -333,54 +266,36 @@ class GeneralLedgerTable:
                 func.sum(LedgerEntryTable.debit_amount).label("total_debit"),
                 func.sum(LedgerEntryTable.credit_amount).label("total_credit"),
             ).where(and_(*conditions))
-
             result = await session.execute(stmt)
             row = result.first()
             total_debit = Decimal(str(row.total_debit or 0))
             total_credit = Decimal(str(row.total_credit or 0))
-
-            # Normal balance is debit for assets/expenses, credit for liabilities/equity/revenue
-            # Simplified: return debit - credit (positive means debit balance)
             return total_debit - total_credit
 
     async def incremental_update(self, from_sequence: int = 0) -> int:
-        """
-        Incremental update projection dari event baru.
-        """
         store = await self._get_event_store()
         last_event_id, last_sequence = await self._get_checkpoint()
-
-        # Get events after last checkpoint
-        # For simplicity, we read from stream and filter
         events = await store.read_stream("journal", limit=10000)
         new_events = [e for e in events if e.get("sequence_number", 0) > last_sequence]
-
         if not new_events:
             return 0
-
         await self._process_event_batch(new_events)
-
-        # Update checkpoint
         last_event = new_events[-1]
         await self._update_checkpoint(UUID(last_event["id"]), last_event.get("sequence_number", 0))
-
         logger.info(f"Incremental update: {len(new_events)} events processed")
         return len(new_events)
 
     async def get_stats(self) -> dict[str, Any]:
-        """Mendapatkan statistik proyeksi."""
         async with await self._get_session() as session:
             stmt = select(func.count()).select_from(LedgerEntryTable)
             result = await session.execute(stmt)
             total_entries = result.scalar() or 0
-
             stmt2 = select(
                 func.sum(LedgerEntryTable.debit_amount).label("total_debit"),
                 func.sum(LedgerEntryTable.credit_amount).label("total_credit"),
             )
             result2 = await session.execute(stmt2)
             row2 = result2.first()
-
             return {
                 "total_entries": total_entries,
                 "total_debit": float(row2.total_debit or 0),
@@ -395,25 +310,13 @@ class GeneralLedgerTable:
 
 _general_ledger_projection: GeneralLedgerTable | None = None
 
-
 async def get_general_ledger_projection() -> GeneralLedgerTable:
-    """Get singleton instance of GeneralLedgerTable."""
     global _general_ledger_projection
     if _general_ledger_projection is None:
         _general_ledger_projection = GeneralLedgerTable()
     return _general_ledger_projection
 
-
-# ============================================================================
-# ALIAS FOR TEST COMPATIBILITY
-# ============================================================================
-
 GeneralLedgerProjection = GeneralLedgerTable
-
-
-# ============================================================================
-# EXPORTS
-# ============================================================================
 
 __all__ = [
     "GeneralLedgerProjection",
