@@ -18,8 +18,10 @@ Audit: Tabel ini bersifat immutable. Trigger PostgreSQL mencegah UPDATE/DELETE.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
+from hashlib import sha256
 from uuid import UUID
 
 from sqlalchemy import (
@@ -31,7 +33,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infrastructure.persistence_orm.base_model import Base, SoftDeleteMixin, TimestampMixin
@@ -60,7 +62,12 @@ class EventStoreTable(Base, TimestampMixin, SoftDeleteMixin):
         Index("idx_es_aggregate_id", "aggregate_id"),
     )
 
-    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        nullable=False,
+    )
     stream_name: Mapped[str] = mapped_column(String(255), nullable=False)
     sequence_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
@@ -80,7 +87,7 @@ class EventStoreTable(Base, TimestampMixin, SoftDeleteMixin):
     hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
     # Optional: reference to aggregate root
-    aggregate_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    aggregate_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     aggregate_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Correlation and causation IDs for tracing
@@ -88,10 +95,10 @@ class EventStoreTable(Base, TimestampMixin, SoftDeleteMixin):
     causation_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Legal entity (for multi-tenant)
-    legal_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    legal_entity_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
 
     # User who triggered the event (if applicable)
-    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    user_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
 
     # ========================================================================
     # PROPERTIES
@@ -123,15 +130,12 @@ class EventStoreTable(Base, TimestampMixin, SoftDeleteMixin):
         event_type: str,
         data: dict,
         metadata: dict | None = None,
-        legal_entity_id: uuid.UUID | None = None,
-        user_id: uuid.UUID | None = None,
+        legal_entity_id: UUID | None = None,
+        user_id: UUID | None = None,
     ) -> EventStoreTable:
         """
         Create a genesis event (first event in a stream).
         """
-        import json
-        from hashlib import sha256
-
         genesis_hash = sha256(b"EVENT_STORE_GENESIS_2025").hexdigest()
         timestamp = datetime.now(UTC)
 
@@ -162,9 +166,6 @@ class EventStoreTable(Base, TimestampMixin, SoftDeleteMixin):
         """
         Verify that the event's hash matches its content.
         """
-        import json
-        from hashlib import sha256
-
         content = {
             "data": self.data,
             "metadata": self.event_metadata,

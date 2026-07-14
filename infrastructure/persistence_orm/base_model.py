@@ -47,17 +47,17 @@ class Base(DeclarativeBase):
         Memotong pembentukan token konflik jika kelas di-import ulang dari path berbeda.
         """
         super().__init_subclass__(**kwargs)
-        if not cls.__dict__.get("__abstract__", False):
-            try:
-                reg = cls.registry._class_registry
-                class_name = cls.__name__
+        #if not cls.__dict__.get("__abstract__", False):
+            #try:
+                #reg = cls.registry._class_registry
+                #class_name = cls.__name__
                 # Paksa penulisan langsung ke root dictionary tingkat rendah Python
                 # bypass ini menghancurkan token '_multiple_resolved' dari SQLAlchemy
-                dict.__setitem__(reg, class_name, cls)
-                if hasattr(reg, "_data") and isinstance(reg._data, dict):
-                    reg._data[class_name] = cls
-            except Exception:
-                pass
+                #dict.__setitem__(reg, class_name, cls)
+                #if hasattr(reg, "_data") and isinstance(reg._data, dict):
+                    #reg._data[class_name] = cls
+            #except Exception:
+                #pass
 
     @declared_attr
     def __tablename__(cls) -> str:

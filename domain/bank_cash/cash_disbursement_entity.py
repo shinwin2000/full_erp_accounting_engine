@@ -847,7 +847,7 @@ class CashDisbursementEntity:
 
     def can_pay(self) -> bool:
         return (
-            self.status == CashDisbursementStatus.READY_FOR_PAYMENT
+            self.status == CashDisbursementStatus.PROCESSING
             and self.paid_amount < self.amount
         )
 

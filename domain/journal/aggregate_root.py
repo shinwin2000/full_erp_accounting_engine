@@ -467,7 +467,6 @@ class Journal(VersionedJournalMixin):
         Raises:
             ValueError: If the journal is locked, not SUBMITTED, or approved by creator.
         """
-        self._ensure_editable("approve")
         self._ensure_not_posted("approve")
 
         if self.status != JournalStatus.SUBMITTED:
@@ -529,7 +528,6 @@ class Journal(VersionedJournalMixin):
         Raises:
             ValueError: If the journal is locked or not SUBMITTED.
         """
-        self._ensure_editable("reject")
         self._ensure_not_posted("reject")
 
         if self.status != JournalStatus.SUBMITTED:
@@ -539,6 +537,7 @@ class Journal(VersionedJournalMixin):
             from_status=self.status,
             to_status=JournalStatus.REJECTED,
             user_role="approver",
+            reason=reason,
         )
         if not valid:
             raise ValueError(message)
@@ -588,7 +587,6 @@ class Journal(VersionedJournalMixin):
         Raises:
             ValueError: If the journal is locked or not APPROVED.
         """
-        self._ensure_editable("post")
         self._ensure_not_posted("post")
 
         if self.status != JournalStatus.APPROVED:
@@ -646,8 +644,8 @@ class Journal(VersionedJournalMixin):
         Raises:
             ValueError: If the journal is locked or not POSTED.
         """
-        self._ensure_editable("reverse")
-        self._ensure_not_posted("reverse")
+        if self._is_locked:
+            raise ValueError(f"Cannot reverse: journal is locked by {self._locked_by}")
 
         if self.status != JournalStatus.POSTED:
             raise ValueError(f"Cannot reverse journal in status {self.status.value}")
@@ -656,6 +654,7 @@ class Journal(VersionedJournalMixin):
             from_status=self.status,
             to_status=JournalStatus.REVERSED,
             user_role="manager",
+            reason=reason,
         )
         if not valid:
             raise ValueError(message)
@@ -710,7 +709,6 @@ class Journal(VersionedJournalMixin):
         Raises:
             ValueError: If the journal is locked or not in a voidable state.
         """
-        self._ensure_editable("void")
         self._ensure_not_posted("void")
 
         if self.status not in [JournalStatus.DRAFT, JournalStatus.SUBMITTED]:
@@ -766,7 +764,6 @@ class Journal(VersionedJournalMixin):
         Raises:
             ValueError: If the journal is not in an archivable state.
         """
-        self._ensure_editable("archive")
         self._ensure_not_posted("archive")
 
         if self.status not in [
@@ -818,7 +815,6 @@ class Journal(VersionedJournalMixin):
         Raises:
             ValueError: If the journal is not ARCHIVED.
         """
-        self._ensure_editable("unarchive")
         self._ensure_not_posted("unarchive")
 
         if self.status != JournalStatus.ARCHIVED:

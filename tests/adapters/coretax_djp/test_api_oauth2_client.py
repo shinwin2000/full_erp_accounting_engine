@@ -62,6 +62,18 @@ from adapters.coretax_djp.api_oauth2_client import (
     reset_coretax_client,
 )
 
+# ============================================================
+# CLEANUP: lepas fake modules agar tidak meracuni test lain
+# yang di-collect setelah file ini (mis. tests/adapters/primary_api/*)
+# ============================================================
+for _name in [
+    "infrastructure",
+    "infrastructure.caching",
+    "infrastructure.caching.redis_manager",
+    "infrastructure.database",
+    "infrastructure.database.session_factory_sqlalchemy",
+]:
+    sys.modules.pop(_name, None)
 
 # ============================================================
 # TEST ENVIRONMENT ENUM

@@ -34,7 +34,15 @@ warnings.filterwarnings(
 )
 
 # ============================================================
-# MOCK MODULES SECARA HIERARKIS
+# GUARD: PASTIKAN SQLALCHEMY ASLI SEBELUM IMPORT APP.MAIN
+# ============================================================
+# Hapus semua entri sqlalchemy.* yang mungkin masih berupa Mock dari test lain
+for mod_name in list(sys.modules.keys()):
+    if mod_name.startswith("sqlalchemy"):
+        del sys.modules[mod_name]
+
+# ============================================================
+# MOCK MODULES LAINNYA (selain sqlalchemy)
 # ============================================================
 
 # Mock opentelemetry
@@ -137,34 +145,56 @@ prometheus_mock.CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"
 sys.modules["prometheus_client"] = prometheus_mock
 
 # ============================================================
-# IMPORT APP.MAIN
+# IMPORT APP.MAIN (dengan try/finally agar cleanup tetap jalan)
 # ============================================================
 import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
-from app.main import (
-    AppWrapper,
-    Settings,
-    _build_internal_router,
-    _kafka_available,
-    _kafka_producer,
-    _minio_available,
-    _minio_client,
-    _redis_client,
-    _unversioned_router,
-    _v1_router,
-    _v2_router,
-    create_app,
-    get_db_session,
-    get_kafka_producer,
-    get_minio,
-    get_redis,
-    is_kafka_available,
-    is_minio_available,
-    kafka_publish,
-)
+# ============================================================
+# CLEANUP: lepas semua fake modules yang kita pasang di atas
+# (tanpa menyentuh sqlalchemy)
+# ============================================================
+_cleanup_names = [
+    "kernel", "kernel.error_analysis",
+    "bootstrap", "bootstrap.dependency_container", "bootstrap.dependency_container.ioc_container",
+    "opentelemetry", "opentelemetry.sdk", "opentelemetry.sdk.resources",
+    "opentelemetry.sdk.trace", "opentelemetry.sdk.trace.export",
+    "opentelemetry.exporter", "opentelemetry.exporter.otlp",
+    "opentelemetry.exporter.otlp.proto", "opentelemetry.exporter.otlp.proto.grpc",
+    "opentelemetry.exporter.otlp.proto.grpc.trace_exporter",
+    "opentelemetry.instrumentation", "opentelemetry.instrumentation.fastapi",
+    "opentelemetry.instrumentation.redis", "opentelemetry.instrumentation.sqlalchemy",
+    "opentelemetry.trace",
+    "aiokafka", "minio", "redis", "redis.asyncio", "dotenv", "prometheus_client",
+]
 
+try:
+    from app.main import (
+        AppWrapper,
+        Settings,
+        _build_internal_router,
+        _kafka_available,
+        _kafka_producer,
+        _minio_available,
+        _minio_client,
+        _redis_client,
+        _unversioned_router,
+        _v1_router,
+        _v2_router,
+        create_app,
+        get_db_session,
+        get_kafka_producer,
+        get_minio,
+        get_redis,
+        is_kafka_available,
+        is_minio_available,
+        kafka_publish,
+    )
+finally:
+    # Lepas semua fake modules yang kita pasang di atas, agar tidak meracuni test lain
+    for name in _cleanup_names:
+        sys.modules.pop(name, None)
 
 # ============================================================
 # Helper functions untuk membuat mock
@@ -177,7 +207,6 @@ def create_mock_redis():
     redis.aclose = AsyncMock()
     return redis
 
-
 def create_mock_kafka_producer():
     """Membuat mock Kafka producer."""
     producer = AsyncMock()
@@ -188,14 +217,12 @@ def create_mock_kafka_producer():
     producer.client.force_metadata_update = AsyncMock()
     return producer
 
-
 def create_mock_minio_client():
     """Membuat mock MinIO client."""
     minio = MagicMock()
     minio.bucket_exists = MagicMock(return_value=True)
     minio.make_bucket = MagicMock()
     return minio
-
 
 def create_mock_db_session():
     """Membuat mock DB session."""
@@ -205,7 +232,6 @@ def create_mock_db_session():
     mock_session.commit = AsyncMock()
     mock_session.rollback = AsyncMock()
     return mock_session
-
 
 # ============================================================
 # Fixtures
@@ -225,12 +251,10 @@ def mock_env(monkeypatch):
     monkeypatch.setenv("MINIO_SECRET_KEY", "minioadmin")
     yield
 
-
 @pytest.fixture
 def settings(mock_env):
     """Fixture untuk Settings object."""
     return Settings()
-
 
 @pytest.fixture
 def test_app(mock_env):
@@ -270,7 +294,6 @@ def test_app(mock_env):
     _kafka_available = original_kafka_avail
     _minio_client = original_minio
     _minio_available = original_minio_avail
-
 
 # ============================================================
 # Test Settings
@@ -319,7 +342,6 @@ class TestSettings:
             s = Settings()
             assert s.is_production is True
 
-
 # ============================================================
 # Test Helper Functions
 # ============================================================
@@ -331,7 +353,6 @@ async def test_get_db_session_success():
         async for session in get_db_session():
             assert session is mock_session
         mock_session.commit.assert_awaited_once()
-
 
 @pytest.mark.asyncio
 async def test_get_db_session_rollback_on_exception():
@@ -346,26 +367,18 @@ async def test_get_db_session_rollback_on_exception():
     mock_session.rollback = AsyncMock()
 
     with patch('app.main.AsyncSessionLocal', return_value=mock_session):
-        # Consume the generator dan tunggu sampai selesai untuk trigger exception
         gen = get_db_session()
         async for _ in gen:
             pass
-        # Generator cleanup akan terjadi di sini, tapi pytest-asyncio
-        # tidak otomatis propagate exception dari generator cleanup
-        # Jadi kita cek rollback dipanggil sebagai bukti exception ditangani
         mock_session.rollback.assert_awaited_once()
 
-        # Untuk memverifikasi exception benar-benar di-raise, kita perlu
-        # manually close generator dan await hasilnya
         gen2 = get_db_session()
         async for _ in gen2:
             pass
-        # Explicitly close the generator to trigger any pending exceptions
         try:
             await gen2.aclose()
         except ZeroDivisionError:
-            pass  # Expected
-
+            pass
 
 def test_get_redis_success():
     """Test get_redis berhasil."""
@@ -373,13 +386,11 @@ def test_get_redis_success():
         client = get_redis()
         assert client is not None
 
-
 def test_get_redis_not_initialized():
     """Test get_redis raises RuntimeError ketika tidak diinisialisasi."""
     with patch("app.main._redis_client", None):
         with pytest.raises(RuntimeError, match="Redis not initialized"):
             get_redis()
-
 
 def test_get_kafka_producer_success():
     """Test get_kafka_producer berhasil."""
@@ -387,13 +398,11 @@ def test_get_kafka_producer_success():
         producer = get_kafka_producer()
         assert producer is not None
 
-
 def test_get_kafka_producer_not_initialized():
     """Test get_kafka_producer raises RuntimeError ketika tidak diinisialisasi."""
     with patch("app.main._kafka_producer", None):
         with pytest.raises(RuntimeError, match="Kafka producer not initialized"):
             get_kafka_producer()
-
 
 def test_is_kafka_available():
     """Test is_kafka_available."""
@@ -401,7 +410,6 @@ def test_is_kafka_available():
         assert is_kafka_available() is True
     with patch("app.main._kafka_available", False):
         assert is_kafka_available() is False
-
 
 @pytest.mark.asyncio
 async def test_kafka_publish_when_available():
@@ -414,7 +422,6 @@ async def test_kafka_publish_when_available():
                 "test-topic", value=b"test-value", key=b"test-key"
             )
 
-
 @pytest.mark.asyncio
 async def test_kafka_publish_when_not_available(caplog):
     """Test kafka_publish ketika Kafka tidak tersedia."""
@@ -422,13 +429,11 @@ async def test_kafka_publish_when_not_available(caplog):
         await kafka_publish("test-topic", b"test-value")
         assert "Kafka not available" in caplog.text
 
-
 def test_get_minio_success():
     """Test get_minio berhasil."""
     with patch("app.main._minio_client", MagicMock()):
         client = get_minio()
         assert client is not None
-
 
 def test_get_minio_not_initialized():
     """Test get_minio raises RuntimeError ketika tidak diinisialisasi."""
@@ -436,14 +441,12 @@ def test_get_minio_not_initialized():
         with pytest.raises(RuntimeError, match="MinIO client not initialized"):
             get_minio()
 
-
 def test_is_minio_available():
     """Test is_minio_available."""
     with patch("app.main._minio_available", True):
         assert is_minio_available() is True
     with patch("app.main._minio_available", False):
         assert is_minio_available() is False
-
 
 # ============================================================
 # Test AppWrapper
@@ -465,7 +468,6 @@ class TestAppWrapper:
         wrapper = AppWrapper(mock_app)
         wrapper("arg1", "arg2", key="value")
         mock_app.assert_called_once_with("arg1", "arg2", key="value")
-
 
 # ============================================================
 # Test Routes via TestClient
@@ -489,7 +491,6 @@ class TestRoutes:
 
     def test_readiness_ok(self, test_app):
         """Test readiness endpoint ketika DB OK."""
-        # Buat mock engine yang berfungsi
         mock_result = MagicMock()
         mock_result.scalar = MagicMock(return_value=1)
 
@@ -501,7 +502,6 @@ class TestRoutes:
         mock_engine = MagicMock()
         mock_engine.connect = MagicMock(return_value=mock_conn)
 
-        # Mock Redis juga karena readiness check juga ping Redis
         with patch('app.main.engine', mock_engine):
             with patch('app.main.get_redis') as mock_get_redis:
                 mock_redis = AsyncMock()
@@ -526,7 +526,6 @@ class TestRoutes:
 
     def test_health_check(self, test_app):
         """Test health check endpoint."""
-        # Mock engine sukses
         mock_result = MagicMock()
         mock_result.scalar = MagicMock(return_value="PostgreSQL 15.0")
 
@@ -538,7 +537,6 @@ class TestRoutes:
         mock_engine = MagicMock()
         mock_engine.connect = MagicMock(return_value=mock_conn)
 
-        # Mock Redis
         mock_redis = AsyncMock()
         mock_redis.ping = AsyncMock(return_value=True)
         mock_redis.info = AsyncMock(return_value={"redis_version": "7.0"})
@@ -614,7 +612,6 @@ class TestRoutes:
         response = test_app.get("/journals/999")
         assert response.status_code == 404
 
-
 # ============================================================
 # Test Middleware & Exception Handlers
 # ============================================================
@@ -656,7 +653,6 @@ class TestMiddlewareAndExceptions:
             data = json.loads(response.body)
             assert "error_id" in data
             assert "rca" in data
-
 
 # ============================================================
 # Test create_app dan routers

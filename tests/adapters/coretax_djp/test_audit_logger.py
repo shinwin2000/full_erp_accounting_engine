@@ -66,6 +66,19 @@ from adapters.coretax_djp.audit_logger import (
     shutdown_audit_logger,
 )
 
+# ============================================================
+# CLEANUP: lepas semua fake modules agar tidak meracuni test lain
+# ============================================================
+for _name in [
+    # sqlalchemy
+    "sqlalchemy", "sqlalchemy.sql", "sqlalchemy.ext",
+    "sqlalchemy.ext.asyncio", "sqlalchemy.orm",
+    "sqlalchemy.future", "sqlalchemy.pool", "sqlalchemy.exc",
+    # aiokafka & aiohttp
+    "aiokafka", "aiohttp",
+]:
+    sys.modules.pop(_name, None)
+
 
 class TestAuditEventType:
     """Tests for the AuditEventType enum."""

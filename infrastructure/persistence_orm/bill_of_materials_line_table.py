@@ -37,6 +37,9 @@ from infrastructure.persistence_orm.base_model import (
     VersionMixin,
 )
 
+# =========================================================================
+# HINDARI CIRCULAR IMPORT dengan TYPE_CHECKING
+# =========================================================================
 if TYPE_CHECKING:
     from infrastructure.persistence_orm.bill_of_materials_table import BillOfMaterialsTable
 
@@ -62,7 +65,7 @@ class BillOfMaterialsLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMix
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     bom_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("bill_of_materials.id", ondelete="CASCADE"),  # schema explicitly added
+        ForeignKey("bill_of_materials.id", ondelete="CASCADE"),
         nullable=False,
     )
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -79,9 +82,10 @@ class BillOfMaterialsLineTable(Base, TimestampMixin, SoftDeleteMixin, VersionMix
 
     # =========================================================================
     # RELATIONSHIP back to header (many-to-one)
-    # Menggunakan back_populates yang sama dengan di BillOfMaterialsTable.lines
+    # Menggunakan string reference untuk menghindari import circular.
+    # back_populates harus cocok dengan 'lines' di BillOfMaterialsTable.
     # =========================================================================
-    bom: Mapped[BillOfMaterialsTable] = relationship(
+    bom: Mapped["BillOfMaterialsTable"] = relationship(
         "BillOfMaterialsTable",
         back_populates="lines",
         foreign_keys=[bom_id],
