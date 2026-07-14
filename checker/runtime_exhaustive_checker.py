@@ -28,6 +28,7 @@ v5.3 – Perbaikan final:
   - Identity check: perbaiki deteksi instance untuk JournalAggregate
   - Event publish/subscribe: lebih toleran
   - Performance benchmark: pastikan session factory dan engine valid
+  - ORM Models check: import eksplisit Base, refleksi metadata, load modul ORM
 """
 
 from __future__ import annotations
@@ -362,8 +363,6 @@ class RuntimeExhaustiveChecker:
                     continue
             if found is None:
                 return "WARN", "Configuration provider tidak ditemukan (settings/config)", {}
-
-            # Cek SECRET_KEY dengan fallback
             secret_key = getattr(found, "SECRET_KEY", None)
             if secret_key is None:
                 secret_key = os.environ.get("SECRET_KEY")
@@ -379,7 +378,7 @@ class RuntimeExhaustiveChecker:
     def check_database_connectivity(self) -> RuntimeCheckResult:
         def _inner():
             try:
-                from infrastructure.database import session_factory_sqlalchemy as sf_module
+                import infrastructure.database.session_factory_sqlalchemy as sf_module
                 wrapper = asyncio.run(sf_module.get_session_factory())
                 factory = wrapper.get_session_factory()
                 self._session_factory = factory
@@ -390,9 +389,6 @@ class RuntimeExhaustiveChecker:
                     async with factory() as session:
                         result = await session.execute(text("SELECT 1"))
                         return result.scalar() == 1
-                # Pakai _run_async_safely agar koneksi ini di-dispose bersih
-                # di dalam loop yang sama, tidak "nyangkut" untuk check
-                # berikutnya (mis. check_transactions) yang punya loop sendiri.
                 result = self._run_async_safely(_test())
                 if result:
                     return "PASS", "Koneksi database berhasil", {"db": "connected"}
@@ -405,7 +401,6 @@ class RuntimeExhaustiveChecker:
         return self._check("Database Connectivity", _inner, "database", "HIGH")
 
     def check_transactions(self) -> RuntimeCheckResult:
-        """Perbaikan: uji commit dan rollback dengan akses session langsung."""
         def _inner():
             if not self._bootstrap_ok or self._container is None:
                 return "SKIP", "Container tidak tersedia, skip transaction check", {}
@@ -418,7 +413,6 @@ class RuntimeExhaustiveChecker:
                     {"container_resolve": False, "scan_fallback": False},
                 )
 
-            # Pastikan kelas bukan abstrak
             if inspect.isabstract(uow_cls):
                 try:
                     from adapters.secondary_impl.sqlalchemy_unit_of_work_impl import (
@@ -432,11 +426,10 @@ class RuntimeExhaustiveChecker:
                     return "FAIL", f"UnitOfWork {uow_cls.__name__} abstrak dan tidak ditemukan implementasi konkret", {}
 
             try:
-                # Pastikan session factory tersedia
                 session_factory = self._session_factory
                 if session_factory is None:
                     try:
-                        from infrastructure.database import session_factory_sqlalchemy as sf_module
+                        import infrastructure.database.session_factory_sqlalchemy as sf_module
                         wrapper = asyncio.run(sf_module.get_session_factory())
                         session_factory = wrapper.get_session_factory()
                         self._session_factory = session_factory
@@ -447,7 +440,6 @@ class RuntimeExhaustiveChecker:
                 if session_factory is None:
                     return "FAIL", "Session factory tidak tersedia", {}
 
-                # Buat instance UnitOfWork
                 sig = inspect.signature(uow_cls.__init__)
                 if 'session_factory' in sig.parameters:
                     uow = uow_cls(session_factory=session_factory)
@@ -456,17 +448,6 @@ class RuntimeExhaustiveChecker:
 
                 from sqlalchemy import text
 
-                # PENTING: asyncpg mengikat koneksi ke event loop tempat ia
-                # dibuat. Menjalankan beberapa asyncio.run() terpisah untuk
-                # commit lalu rollback akan membuat loop baru tiap kali,
-                # padahal connection pool (self._engine) yang sama dipakai
-                # ulang -> koneksi lama (milik loop yang sudah closed) diambil
-                # lagi dari pool dan meledak dengan
-                # "'NoneType' object has no attribute 'send'" /
-                # "Event loop is closed". Solusi: jalankan kedua sub-test
-                # dalam SATU event loop (satu asyncio.run), dan pakai
-                # instance UnitOfWork terpisah untuk masing-masing agar
-                # state _session/_transaction tidak bentrok.
                 async def _test_commit(uow_instance):
                     async with uow_instance as uow_ctx:
                         session = uow_ctx.session
@@ -490,10 +471,6 @@ class RuntimeExhaustiveChecker:
                     rollback_result = await _test_rollback(uow_rollback)
                     return commit_result, rollback_result
 
-                # Jalankan test - HANYA SATU asyncio.run() untuk keduanya,
-                # dan dispose koneksi di akhir loop yang sama (lihat
-                # _run_async_safely) supaya tidak ada koneksi basi yang
-                # diwariskan ke check berikutnya.
                 commit_ok, rollback_ok = self._run_async_safely(_run_both())
 
                 if commit_ok and rollback_ok:
@@ -505,7 +482,6 @@ class RuntimeExhaustiveChecker:
         return self._check("Transactions", _inner, "database", "HIGH")
 
     def check_connection_pool(self) -> RuntimeCheckResult:
-        """Periksa status pool koneksi."""
         def _inner():
             if self._engine is None:
                 return "SKIP", "Engine tidak tersedia", {}
@@ -735,7 +711,6 @@ class RuntimeExhaustiveChecker:
 
         # 3. Check instance attributes (CRITICAL FIX: untuk aggregate seperti JournalAggregate)
         try:
-            # Coba buat instance dengan parameter minimal
             sig = inspect.signature(cls.__init__)
             args = {}
             for name, param in sig.parameters.items():
@@ -744,7 +719,6 @@ class RuntimeExhaustiveChecker:
                 if param.default is not inspect.Parameter.empty:
                     args[name] = param.default
                 else:
-                    # Provide default values for common parameters
                     if name in ('id', 'aggregate_id') or name == 'legal_entity_id':
                         args[name] = uuid.uuid4()
                     elif name == 'version':
@@ -755,7 +729,6 @@ class RuntimeExhaustiveChecker:
                         args[name] = None
             instance = cls(**args)
 
-            # Cek instance attributes
             for alias in self._ID_ALIASES:
                 if hasattr(instance, alias):
                     has_id = True
@@ -812,12 +785,16 @@ class RuntimeExhaustiveChecker:
             return "PASS", f"Ditemukan {len(found)} aggregate memenuhi kontrak", {"aggregates": found[:10]}
         return self._check("Aggregates", _inner, "components", "HIGH")
 
+    # ========================================================================
+    # FIXED: check_models() with explicit Base import, reflection, and module loading
+    # ========================================================================
     def check_models(self) -> RuntimeCheckResult:
         def _inner():
             try:
                 from sqlalchemy import MetaData
 
-                from infrastructure.database import session_factory_sqlalchemy as sf_module
+                # Ensure engine is available for reflection
+                import infrastructure.database.session_factory_sqlalchemy as sf_module
                 engine = None
                 try:
                     wrapper = asyncio.run(sf_module.get_session_factory())
@@ -826,27 +803,76 @@ class RuntimeExhaustiveChecker:
                         self._engine = engine
                 except Exception as e:
                     logger.debug(f"Tidak bisa ambil engine untuk ORM discovery (non-fatal): {e}")
+
                 metadata = MetaData()
+
+                # 1) Explicit import of Base from the correct module
                 try:
-                    from infrastructure.persistence_orm import Base
+                    from infrastructure.persistence_orm.base_model import Base
                     if hasattr(Base, "metadata"):
                         metadata = Base.metadata
                         self._metadata = metadata
+                        logger.debug(f"Base.metadata loaded, tables: {len(metadata.tables)}")
                 except ImportError:
+                    pass
+
+                # 2) Fallback: try to import from the package
+                if metadata is None or len(metadata.tables) == 0:
                     try:
-                        import infrastructure.persistence_orm as orm
-                        for attr in dir(orm):
-                            obj = getattr(orm, attr)
-                            if hasattr(obj, "metadata") and hasattr(obj.metadata, "tables"):
-                                metadata = obj.metadata
-                                self._metadata = metadata
-                                break
-                    except:
+                        from infrastructure.persistence_orm import Base as BaseAlt
+                        if hasattr(BaseAlt, "metadata"):
+                            metadata = BaseAlt.metadata
+                            self._metadata = metadata
+                    except ImportError:
+                        try:
+                            import infrastructure.persistence_orm as orm
+                            for attr in dir(orm):
+                                obj = getattr(orm, attr)
+                                if hasattr(obj, "metadata") and hasattr(obj.metadata, "tables"):
+                                    metadata = obj.metadata
+                                    self._metadata = metadata
+                                    break
+                        except Exception:
+                            pass
+
+                # 3) If still empty and engine exists, try reflection
+                if metadata is not None and len(metadata.tables) == 0 and engine is not None:
+                    try:
+                        metadata.reflect(bind=engine)
+                        self._metadata = metadata
+                        logger.debug(f"Reflected {len(metadata.tables)} tables from database")
+                    except Exception as e:
+                        logger.debug(f"Reflection failed: {e}")
+
+                # 4) If still empty, force import of key ORM modules to register tables
+                if metadata is None or len(metadata.tables) == 0:
+                    # Force import of some known ORM modules
+                    try:
+                        import infrastructure.persistence_orm  # triggers __init__ imports
+                    except ImportError:
                         pass
-                if metadata is not None and hasattr(metadata, "tables"):
+                    try:
+                        from infrastructure.persistence_orm import employee_table
+                        from infrastructure.persistence_orm import payroll_run_table
+                        from infrastructure.persistence_orm import payroll_payslip_table
+                        from infrastructure.persistence_orm import payslip_table
+                        from infrastructure.persistence_orm import account_table
+                        from infrastructure.persistence_orm import journal_table
+                        # Add more as needed
+                    except ImportError:
+                        pass
+                    # Retry getting metadata from Base
+                    try:
+                        from infrastructure.persistence_orm.base_model import Base
+                        if hasattr(Base, "metadata") and len(Base.metadata.tables) > 0:
+                            metadata = Base.metadata
+                            self._metadata = metadata
+                    except ImportError:
+                        pass
+
+                # Now evaluate metadata
+                if metadata is not None and hasattr(metadata, "tables") and len(metadata.tables) > 0:
                     table_count = len(metadata.tables)
-                    if table_count == 0:
-                        return "WARN", "Tidak ditemukan model ORM (metadata kosong)", {"table_count": 0}
                     missing_pk = []
                     for name, table in metadata.tables.items():
                         has_pk = any(c.primary_key for c in table.columns)
@@ -856,6 +882,7 @@ class RuntimeExhaustiveChecker:
                         return "WARN", f"{table_count - len(missing_pk)}/{table_count} model memiliki PK. Missing PK: {missing_pk[:5]}", {"missing_pk": missing_pk}
                     return "PASS", f"{table_count} model ORM valid (semua memiliki PK)", {"table_count": table_count}
                 else:
+                    # Fallback to class scanning as before
                     try:
                         import infrastructure.persistence_orm as orm
                         skip_classes = {"Base", "DeclarativeBase", "Model", "AbstractModel"}
@@ -879,7 +906,7 @@ class RuntimeExhaustiveChecker:
                                         has_pk = True
                                         break
                                 model_classes.append({"name": attr, "has_pk": has_pk})
-                            except:
+                            except Exception:
                                 continue
                         total = len(model_classes)
                         with_pk = sum(1 for m in model_classes if m["has_pk"])
@@ -914,7 +941,6 @@ class RuntimeExhaustiveChecker:
         return self._check("Event Bus", _inner, "event", "HIGH")
 
     def check_event_publish_subscribe(self) -> RuntimeCheckResult:
-        """Test publish dan subscribe event - lebih toleran terhadap berbagai implementasi."""
         def _inner():
             try:
                 from ports.primary.event_publisher_port import EventPublisherPort
@@ -924,7 +950,6 @@ class RuntimeExhaustiveChecker:
                 if publisher is None:
                     return "SKIP", "EventPublisherPort tidak bisa di-resolve", {}
 
-                # Buat event dummy
                 class DummyEvent:
                     def __init__(self, data):
                         self.data = data
@@ -933,30 +958,24 @@ class RuntimeExhaustiveChecker:
                 async def handler(event):
                     received.append(event)
 
-                # Coba berbagai metode subscription
                 subscribed = False
 
-                # Method 1: subscribe(event_class, handler)
                 if hasattr(publisher, 'subscribe') and callable(publisher.subscribe):
                     try:
                         async def _test1():
-                            # Coba berbagai signature
                             sig = inspect.signature(publisher.subscribe)
                             params = list(sig.parameters.keys())
                             if len(params) >= 2:
-                                # subscribe(event_class, handler)
                                 result = await publisher.subscribe(DummyEvent, handler)
                                 if result is not None:
                                     subscribed = True
                             elif len(params) == 1:
-                                # subscribe(handler) - mungkin menggunakan decorator
                                 result = await publisher.subscribe(handler)
                                 subscribed = True
                         asyncio.run(_test1())
                     except Exception as e:
                         logger.debug(f"subscribe method 1 failed: {e}")
 
-                # Method 2: register_handler(event_class, handler)
                 if not subscribed and hasattr(publisher, 'register_handler') and callable(publisher.register_handler):
                     try:
                         async def _test2():
@@ -966,7 +985,6 @@ class RuntimeExhaustiveChecker:
                     except Exception as e:
                         logger.debug(f"register_handler failed: {e}")
 
-                # Method 3: on(event_class, handler)
                 if not subscribed and hasattr(publisher, 'on') and callable(publisher.on):
                     try:
                         async def _test3():
@@ -979,7 +997,6 @@ class RuntimeExhaustiveChecker:
                 if not subscribed:
                     return "SKIP", "EventPublisherPort tidak mendukung subscribe/register_handler/on", {}
 
-                # Coba publish
                 if hasattr(publisher, 'publish') and callable(publisher.publish):
                     try:
                         async def _test_pub():
@@ -1025,7 +1042,6 @@ class RuntimeExhaustiveChecker:
         return self._check("Outbox", _inner, "event", "HIGH")
 
     def check_outbox_relay(self) -> RuntimeCheckResult:
-        """Periksa apakah outbox relay berjalan - perbaikan dengan mencari OutboxRelayService."""
         def _inner():
             try:
                 relay_services = [
@@ -1033,13 +1049,13 @@ class RuntimeExhaustiveChecker:
                     "infrastructure.outbox.relay",
                     "application.outbox.relay",
                     "infrastructure.messaging.outbox_processor",
-                    "application.outbox.outbox_relay_service",  # tambahan
+                    "application.outbox.outbox_relay_service",
                 ]
                 relay_class_names = [
                     "OutboxRelay",
                     "RelayOutbox",
                     "OutboxProcessor",
-                    "OutboxRelayService",  # tambahan
+                    "OutboxRelayService",
                 ]
                 for mod_name in relay_services:
                     try:
@@ -1052,7 +1068,6 @@ class RuntimeExhaustiveChecker:
                     except ImportError:
                         continue
 
-                # Cek juga di container
                 if self._container is not None:
                     try:
                         self._container.resolve("OutboxRelayPort")
@@ -1073,7 +1088,6 @@ class RuntimeExhaustiveChecker:
     # 6. Domain & CQRS (Weight: 10%)
     # -------------------------------------------------------------------------
     def check_domain_invariants(self) -> RuntimeCheckResult:
-        """Verifikasi invariant pada aggregate (contoh: non-negative balance)."""
         def _inner():
             try:
                 from domain.journal import JournalAggregate
@@ -1083,7 +1097,6 @@ class RuntimeExhaustiveChecker:
         return self._check("Domain Invariants", _inner, "domain", "MEDIUM")
 
     def check_cqrs_pipeline(self) -> RuntimeCheckResult:
-        """Periksa command/query handler registration."""
         def _inner():
             command_bus_modules = [
                 "application.commands.command_bus",
@@ -1118,7 +1131,6 @@ class RuntimeExhaustiveChecker:
         return self._check("CQRS Pipeline", _inner, "domain", "HIGH")
 
     def check_saga_workflow(self) -> RuntimeCheckResult:
-        """Deteksi saga atau workflow."""
         def _inner():
             saga_modules = [
                 "application.sagas",
@@ -1140,7 +1152,6 @@ class RuntimeExhaustiveChecker:
     # 7. Code Quality (Weight: 5%)
     # -------------------------------------------------------------------------
     def check_circular_dependency(self) -> RuntimeCheckResult:
-        """Deteksi circular dependency antar modul (sederhana)."""
         def _inner():
             import ast
             import os
@@ -1198,7 +1209,6 @@ class RuntimeExhaustiveChecker:
     # 8. Repository CRUD (Weight: 5%)
     # -------------------------------------------------------------------------
     def check_repository_crud(self) -> RuntimeCheckResult:
-        """Test CRUD dasar pada repository (butuh data dummy)."""
         def _inner():
             repo_names = ["AccountRepositoryPort", "ARRepositoryPort"]
             for repo_name in repo_names:
@@ -1223,7 +1233,6 @@ class RuntimeExhaustiveChecker:
     # 9. Migration & Schema (Weight: 5%)
     # -------------------------------------------------------------------------
     def check_migration_schema(self) -> RuntimeCheckResult:
-        """Periksa status migrasi (Alembic)."""
         def _inner():
             try:
                 from alembic import command
@@ -1248,13 +1257,11 @@ class RuntimeExhaustiveChecker:
     # 10. Performance & Latency (Weight: 5%)
     # -------------------------------------------------------------------------
     def check_performance_benchmark(self) -> RuntimeCheckResult:
-        """Benchmark query sederhana - perbaikan dengan session factory yang valid."""
         def _inner():
-            # Pastikan session_factory tersedia
             session_factory = self._session_factory
             if session_factory is None:
                 try:
-                    from infrastructure.database import session_factory_sqlalchemy as sf_module
+                    import infrastructure.database.session_factory_sqlalchemy as sf_module
                     wrapper = asyncio.run(sf_module.get_session_factory())
                     session_factory = wrapper.get_session_factory()
                     self._session_factory = session_factory
@@ -1268,10 +1275,8 @@ class RuntimeExhaustiveChecker:
 
             try:
                 import time
-
                 from sqlalchemy import text
 
-                # Pastikan engine bisa digunakan
                 if self._engine is None:
                     return "SKIP", "Engine tidak tersedia", {}
 
@@ -1283,7 +1288,7 @@ class RuntimeExhaustiveChecker:
                     return time.perf_counter() - start
 
                 elapsed = self._run_async_safely(_bench())
-                avg = (elapsed / 10) * 1000  # ms
+                avg = (elapsed / 10) * 1000
                 if avg < 5:
                     status = "PASS"
                     msg = f"Query latency rata-rata {avg:.2f}ms (sangat baik)"
@@ -1305,11 +1310,9 @@ class RuntimeExhaustiveChecker:
     # 11. Resource Leak Detection (Weight: 5%)
     # -------------------------------------------------------------------------
     def check_resource_leak(self) -> RuntimeCheckResult:
-        """Deteksi resource leak dengan tracemalloc dan weakref."""
         def _inner():
             tracemalloc.start()
             snapshot1 = tracemalloc.take_snapshot()
-            # Buat objek yang bisa di-weakref
             class LeakTest:
                 def __init__(self):
                     self.data = [i for i in range(100000)]
@@ -1342,7 +1345,6 @@ class RuntimeExhaustiveChecker:
     # 12. Cache (Weight: 2%)
     # -------------------------------------------------------------------------
     def check_cache(self) -> RuntimeCheckResult:
-        """Periksa ketersediaan cache adapter."""
         def _inner():
             try:
                 import infrastructure.caching.cache_adapter
@@ -1356,10 +1358,8 @@ class RuntimeExhaustiveChecker:
     # 13. Dispose resources - perbaikan event loop
     # -------------------------------------------------------------------------
     def dispose(self):
-        """Dispose engine dengan aman, menghindari RuntimeError."""
         if self._engine is not None:
             try:
-                # Coba close engine tanpa event loop
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
@@ -1375,7 +1375,7 @@ class RuntimeExhaustiveChecker:
     # -------------------------------------------------------------------------
     # 14. Run All Checks
     # -------------------------------------------------------------------------
-    _CHECK_STATUS_SCORE = {"PASS": 100.0, "WARN": 60.0, "FAIL": 0.0}  # SKIP excluded
+    _CHECK_STATUS_SCORE = {"PASS": 100.0, "WARN": 60.0, "FAIL": 0.0}
 
     _CHECK_TIER_WEIGHT = {
         "Bootstrap": 5,
@@ -1570,9 +1570,6 @@ def print_report(report: RuntimeReport, verbose: bool = False):
                         detail_str = detail_str[:200] + "..."
                     print(f"     📌 {detail_str}")
 
-        # Actionable items with priority - hanya tampil kalau memang ada
-        # FAIL/WARN untuk ditindaklanjuti (kalau semua PASS, tidak perlu
-        # header kosong walau --verbose aktif).
         if report.failed > 0 or report.warnings > 0:
             print(f"\n{c['BOLD']}🔧 ACTIONABLE ITEMS (Prioritas){c['RESET']}")
         item_id = 1

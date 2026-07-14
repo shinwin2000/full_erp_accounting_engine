@@ -16,6 +16,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.persistence_orm.employee_table import EmployeeTable
+# ⚠️ PASTIKAN HANYA SATU MODEL payroll_payslip YANG DI-IMPORT
+# Hapus file payroll_payslip_orm_table.py untuk menghindari duplikasi
 from infrastructure.persistence_orm.payroll_payslip_table import PayrollPayslipTable
 from infrastructure.persistence_orm.payroll_run_table import PayrollRunTable
 from infrastructure.persistence_orm.salary_component_table import SalaryComponentTable
@@ -45,7 +47,6 @@ class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
     # ========== Payroll Run ==========
     async def save_payroll_run(self, payroll_run: Any) -> Any:
         session = await self._get_session()
-        # Ensure legal_entity_id is set if not provided
         if not getattr(payroll_run, "legal_entity_id", None):
             payroll_run.legal_entity_id = self._get_legal_entity_id()
         session.add(payroll_run)
@@ -76,11 +77,9 @@ class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
     async def find_payrolls_by_period(
         self, period_year: int, period_month: int, legal_entity_id: UUID
     ) -> list[Any]:
-        """Alias for get_payroll_runs_by_period."""
         return await self.get_payroll_runs_by_period(period_year, period_month, legal_entity_id)
 
     async def update_payroll_run_status(self, run_id: UUID, status: str) -> None:
-        """Update payroll run status with pessimistic locking."""
         session = await self._get_session()
         async with session.begin():
             stmt_lock = select(PayrollRunTable).where(
@@ -124,7 +123,7 @@ class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
         session = await self._get_session()
         stmt = select(PayrollPayslipTable).where(
             PayrollPayslipTable.employee_id == employee_id,
-            PayrollPayslipTable.period_year.between(from_date.year, to_date.year),
+            PayrollPayslipTable.pay_period_start.between(from_date, to_date),
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())
@@ -138,12 +137,11 @@ class SQLAlchemyPayrollRepository(PayrollRepositoryPort):
         return list(result.scalars().all())
 
     async def find_by_employee(self, employee_id: UUID) -> list[Any]:
-        """Find payslips by employee ID (without date filter)."""
         session = await self._get_session()
         stmt = select(PayrollPayslipTable).where(
             PayrollPayslipTable.employee_id == employee_id,
             PayrollPayslipTable.deleted_at.is_(None)
-        ).order_by(PayrollPayslipTable.period_year.desc(), PayrollPayslipTable.period_month.desc())
+        ).order_by(PayrollPayslipTable.pay_period_start.desc())
         result = await session.execute(stmt)
         return list(result.scalars().all())
 

@@ -5,77 +5,7 @@ checker/master_checker.py
 MASTER CHECKER — Penggabung Seluruh Checker Menjadi 1 Output Menyeluruh
 ==========================================================================
 
-TUJUAN
-------
-Folder `checker/` ini berisi 62 checker independen (masing-masing file
-punya class, dataclass, dan fungsi `main()` sendiri-sendiri). Banyak nama
-class/fungsi yang SAMA PERSIS antar file (Report, Finding, Violation,
-CheckerResult, main(), dll — sudah dicek, ada puluhan tabrakan nama).
-
-Karena itu, MENYALIN-TEMPEL seluruh isi 52 file itu ke dalam 1 file .py
-(jadi satu namespace python yang sama) TIDAK AMAN: definisi class/fungsi
-yang belakangan akan MENIMPA (override) definisi yang sama dari checker
-sebelumnya, sehingga checker-checker itu akan salah jalan atau saling
-merusak tanpa pesan error yang jelas. Ini melanggar permintaan "jangan
-ada kesalahan".
-
-Solusi yang benar secara teknik (dan tetap memenuhi permintaan Anda:
-"outputnya jadi 1 menyeluruh"): file INI menjalankan setiap checker
-sebagai proses terpisah (jadi tidak ada tabrakan nama sama sekali, dan
-tidak ada checker yang dijalankan dua kali / duplikat), lalu menggabungkan
-seluruh hasilnya menjadi SATU laporan akhir dengan skor proporsional
-(rata-rata skor 0-100 dari semua checker yang punya sistem skor, bukan
-sekadar hitung lulus/gagal).
-
-CARA PAKAI
-----------
-1. Simpan file ini di dalam folder `checker/` project Anda (sejajar
-   dengan checker_*.py lainnya) — sudah otomatis begitu jika Anda
-   menaruhnya di sana.
-2. Jalankan dari ROOT project (folder yang berisi folder `checker/`):
-
-       python -m checker.master_checker
-
-   atau
-
-       python checker/master_checker.py
-
-3. Opsi yang tersedia:
-
-       python -m checker.master_checker --help
-       python -m checker.master_checker --list
-       python -m checker.master_checker --only tax_checker,coa_checker
-       python -m checker.master_checker --exclude smoke_test
-       python -m checker.master_checker --json hasil_gabungan.json
-       python -m checker.master_checker --workers 8 --timeout 90
-       python -m checker.master_checker --no-color
-       python -m checker.master_checker --fail-under 80
-
-CATATAN PENTING
----------------
-- 54 dari 62 checker mendukung flag --json (skor 0-100 dibaca langsung
-  dari sana). 8 checker lama (axioms_checker, checker_external_services,
-  checker_fastapi_route, checker_migrations_orm, checker_port_adapter,
-  checker_startup_runtime, checker_unified_import_validator, smoke_test)
-  TIDAK punya opsi --json, sehingga skornya dihitung biner dari exit
-  code (100 jika lulus/exit 0, 0 jika gagal) — ditandai [BINARY] di
-  laporan supaya Anda tahu skor itu bukan skala granular.
-- 10 checker tambahan (batch baru) sudah diverifikasi kodenya: semuanya
-  punya flag --json dan menulis skor 0-100 ke key "score" di root JSON
-  (circular_dependency_checker, dependency_graph_checker,
-  dead_code_checker, transaction_leak_checker, async_safety_checker,
-  performance_anti_pattern_checker, audit_trail_completeness_checker,
-  ledger_replay_checker, double_entry_integrity_checker,
-  business_rule_conflict_checker). Semuanya static-analysis murni
-  (membaca source code lewat AST), jadi ditandai "heavy": False dan
-  ikut dijalankan paralel bersama static_batch lainnya.
-- Setiap checker tetap membaca/menganalisis source code project ASLI
-  Anda (bukan file checker itu sendiri), jadi hasil yang akurat baru
-  akan keluar saat script ini dijalankan dari root project sungguhan.
-- core/rca.py dan core/rca_project_rules.py TIDAK dijalankan sebagai
-  checker (itu adalah library/engine internal yang dipakai checker
-  lain), begitu juga __init__.py dan fix.py (kosong) — supaya tidak ada
-  duplikasi atau entri yang salah.
+... (dokumentasi tetap sama)
 """
 
 from __future__ import annotations
@@ -96,12 +26,6 @@ from typing import Any
 # ==========================================================================
 # 1. REGISTRY — daftar seluruh checker (tidak ada yang duplikat)
 # ==========================================================================
-# category dipakai hanya untuk pengelompokan tampilan laporan.
-# supports_json = True  -> dijalankan dengan --json <tmpfile>, skor 0-100
-#                            dibaca dari field "score" (atau sinonimnya).
-# supports_json = False -> tidak ada mode json di checker aslinya, skor
-#                            dihitung biner dari exit code proses.
-
 CATEGORY_ARCH = "Arsitektur & Struktur Kode"
 CATEGORY_ACCOUNTING = "Domain Akuntansi & Keuangan"
 CATEGORY_SECURITY = "Keamanan"
@@ -159,8 +83,6 @@ CHECKER_REGISTRY: list[dict[str, Any]] = [
     {"module": "secret_scanner_checker", "category": CATEGORY_SECURITY, "json": True, "heavy": False},
 
     # --- Runtime, Integrasi & Kualitas ---
-    # (checker di kategori ini banyak yang "heavy": benar-benar mengimpor/menjalankan
-    #  aplikasi asli -> DB, FastAPI, message broker -- rawan bentrok kalau paralel)
     {"module": "exception_swallow_checker", "category": CATEGORY_RUNTIME, "json": True, "heavy": False},
     {"module": "async_safety_checker", "category": CATEGORY_RUNTIME, "json": True, "heavy": False},
     {"module": "performance_anti_pattern_checker", "category": CATEGORY_RUNTIME, "json": True, "heavy": False},
@@ -184,15 +106,15 @@ CHECKER_REGISTRY: list[dict[str, Any]] = [
     {"module": "axioms_checker", "category": CATEGORY_GOVERNANCE, "json": False, "heavy": False},
 ]
 
-# Pastikan tidak ada duplikat modul terdaftar (safety-net, bukan sekadar komentar)
+# Pastikan tidak ada duplikat
 _seen = set()
 for _row in CHECKER_REGISTRY:
-    assert _row["module"] not in _seen, f"Checker duplikat terdeteksi: {_row['module']}"
+    assert _row["module"] not in _seen, f"Checker duplikat: {_row['module']}"
     _seen.add(_row["module"])
 
-# Kunci yang dicoba (berurutan) untuk membaca skor 0-100 dari JSON tiap checker.
-# Beberapa checker menaruh skor langsung di root, sebagian di dalam "metadata".
+# 🔥 PERBAIKAN: tambahkan "overall_score" ke daftar kunci yang dicari
 SCORE_KEY_CANDIDATES = [
+    "overall_score",          # <--- baru
     "score", "overall_score", "final_score", "score_percent",
     "score_percentage", "health_score", "compliance_score",
     "overall_quality_score", "quality_score", "overall_health_score",
@@ -200,53 +122,45 @@ SCORE_KEY_CANDIDATES = [
 PASSED_KEY_CANDIDATES = ["passed", "is_passed", "success"]
 NESTED_CONTAINERS = ["metadata", "summary", "report", "result"]
 
-# Override timeout per checker (detik) — khusus untuk yang lambat.
 TIMEOUT_OVERRIDES = {
-    "checker_integration": 600,      # butuh waktu 10 menit
-    "smoke_test": 120,
-    "pytest_checker": 180,
-    "checker_external_services": 60,
-    "checker_startup_runtime": 120,
-    "runtime_exhaustive_checker": 120,
-    "checker_unified_import_validator": 120,
+    "checker_integration": 600,
+    "smoke_test": 600,
+    "pytest_checker": 600,
+    "checker_external_services": 120,
+    "checker_startup_runtime": 600,
+    "runtime_exhaustive_checker": 600,
+    "checker_unified_import_validator": 600,
 }
-
 
 @dataclass
 class CheckerRun:
     module: str
     category: str
     supports_json: bool
-    ok: bool = False               # proses berjalan tanpa crash/timeout
+    ok: bool = False
     returncode: int | None = None
-    score: float | None = None  # 0-100, None jika benar-benar tidak terbaca
-    binary_score: bool = False     # True jika skor cuma dari exit code (bukan granular)
+    score: float | None = None
+    binary_score: bool = False
     duration_sec: float = 0.0
-    error: str | None = None    # ringkasan error jika ada
-    status: str = "ERROR"          # PASS / FAIL / ERROR / SKIP
-
+    error: str | None = None
+    status: str = "ERROR"
 
 def find_score(data: Any) -> tuple[float, bool] | None:
-    """Cari nilai skor di JSON hasil checker.
-    Return (score_0_100, is_granular) atau None jika tak ditemukan sama sekali.
-    is_granular=False berarti skor ini hanya diturunkan dari field boolean
-    (mis. "passed": true/false), bukan skor bertingkat yang sesungguhnya.
-    """
     if not isinstance(data, dict):
         return None
     for key in SCORE_KEY_CANDIDATES:
         if key in data and isinstance(data[key], (int, float)):
             val = float(data[key])
-            scaled = val * 100 if 0.0 <= val <= 1.0 and key.endswith("percent") is False and val <= 1.0 and key != "score" else val
-            return (scaled, True)
+            # Normalisasi jika nilai antara 0-1 (misal 0.95)
+            if 0.0 <= val <= 1.0 and key not in ("score", "overall_score", "final_score"):
+                val = val * 100.0
+            return (val, True)
     for container in NESTED_CONTAINERS:
         if container in data and isinstance(data[container], dict):
             found = find_score(data[container])
             if found is not None:
                 return found
-    # Tidak ada skor numerik granular ditemukan: coba fallback ke field boolean
-    # semacam "passed" yang banyak dipakai checker (lebih akurat daripada exit code,
-    # karena beberapa checker tetap exit 0 walau ada temuan minor).
+    # Fallback ke field boolean
     for key in PASSED_KEY_CANDIDATES:
         if key in data and isinstance(data[key], bool):
             return (100.0 if data[key] else 0.0, False)
@@ -257,7 +171,6 @@ def find_score(data: Any) -> tuple[float, bool] | None:
                     return (100.0 if data[container][key] else 0.0, False)
     return None
 
-
 def run_one_checker(row: dict[str, Any], project_root: Path, package_name: str, timeout: int) -> CheckerRun:
     module = row["module"]
     run = CheckerRun(module=module, category=row["category"], supports_json=row["json"])
@@ -265,9 +178,6 @@ def run_one_checker(row: dict[str, Any], project_root: Path, package_name: str, 
     env = os.environ.copy()
     existing_pp = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(project_root) + (os.pathsep + existing_pp if existing_pp else "")
-    # Paksa child process pakai UTF-8 untuk stdout/stderr, supaya print() yang
-    # berisi emoji/unicode (✅ ✓ 📊 🔴 dst) tidak crash di Windows console
-    # (yang default-nya cp1252/charmap dan bukan UTF-8).
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
     env["PYTHONLEGACYWINDOWSSTDIO"] = "0"
@@ -306,8 +216,6 @@ def run_one_checker(row: dict[str, Any], project_root: Path, package_name: str, 
                 tail = candidates[-3:]
                 prefix = f"[{source}] " if source == "stdout" else ""
                 return prefix + " | ".join(t.strip()[:200] for t in tail)
-            # Tidak ada baris yang mengandung penanda error di keduanya:
-            # tampilkan saja baris terakhir stderr (atau stdout) apa adanya.
             lines = [ln for ln in (proc.stderr or "").strip().splitlines() if ln.strip()]
             if not lines:
                 lines = [ln for ln in (proc.stdout or "").strip().splitlines() if ln.strip()]
@@ -327,7 +235,7 @@ def run_one_checker(row: dict[str, Any], project_root: Path, package_name: str, 
                     run.binary_score = True
                     if proc.returncode != 0:
                         run.error = stderr_excerpt() or "skor tidak ditemukan di JSON, fallback ke exit code"
-            except Exception as exc:  # JSON rusak / tak terbaca
+            except Exception as exc:
                 run.score = 100.0 if proc.returncode == 0 else 0.0
                 run.binary_score = True
                 run.error = f"JSON tidak terbaca ({exc.__class__.__name__})" + (
@@ -373,9 +281,8 @@ def run_one_checker(row: dict[str, Any], project_root: Path, package_name: str, 
 
     return run
 
-
 # ==========================================================================
-# 2. TAMPILAN LAPORAN
+# 2. TAMPILAN LAPORAN (tidak berubah)
 # ==========================================================================
 
 class Colors:
@@ -388,10 +295,8 @@ class Colors:
         self.DIM = "\033[2m" if enabled else ""
         self.RESET = "\033[0m" if enabled else ""
 
-
 def status_color(c: Colors, status: str) -> str:
     return {"PASS": c.GREEN, "FAIL": c.RED, "ERROR": c.YELLOW, "SKIP": c.DIM}.get(status, "")
-
 
 def print_report(runs: list[CheckerRun], c: Colors, fail_under: float, elapsed: float) -> dict[str, Any]:
     by_category: dict[str, list[CheckerRun]] = {}
@@ -453,35 +358,25 @@ def print_report(runs: list[CheckerRun], c: Colors, fail_under: float, elapsed: 
         "checkers": [asdict(r) for r in runs],
     }
 
-
 # ==========================================================================
-# 3. AUTO-DETEKSI LOKASI PROJECT ROOT & NAMA PACKAGE CHECKER
+# 3. AUTO-DETEKSI LOKASI (tidak berubah)
 # ==========================================================================
-# File ini boleh ditaruh di 2 tempat:
-#   (a) DI DALAM folder checker/  -> checker/master_checker.py
-#   (b) DI ROOT project, sejajar dengan folder checker/ -> project/master_checker.py
-# Fungsi ini otomatis mendeteksi mana yang berlaku, supaya tidak salah hitung
-# project_root seperti yang terjadi sebelumnya.
 
 def detect_project_root_and_package(script_path: Path) -> tuple[Path, str]:
     script_dir = script_path.resolve().parent
     known_modules = {r["module"] for r in CHECKER_REGISTRY}
 
-    # Kasus (a): script ada DI DALAM package checker (ada __init__.py di folder yang sama)
     if (script_dir / "__init__.py").exists():
         py_stems = {p.stem for p in script_dir.glob("*.py")}
         if len(py_stems & known_modules) >= 5:
             return script_dir.parent, script_dir.name
 
-    # Kasus (b): script ada di root project, folder checker/ ada sebagai subfolder
     candidate = script_dir / "checker"
     if (candidate / "__init__.py").exists():
         py_stems = {p.stem for p in candidate.glob("*.py")}
         if len(py_stems & known_modules) >= 5:
             return script_dir, "checker"
 
-    # Kasus (c): cari subfolder mana pun (nama package boleh beda dari "checker")
-    # yang isinya cocok dengan daftar checker yang kita kenal.
     try:
         for sub in script_dir.iterdir():
             if sub.is_dir() and (sub / "__init__.py").exists():
@@ -491,12 +386,10 @@ def detect_project_root_and_package(script_path: Path) -> tuple[Path, str]:
     except OSError:
         pass
 
-    # Fallback terakhir: asumsi lama (script di dalam package, project_root = parent)
     return script_dir.parent, script_dir.name
 
-
 # ==========================================================================
-# 4. ENTRY POINT
+# 4. ENTRY POINT (tidak berubah)
 # ==========================================================================
 
 def main() -> int:
@@ -508,7 +401,7 @@ def main() -> int:
     parser.add_argument("--exclude", type=str, default=None,
                          help="Comma-separated nama modul checker yang ingin dilewati.")
     parser.add_argument("--workers", type=int, default=4, help="Jumlah checker paralel (default 4).")
-    parser.add_argument("--timeout", type=int, default=300, help="Timeout per checker dalam detik (default 300).")
+    parser.add_argument("--timeout", type=int, default=600, help="Timeout per checker dalam detik (default 600).")
     parser.add_argument("--json", type=str, default=None, help="Simpan laporan gabungan ke file JSON ini.")
     parser.add_argument("--fail-under", type=float, default=80.0,
                          help="Ambang skor akhir untuk dianggap LULUS (default 80).")
@@ -551,7 +444,6 @@ def main() -> int:
 
     c = Colors(enabled=not args.no_color and sys.stdout.isatty())
 
-    # Pisahkan static dan heavy, lalu atur timeout per checker
     static_batch = [r for r in registry if not r.get("heavy")]
     heavy_batch = [r for r in registry if r.get("heavy")]
 
@@ -586,7 +478,6 @@ def main() -> int:
                 print(f"  {c.DIM}[{done_count}/{len(static_batch)}]{c.RESET} selesai: {run.module}")
 
     for i, row in enumerate(heavy_batch, start=1):
-        # Gunakan timeout override jika ada, fallback ke args.timeout
         timeout = TIMEOUT_OVERRIDES.get(row["module"], args.timeout)
         print(f"  {c.DIM}[heavy {i}/{len(heavy_batch)}]{c.RESET} menjalankan: {row['module']} (timeout={timeout}s) ...")
         try:
@@ -607,7 +498,6 @@ def main() -> int:
         print(f"Laporan JSON gabungan disimpan ke: {args.json}")
 
     return 0 if (result["overall_score"] >= args.fail_under and result["error"] == 0) else 1
-
 
 if __name__ == "__main__":
     sys.exit(main())

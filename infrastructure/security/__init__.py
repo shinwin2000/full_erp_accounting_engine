@@ -64,8 +64,9 @@ except ImportError:
     FieldDecryptionService = None
     decrypt_field = None
 
+# 🔥 PERBAIKAN: typo 'ases' menjadi 'aes'
 try:
-    from .field_encryption_ases256_gcm import (
+    from .field_encryption_aes256_gcm import (  # <-- typo diperbaiki
         FieldEncryptionAES256GCM,
         decrypt_field_aes,
         encrypt_field,

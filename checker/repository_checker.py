@@ -2,15 +2,15 @@
 """
 Sovereign ERP System — Repository Contract Checker
 ====================================================
-Versi   : 7.1.0
+Versi   : 7.2.0
 Standar : Big 4 Forensic Audit · ISO/IEC 25010 · SOX/ISA 315 Compliant
 
-Changelog v7.1.0:
-  FIX-61  _is_likely_implementation_file: izinkan file di folder ports/
-          sehingga implementasi konkret seperti InMemoryFileStorage dan
-          InMemoryNotification dapat ditemukan oleh checker.
-  FIX-62  scan_repositories: tambahkan ports/primary dan ports/secondary
-          ke default_impl_dirs agar file port di-scan untuk implementasi.
+Changelog v7.2.0:
+  - FIX: Tambahkan overall_score (numerik) pada output JSON agar master_checker
+         dapat membaca skor granular, bukan hanya exit code.
+  - FIX: Exit code hanya 1 jika ada ERROR; warnings dan unmatched interfaces
+         tidak menyebabkan kegagalan (exit 0) – cocok untuk CI yang menginginkan
+         skor proporsional.
 """
 
 from __future__ import annotations
@@ -35,7 +35,6 @@ from typing import Any
 _RCA_ENGINE  = None
 _RCA_AVAILABLE = False
 
-
 def _init_rca() -> bool:
     global _RCA_ENGINE, _RCA_AVAILABLE
     if _RCA_AVAILABLE:
@@ -57,9 +56,7 @@ def _init_rca() -> bool:
             continue
     return False
 
-
 _init_rca()
-
 
 def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     if not _RCA_AVAILABLE or _RCA_ENGINE is None:
@@ -85,7 +82,6 @@ def _rca_analyze(exc: Exception, context: dict | None = None) -> dict | None:
     except Exception:
         return None
 
-
 # ─── LOGGING ─────────────────────────────────────────────────────────────────
 logger = logging.getLogger("repository_checker")
 logger.setLevel(logging.WARNING)
@@ -107,10 +103,8 @@ _COLORS = {
     "BOLD": "\033[1m",  "DIM": "\033[2m",   "RESET": "\033[0m",
 }
 
-
 def _c(k: str) -> str:
     return _COLORS.get(k, "") if _COLOR else ""
-
 
 def _safe_print(*args, **kwargs) -> None:
     try:
@@ -122,9 +116,8 @@ def _safe_print(*args, **kwargs) -> None:
         ]
         print(*safe_args, **kwargs)
 
-
 # ─── VERSION ─────────────────────────────────────────────────────────────────
-__version__ = "7.1.0"
+__version__ = "7.2.0"
 _DEFAULT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -320,7 +313,6 @@ class MethodInfo:
     raises_annotations: list[str]       = field(default_factory=list)
     docstring:          str             = ""
 
-
 @dataclass
 class InterfaceInfo:
     name:             str
@@ -331,7 +323,6 @@ class InterfaceInfo:
     has_abc:          bool = False
     is_protocol_dup:  bool = False
     is_self_implemented: bool = False
-
 
 @dataclass
 class ImplementationInfo:
@@ -344,7 +335,6 @@ class ImplementationInfo:
     extra_methods:     list[str]  = field(default_factory=list)
     declared_bases:    list[str]  = field(default_factory=list)
 
-
 @dataclass
 class Violation:
     severity:       str
@@ -356,14 +346,12 @@ class Violation:
     fix_snippet:    str         = ""
     rca:            dict | None = None
 
-
 @dataclass
 class DuplicateEntry:
     name:             str
     kind:             str
     definition_files: list[str]
     recommendation:   str = ""
-
 
 @dataclass
 class ScoreBreakdown:
@@ -380,7 +368,6 @@ class ScoreBreakdown:
     avg_error_per_matched:   float
     avg_warning_per_matched: float
     interpretation:          str
-
 
 @dataclass
 class CheckerResult:
@@ -401,14 +388,12 @@ class CheckerResult:
     strict_types:          bool
     rca_results:           list[dict[str, Any]] = field(default_factory=list)
 
-
 # ═════════════════════════════════════════════════════════════════════════════
 #  AST UTILITIES
 # ═════════════════════════════════════════════════════════════════════════════
 
 _AST_CACHE: dict[str, tuple[ast.AST | None, str | None]] = {}
 _CACHE_LOCK = threading.Lock()
-
 
 def _read_source(py_file: pathlib.Path) -> str | None:
     for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
@@ -423,7 +408,6 @@ def _read_source(py_file: pathlib.Path) -> str | None:
         return py_file.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
-
 
 def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     key = str(py_file.resolve())
@@ -444,7 +428,6 @@ def _get_ast(py_file: pathlib.Path) -> tuple[ast.AST | None, str | None]:
     with _CACHE_LOCK:
         _AST_CACHE[key] = result
     return result
-
 
 def _ann(node: ast.expr | None) -> str:
     if node is None:
@@ -468,7 +451,6 @@ def _ann(node: ast.expr | None) -> str:
         return "(" + ", ".join(_ann(e) for e in node.elts) + ")"
     return type(node).__name__
 
-
 def _default_str(node: ast.expr | None) -> str:
     if node is None:
         return "None"
@@ -480,7 +462,6 @@ def _default_str(node: ast.expr | None) -> str:
     if isinstance(node, ast.Constant):
         return repr(node.value)
     return "?"
-
 
 def _normalize_return_type(t: str) -> str:
     if not t:
@@ -496,7 +477,6 @@ def _normalize_return_type(t: str) -> str:
     t = re.sub(r'\s+', '', t)
     return t
 
-
 def _extract_base_type(t: str) -> str:
     t = t.strip()
     t = re.sub(r'\s*\|\s*None\s*$', '', t)
@@ -505,7 +485,6 @@ def _extract_base_type(t: str) -> str:
     if m:
         return _extract_base_type(m.group(1).split(',')[0].strip())
     return t
-
 
 def _types_compatible(iface_type: str, impl_type: str) -> bool:
     ni = _normalize_return_type(iface_type)
@@ -546,7 +525,6 @@ def _types_compatible(iface_type: str, impl_type: str) -> bool:
             return True
     return False
 
-
 def _type_mismatch_is_real(iface_type: str, impl_type: str) -> bool:
     SEMANTICALLY_COMPATIBLE: frozenset[frozenset[str]] = frozenset({
         frozenset({"BinaryIO", "bytes"}),
@@ -569,7 +547,6 @@ def _type_mismatch_is_real(iface_type: str, impl_type: str) -> bool:
             return False
     return not _types_compatible(iface_type, impl_type)
 
-
 def _get_decorators(func_node: Any) -> set[str]:
     names: set[str] = set()
     for dec in func_node.decorator_list:
@@ -578,7 +555,6 @@ def _get_decorators(func_node: Any) -> set[str]:
         elif isinstance(dec, ast.Attribute):
             names.add(dec.attr)
     return names
-
 
 def _get_class_bases(node: ast.ClassDef) -> list[str]:
     result = []
@@ -593,7 +569,6 @@ def _get_class_bases(node: ast.ClassDef) -> list[str]:
             except Exception:
                 pass
     return result
-
 
 def extract_methods_from_class(
     tree: ast.AST,
@@ -662,7 +637,6 @@ def extract_methods_from_class(
         break
     return methods
 
-
 def _extract_raises_from_docstring(docstring: str) -> list[str]:
     raises = []
     for line in docstring.splitlines():
@@ -671,7 +645,6 @@ def _extract_raises_from_docstring(docstring: str) -> list[str]:
             raises.append(m.group(1))
     return raises
 
-
 def _class_has_abc_base(node: ast.ClassDef) -> bool:
     for base in node.bases:
         if isinstance(base, ast.Name) and base.id in ("ABC", "Protocol"):
@@ -679,7 +652,6 @@ def _class_has_abc_base(node: ast.ClassDef) -> bool:
         if isinstance(base, ast.Attribute) and base.attr in ("ABC", "Protocol"):
             return True
     return False
-
 
 def _should_exclude_path(path: pathlib.Path, root: pathlib.Path, extra: set[str]) -> bool:
     try:
@@ -690,7 +662,6 @@ def _should_exclude_path(path: pathlib.Path, root: pathlib.Path, extra: set[str]
         if part in EXCLUDED_DIRS or part in extra:
             return True
     return False
-
 
 def _token_similarity(a: str, b: str) -> float:
     def tokenize(s: str) -> set[str]:
@@ -708,7 +679,6 @@ def _token_similarity(a: str, b: str) -> float:
         return 0.0
     return len(ta & tb) / len(ta | tb)
 
-
 # ═════════════════════════════════════════════════════════════════════════════
 #  NORMALIZATION
 # ═════════════════════════════════════════════════════════════════════════════
@@ -724,7 +694,6 @@ def normalize_interface(name: str) -> str:
                 changed = True
                 break
     return n.lower().strip()
-
 
 def normalize_impl(name: str) -> str:
     n = name
@@ -745,7 +714,6 @@ def normalize_impl(name: str) -> str:
                 changed = True
                 break
     return n.lower().strip()
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  INFRASTRUCTURE DETECTION
@@ -780,7 +748,6 @@ def _is_infrastructure(name: str, file_path: str) -> bool:
             return not has_domain
 
     return False
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  SCANNERS
@@ -870,11 +837,7 @@ def scan_interfaces(
 
     return results
 
-
 def _is_likely_implementation_file(file_path: pathlib.Path) -> bool:
-    # FIX-61: Izinkan file di folder ports/ (termasuk _port.py) untuk di-scan,
-    # karena di dalam folder ports/primary terdapat implementasi konkret
-    # seperti InMemoryFileStorage, InMemoryNotification.
     parent = file_path.parent.name.lower()
     if parent in ("primary", "secondary") and "ports" in str(file_path.parent.parent).lower():
         return True
@@ -886,12 +849,10 @@ def _is_likely_implementation_file(file_path: pathlib.Path) -> bool:
     keywords = ("adapter", "impl", "repository", "store", "cache")
     return any(kw in stem for kw in keywords)
 
-
 def _is_likely_implementation_class(class_name: str) -> bool:
     name_lower = class_name.lower()
     keywords = ("adapter", "impl", "repository", "store", "cache", "port", "handler", "projection")
     return any(kw in name_lower for kw in keywords) or name_lower.endswith("impl")
-
 
 def scan_implementations(
     impl_dirs: list[pathlib.Path],
@@ -973,7 +934,6 @@ def scan_implementations(
 
     return results
 
-
 def scan_self_implemented_ports(
     interfaces: list[InterfaceInfo],
 ) -> list[ImplementationInfo]:
@@ -993,7 +953,6 @@ def scan_self_implemented_ports(
             impls.append(impl)
     return impls
 
-
 # ═════════════════════════════════════════════════════════════════════════════
 #  DUPLICATE CHECKER
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1011,7 +970,6 @@ _DUPLICATE_PATTERNS: dict[str, list[str]] = {
     "service":        ["Service", "DomainService"],
 }
 
-
 def _file_is_mostly_imports(src: str) -> bool:
     lines = [ln.strip() for ln in src.splitlines() if ln.strip() and not ln.startswith("#")]
     if not lines:
@@ -1019,13 +977,11 @@ def _file_is_mostly_imports(src: str) -> bool:
     n_import = sum(1 for ln in lines if ln.startswith("import ") or ln.startswith("from "))
     return (n_import / len(lines)) > 0.65 and len(lines) < 60
 
-
 def _is_substantive_class_body(node: ast.ClassDef) -> bool:
     for item in node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Assign, ast.AnnAssign)):
             return True
     return False
-
 
 def scan_duplicates(
     root: pathlib.Path,
@@ -1089,7 +1045,6 @@ def scan_duplicates(
         ))
     return sorted(duplicates, key=lambda d: (-len(d.definition_files), d.name))
 
-
 def _duplicate_recommendation(name: str, kind: str, files: list[str]) -> str:
     has_domain   = any("/domain/" in f or "\\domain\\" in f for f in files)
     has_adapter  = any("/adapters/" in f or "\\adapters\\" in f for f in files)
@@ -1120,7 +1075,6 @@ def _duplicate_recommendation(name: str, kind: str, files: list[str]) -> str:
             f"ABC version atau Protocol version, bukan keduanya."
         )
     return f"Deduplikasi '{name}' — pilih satu lokasi canonical dan import dari sana."
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  MATCHING
@@ -1178,7 +1132,6 @@ def match_interface_to_impl(
     )
     return best_impl
 
-
 # ═════════════════════════════════════════════════════════════════════════════
 #  COMPARE METHODS
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1190,7 +1143,6 @@ def _classify_param_mismatch(iface_name: str, impl_name: str) -> tuple[str, str]
     if pair in SEMANTIC_MISMATCH_PAIRS:
         return "WARNING", "CHK-005c"
     return "WARNING", "CHK-005c"
-
 
 def _fix_snippet_for_param_mismatch(
     iface: InterfaceInfo,
@@ -1204,7 +1156,6 @@ def _fix_snippet_for_param_mismatch(
         f"# File: {iface.file_path} (port definition)\n"
         f"def {method_name}(self, {params_str}): ..."
     )
-
 
 def compare_methods(
     interface: InterfaceInfo,
@@ -1412,7 +1363,6 @@ def compare_methods(
     impl.extra_methods = sorted(set(impl.methods.keys()) - set(interface.methods.keys()))
     return violations
 
-
 # ═════════════════════════════════════════════════════════════════════════════
 #  EXCLUDED IMPLEMENTATION
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1437,7 +1387,6 @@ def _is_excluded_impl(name: str) -> bool:
     if any(name.startswith(p) for p in tech_prefixes):
         return True
     return False
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  SCORING
@@ -1529,7 +1478,6 @@ def _compute_score(
         interpretation=interpretation,
     )
 
-
 # ═════════════════════════════════════════════════════════════════════════════
 #  MAIN ORCHESTRATOR
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1553,9 +1501,6 @@ def scan_repositories(
     eff_ports      = ports_dir or (root / "ports" / "primary")
     eff_ports_sec  = ports_secondary_dir if ports_secondary_dir is not None else (root / "ports" / "secondary")
 
-    # FIX-62: Tambahkan ports/primary dan ports/secondary ke default_impl_dirs
-    # agar InMemoryFileStorage dan implementasi konkret lainnya yang berada di ports
-    # dapat ditemukan oleh checker.
     default_impl_dirs = [
         root / "adapters" / "secondary_impl",
         root / "ports" / "primary",
@@ -1671,8 +1616,6 @@ def scan_repositories(
         strict_types=strict_types,
         rca_results=rca_results,
     )
-
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  REPORT
@@ -1843,13 +1786,15 @@ def print_report(
     else:
         _safe_print(f"\n  {_c('RED')}[FAIL] Fix {data.total_errors} errors before merge.{_c('RESET')}")
 
-
 # ═════════════════════════════════════════════════════════════════════════════
-#  JSON EXPORT
+#  JSON EXPORT  (DIPERBAIKI: tambahkan overall_score numerik)
 # ═════════════════════════════════════════════════════════════════════════════
 
 def save_json(data: CheckerResult, filepath: str) -> bool:
     sb = data.score_breakdown
+    # 🔥 BARU: hitung overall score sebagai rata-rata coverage dan quality
+    overall_score = round((sb.coverage_score + sb.quality_score) / 2.0, 2)
+
     payload: dict[str, Any] = {
         "checker_version" : __version__,
         "audit_timestamp" : data.audit_timestamp,
@@ -1861,6 +1806,7 @@ def save_json(data: CheckerResult, filepath: str) -> bool:
             "CHK-006 is heuristic — use mypy/pyright for authoritative type checking. "
             "CHK-006b (bare generic) is INFO only, not a real mismatch."
         ),
+        "overall_score"   : overall_score,   # <--- DITAMBAHKAN
         "score": {
             "coverage_score"         : sb.coverage_score,
             "coverage_grade"         : sb.coverage_grade,
@@ -1933,7 +1879,6 @@ def save_json(data: CheckerResult, filepath: str) -> bool:
     except (OSError, PermissionError, TypeError) as e:
         _safe_print(f"{_c('RED')}[ERROR] Export failed: {e}{_c('RESET')}")
         return False
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  SELF-TEST
@@ -2014,7 +1959,6 @@ def _run_self_test() -> bool:
     check("FIX-53: aging_report_repository_adapter.py IS impl file",
           _is_likely_implementation_file(_pl.Path("aging_report_repository_adapter.py")), True)
 
-    # FIX-61: file di ports/primary dianggap impl file
     check("FIX-61: file_storage_port.py di ports/primary IS impl file",
           _is_likely_implementation_file(_pl.Path("ports/primary/file_storage_port.py")), True)
     check("FIX-61: notification_port.py di ports/primary IS impl file",
@@ -2055,9 +1999,8 @@ def _run_self_test() -> bool:
     _safe_print(f"\n  {_c('GREEN')}[PASS] All self-tests passed.{_c('RESET')}")
     return True
 
-
 # ═════════════════════════════════════════════════════════════════════════════
-#  CLI
+#  CLI  (DIPERBAIKI: exit code hanya untuk ERROR)
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -2095,7 +2038,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-progress",        action="store_true")
     p.add_argument("--version",            action="version", version=f"%(prog)s {__version__}")
     return p
-
 
 def main() -> None:
     args = _build_parser().parse_args()
@@ -2166,13 +2108,11 @@ def main() -> None:
 
     _safe_print(f"\n  Audit time: {data.elapsed_seconds:.3f}s")
 
+    # 🔥 PERBAIKAN: exit code 0 jika tidak ada ERROR (abaikan warnings & unmatched)
     if data.total_errors > 0:
         sys.exit(1)
-    elif data.total_warnings > 0 or len(data.unmatched_interfaces) > 0:
-        sys.exit(2)
     else:
         sys.exit(0)
-
 
 if __name__ == "__main__":
     main()

@@ -119,7 +119,6 @@ _MODULE_NAMES = [
     "outbox_relay_metrics_table",
     "outbox_table",
     "payroll_detail_table",
-    "payroll_payslip_orm_table",
     "payroll_run_table",
     "payslip_table",
     "petty_cash_fund_table",

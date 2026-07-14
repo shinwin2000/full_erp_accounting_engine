@@ -37,21 +37,11 @@ class PayrollPayslipTable(
 ):
     """
     Model untuk tabel payroll_payslip.
-
-    Kolom:
-        id              : UUID primary key
-        employee_id     : Referensi ke karyawan (EmployeeTable)
-        pay_period_start: Tanggal awal periode gaji
-        pay_period_end  : Tanggal akhir periode gaji
-        gross_salary    : Gaji kotor (sebelum potongan)
-        total_deductions: Total potongan (pajak, BPJS, dll)
-        net_salary      : Gaji bersih (setelah potongan)
-        payment_date    : Tanggal pembayaran (jika sudah dibayar)
-        status          : Status slip (draft, approved, paid, cancelled)
-        notes           : Catatan tambahan
     """
 
     __tablename__ = "payroll_payslip"
+    # 🔧 TAMBAHKAN baris ini untuk mengatasi duplikasi jika ada model lain dengan nama tabel sama
+    __table_args__ = {'extend_existing': True}
 
     # Primary Key
     id: Mapped[UUID] = mapped_column(
@@ -61,7 +51,7 @@ class PayrollPayslipTable(
         nullable=False,
     )
 
-    # Foreign Key ke tabel employee (diasumsikan ada)
+    # Foreign Key ke tabel employee
     employee_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("employee.id", ondelete="RESTRICT"),
@@ -101,9 +91,6 @@ class PayrollPayslipTable(
 
     # Catatan tambahan
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
-
-    # Relasi (opsional, jika ada model EmployeeTable)
-    # employee: Mapped["EmployeeTable"] = relationship("EmployeeTable", back_populates="payslips")
 
     def __repr__(self) -> str:
         return (
